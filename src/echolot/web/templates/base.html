@@ -13,9 +13,15 @@
       <a href="/" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
       <a href="/missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
       <a href="/activity" {% if nav == 'activity' %}aria-current="page"{% endif %}>Activity</a>
+      <a href="/sources" {% if nav == 'sources' %}aria-current="page"{% endif %}>Sources</a>
+      <a href="/settings" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
     </nav>
     <span class="muted version">v{{ version }}</span>
   </header>
-  <main>{% block content %}{% endblock %}</main>
+  <main>
+    {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
+    {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

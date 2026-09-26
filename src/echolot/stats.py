@@ -44,7 +44,7 @@ def overview(con: Connection) -> dict[str, Any]:
 
 def lists(con: Connection) -> list[Row]:
     return con.execute(
-        "SELECT l.key, l.service, l.title, l.url, l.playlist, "
+        "SELECT l.key, l.service, l.title, l.url, l.playlist, l.fetched, "
         "count(ls.song_key) AS songs, count(s.file) AS have "
         "FROM lists l LEFT JOIN list_songs ls ON ls.list_key = l.key "
         "LEFT JOIN songs s ON s.key = ls.song_key GROUP BY l.key ORDER BY l.position"

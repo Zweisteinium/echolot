@@ -1,0 +1,5 @@
+# Schedule shared by both containers (same /config). Every minute tick.py starts the jobs that are due
+# for the container's ROLE; how often each job runs is set in /config/schedule.yml (Echolot's settings
+# page edits it; changes apply within a minute). Only after editing THIS file:
+#   docker exec <container> crontab -u abc /config/crontabs/abc   (or restart the containers)
+* * * * * /config/scripts/tick.py

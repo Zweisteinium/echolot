@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from echolot import __version__, db, jobs
+from echolot import __version__, db, jobs, schedule
 from echolot.config import Settings
 from echolot.web import create_app
 
@@ -56,3 +56,45 @@ def test_trigger_job(client: TestClient) -> None:
 
 def test_static_stylesheet(client: TestClient) -> None:
     assert client.get("/static/style.css").status_code == 200
+
+
+def test_sources_page_and_add(client: TestClient, settings: Settings) -> None:
+    html = client.get("/sources").text
+    assert "Playlist A" in html and "Renamed" in html
+    version = html.split('name="version" value="')[1].split('"')[0]
+    response = client.post(
+        "/sources/add",
+        data={"version": version, "url": "https://open.spotify.com/playlist/NEW1", "playlist": "1"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303 and "ok=" in response.headers["location"]
+    assert "playlist/NEW1" in (settings.pipeline_dir / "sources.yml").read_text()
+    stale = client.post(
+        "/sources/remove", data={"version": version, "key": "spotify:playlist:NEW1"}
+    )
+    assert "changed elsewhere" in stale.text
+
+
+def test_sources_yaml_keeps_invalid_edit(client: TestClient, settings: Settings) -> None:
+    html = client.get("/sources/yaml").text
+    version = html.split('name="version" value="')[1].split('"')[0]
+    response = client.post("/sources/yaml", data={"version": version, "text": "spotfy: {}\n"})
+    assert response.status_code == 400
+    assert "Unknown setting" in response.text and "spotfy: {}" in response.text
+    before = (settings.pipeline_dir / "sources.yml").read_text()
+    new = before + "\n# note\n"
+    ok = client.post("/sources/yaml", data={"version": version, "text": new})
+    assert ok.status_code == 200 and (settings.pipeline_dir / "sources.yml").read_text() == new
+    assert "before: edited as YAML" in ok.text
+
+
+def test_settings_save(client: TestClient, settings: Settings) -> None:
+    assert "Spotify → Soulseek" in client.get("/settings").text
+    form = {j.name: str(j.default) for j in schedule.JOBS} | {"sync": "20", "fallback": "0"}
+    response = client.post("/settings", data=form | {"refresh": "7"})
+    assert "Settings saved" in response.text
+    assert schedule.read(settings.pipeline_dir)["sync"] == 20
+    assert schedule.read(settings.pipeline_dir)["fallback"] is None
+    assert 'value="7"' in client.get("/settings").text
+    bad = client.post("/settings", data=form | {"sync": "2", "refresh": "5"})
+    assert "at least 10" in bad.text

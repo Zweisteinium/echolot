@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Settings · Echolot{% endblock %}
+{% block content %}
+<form method="post" action="/settings">
+<section class="card">
+  <h1>Settings</h1>
+  <h2>Pipeline jobs</h2>
+  {% if jobs %}
+  <p class="muted small">Minutes between runs; empty or 0 = off. Written to the pipeline's <code>schedule.yml</code>, applied within a minute. A job whose previous run is still busy skips its turn.</p>
+  <table class="rows">
+    <thead><tr><th>Job</th><th>Every (min)</th><th></th><th>Last start</th><th>Next</th></tr></thead>
+    {% for s in jobs %}
+    <tr>
+      <td>{{ s.job.label }}<div class="muted small">{{ s.job.help }}</div></td>
+      <td><input type="number" name="{{ s.job.name }}" value="{{ s.minutes or '' }}" min="0" step="1" aria-label="{{ s.job.label }} interval in minutes" class="short"></td>
+      <td class="muted small nowrap">{{ s.minutes|minutes }}<div>min. {{ s.job.minimum }}, default {{ s.job.default }}</div></td>
+      <td class="small nowrap">{% if s.running %}<span class="dot on"></span>running{% else %}{{ s.started|ago }}{% endif %}</td>
+      <td class="small nowrap">{% if s.minutes %}{{ s.next_run|until }}{% else %}<span class="muted">off</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No pipeline configured (ECHOLOT_PIPELINE_DIR).</p>
+  {% endif %}
+
+  <h2 class="spaced">Echolot</h2>
+  <dl>
+    <dt><label for="refresh">Refresh every (min)</label></dt>
+    <dd><input id="refresh" type="number" name="refresh" value="{{ refresh }}" min="1" step="1" class="short"> <span class="muted small">import the pipeline state and rescan the library</span></dd>
+    <dt>Library</dt><dd><code>{{ settings.library_dir or 'not configured' }}</code></dd>
+    <dt>Pipeline</dt><dd><code>{{ settings.pipeline_dir or 'not configured' }}</code></dd>
+    <dt>Data</dt><dd><code>{{ settings.data_dir }}</code></dd>
+  </dl>
+  <p><button>Save</button></p>
+</section>
+</form>
+{% endblock %}
