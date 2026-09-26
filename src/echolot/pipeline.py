@@ -31,6 +31,7 @@ from echolot import db
 from echolot.library import Known
 
 PIPELINE_TRACKS = "/music/tracks/"  # library root as the pipeline sees it
+LIKES = {"Spotify Liked Songs", "SoundCloud Likes"}  # pipeline names of the likes lists
 JOBS = {  # log name -> label
     "sync": "Spotify → Soulseek",
     "soundcloud": "SoundCloud",
@@ -177,10 +178,10 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
                     ),
                 )
                 keys.append(key)
-        if items is None:  # never fetched by the pipeline yet
-            continue
-        title = src.title or meta.get(src.name, {}).get("title") or src.name
-        lists.append((src.key, src.service, title, src.url, len(lists), int(src.playlist)))
+        default = src.name.replace("Spotify ", "") if src.name in LIKES else src.url
+        title = src.title or meta.get(src.name, {}).get("title") or default
+        fetched = int(items is not None)  # else: added, not fetched by the pipeline yet
+        lists.append((src.key, src.service, title, src.url, len(lists), int(src.playlist), fetched))
         list_songs += [(src.key, n, key) for n, key in enumerate(keys)]
 
     attempts = [
@@ -194,7 +195,7 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
     with con:
         con.execute("DELETE FROM list_songs")
         con.execute("DELETE FROM lists")
-        con.executemany("INSERT INTO lists VALUES (?, ?, ?, ?, ?, ?)", lists)
+        con.executemany("INSERT INTO lists VALUES (?, ?, ?, ?, ?, ?, ?)", lists)
         con.executemany(
             "INSERT INTO songs (key, service, artist, title, album, length, unavailable, stem) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET "

@@ -1,0 +1,25 @@
+# WHAT the library downloads, and which playlists the music server shows. Copy to sources.yml.
+# Echolot's Sources page edits this file; editing it by hand works too (read at every run).
+#
+# A list entry is just a URL. Options, only when needed:
+#   - url: <link>
+#     title: My name      # name shown in the music server (default: the list's own name)
+#     playlist: false     # download the songs only, no playlist (default: true; a playlist that
+#                         #   already exists stays in the music server until you delete it there)
+# The likes take the same options:  likes: true   or   likes: {title: ..., playlist: false}
+# Each playlist gets the list's own cover. Songs are stored once, however many lists contain them.
+
+spotify:
+  likes: true             # your Liked Songs
+  playlists:              # your own AND other users' public playlists (Spotify's editorial/algorithmic
+                          # playlists can't be read through the API: copy them into a playlist of yours)
+    - https://open.spotify.com/playlist/<playlist id>
+
+soundcloud:
+  user: <your user name>  # whose likes "likes: true" means
+  likes: true             # liked tracks only; liked sets: add them below
+  playlists:              # any public set, or another user's likes page (https://soundcloud.com/<user>/likes)
+    - https://soundcloud.com/<user>/sets/<set>
+
+# Songs that leave a list (unliked, deleted at the source) keep their files and move to "<list> – removed".
+removed_playlists: true

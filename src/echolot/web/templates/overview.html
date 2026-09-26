@@ -45,7 +45,7 @@
     {% for l in o.lists %}
     <tr>
       <td>{{ service(l.service) }}</td>
-      <td><a href="/lists/{{ l.key }}">{{ l.title }}</a>{% if not l.playlist %} <span class="muted" title="songs only, no playlist in the music server">(no playlist)</span>{% endif %}</td>
+      <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted">(waiting for the first sync)</span>{% endif %}{% if not l.playlist %} <span class="muted" title="songs only, no playlist in the music server">(no playlist)</span>{% endif %}</td>
       <td class="num">{{ l.songs|num }}</td>
       <td class="num">{{ l.have|num }}</td>
       <td class="num">{% if l.songs - l.have %}<a href="/missing?list={{ l.key|urlencode }}">{{ (l.songs - l.have)|num }}</a>{% else %}<span class="muted">0</span>{% endif %}</td>
@@ -67,11 +67,11 @@
     {% if paused %}
     <dt>Pipeline</dt><dd><span class="dot err"></span>downloads paused (state/PAUSED)</dd>
     {% endif %}
-    {% for j in pipeline_jobs %}
-    <dt>{{ j.label }}</dt>
-    <dd>{% if j.running %}<span class="dot on"></span>running since {{ j.started|ago }}
-        {% elif j.finished %}<span class="dot"></span><span class="muted">idle, last run {{ j.finished|ago }}</span>
-        {% else %}<span class="dot"></span><span class="muted">no run logged</span>{% endif %}</dd>
+    {% for s in pipeline_jobs %}
+    <dt>{{ s.job.label }}</dt>
+    <dd>{% if s.running %}<span class="dot on"></span>running since {{ s.started|ago }}
+        {% elif s.minutes is none %}<span class="dot"></span><span class="muted">off</span>
+        {% else %}<span class="dot"></span><span class="muted">{{ s.minutes|minutes }}, last {{ s.started|ago }}, next {{ s.next_run|until }}</span>{% endif %}</dd>
     {% endfor %}
     {% set r = o.jobs.get('refresh') %}
     <dt>Echolot refresh</dt>

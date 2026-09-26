@@ -6,7 +6,7 @@ import pytest
 from echolot import db
 from echolot.config import Settings
 
-SOURCES = """
+SOURCES = """\
 spotify:
   likes: true
   playlists:

@@ -11,7 +11,9 @@ dependencies = [
     "fastapi>=0.141.1",
     "jinja2>=3.1.6",
     "mutagen>=1.48.1",
+    "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
+    "ruamel-yaml>=0.19.1",
     "uvicorn>=0.54.0",
 ]
 
@@ -31,6 +33,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["pipeline"]  # the pipeline scripts keep their own compact style
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]

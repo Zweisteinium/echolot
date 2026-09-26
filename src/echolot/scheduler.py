@@ -50,6 +50,13 @@ class Scheduler:
         self._wake.set()
         return True
 
+    def set_interval(self, name: str, seconds: float) -> None:
+        """Change a job's interval; its next run moves accordingly."""
+        job = self.jobs[name]
+        job.next_run += seconds - job.interval
+        job.interval = seconds
+        self._wake.set()
+
     def next_run_in(self, name: str) -> float | None:
         job = self.jobs.get(name)
         return None if job is None else max(job.next_run - time.monotonic(), 0.0)
