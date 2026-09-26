@@ -16,3 +16,6 @@ wheels/
 # Runtime data and secrets
 /data/
 .env
+
+# Local notes for Claude, not published
+CLAUDE.md
