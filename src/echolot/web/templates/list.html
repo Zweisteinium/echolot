@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_macros.html" import service, quality %}
+{% block title %}{{ lst.title }} · Echolot{% endblock %}
+{% block content %}
+{% set have = songs|selectattr('file')|list|length %}
+<section class="card">
+  <div class="card-head">
+    <h1>{{ service(lst.service) }} {{ lst.title }}</h1>
+    <a class="muted" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a>
+  </div>
+  <p class="muted">{{ songs|length|num }} songs · {{ have|num }} in the library · {{ (songs|length - have)|num }} missing{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
+  <table class="rows">
+    <thead><tr><th class="num">#</th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Library</th></tr></thead>
+    {% for s in songs %}
+    <tr {% if not s.file %}class="missing"{% endif %}>
+      <td class="num muted">{{ s.position + 1 }}</td>
+      <td>{{ s.artist }}</td>
+      <td>{{ s.title }}</td>
+      <td class="num muted">{{ s.length|mmss }}</td>
+      <td class="small">{% if s.file %}{{ quality(s.quality, s.kbps) }} <span class="muted">{{ s.file }}</span>{% elif s.unavailable %}<span class="warn-text">{{ s.unavailable }}</span>{% else %}<span class="warn-text">missing</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

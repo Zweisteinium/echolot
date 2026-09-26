@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_macros.html" import bar, service %}
+{% block content %}
+<section class="tiles">
+  <div class="tile">
+    <div class="label">Library</div>
+    <div class="value">{{ o.files|num }}</div>
+    <div class="muted">songs · {{ o.size|size }}</div>
+  </div>
+  <div class="tile">
+    <div class="label">Lossless</div>
+    <div class="value">{{ pct(o.lossless, o.files) }} %</div>
+    <div class="muted">{{ o.lossless|num }} genuine FLACs</div>
+  </div>
+  <div class="tile">
+    <div class="label">Lists complete</div>
+    <div class="value">{{ pct(o.have, o.wanted) }} %</div>
+    <div class="muted">{{ o.have|num }} of {{ o.wanted|num }} songs</div>
+  </div>
+  <a class="tile" href="/missing">
+    <div class="label">Missing</div>
+    <div class="value">{{ (o.wanted - o.have)|num }}</div>
+    <div class="muted">{{ o.not_found|num }} searched, not found yet</div>
+  </a>
+</section>
+
+<section class="card">
+  <h2>Quality</h2>
+  <table class="rows">
+    {% for key, label, n in o.tiers %}
+    <tr>
+      <td>{{ label }}</td>
+      <td class="num">{{ n|num }}</td>
+      <td class="wide">{{ bar(n, o.files, 'q-' ~ key) }}</td>
+      <td class="num muted">{{ pct(n, o.files) }} %</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h2>Lists</h2>
+  <table class="rows">
+    <thead><tr><th></th><th>List</th><th class="num">Songs</th><th class="num">Have</th><th class="num">Missing</th><th class="wide"></th><th></th></tr></thead>
+    {% for l in o.lists %}
+    <tr>
+      <td>{{ service(l.service) }}</td>
+      <td><a href="/lists/{{ l.key }}">{{ l.title }}</a>{% if not l.playlist %} <span class="muted" title="songs only, no playlist in the music server">(no playlist)</span>{% endif %}</td>
+      <td class="num">{{ l.songs|num }}</td>
+      <td class="num">{{ l.have|num }}</td>
+      <td class="num">{% if l.songs - l.have %}<a href="/missing?list={{ l.key|urlencode }}">{{ (l.songs - l.have)|num }}</a>{% else %}<span class="muted">0</span>{% endif %}</td>
+      <td class="wide">{{ bar(l.have, l.songs, 'ok' if pct(l.have, l.songs) >= 95 else 'warn' if pct(l.have, l.songs) < 80 else '') }}</td>
+      <td class="num muted">{{ pct(l.have, l.songs) }} %</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">No lists yet. They appear after the first refresh.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h2>Activity</h2>
+  <dl>
+    <dt>Last 24 h</dt>
+    <dd><a href="/activity?kind=added">{{ o.added_24h|num }} songs added</a> ({{ o.added_bytes_24h|size }}),
+        <a href="/activity?kind=rejected">{{ o.rejected_24h|num }} wrong downloads rejected</a></dd>
+    {% if paused %}
+    <dt>Pipeline</dt><dd><span class="dot err"></span>downloads paused (state/PAUSED)</dd>
+    {% endif %}
+    {% for j in pipeline_jobs %}
+    <dt>{{ j.label }}</dt>
+    <dd>{% if j.running %}<span class="dot on"></span>running since {{ j.started|ago }}
+        {% elif j.finished %}<span class="dot"></span><span class="muted">idle, last run {{ j.finished|ago }}</span>
+        {% else %}<span class="dot"></span><span class="muted">no run logged</span>{% endif %}</dd>
+    {% endfor %}
+    {% set r = o.jobs.get('refresh') %}
+    <dt>Echolot refresh</dt>
+    <dd>
+      {% if r and not r.finished %}<span class="dot on"></span>running since {{ r.started|ago }}
+      {% elif r %}{% if r.ok %}<span class="dot"></span>{% else %}<span class="dot err"></span>{% endif %}{{ r.finished|ago }}: <span class="muted">{{ r.message }}</span>
+      {% else %}<span class="muted">not run yet</span>{% endif %}
+      <form method="post" action="/jobs/refresh/run" class="inline"><button>Refresh now</button></form>
+    </dd>
+  </dl>
+</section>
+{% endblock %}

@@ -19,10 +19,13 @@ def main(argv: list[str] | None = None) -> int:
         print(__version__)
         return 0
 
+    import logging
+
     import uvicorn
 
     from echolot.web import create_app
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
     settings = Settings.from_env()
     uvicorn.run(
         create_app(settings),

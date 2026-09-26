@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import service %}
+{% block title %}Missing · Echolot{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h1>Missing <span class="muted">{{ songs|length|num }}</span></h1>
+    <form method="get" action="/missing">
+      <select name="list" onchange="this.form.submit()" aria-label="List">
+        <option value="">All lists</option>
+        {% for l in lists %}
+        <option value="{{ l.key }}" {% if l.key == selected %}selected{% endif %}>{{ l.title }} ({{ (l.songs - l.have)|num }})</option>
+        {% endfor %}
+      </select>
+      <noscript><button>Show</button></noscript>
+    </form>
+  </div>
+  <table class="rows">
+    <thead><tr><th></th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Lists</th><th>Status</th></tr></thead>
+    {% for s in songs %}
+    <tr>
+      <td>{{ service(s.service) }}</td>
+      <td>{{ s.artist }}</td>
+      <td>{% if s.service == 'spotify' %}<a href="https://open.spotify.com/track/{{ s.key.split(':')[1] }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</td>
+      <td class="num muted">{{ s.length|mmss }}</td>
+      <td class="muted small">{{ s.in_lists }}</td>
+      <td class="small">
+        {% if s.unavailable %}<span class="warn-text">{{ s.unavailable }}</span>
+        {% elif s.tries %}not found in {{ s.tries }} search{{ 'es' if s.tries != 1 }}, last {{ s.last_try|ago }}{% if s.last_fallback %}; YouTube searched {{ s.last_fallback|ago }}{% endif %}
+        {% else %}<span class="muted">waiting for the next sync</span>{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">Nothing missing.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}
