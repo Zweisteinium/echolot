@@ -75,6 +75,16 @@ MIGRATIONS = [
     );
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
     """,
+    """
+    ALTER TABLE lists ADD COLUMN fetched INTEGER NOT NULL DEFAULT 1;  -- 0: not fetched by the pipeline yet
+    CREATE TABLE config_versions (      -- earlier contents of the pipeline config files Echolot edits
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,             -- sources.yml, schedule.yml
+        ts TEXT NOT NULL,               -- when it was replaced
+        text TEXT NOT NULL,
+        note TEXT
+    );
+    """,
 ]
 
 

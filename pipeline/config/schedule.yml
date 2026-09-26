@@ -1,0 +1,7 @@
+# How often the music-sync jobs run, in minutes (off = never). scripts/tick.py reads this every
+# minute; Echolot's settings page edits it. A job whose previous run is still busy skips its turn.
+sync: 30          # Spotify lists -> Soulseek (VPN). Minimum 10.
+soundcloud: 30    # SoundCloud likes and sets (home IP). Minimum 15: SoundCloud rate-limits bursts.
+fallback: 120     # YouTube/SoundCloud search for songs Soulseek failed twice. Minimum 60.
+playlists: 10     # rebuild the playlist files. Minimum 5.
+upgrade: 10080    # FLAC-only search for songs that are not genuine lossless (weekly). Minimum 1440.

@@ -145,6 +145,36 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .dot.err { background: var(--bad); }
 
 form.inline { display: inline; margin-left: 0.75rem; }
+form.options, form.add, form.row-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+form.row-form { gap: 0.5rem; }
+.grow { flex: 1; min-width: 220px; }
+input.short { width: 6rem; }
+h2.spaced { margin-top: 1.5rem; }
+code { font-size: 0.85em; }
+textarea {
+  width: 100%;
+  font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  tab-size: 2;
+}
+.flash { border-radius: 8px; padding: 0.6rem 1rem; border: 1px solid; }
+.flash.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.flash.error { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+button.danger:hover { border-color: var(--bad); color: var(--bad); }
+input[type="text"], input[type="url"], input[type="number"] {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+}
+input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button, select {
   font: inherit;
   font-size: 0.85rem;
