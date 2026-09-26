@@ -1,0 +1,15 @@
+# Development instance on debian-server. It only writes to ./data;
+# the music library is mounted read-only.
+services:
+  echolot:
+    build: .
+    image: echolot:dev
+    container_name: echolot-dev
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8490:8490" # local only: open via SSH/VS Code port forwarding
+    environment:
+      ECHOLOT_LIBRARY_DIR: /music/tracks
+    volumes:
+      - ./data:/data
+      - /media/hdd/medialib/audio/music:/music:ro
