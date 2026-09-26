@@ -1,5 +1,5 @@
-# Development instance on debian-server. It only writes to ./data;
-# the music library is mounted read-only.
+# Development instance on debian-server. It only writes to ./data; the music library and the
+# music-sync pipeline's config are mounted read-only.
 services:
   echolot:
     build: .
@@ -10,6 +10,10 @@ services:
       - "192.168.178.42:8490:8490" # home network only (no login yet)
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
+      ECHOLOT_PIPELINE_DIR: /pipeline
     volumes:
       - ./data:/data
       - /media/hdd/medialib/audio/music:/music:ro
+      - /opt/sockseek/config:/pipeline:ro
+      - /etc/localtime:/etc/localtime:ro # timestamps in the pipeline's logs are local time
+    restart: unless-stopped

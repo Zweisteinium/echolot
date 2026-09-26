@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Activity · Echolot{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h1>Activity</h1>
+    <nav class="tabs">
+      <a href="/activity" {% if not kind %}aria-current="page"{% endif %}>All</a>
+      <a href="/activity?kind=added" {% if kind == 'added' %}aria-current="page"{% endif %}>Added</a>
+      <a href="/activity?kind=rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
+    </nav>
+  </div>
+  <table class="rows">
+    <thead><tr><th>When</th><th>What</th><th>Song / file</th><th>Source</th><th>Details</th></tr></thead>
+    {% for e in events %}
+    <tr>
+      <td class="muted small nowrap" title="{{ e.ts }}">{{ e.ts|ago }}</td>
+      <td><span class="action a-{{ e.action }}">{{ e.action }}</span></td>
+      <td>{% if e.action in ('wrong-song', 'mismatch') %}{{ e.artist }} – {{ e.title }}{% else %}{{ e.path }}{% endif %}</td>
+      <td class="muted small">{{ e.source or '' }}</td>
+      <td class="muted small">
+        {% if e.reason %}{{ e.reason }}{% elif e.ext %}{{ e.ext }}{% if e.kbps %} · {{ e.kbps }} kbps{% endif %}{% if e.bytes %} · {{ e.bytes|size }}{% endif %}{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">No activity yet.</td></tr>
+    {% endfor %}
+  </table>
+  {% if events|length >= 300 %}<p class="muted small">Showing the latest 300.</p>{% endif %}
+</section>
+{% endblock %}
