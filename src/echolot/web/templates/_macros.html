@@ -1,0 +1,11 @@
+{% macro bar(part, whole, cls='') -%}
+<span class="bar {{ cls }}"><span style="width: {{ pct(part, whole) }}%"></span></span>
+{%- endmacro %}
+
+{% macro service(name) -%}
+<span class="service {{ name }}" title="{{ name|capitalize }}">{{ 'Spotify' if name == 'spotify' else 'SoundCloud' }}</span>
+{%- endmacro %}
+
+{% macro quality(key, kbps=None) -%}
+<span class="quality q-{{ key }}">{{ 'FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else (kbps ~ ' kbps') }}</span>
+{%- endmacro %}

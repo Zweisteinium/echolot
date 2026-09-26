@@ -8,8 +8,13 @@
 </head>
 <body>
   <header>
-    <span class="logo">Echolot</span>
-    <span class="muted">v{{ version }}</span>
+    <a class="logo" href="/">Echolot</a>
+    <nav>
+      <a href="/" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="/missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
+      <a href="/activity" {% if nav == 'activity' %}aria-current="page"{% endif %}>Activity</a>
+    </nav>
+    <span class="muted version">v{{ version }}</span>
   </header>
   <main>{% block content %}{% endblock %}</main>
 </body>
