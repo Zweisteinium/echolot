@@ -3,7 +3,7 @@
 import urllib.parse
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Annotated, Any
@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from echolot import __version__, db, jobs, pipeline, review, schedule, sources, stats
+from echolot import __version__, db, history, jobs, pipeline, review, schedule, sources, stats
 from echolot.config import Settings
 from echolot.library import QUALITY
 from echolot.scheduler import Scheduler
@@ -220,6 +220,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if item is None:
             raise HTTPException(404, "not up for review")
         return FileResponse(item.file)
+
+    # ------------------------------------------------------------ stats for dashboards
+
+    @app.get("/api/stats", tags=["stats"])
+    def api_stats(con: DB) -> dict[str, Any]:
+        """The newest hourly snapshot: {metric: {label value: value}} ('' = no label)."""
+        ts, values = history.latest(con)
+        return {"ts": ts, "metrics": values}
+
+    @app.get("/api/stats/metrics", tags=["stats"])
+    def api_stats_metrics() -> dict[str, dict[str, str | None]]:
+        """The metrics the snapshots hold, with their label name and meaning."""
+        return {m: {"label": label, "help": h} for m, (label, h) in history.METRICS.items()}
+
+    @app.get("/api/stats/history", tags=["stats"])
+    def api_stats_history(
+        con: DB,
+        metric: str,
+        key: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """One metric over time, oldest first: [{ts, time (unix), key, value}]. since/until: ISO local
+        time or date. Hourly for the last 90 days, daily before."""
+        if metric not in history.METRICS:
+            raise HTTPException(404, f"no metric {metric!r}, see /api/stats/metrics")
+        return [
+            {
+                "ts": r["ts"],
+                "time": int(datetime.fromisoformat(r["ts"]).timestamp()),
+                "key": r["key"],
+                "value": r["value"],
+            }
+            for r in history.series(con, metric, key, since, until)
+        ]
+
+    @app.get("/api/stats/downloads", tags=["stats"])
+    def api_stats_downloads(con: DB, days: int = 30) -> list[dict[str, Any]]:
+        """Library events per day, action (new, upgrade, wrong-song, ...), source and format."""
+        return [dict(r) for r in history.daily_events(con, days)]
+
+    @app.get("/api/stats/availability", tags=["stats"])
+    def api_stats_availability(con: DB, days: int = 30) -> list[dict[str, Any]]:
+        """Availability probes: Soulseek users (and with lossless) per probed song and run."""
+        since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+        rows = con.execute(
+            "SELECT ts, artist, title, kind, users, lossless_users, files FROM probes "
+            "WHERE ts >= ? ORDER BY ts, artist, title",
+            (since,),
+        )
+        return [dict(r) for r in rows]
+
+    @app.get("/metrics", response_class=PlainTextResponse, tags=["stats"])
+    def metrics(con: DB) -> PlainTextResponse:
+        """Current values in the Prometheus text format."""
+        return PlainTextResponse(history.prometheus(con), media_type="text/plain; version=0.0.4")
 
     @app.post("/jobs/{name}/run")
     def run_job(name: str) -> RedirectResponse:
