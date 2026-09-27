@@ -2,7 +2,7 @@
 
 from sqlite3 import Connection
 
-from echolot import db, library, pipeline
+from echolot import db, history, library, pipeline
 from echolot.config import Settings
 from echolot.scheduler import Job
 
@@ -18,6 +18,8 @@ def refresh(settings: Settings, con: Connection) -> str:
         known = pipeline.known_files(settings.pipeline_dir) if settings.pipeline_dir else None
         parts.append(library.scan(con, settings.library_dir, known))
     parts.append(library.match_songs(con))
+    if history.snapshot(con):
+        parts.append("snapshot stored")
     return "; ".join(parts)
 
 
