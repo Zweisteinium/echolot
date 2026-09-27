@@ -69,7 +69,16 @@ _NOISE = [
     r"\s+(?:clean|dirty)(?=\s+\d{1,2}[ab]\s+\d{2,3}\s*$|\s*$)",
     r"\s+\d{1,2}[ab]\s+\d{2,3}\s*$",  # DJ-pool Camelot key + BPM: "1A 132"
     r"[\(\[][^a-z0-9\(\)\[\]]+[\)\]]",  # parentheses without Latin letters (translations)
+    r"[\(\[]\s*mixed\s*[\)\]]",  # DJ-mix cut, see mix_cut()
+    r"\s+-\s+mixed\s*$",
 ]
+_MIX_CUT = re.compile(r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$", re.I)
+
+
+def mix_cut(title: str | None) -> bool:
+    """A cut out of a continuous DJ mix ("Song - Mixed", "Song (Mixed) - X Remix"): the same song as the
+    release, and its length says nothing, so length checks are skipped for it."""
+    return bool(_MIX_CUT.search(title or ""))
 
 
 def title_key(t: str | None) -> str:

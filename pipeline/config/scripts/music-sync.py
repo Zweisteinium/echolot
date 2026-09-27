@@ -206,10 +206,12 @@ def soulseek_download(rows, label, extra=(), loosen=False):
         w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries"])
         for r in rows:
             artist, title = (library.first_artist(r["artist"]) or r["artist"], search_title(r["title"])) if loosen else (r["artist"], r["title"])
+            cut = library.mix_cut(r["title"])     # DJ-mix cut: search the release, at any length
+            if cut: title = library.release_title(title)
             # "/" and "\" cannot occur in a Soulseek path, so strict-artist dropped every result for "AC/DC" or
             # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC
             artist = re.sub(r"\s*[/\\]+\s*", " ", artist).strip()
-            w.writerow([artist, title, r.get("album", ""), int(r.get("length") or 0), r.get("uri", ""),
+            w.writerow([artist, title, r.get("album", ""), 0 if cut else int(r.get("length") or 0), r.get("uri", ""),
                         r["artist"], r["title"], r.get("tries", 0)])
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
@@ -637,7 +639,9 @@ def run_fallback(src, force=False):
         if force: a = attempts.setdefault(it["key"], {"n": 0}); time.sleep(2)   # gentle on YouTube
         elif (it not in sc_drm and (not a or a.get("n", 0) < 2)) or now - a.get("fb", 0) < 7 * 86400: continue
         a["fb"] = now; write_json(ATTEMPTS, attempts)
-        got, site, vtitle, uploader = yt_search_download(it["artist"], it["title"], it["length"], str(FB_INBOX / it["key"].replace(":", "-")))
+        cut = library.mix_cut(it["title"])      # DJ-mix cut: search the release, at any length
+        got, site, vtitle, uploader = yt_search_download(it["artist"], library.release_title(it["title"]), 0 if cut else it["length"],
+                                                         str(FB_INBOX / it["key"].replace(":", "-")))
         if not got: log(f"fallback: nothing found for {it['artist']} - {it['title']}"); continue
         # same identity check as Soulseek downloads: the video must really be <artist> - <title>
         action, dest = library.file_into(got, it["artist"], it["title"], it["length"], site, [it["key"]],

@@ -199,3 +199,30 @@ def test_search_title(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sync.search_title("Run Run Run (feat. Yung Kafa) - Remix") == "Run Run Run - Remix"
     assert sync.search_title("Paradies - Abrissgebeat Remix") == "Paradies - Abrissgebeat Remix"
     assert sync.search_title("Sunrise - 2011 Remaster") == "Sunrise"
+
+
+@pytest.mark.parametrize(
+    ("title", "cut", "release"),
+    [
+        ("The Twenty Five (Official Nature One Anthem 2019) - Mixed", True,
+         "The Twenty Five (Official Nature One Anthem 2019)"),
+        ("Discopolis 2.0 (Mixed) - MEDUZA Remix", True, "Discopolis 2.0 - MEDUZA Remix"),
+        ("Napoleon (Mixed)", True, "Napoleon"),
+        ("Adagio for Strings - Unmixed Version", False, "Adagio for Strings - Unmixed Version"),
+        ("Mixed Emotions", False, "Mixed Emotions"),
+        ("Song - Mixed By DJ X", False, "Song - Mixed By DJ X"),
+    ],
+)  # fmt: skip
+def test_mix_cut(title: str, cut: bool, release: str) -> None:
+    assert library.mix_cut(title) is cut
+    assert library.release_title(title) == release
+    assert (library.title_key(title) == library.title_key(release)) is True
+
+
+def test_mix_cut_found_at_any_length(lib, tmp_path: Path) -> None:
+    """Neelix - The Twenty Five: the liked song is a 1:43 cut of a DJ mix; the 4:55 release is in the library."""
+    title = "The Twenty Five (Official Nature One Anthem 2019)"
+    lib.file_into(download(tmp_path, "full.wav", 295), "Neelix", title, 295)
+    cat = lib.Catalog()
+    assert cat.find("Neelix", title + " - Mixed", 103)
+    assert not cat.find("Neelix", title, 103)  # a real 1:43 version would be another song
