@@ -7,6 +7,7 @@ Same song = same artist (case, accents and punctuation ignored; the first of sev
           + length within max(10 s, 4 %) when both lengths are known.
 Version words (Remix, Edit, Extended, Radio Edit, VIP, II, Pt. 2, Mashup, ...) stay part of the title, so
 "Glow" and "Glow - Nick Schwenderling Remix", or "Fire" and "Fire II", are different songs.
+A DJ-mix cut ("Song - Mixed", "Song (Mixed)") is the song itself, at any length (mix_cut).
 
 Filing rules (file_into), all under one lock shared by every container:
   - nothing in the library is ever overwritten; files are linked into place with an exclusive create
@@ -82,7 +83,19 @@ _NOISE = [
     r"\s+(?:clean|dirty)(?=\s+\d{1,2}[ab]\s+\d{2,3}\s*$|\s*$)",
     r"\s+\d{1,2}[ab]\s+\d{2,3}\s*$",                                   # DJ-pool Camelot key + BPM: "1A 132"
     r"[\(\[][^a-z0-9\(\)\[\]]+[\)\]]",                                 # parentheses without Latin letters (translations)
+    r"[\(\[]\s*mixed\s*[\)\]]", r"\s+-\s+mixed\s*$",                       # DJ-mix cut, see mix_cut()
 ]
+_MIX_CUT = re.compile(r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$", re.I)
+
+def mix_cut(title):
+    """A cut out of a continuous DJ mix ("Song - Mixed", "Song (Mixed) - X Remix", from albums like "Kontor
+    Festival Sounds ... Mix"): 1-4 minutes with transitions, never released on its own. It is the same song
+    as the release, and its length says nothing, so length checks are skipped for it."""
+    return bool(_MIX_CUT.search(title or ""))
+
+def release_title(title):
+    """The title without a DJ-mix cut marker ("Song (Mixed) - X Remix" -> "Song - X Remix"), for searching."""
+    return re.sub(r"\s+", " ", _MIX_CUT.sub("", title or "")).strip()
 
 def title_key(t):
     s = fold(t).replace("&", " and ")
@@ -273,8 +286,9 @@ class Catalog:
             for k in e.akeys: self.by_key.setdefault((k, e.tkey), []).append(e)
 
     def find(self, artist, title, length=0):
-        """Library files that are the same song, best quality first."""
+        """Library files that are the same song, best quality first (any length for a DJ-mix cut)."""
         tk = title_key(title)
+        if mix_cut(title): length = 0
         if not tk: return []
         hits = {}
         for k in artist_keys(artist):
@@ -364,6 +378,7 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
     src = pathlib.Path(src)
     ext = src.suffix.lower().lstrip(".")
     dur, _ = _probe(src)
+    if mix_cut(title): length = 0             # a DJ-mix cut: the full release is the song
     info = dict(source=source, ids=ids or [], artist=artist, title=title)
     if strict:
         tag_artists, tag_title = _tags(src)

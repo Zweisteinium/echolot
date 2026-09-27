@@ -9,7 +9,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.matching import artist_keys, same_length, title_key
+from echolot.matching import artist_keys, mix_cut, same_length, title_key
 
 AUDIO = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]  # preference order
 LOSSLESS = {"flac", "wav", "aiff"}
@@ -94,10 +94,12 @@ class Catalog:
         return cls([e for e in entries if e.ext in AUDIO])
 
     def find(self, artist: str, title: str, length: float = 0) -> list[Entry]:
-        """Library files that are the same song, best quality first."""
+        """Library files that are the same song, best quality first (any length for a DJ-mix cut)."""
         tk = title_key(title)
         if not tk:
             return []
+        if mix_cut(title):
+            length = 0
         hits = {
             e.path: e
             for k in artist_keys(artist)
