@@ -183,7 +183,10 @@ def soulseek_download(rows, label, extra=()):
     csvp = STATE / f"sockseek-{label}.csv"
     with csvp.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri"])
-        for r in rows: w.writerow([r["artist"], r["title"], r.get("album", ""), int(r.get("length") or 0), r.get("uri", "")])
+        # "/" and "\" cannot occur in a Soulseek path, so strict-artist dropped every result for "AC/DC" or
+        # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC. library.py treats both spellings as the same artist.
+        for r in rows: w.writerow([re.sub(r"\s*[/\\]+\s*", " ", r["artist"]).strip(), r["title"], r.get("album", ""),
+                                   int(r.get("length") or 0), r.get("uri", "")])
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
     os.environ["MUSIC_SYNC_CSV"] = str(csvp)      # post-track.sh reads the wanted song from here by row number
@@ -799,8 +802,14 @@ def main():
         return run_spotify(src, limit, dry=True, sweep=mode == "sweep")
     # Soulseek work (sync, upgrade, fallback) shares one lock; SoundCloud downloads have their own
     lock = (STATE / ("soundcloud.lock" if mode == "soundcloud" else "music-sync.lock")).open("w")
-    try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError: log("another music-sync run is active, exiting"); return
+    # tick.py starts a job only while the lock is free, but both containers tick at the same second: a job that
+    # lost that race waits (up to 30 min) instead of losing its turn
+    for waited in range(181):
+        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB); break
+        except BlockingIOError:
+            if waited == 180: log("another music-sync run is still active after 30 min, exiting"); return
+            if waited == 0: log("another music-sync run is active, waiting for it")
+            time.sleep(10)
     log(f"=== music-sync {mode} start")
     if mode in ("sync", "spotify"):
         run_spotify(src, limit)

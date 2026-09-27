@@ -62,7 +62,7 @@ def artist_keys(a):
     return {k for k in (artist_key(a), artist_key(first_artist(a))) if k}
 
 _NOISE = [
-    r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere|official(?:\s+(?:audio|video|music\s+video|visuali[sz]er))?"
+    r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere|official(?:\s+(?:4k|hd))?(?:\s+(?:audio|video|music\s+video|visuali[sz]er))?"
     r"|visuali[sz]er|lyrics?|hq|hd|explicit|clean|original(?:\s+(?:mix|version))?)\s*[\)\]\}]",
     r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,6}\s?-?\d{2,5}\s*\]",   # catalog no. [HAK003]
     r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]",
