@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Review · Echolot{% endblock %}
+{% macro song(i) -%}
+{% set e = i.event %}
+<td>
+  {% if e.song and e.song.startswith('spotify:') %}<a href="https://open.spotify.com/track/{{ e.song.split(':')[1] }}" target="_blank" rel="noopener">{{ e.artist }} – {{ e.title }}</a>{% else %}{{ e.artist }} – {{ e.title }}{% endif %}
+  <div class="muted small">wanted {{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</div>
+</td>
+<td>
+  {{ e.found or e.file_name or '–' }}
+  <div class="muted small">
+    {{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %}
+    · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.fake %} · made from a lossy file{% endif %}
+  </div>
+</td>
+<td><audio controls preload="none" src="/review/{{ e.id }}/audio"></audio></td>
+{%- endmacro %}
+{% macro buttons(i, choices) -%}
+<td class="nowrap">
+  {% if i.decision %}<span class="muted small">{{ i.decision }}: applied soon</span>
+  {% else %}
+  {% for value, label, cls in choices %}
+  <form method="post" action="/review/{{ i.event.id }}" class="inline"><input type="hidden" name="decision" value="{{ value }}"><button class="{{ cls }}">{{ label }}</button></form>
+  {% endfor %}
+  {% endif %}
+</td>
+{%- endmacro %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h1>Filed on a probable match <span class="muted">{{ items.filed|length|num }}</span></h1>
+  </div>
+  <p class="muted small">Songs Soulseek or YouTube did not deliver exactly after two searches are searched less strictly. A download with the same core title, the same version words (remix, live, VIP, ...) and the length within a few seconds is filed, and listed here until you confirm it. <em>Wrong</em> takes it out again, never takes that download for the song again and searches anew.</p>
+  <table class="rows">
+    <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
+    {% for i in items.filed %}
+    <tr>{{ song(i) }}{{ buttons(i, [('ok', 'Right song', ''), ('wrong', 'Wrong', 'danger')]) }}</tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">Nothing to check.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h1>Rejected downloads <span class="muted">{{ items.kept|length|num }}</span></h1>
+  </div>
+  <p class="muted small">Downloads of songs that are still missing which did not pass the check (other title, other version, other length). They are kept for 30 days: <em>Accept</em> files one as the song.</p>
+  <table class="rows">
+    <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
+    {% for i in items.kept %}
+    <tr>{{ song(i) }}{{ buttons(i, [('accept', 'Accept', ''), ('discard', 'Discard', 'danger')]) }}</tr>
+    <tr class="sub"><td colspan="4" class="muted small">{{ i.event.action }}: {{ i.event.reason or ('length ' ~ (i.event.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss)) }}</td></tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">Nothing kept.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

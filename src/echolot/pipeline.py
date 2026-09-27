@@ -230,6 +230,13 @@ EVENT_FIELDS = [
     "artist",
     "title",
     "reason",
+    "song",
+    "matched",
+    "found",
+    "file_name",
+    "fake",
+    "tries",
+    "wanted_seconds",
 ]
 
 
@@ -240,6 +247,7 @@ def _import_jsonl(
     table: str,
     fields: list[str],
     valid: Callable[[dict], bool],
+    prepare: Callable[[dict], dict] = lambda e: e,
 ) -> int:
     """Append the JSON lines added to `path` since the last import (complete lines only) to
     `table`. A file that shrank was replaced: the table is filled again from the start."""
@@ -261,6 +269,7 @@ def _import_jsonl(
         except ValueError:
             continue
         if isinstance(e, dict) and valid(e):
+            e = prepare(e)
             rows.append([e.get(k) for k in fields])
     with con:
         con.executemany(
@@ -271,10 +280,19 @@ def _import_jsonl(
     return len(rows)
 
 
+def _event(e: dict) -> dict:
+    ids = e.get("ids")
+    return {
+        **e,
+        "song": ids[0] if isinstance(ids, list) and ids else None,
+        "matched": e.get("match"),
+    }
+
+
 def import_events(con: sqlite3.Connection, path: Path) -> int:
     """Append the lines of downloads.jsonl added since the last import."""
     return _import_jsonl(con, path, "events_offset", "events", EVENT_FIELDS,
-                         lambda e: bool(e.get("ts") and e.get("action")))  # fmt: skip
+                         lambda e: bool(e.get("ts") and e.get("action")), _event)  # fmt: skip
 
 
 PROBE_FIELDS = ["ts", "artist", "title", "kind", "users", "lossless_users", "files"]

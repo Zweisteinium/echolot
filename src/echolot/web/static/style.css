@@ -98,6 +98,8 @@ table.rows { width: 100%; border-collapse: collapse; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wide { width: 30%; min-width: 120px; }
 tr.missing td { background: color-mix(in srgb, var(--warn) 7%, transparent); }
+tr.sub td { border-top: none; padding-top: 0; }
+audio { height: 2rem; max-width: 260px; }
 
 .bar { display: block; height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
 .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }

@@ -1,4 +1,7 @@
+import json
+
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from echolot import __version__, db, jobs, schedule
@@ -121,3 +124,52 @@ def test_chart_geometry() -> None:
     assert "20:00–20:59 · 3.0 users" in bar.tooltip
     assert [t[1] for t in c.ticks] == ["0", "2.5", "5"]
     assert charts.nice_max(0) == 1 and charts.nice_max(7) == 10 and charts.nice_max(120) == 200
+
+
+def test_review(client: TestClient, settings: Settings) -> None:
+    root, music = settings.pipeline_dir, settings.library_dir.parent
+    kept = music / "inbox" / "review" / "2026-09-27" / "Artist C - Gone Song [soulseek].flac"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(b"audio")
+    new = [
+        {"ts": "2026-09-27T10:00:00", "action": "new", "path": "Artist A/Artist A - First Song.mp3",
+         "ext": "mp3", "seconds": 202, "source": "youtube", "ids": ["spotify:s1"], "artist": "Artist A",
+         "title": "First Song", "match": "probable", "found": "First Song (Official Video)", "tries": 2},
+        {"ts": "2026-09-27T11:00:00", "action": "wrong-song",
+         "path": "/music/inbox/review/2026-09-27/Artist C - Gone Song [soulseek].flac", "ext": "flac",
+         "seconds": 181, "source": "soulseek", "ids": ["spotify:s3"], "artist": "Artist C",
+         "title": "Gone Song", "found": "Gone Song (Club Mix)", "reason": "title differs"},
+        {"ts": "2026-09-27T12:00:00", "action": "wrong-song", "path": "/etc/passwd",
+         "ids": ["spotify:s3"], "artist": "Artist C", "title": "Gone Song"},
+    ]  # fmt: skip
+    with (root / "logs" / "downloads.jsonl").open("a") as f:
+        f.write("".join(json.dumps(e) + "\n" for e in new))
+    con = db.connect(settings.db_path)
+    jobs.refresh(settings, con)
+    ids = [r[0] for r in con.execute("SELECT id FROM events WHERE ts >= '2026-09-27' ORDER BY id")]
+    con.close()
+
+    html = client.get("/review").text
+    assert "First Song (Official Video)" in html and "(+2 s)" in html
+    assert "Gone Song (Club Mix)" in html and "title differs" in html
+    assert "/etc/passwd" not in html
+    assert client.get(f"/review/{ids[1]}/audio").content == b"audio"
+    assert client.get(f"/review/{ids[2]}/audio").status_code == 404
+
+    # a decision the download does not allow, then the right ones
+    r = client.post(f"/review/{ids[0]}", data={"decision": "accept"}, follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    client.post(f"/review/{ids[0]}", data={"decision": "wrong"})
+    client.post(f"/review/{ids[1]}", data={"decision": "accept"})
+    saved = yaml.safe_load((root / "review.yml").read_text())["decisions"]
+    assert [(d["decision"], d["song"]) for d in saved] == [
+        ("wrong", "spotify:s1"),
+        ("accept", "spotify:s3"),
+    ]
+    assert saved[1]["path"].startswith("/music/inbox/review/") and saved[0]["length"] == 200
+    assert "applied soon" in client.get("/review").text
+
+    # applied by the pipeline: no longer listed
+    (root / "state" / "review-done.json").write_text(json.dumps({d["id"]: {} for d in saved}))
+    html = client.get("/review").text
+    assert "Nothing to check." in html and "Nothing kept." in html
