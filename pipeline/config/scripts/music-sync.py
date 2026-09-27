@@ -3,7 +3,8 @@
 Reads /config/sources.yml (what) and the container environment (secrets), then:
   sync       (sockseek container, VPN) fetch the Spotify lists, ask library.py which songs are really missing
              (exact artist + title + length) and let Sockseek download only those from Soulseek, FLAC first.
-             Songs not found are retried after 3 h, 6 h, 12 h, then daily.
+             Songs not found are retried after 3 h, 6 h, 12 h, then daily; after 2 failed searches the search is
+             loosened (see LOOSEN), and a probable match is filed with a review mark (Echolot's review page).
   sweep      search Soulseek again for every missing Spotify song, whatever its retry wait (scheduled at the
              hours most users are online).
   soundcloud (sockseek-fallback container, home IP) SoundCloud likes/playlists via yt-dlp
@@ -16,6 +17,8 @@ Reads /config/sources.yml (what) and the container environment (secrets), then:
   playlists  rebuild every playlist file from the lists and the library (hourly).
   probe      availability statistics: search Soulseek for the songs in /config/probe.csv without downloading
              and append how many users have each (and in lossless) to logs/probe.jsonl (hourly).
+  review     apply the decisions from Echolot's review page (config/review.yml); also done at the start of every
+             Soulseek job and by the playlists job when no Soulseek job runs.
   fill-albums  fill empty album tags from the Spotify metadata.
   status     list sizes, library counts and what is missing.
   sync/upgrade accept --dry-run (show what would be fetched) and a number (limit, for tests).
@@ -34,6 +37,14 @@ SC_STATE = STATE / "soundcloud-tracks.json"       # soundcloud id -> {artist, ti
 SC_ARCHIVE = STATE / "soundcloud-archive.txt"     # yt-dlp download archive (never re-download an id)
 ATTEMPTS = STATE / "attempts.json"                # "spotify:<id>" -> {n, last, fb} for songs Soulseek did not deliver
 UPGRADE_ATTEMPTS = STATE / "upgrade-attempts.json" # "spotify:<id>" -> {n, last}: FLAC searches that found nothing better
+REVIEW_FILE = CONFIG / "review.yml"               # decisions from Echolot's review page (written by Echolot only)
+REVIEW_DONE = STATE / "review-done.json"          # decision id -> {at, result}: applied decisions
+# Songs Soulseek did not find are searched less strictly with every failure (by the searches that found nothing):
+#   0-1: as requested, the artist must be in the Soulseek path, the file must be exactly the song
+#   2-3: title without feat. credits, 'From "Film"' and plain suffixes (- Radio Edit, - Unmixed Version), first
+#        artist only; a probable match (library.probable_ok) is filed with a review mark
+#   4+ : also without requiring the artist in the Soulseek path (library.py still checks tags and names)
+LOOSEN = [(4, ["--strict-artist", "false"]), (2, [])]   # (failed searches, extra Sockseek options), loosest first
 EXT_PREF = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]
 SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 SPOTIFY_API = "https://api.spotify.com/v1"
@@ -176,17 +187,30 @@ def sockseek_cmd(inp, extra):
     if port.isdigit() and ENV.get("ROLE") == "main": cmd += ["--listen-port", port]
     return cmd + extra
 
-def soulseek_download(rows, label, extra=()):
-    """Let Sockseek fetch exactly these songs (CSV: Artist, Title, Album, Length, uri) into the inbox.
-    --no-skip-existing: Sockseek's own fuzzy "already have it" checks are off; post-track.sh files each result."""
+def search_title(title):
+    """Title for a loosened search: without feat. credits, 'From "Film"' and a trailing ' - Radio Edit',
+    ' - Unmixed Version', ' - 2011 Remaster' (plain words only; ' - X Remix' stays)."""
+    t = re.sub(r"\s*[\(\[]\s*(?:feat|ft|featuring|with|from)\.?\s[^\)\]]*[\)\]]", "", title, flags=re.I)
+    t = re.sub(r"\s+-\s+from\s.*$", "", t, flags=re.I)
+    m = re.match(r"^(.+?)\s+-\s+([^-]+)$", t)
+    if m and all(w in library.PLAIN_WORDS or w.isdigit() for w in library._words(m.group(2)).split()): t = m.group(1)
+    return t.strip() or title
+
+def soulseek_download(rows, label, extra=(), loosen=False):
+    """Let Sockseek fetch exactly these songs into the inbox. The CSV has the search terms (Artist, Title; loosen:
+    first artist, search_title) and the wanted song (want_artist, want_title, tries), which post-track.sh hands to
+    library.py. --no-skip-existing: Sockseek's own fuzzy "already have it" checks are off."""
     if not rows: return
     csvp = STATE / f"sockseek-{label}.csv"
     with csvp.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri"])
-        # "/" and "\" cannot occur in a Soulseek path, so strict-artist dropped every result for "AC/DC" or
-        # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC. library.py treats both spellings as the same artist.
-        for r in rows: w.writerow([re.sub(r"\s*[/\\]+\s*", " ", r["artist"]).strip(), r["title"], r.get("album", ""),
-                                   int(r.get("length") or 0), r.get("uri", "")])
+        w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries"])
+        for r in rows:
+            artist, title = (library.first_artist(r["artist"]) or r["artist"], search_title(r["title"])) if loosen else (r["artist"], r["title"])
+            # "/" and "\" cannot occur in a Soulseek path, so strict-artist dropped every result for "AC/DC" or
+            # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC
+            artist = re.sub(r"\s*[/\\]+\s*", " ", artist).strip()
+            w.writerow([artist, title, r.get("album", ""), int(r.get("length") or 0), r.get("uri", ""),
+                        r["artist"], r["title"], r.get("tries", 0)])
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
     os.environ["MUSIC_SYNC_CSV"] = str(csvp)      # post-track.sh reads the wanted song from here by row number
@@ -324,7 +348,14 @@ def run_spotify(src, limit=None, dry=False, sweep=False):
     if dry:
         for it in todo[:40]: log(f"  would fetch: {it['artist']} - {it['title']} ({it['length']}s)")
         return
-    soulseek_download(todo, "sweep" if sweep else "spotify")
+    label = "sweep" if sweep else "spotify"
+    for it in todo: it["tries"] = (attempts.get(it["key"]) or {}).get("n", 0)
+    rest = todo
+    for tries, extra in LOOSEN:
+        group = [it for it in rest if it["tries"] >= tries]; rest = [it for it in rest if it["tries"] < tries]
+        if group: log(f"soulseek: {len(group)} songs searched loosened (not found {tries}+ times)")
+        soulseek_download(group, f"{label}-loose{tries}", extra, loosen=True)
+    soulseek_download(rest, label)
     cat = library.Catalog(); now = int(time.time()); got = 0
     for it in todo:
         key = it["key"]
@@ -610,8 +641,9 @@ def run_fallback(src, force=False):
         if not got: log(f"fallback: nothing found for {it['artist']} - {it['title']}"); continue
         # same identity check as Soulseek downloads: the video must really be <artist> - <title>
         action, dest = library.file_into(got, it["artist"], it["title"], it["length"], site, [it["key"]],
-                                         strict=True, file_name=vtitle, folders=uploader, loose=it not in sc_drm)
-        if dest is None: log(f"fallback: {action}, discarded '{vtitle}' for {it['artist']} - {it['title']}"); continue
+                                         strict=True, file_name=vtitle, folders=uploader, loose=it not in sc_drm,
+                                         relaxed=it not in sc_drm, tries=a.get("n", 0))
+        if dest is None: log(f"fallback: {action}, '{vtitle}' for {it['artist']} - {it['title']} kept in inbox/review"); continue
         log(f"fallback: {action} {dest.relative_to(TRACKS)} ({site})")
         if action != "duplicate":
             art = [str(dest), it["uri"]] if it.get("uri") else [str(dest), "search", "", it["artist"], it["title"]]
@@ -620,6 +652,34 @@ def run_fallback(src, force=False):
     shutil.rmtree(FB_INBOX, ignore_errors=True)
     log(f"fallback: {done} songs added from YouTube/SoundCloud search")
     write_playlists(src)
+
+# ---------------------------------------------------------------- review decisions (Echolot)
+def apply_review():
+    """Apply the new decisions of Echolot's review page (config/review.yml, each once; see library.review_apply).
+    Needs the Soulseek lock (attempts.json): 'wrong' makes the song due for a search right away."""
+    try: items = (yaml.safe_load(REVIEW_FILE.read_text(encoding="utf-8")) or {}).get("decisions") or []
+    except (OSError, yaml.YAMLError, AttributeError): return
+    done = read_json(REVIEW_DONE, {})
+    todo = [d for d in items if isinstance(d, dict) and d.get("id") and str(d["id"]) not in done]
+    if not todo: return
+    attempts = read_json(ATTEMPTS, {})
+    for d in todo:
+        try: result, retry = library.review_apply(d)
+        except Exception as e: result, retry = f"failed: {e}", False
+        song = d.get("song") or ""
+        if retry and song:
+            a = attempts.setdefault(song, {"n": 0})
+            a.update(n=max(a.get("n", 0), int(d.get("tries") or 0), 2), last=0, artist=d.get("artist"), title=d.get("title"))
+        if d.get("decision") == "accept" and result.startswith(("new", "upgrade", "duplicate")):
+            attempts.pop(song, None)
+            dest = TRACKS / result.split(" ", 1)[1] if " " in result else None
+            if dest and dest.is_file() and result.startswith("new"):
+                art = [str(dest), song.replace("spotify:", "spotify:track:")] if song.startswith("spotify:") else \
+                      [str(dest), "search", "", d.get("artist") or "", d.get("title") or ""]
+                subprocess.run([sys.executable, str(SCRIPTS / "artwork.py"), *art])
+        done[str(d["id"])] = {"at": datetime.datetime.now().isoformat(timespec="seconds"), "result": result}
+        log(f"review: {d.get('decision')} {d.get('artist')} - {d.get('title')}: {result}")
+    write_json(ATTEMPTS, attempts); write_json(REVIEW_DONE, done)
 
 # ---------------------------------------------------------------- availability probe
 PROBE_LIST, PROBE_LOG = CONFIG / "probe.csv", CONFIG / "logs" / "probe.jsonl"
@@ -796,6 +856,9 @@ def main():
     if mode == "fill-albums": return fill_albums(src)
     if mode == "playlists":
         subprocess.run([sys.executable, str(SCRIPTS / "library.py"), "purge"])
+        with (STATE / "music-sync.lock").open("w") as lk:     # review decisions, unless a Soulseek job runs
+            try: fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB); apply_review()
+            except BlockingIOError: pass
         return write_playlists(src)
     if dry and mode in ("sync", "sweep", "upgrade"):
         if mode == "upgrade": return run_upgrade(src, dry=True, force="--all" in args)
@@ -811,6 +874,7 @@ def main():
             if waited == 0: log("another music-sync run is active, waiting for it")
             time.sleep(10)
     log(f"=== music-sync {mode} start")
+    if mode != "soundcloud": apply_review()
     if mode in ("sync", "spotify"):
         run_spotify(src, limit)
     elif mode == "sweep":
@@ -823,6 +887,8 @@ def main():
         run_fallback(src, force="--all" in args)
     elif mode == "probe":
         run_probe()
+    elif mode == "review":
+        pass
     else:
         sys.exit(f"unknown mode {mode}")
     if mode in ("sync", "spotify", "sweep", "upgrade", "fallback"): fill_albums(src)

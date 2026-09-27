@@ -55,12 +55,21 @@ A song's way into the library:
    - **Never Soulseek for SoundCloud likes:** uploader names are too unreliable to search Soulseek
      with.
 4. **Checks.** Every search result must really be the wanted artist and title (tags or source
-   file name) at the right length; anything else is discarded as `wrong-song` or `mismatch`.
-   Files are also:
+   file name) at the right length. Anything else is rejected as `wrong-song` or `mismatch` and kept
+   in `inbox/review/<date>/` for 30 days. Files are also:
    - checked for codec problems;
    - converted from WAV/AIFF/ALAC to FLAC;
    - resampled from hi-res to 44.1/48 kHz 24 bit;
    - spectrum-checked, so FLACs made from MP3s count as lossy.
+
+   **Loosening.** A Spotify song that two searches did not find is searched less strictly: without
+   feat. credits, 'From "Film"' and plain suffixes (" - Radio Edit", " - Unmixed Version"), first
+   artist only; after four misses also without requiring the artist in the Soulseek path. A
+   *probable* match is then filed too, marked for review: the artist must still match, and the
+   download must have the same core title (the part before any bracket, " - ", "|" or "feat."),
+   the same version words (remix, live, VIP, remake, ...; a named mix like "(Hard Trance Mix)" only
+   if the request names it) and a length within 3 s (6 s from YouTube). Harmless extras such as
+   "(Official 4K Video)" or "(prod. von X)" need no rule of their own.
 5. **Filing.** `library.py` is the only code that writes into `tracks/`, and it never overwrites.
    - A download that is a song already in the library is discarded.
    - A genuine lossless download replaces a lossy or fake copy; the old file goes to
@@ -77,14 +86,18 @@ A song's way into the library:
 |----------|-----------------------------------------------------------------------------------------------|
 | Overview | Library size, lossless share, quality tiers, completeness of every list, job activity        |
 | Missing  | Songs not in the library yet, with their lists and why (not found, greyed out, DRM)          |
+| Review   | Songs filed on a probable match (right / wrong) and rejected downloads (accept / discard), with a player |
 | Activity | Everything filed, upgraded or rejected, with reasons                                         |
 | Sources  | Add, rename, hide or remove lists, likes and options, or edit `sources.yml` directly (with undo) |
 | Settings | How often each pipeline job runs (`schedule.yml`) and how often Echolot refreshes            |
 
 - **Refresh:** every 5 minutes (adjustable) Echolot imports the pipeline's state into its SQLite
   database, rescans the library and matches every song to its best file.
-- **What it writes:** in the pipeline directory, only `sources.yml` and `schedule.yml`. Each
-  change is validated, written atomically, and the previous version is kept for undo.
+- **What it writes:** in the pipeline directory, only `sources.yml`, `schedule.yml` and
+  `review.yml`. Each change is validated and written atomically; earlier versions of the first two
+  are kept for undo. The pipeline applies review decisions once (`state/review-done.json`): a
+  wrong match is retired, that download is never taken for the song again, and the song is
+  searched anew.
 - **What it never touches:** the library, and the pipeline's state, logs and scripts, which it
   mounts read-only.
 
@@ -243,7 +256,7 @@ services:
     volumes:
       - ./data:/data
       - <music>:/music:ro
-      - /opt/sockseek/config:/pipeline                   # writes sources.yml, schedule.yml
+      - /opt/sockseek/config:/pipeline                   # writes sources.yml, schedule.yml, review.yml
       - /opt/sockseek/config/state:/pipeline/state:ro
       - /opt/sockseek/config/logs:/pipeline/logs:ro
       - /opt/sockseek/config/scripts:/pipeline/scripts:ro
@@ -268,7 +281,8 @@ services:
 - **Never let Sockseek write into `tracks/`.** Its own mover deletes an existing target file.
   `sockseek.conf` sends everything to `inbox/sockseek`, and the hook files it through `library.py`.
 - **Correctness before quality.** `strict-artist = true` in `sockseek.conf` and the identity check
-  in `library.py` are deliberate. Loosening them brings in same-titled songs by other artists.
+  in `library.py` are deliberate. They are loosened only for songs that were not found, and what
+  that files is listed on the Review page.
 - **When people are online.** Rare songs often exist on only a few peers, who come and go.
   Soulseek publishes no usage statistics. The retry sweep and the FLAC upgrade are placed in the
   European evening (20:00–21:00), which overlaps with the American afternoon, the general
@@ -283,7 +297,7 @@ services:
   remove the file to resume. Turning off single jobs: set their interval to 0 in Settings.
 - **Where to look.**
   - `config/logs/<job>.log`: output of each job.
-  - `config/logs/post-track.log`: rejected downloads with reasons.
+  - `config/logs/post-track.log`: rejected downloads with reasons (the files: `inbox/review/`).
   - `config/logs/downloads.jsonl`: every filing.
   - `config/logs/tick.log`: job starts.
 - **Back up** `config/` (state, sources, secrets), Echolot's `data/`, and the library itself.

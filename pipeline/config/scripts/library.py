@@ -14,23 +14,27 @@ Filing rules (file_into), all under one lock shared by every container:
     of a lossy/fake one: then it takes over and the old file moves to /music/inbox/replaced/<date>/ (kept 30 days)
   - a different song whose file name is taken (e.g. same title, other length) gets its length appended
   - artist folders are matched case/accent-insensitively, so one artist keeps one folder
-  - every filing is appended to /config/logs/downloads.jsonl (for statistics)
+  - every filing is appended to /config/logs/downloads.jsonl (for statistics and Echolot's review page)
+  - rejected search results (wrong song, other version) are kept in /music/inbox/review/<date>/ for 30 days
+  - songs strict searches missed may be filed on a probable match (probable_ok), marked for review
 
 CLI:
   library.py file <src> --artist A --title T [--length S] [--source X] [--id ID] [--fake]  -> prints "<action>\t<path>"
   library.py find --artist A --title T [--length S]
   library.py check            read-only: artist folder spellings and duplicate songs
   library.py merge [--apply]  merge folder spellings and duplicates (dry run unless --apply; losers go to replaced/)
-  library.py purge            delete replaced/ entries older than 30 days"""
+  library.py purge            delete replaced/ and review/ entries older than 30 days"""
 import argparse, contextlib, datetime, fcntl, json, os, pathlib, re, shutil, sys, time, unicodedata
 
 TRACKS = pathlib.Path("/music/tracks")
 STATE = pathlib.Path("/config/state")
 REPLACED = pathlib.Path("/music/inbox/replaced")
+REVIEW = pathlib.Path("/music/inbox/review")         # rejected downloads, kept for review
 EVENTS = pathlib.Path("/config/logs/downloads.jsonl")
 LOCKFILE = STATE / "library.lock"
 CACHE = STATE / "library-cache.json"
 LOSSY_LIST = STATE / "lossy-sourced.json"      # written by spectrum.py: library stem -> detection result
+BLOCKED = STATE / "review-blocked.json"       # song id -> tag titles / file names marked wrong in review
 AUDIO = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]
 LOSSLESS = {"flac", "wav", "aiff"}
 KEEP_REPLACED_DAYS = 30
@@ -104,31 +108,13 @@ def identity_ok(artist, title, tag_artists=(), tag_title="", file_name="", folde
     without track number and artist prefix, gives exactly the requested title (noise rules of title_key).
     loose (Spotify songs): the title may also just contain the requested title's words in order ("Edit" vs
     "Radio Edit") when the length is within 3 s. The artist must always match. Returns (ok, reason)."""
-    base = re.sub(r"\s*\([^)]*\)\s*$", "", artist or "")               # Spotify disambiguation: "Vegas (Brazil)"
-    want_a = [w for w in {_words(artist).strip(), _words(first_artist(artist)).strip(), _words(base).strip()} if w]
+    want_a = _artist_words(artist)
     texts = [t for t in [*tag_artists, file_name, *folders] if t]
     if not want_a or not any(f" {w} " in _words(t) for w in want_a for t in texts):
         return False, f"artist '{artist}' not in {texts}"
     tk = title_key(title)
     has_artist = lambda x: any(f" {w} " in _words(x) for w in want_a)
-    def candidates(name):
-        """Readings of a tag title / file name as a plain title: without track number, without (repeated)
-        artist prefixes, 'Album - 07 - Title' and reversed 'Title - Artist' forms."""
-        m = re.match(r"^[^_]+_[^_]+_\d{1,3}_(.+)$", name)      # "Artist_Album_13_Title"
-        name = name.replace("_-_", " - ").replace("_", " ") if name.count("_") > 2 else name
-        rest = _strip_track_no(name)
-        out = [name, rest]              # the unstripped form too: "93 Bang Bang", "H2 (...)" start with a number
-        if m: out.append(m.group(1).replace("_", " "))
-        while " - " in rest:
-            head, tail = rest.split(" - ", 1)
-            if not has_artist(head): break
-            rest = _strip_track_no(tail); out.append(rest)
-        m = re.match(r"^.+? - \d{1,3} - (.+)$", rest)
-        if m: out.append(m.group(1))
-        if " - " in rest:
-            head, tail = rest.rsplit(" - ", 1)
-            if has_artist(tail): out.append(head)
-        return out
+    candidates = lambda name: _readings(name, has_artist)
     if tag_title and any(title_key(c) == tk for c in candidates(tag_title)): return True, "tags"
     if file_name and any(title_key(c) == tk for c in candidates(file_name)): return True, "file name"
     if loose and length_close and tk:
@@ -137,6 +123,85 @@ def identity_ok(artist, title, tag_artists=(), tag_title="", file_name="", folde
         for c in candidates(tag_title) if tag_title else []:   # tag only: file names mix in album names
             if in_order(tk, title_key(c)): return True, "title tag has the title words in order, length within 3 s"
     return False, f"title '{title}' is neither tag '{tag_title}' nor file name '{file_name}'"
+
+def _artist_words(artist):
+    """The requested artist as whole-word forms: full name, first artist, without a disambiguation suffix."""
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", artist or "")               # Spotify disambiguation: "Vegas (Brazil)"
+    return [w for w in {_words(artist).strip(), _words(first_artist(artist)).strip(), _words(base).strip()} if w]
+
+def _readings(name, has_artist):
+    """Readings of a tag title / file name as a plain title: without track number, without (repeated)
+    artist prefixes, 'Album - 07 - Title' and reversed 'Title - Artist' forms."""
+    m = re.match(r"^[^_]+_[^_]+_\d{1,3}_(.+)$", name)      # "Artist_Album_13_Title"
+    name = name.replace("_-_", " - ").replace("_", " ") if name.count("_") > 2 else name
+    rest = _strip_track_no(name)
+    out = [name, rest]              # the unstripped form too: "93 Bang Bang", "H2 (...)" start with a number
+    if m: out.append(m.group(1).replace("_", " "))
+    while " - " in rest:
+        head, tail = rest.split(" - ", 1)
+        if not has_artist(head): break
+        rest = _strip_track_no(tail); out.append(rest)
+    m = re.match(r"^.+? - \d{1,3} - (.+)$", rest)
+    if m: out.append(m.group(1))
+    if " - " in rest:
+        head, tail = rest.rsplit(" - ", 1)
+        if has_artist(tail): out.append(head)
+    return out
+
+# ------------------------------------------------------------------ probable match (songs strict searches missed)
+# Words that mark another recording of a song: request and download must agree on them.
+VERSION_WORDS = {"remix", "remixed", "rmx", "live", "acoustic", "instrumental", "inst", "slowed", "sped", "nightcore",
+                 "reverb", "cover", "karaoke", "vip", "bootleg", "mashup", "rework", "flip", "remake", "reprise",
+                 "unplugged", "demo", "acapella", "orchestral", "piano", "lofi", "8d", "medley", "tribute", "dub",
+                 "megamix", "part", "pt", "ii", "iii", "iv"}
+# Words that name no other recording (an edit or extended mix differs in length, which is checked instead)
+PLAIN_WORDS = {"original", "radio", "extended", "club", "album", "single", "edit", "mix", "version", "remaster",
+               "remastered", "mono", "stereo", "explicit", "clean", "dirty", "short", "long", "full", "unmixed", "mixed",
+               "official", "video", "audio", "music", "lyric", "lyrics", "visualizer", "visualiser", "4k", "hd", "hq",
+               "upgrade", "prod", "feat", "ft", "featuring", "with", "x", "and", "vs", "by", "von", "und",
+               "a", "the", "at", "in", "on", "of", "from", "for", "to", "de", "der", "die", "das"}
+_MARKERS = VERSION_WORDS | {"mix", "edit", "version"}      # a segment with one of these names a variant
+_SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+-\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
+PROBABLE_TOLERANCE = {"soulseek": 3}                       # seconds; search sources (YouTube: intros) get 6
+
+def _segments(title):
+    """'Run Run Run feat. X (prod. Y) [Official Remix]' -> 'Run Run Run', ['feat. X', 'prod. Y', 'Official Remix']."""
+    parts = [p.strip() for p in _SEGMENT.split(title or "") if p and p.strip()]
+    return (parts[0], parts[1:]) if parts else ("", [])
+
+def probable_ok(artist, title, tag_artists=(), tag_title="", file_name="", folders=(), dur=0, length=0, tol=3):
+    """Looser identity for songs strict searches did not find; such filings get a review mark in Echolot.
+    Instead of listing every harmless extra ("(Official 4K Video)", "(prod. von X)", "| JCC 2020") it lists what
+    makes another recording: same artist (as identity_ok), the same core title (the part before any bracket,
+    ' - ', '|' or 'feat.'), the same version words (remix, live, VIP, remake, ...), a named variant such as
+    "(Hard Trance Mix)" or "(RL Grime Remix)" only when the request names it too, and the length within `tol`
+    seconds (required). Returns (ok, reason)."""
+    if not (dur and length and abs(dur - float(length)) <= tol):
+        return False, f"length {dur or 0:.0f} s, wanted {float(length or 0):.0f} s (probable match needs {tol} s)"
+    want_a = _artist_words(artist)
+    texts = [t for t in [*tag_artists, file_name, *folders] if t]
+    if not want_a or not any(f" {w} " in _words(t) for w in want_a for t in texts):
+        return False, f"artist '{artist}' not in {texts}"
+    has_artist = lambda x: any(f" {w} " in _words(x) for w in want_a)
+    artist_words = set(" ".join(want_a).split())
+    head, tail = _segments(title)
+    core, want_all = title_key(head), set(_words(title).split())
+    want_version = want_all & VERSION_WORDS
+    # remixers etc. the request names ("- OsTEKKe & Zombic Remix") must appear in the download
+    need = {w for seg in tail if set(_words(seg).split()) & _MARKERS for w in _words(seg).split()
+            if w not in PLAIN_WORDS and w not in VERSION_WORDS and not w.isdigit()}
+    if not core: return False, "no title"
+    names = [*(_readings(tag_title, has_artist) if tag_title else []), *(_readings(file_name, has_artist) if file_name else [])]
+    for c in names:
+        c_head, c_tail = _segments(c)
+        have_all = set(_words(c).split())
+        if title_key(c_head) != core or have_all & VERSION_WORDS != want_version or not need <= have_all: continue
+        named = {w for seg in c_tail if set(_words(seg).split()) & _MARKERS for w in _words(seg).split()
+                 if w not in PLAIN_WORDS and w not in VERSION_WORDS and w not in want_all and w not in artist_words
+                 and not w.isdigit()}
+        if named: continue
+        return True, f"probable: '{c}' has the core title '{head}', the same version words, length within {tol} s"
+    return False, f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' has the same core title and version"
 
 def _tags(p):
     try:
@@ -286,27 +351,40 @@ def _event(action, path, **kw):
         pass
 
 # ------------------------------------------------------------------ filing
-def file_into(src, artist, title, length=0, source="", ids=None, fake=False, strict=False, file_name="", folders=(), loose=False):
+def file_into(src, artist, title, length=0, source="", ids=None, fake=False, strict=False, file_name="", folders=(), loose=False,
+              relaxed=False, tries=0, match=None):
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy/fake copy), 'duplicate' (discarded, the library already has it),
-    'mismatch' (strict: length is not the requested song's, i.e. another version; discarded) or
-    'wrong-song' (strict: tags / source file name are not the requested artist and title; discarded).
-    strict is for search results (Soulseek, YouTube); file_name/folders = where the download came from."""
+    'mismatch' (strict: length is not the requested song's, i.e. another version) or
+    'wrong-song' (strict: tags / source file name are not the requested artist and title).
+    strict is for search results (Soulseek, YouTube); file_name/folders = where the download came from.
+    relaxed (songs strict searches missed, see music-sync.py): a probable match (probable_ok) is filed too,
+    marked match=probable for review in Echolot. Rejected downloads are kept in inbox/review/ for 30 days,
+    so a near miss can still be accepted there."""
     src = pathlib.Path(src)
     ext = src.suffix.lower().lstrip(".")
     dur, _ = _probe(src)
+    info = dict(source=source, ids=ids or [], artist=artist, title=title)
     if strict:
         tag_artists, tag_title = _tags(src)
+        info.update(found=tag_title or file_name, file_name=file_name, folders=list(folders), fake=bool(fake), tries=tries)
         close = bool(dur and length and abs(dur - float(length)) <= 3)
         ok, why = identity_ok(artist, title, tag_artists, tag_title, file_name, folders, loose, close)
+        match = "exact"
+        if not ok and relaxed:
+            tol = PROBABLE_TOLERANCE.get(source, 6)
+            ok, pwhy = probable_ok(artist, title, tag_artists, tag_title, file_name, folders, dur, length, tol)
+            if ok: why, match = pwhy, "probable"
+        if ok and _blocked(ids, [tag_title, file_name]):
+            ok, why = False, "this download was marked wrong in review"
         if not ok:
-            src.unlink(missing_ok=True)
-            _event("wrong-song", src, source=source, ids=ids or [], artist=artist, title=title, reason=why)
+            _event("wrong-song", _keep(src, artist, title, source), reason=why, **info)
             return "wrong-song", None
         if dur and length and not same_length(dur, length):
-            src.unlink(missing_ok=True)
-            _event("mismatch", src, source=source, ids=ids or [], artist=artist, title=title, seconds=round(dur), wanted_seconds=round(float(length)))
+            _event("mismatch", _keep(src, artist, title, source), wanted_seconds=round(float(length)), **info)
             return "mismatch", None
+        info["reason"] = why
+    if match: info["match"] = match
     length = dur or float(length or 0)
     new_genuine = ext in LOSSLESS and not fake
     with locked():
@@ -316,7 +394,7 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
             best = same[0]
             if not (new_genuine and not best.genuine):
                 src.unlink(missing_ok=True)
-                _event("duplicate", best.path, source=source, ids=ids or [], artist=artist, title=title)
+                _event("duplicate", best.path, **info)
                 return "duplicate", best.path
             # genuine lossless takes over: keep the existing name, retire every non-genuine copy of the song
             losers = [e for e in same if not e.genuine]
@@ -329,13 +407,61 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
             _place(src, dest)
             for e in losers:
                 if e.path != dest and e.path.exists(): retired.append(str(_retire(e, "replaced by genuine lossless")))
-            _event("upgrade", dest, source=source, ids=ids or [], replaced=retired, artist=artist, title=title)
+            _event("upgrade", dest, replaced=retired, **info)
             return "upgrade", dest
         folder = cat.artist_dir(artist)
         dest = _free_name(folder, f"{folder.name} - {clean_name(title)}", ext, length)
         _place(src, dest)
-        _event("new", dest, source=source, ids=ids or [], fake=bool(fake), artist=artist, title=title)
+        _event("new", dest, **{"fake": bool(fake), **info})
         return "new", dest
+
+def _keep(src, artist, title, source):
+    """Move a rejected download to inbox/review/<date>/ (kept KEEP_REPLACED_DAYS days, see Echolot's review page)."""
+    src = pathlib.Path(src)
+    folder = REVIEW / datetime.date.today().isoformat()
+    base = f"{clean_name(artist)} - {clean_name(title)} [{clean_name(source or 'download')}]"
+    for n in range(1, 1000):
+        dest = folder / (f"{base}{src.suffix.lower()}" if n == 1 else f"{base} ({n}){src.suffix.lower()}")
+        if dest.exists(): continue
+        try: _place(src, dest); return dest
+        except FileExistsError: continue
+        except OSError: break
+    src.unlink(missing_ok=True)
+    return src
+
+def _blocked(ids, names):
+    """A download of this song was marked wrong in review with this tag title or file name."""
+    bad = _read_json(BLOCKED, {})
+    return any(n and n in bad.get(i, []) for i in ids or [] for n in names)
+
+# ------------------------------------------------------------------ review decisions (Echolot)
+def review_apply(d):
+    """Apply one decision from Echolot's review page. d: decision, song, path, artist, title, length, source,
+    found, file_name, fake. Returns (result, retry): retry = search the song again now.
+      ok       a probable match is right: nothing to do
+      wrong    a filed probable match is wrong: retire it, never take this download for the song again
+      accept   a rejected download kept in inbox/review/ is right: file it (no checks)
+      discard  delete such a kept download"""
+    decision, song = d.get("decision"), d.get("song") or ""
+    if decision == "ok": return "kept", False
+    if decision == "wrong":
+        names = [n for n in (d.get("found"), d.get("file_name")) if n]
+        if song and names:
+            bad = _read_json(BLOCKED, {}); bad[song] = sorted(set(bad.get(song, [])) | set(names)); _write_json(BLOCKED, bad)
+        p = TRACKS / (d.get("path") or "")
+        with locked():
+            entry = next((e for e in Catalog().entries if e.path == p), None) if d.get("path") and p.is_file() else None
+            if entry: _retire(entry, "marked wrong in review")
+        return ("retired" if entry else "already gone"), True
+    p = pathlib.Path(d.get("path") or "")
+    if not (p.is_absolute() and p.resolve().is_relative_to(REVIEW.resolve()) and p.is_file()): return "file gone", False
+    if decision == "discard":
+        p.unlink(); return "deleted", False
+    if decision == "accept":
+        action, dest = file_into(p, d.get("artist", ""), d.get("title", ""), d.get("length") or 0, d.get("source", ""),
+                                 [song] if song else [], bool(d.get("fake")), match="review")
+        return f"{action} {dest.relative_to(TRACKS) if dest else ''}".strip(), False
+    return f"unknown decision {decision!r}", False
 
 # ------------------------------------------------------------------ maintenance
 def plan_merge(cat):
@@ -399,9 +525,9 @@ def merge(apply=False):
               + ("" if apply else " (dry run, nothing changed)"))
 
 def purge():
-    if not REPLACED.exists(): return
+    """Delete replaced/ and review/ days older than KEEP_REPLACED_DAYS."""
     cutoff = datetime.date.today() - datetime.timedelta(days=KEEP_REPLACED_DAYS)
-    for d in REPLACED.iterdir():
+    for d in [*(REPLACED.iterdir() if REPLACED.exists() else []), *(REVIEW.iterdir() if REVIEW.exists() else [])]:
         try: day = datetime.date.fromisoformat(d.name)
         except ValueError: continue
         if day < cutoff: shutil.rmtree(d); print(f"purged {d}")
@@ -418,9 +544,12 @@ def main():
     ap.add_argument("--file-name", default="", help="source file name of the download, without extension (for --strict)")
     ap.add_argument("--folder", action="append", default=[], help="source folder name of the download (for --strict)")
     ap.add_argument("--loose", action="store_true", help="with --strict: title may contain the requested title if the length is within 3 s")
+    ap.add_argument("--relaxed", action="store_true", help="with --strict: also file a probable match (marked for review)")
+    ap.add_argument("--tries", type=int, default=0, help="earlier searches that did not find the song (logged)")
     a = ap.parse_args()
     if a.cmd == "file":
-        action, path = file_into(a.src, a.artist, a.title, a.length, a.source, [i for i in a.id if i], a.fake, a.strict, a.file_name, [f for f in a.folder if f], a.loose)
+        action, path = file_into(a.src, a.artist, a.title, a.length, a.source, [i for i in a.id if i], a.fake, a.strict, a.file_name, [f for f in a.folder if f], a.loose,
+                                 a.relaxed, a.tries)
         print(f"{action}\t{path or ''}")
     elif a.cmd == "find":
         for e in Catalog().find(a.artist, a.title, a.length):
