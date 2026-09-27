@@ -4,8 +4,18 @@
 #                      ("confirm you're not a bot") and SoundCloud rate-limits them
 # MUSIC_DIR and the secrets come from .env (see .env.example).
 services:
+  # The official Sockseek image, built from src/ with its own Dockerfile. Only a build step for the image
+  # below (scale 0: never started).
+  sockseek-upstream:
+    build: ./src
+    image: sockseek:upstream
+    scale: 0
+
   sockseek:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        sockseek-upstream: service:sockseek-upstream
     image: sockseek:local
     container_name: sockseek
     network_mode: "container:gluetun"
