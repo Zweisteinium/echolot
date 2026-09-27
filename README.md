@@ -101,6 +101,41 @@ A song's way into the library:
 - **What it never touches:** the library, and the pipeline's state, logs and scripts, which it
   mounts read-only.
 
+### Stats for dashboards
+
+Every hour the refresh stores a snapshot of these metrics in the `snapshots` table (hourly for 90
+days, then one per day):
+
+| Metric | Label | What |
+|---|---|---|
+| `library_files`, `library_bytes` | | library size |
+| `library_files_by_quality` | quality | files per tier: lossless, fake, lossy-high/mid/low |
+| `library_files_by_format`, `library_bytes_by_format` | format | flac, mp3, m4a, opus, ... |
+| `songs_wanted`, `songs_in_library`, `songs_missing` | service | spotify, soundcloud |
+| `songs_missing_by_reason` | reason | not_found, unavailable (greyed out, DRM), waiting |
+| `songs_not_found_by_tries` | tries | 1, 2-3, 4+ |
+| `songs_by_quality`, `songs_by_format` | quality / format | wanted songs by their best copy |
+| `list_songs`, `list_in_library`, `list_lossless` | list | per followed list |
+
+Downloads (`events`) and availability probes (`probes`) are time series of their own.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /metrics` | current values in the Prometheus format, plus `echolot_events_total{action,source}` and `echolot_probe_users{song,kind,lossless}` |
+| `GET /api/stats` | the newest snapshot |
+| `GET /api/stats/metrics` | metric names, labels and meaning |
+| `GET /api/stats/history?metric=songs_missing[&key=spotify][&since=2026-10-01][&until=...]` | one metric over time: `[{ts, time, key, value}]` |
+| `GET /api/stats/downloads?days=30` | events per day, action, source and format |
+| `GET /api/stats/availability?days=30` | probe results per run and song |
+
+Grafana, three ways:
+- **Prometheus** scrapes `http://<host>:8490/metrics` (every 5 min is plenty) and keeps the
+  history; Grafana queries Prometheus.
+- **SQLite data source** (plugin `frser-sqlite-datasource`) on a read-only mount of
+  `data/echolot.db`, e.g. `SELECT ts AS time, key AS metric, value FROM snapshots WHERE metric =
+  'library_files_by_format' ORDER BY ts` (time series, one line per format).
+- **Infinity data source** on the JSON endpoints above.
+
 ## Deploy
 
 What you need:

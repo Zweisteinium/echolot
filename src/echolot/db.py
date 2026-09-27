@@ -107,6 +107,16 @@ MIGRATIONS = [
     ALTER TABLE events ADD COLUMN tries INTEGER;        -- searches that had not found the song before
     ALTER TABLE events ADD COLUMN wanted_seconds INTEGER;
     """,
+    """
+    CREATE TABLE snapshots (            -- metrics over time (history.py), hourly
+        ts TEXT NOT NULL,               -- local time, ISO 8601; all rows of one snapshot share it
+        metric TEXT NOT NULL,           -- see history.METRICS
+        key TEXT NOT NULL DEFAULT '',   -- label value: quality tier, format, service, list key, ...
+        value REAL NOT NULL,
+        PRIMARY KEY (ts, metric, key)
+    );
+    CREATE INDEX snapshots_metric ON snapshots(metric, ts);
+    """,
 ]
 
 
