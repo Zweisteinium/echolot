@@ -15,11 +15,11 @@ import datetime, fcntl, os, pathlib, re, subprocess, sys, time
 import yaml
 
 CONFIG = pathlib.Path("/config"); STATE = CONFIG / "state"; LOGS = CONFIG / "logs"
-ROLES = {"main": ["sync", "sweep", "upgrade", "playlists"], "fallback": ["soundcloud", "fallback"]}
+ROLES = {"main": ["sync", "sweep", "upgrade", "playlists", "probe"], "fallback": ["soundcloud", "fallback"]}
 DEFAULTS = {"sync": 30, "sweep": {"at": ["20:00", "sat,sun 15:00"]}, "upgrade": {"at": ["14:00", "20:30"]},
-            "playlists": 10, "soundcloud": 30, "fallback": 120}
-MINIMUM = {"sync": 10, "sweep": 360, "upgrade": 360, "playlists": 5, "soundcloud": 15, "fallback": 60}
-LOCKS = {"sync": "music-sync.lock", "sweep": "music-sync.lock", "upgrade": "music-sync.lock",
+            "playlists": 10, "probe": 60, "soundcloud": 30, "fallback": 120}
+MINIMUM = {"sync": 10, "sweep": 360, "upgrade": 360, "playlists": 5, "probe": 30, "soundcloud": 15, "fallback": 60}
+LOCKS = {"sync": "music-sync.lock", "sweep": "music-sync.lock", "upgrade": "music-sync.lock", "probe": "music-sync.lock",
          "fallback": "music-sync.lock", "soundcloud": "soundcloud.lock"}
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 LATE = 6 * 3600          # a fixed-time run that could not start within 6 h (busy lock, downtime) is dropped

@@ -91,3 +91,35 @@ def events(con: Connection, kind: str = "", limit: int = 300) -> list[Row]:
     return con.execute(
         f"SELECT * FROM events {where} ORDER BY id DESC LIMIT ?", (*(actions or ()), limit)
     ).fetchall()
+
+
+def availability(con: Connection) -> dict[str, Any]:
+    """Probe results: average users per song by hour of day (per kind), and per song."""
+    runs, first, last = con.execute(
+        "SELECT count(DISTINCT ts), min(ts), max(ts) FROM probes"
+    ).fetchone()
+    hours: dict[str, list[dict[str, Any]]] = {}
+    for kind in ("rare", "common"):
+        by_hour = {
+            r[0]: r
+            for r in con.execute(
+                "SELECT CAST(substr(ts, 12, 2) AS INTEGER) AS hour, avg(users), avg(lossless_users), "
+                "count(DISTINCT ts) FROM probes WHERE kind = ? GROUP BY hour",
+                (kind,),
+            )
+        }
+        hours[kind] = [
+            {
+                "hour": h,
+                "users": by_hour[h][1] if h in by_hour else None,
+                "lossless": by_hour[h][2] if h in by_hour else None,
+                "runs": by_hour[h][3] if h in by_hour else 0,
+            }
+            for h in range(24)
+        ]
+    songs = con.execute(
+        "SELECT artist, title, kind, count(*) AS probes, avg(users > 0) AS found, "
+        "avg(users) AS users, max(users) AS max_users, avg(lossless_users) AS lossless "
+        "FROM probes GROUP BY artist, title, kind ORDER BY kind DESC, users DESC"
+    ).fetchall()
+    return {"runs": runs, "first": first, "last": last, "hours": hours, "songs": songs}

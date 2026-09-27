@@ -14,6 +14,8 @@ Reads /config/sources.yml (what) and the container environment (secrets), then:
   fallback   (sockseek-fallback container, home IP) YouTube/SoundCloud search for songs Soulseek failed twice
              (`fallback --all`: every missing song now).
   playlists  rebuild every playlist file from the lists and the library (hourly).
+  probe      availability statistics: search Soulseek for the songs in /config/probe.csv without downloading
+             and append how many users have each (and in lossless) to logs/probe.jsonl (hourly).
   fill-albums  fill empty album tags from the Spotify metadata.
   status     list sizes, library counts and what is missing.
   sync/upgrade accept --dry-run (show what would be fetched) and a number (limit, for tests).
@@ -616,6 +618,37 @@ def run_fallback(src, force=False):
     log(f"fallback: {done} songs added from YouTube/SoundCloud search")
     write_playlists(src)
 
+# ---------------------------------------------------------------- availability probe
+PROBE_LIST, PROBE_LOG = CONFIG / "probe.csv", CONFIG / "logs" / "probe.jsonl"
+
+def run_probe():
+    """Search (never download) each song of probe.csv; log users, users with lossless, files per song.
+    Counts are after the same filters as real downloads (sockseek.conf: artist in path, title in name)."""
+    if not PROBE_LIST.exists(): log("probe: no /config/probe.csv, nothing to do"); return
+    with PROBE_LIST.open(newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if r.get("Artist") and r.get("Title")]
+    csvp = STATE / "sockseek-probe.csv"
+    with csvp.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f); w.writerow(["Artist", "Title", "Length"])
+        for r in rows: w.writerow([r["Artist"], r["Title"], r.get("Length") or 0])
+    started = datetime.datetime.now().isoformat(timespec="seconds")
+    r = subprocess.run(sockseek_cmd(str(csvp), ["--no-skip-existing", "--search-timeout", "8000", "--print", "results"]),
+                       text=True, capture_output=True)
+    found, cur = {}, None
+    for line in r.stdout.splitlines():
+        m = re.match(r"^Results for (.+?)(?: \(\d+s\))?:$", line.strip())
+        if m: cur = found.setdefault(m.group(1), []); continue
+        m = re.match(r"^\[[^\]]*\] ([^\\]+)\\.*\.(\w+)$", line.strip())
+        if m and cur is not None: cur.append((m.group(1), m.group(2).lower()))
+    if not found: log(f"probe: no results parsed (sockseek exit {r.returncode}), nothing logged"); return
+    with PROBE_LOG.open("a", encoding="utf-8") as out:
+        for row in rows:
+            hits = found.get(f"{row['Artist']} - {row['Title']}", [])
+            users = {u for u, _ in hits}; lossless = {u for u, e in hits if e in ("flac", "wav", "aiff")}
+            out.write(json.dumps({"ts": started, "artist": row["Artist"], "title": row["Title"], "kind": row.get("Kind") or "",
+                                  "users": len(users), "lossless_users": len(lossless), "files": len(hits)}, ensure_ascii=False) + "\n")
+    log(f"probe: {len(rows)} songs searched, " + ", ".join(f"{k}: {len({u for u, _ in v})}" for k, v in found.items()))
+
 # ---------------------------------------------------------------- playlists, tags, status
 def write_playlists(src, cat=None):
     """Every list becomes one .m3u in list order, pointing at the best library copy of each song."""
@@ -779,6 +812,8 @@ def main():
         run_soundcloud(src)
     elif mode == "fallback":
         run_fallback(src, force="--all" in args)
+    elif mode == "probe":
+        run_probe()
     else:
         sys.exit(f"unknown mode {mode}")
     if mode in ("sync", "spotify", "sweep", "upgrade", "fallback"): fill_albums(src)

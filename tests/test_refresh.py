@@ -132,3 +132,24 @@ def test_pipeline_activity_from_logs(settings: Settings) -> None:
     assert not pipeline.paused(settings.pipeline_dir)
     (settings.pipeline_dir / "state" / "PAUSED").touch()
     assert pipeline.paused(settings.pipeline_dir)
+
+
+def test_probes_imported_and_summarised(con, settings: Settings) -> None:
+    log = settings.pipeline_dir / "logs" / "probe.jsonl"
+    lines = [
+        {"ts": "2026-09-27T20:05:00", "artist": "A", "title": "Rare", "kind": "rare", "users": 2,
+         "lossless_users": 1, "files": 3},
+        {"ts": "2026-09-27T20:05:00", "artist": "B", "title": "Hit", "kind": "common", "users": 200,
+         "lossless_users": 80, "files": 400},
+        {"ts": "2026-09-28T03:05:00", "artist": "A", "title": "Rare", "kind": "rare", "users": 0,
+         "lossless_users": 0, "files": 0},
+    ]  # fmt: skip
+    log.write_text("".join(json.dumps(x) + "\n" for x in lines))
+    assert pipeline.import_probes(con, log) == 3
+    assert pipeline.import_probes(con, log) == 0
+    a = stats.availability(con)
+    assert a["runs"] == 2
+    rare = {r["hour"]: r for r in a["hours"]["rare"]}
+    assert (rare[20]["users"], rare[3]["users"], rare[12]["users"]) == (2, 0, None)
+    song = {s["title"]: s for s in a["songs"]}["Rare"]
+    assert (song["probes"], song["found"], song["max_users"]) == (2, 0.5, 2)

@@ -9,3 +9,4 @@ upgrade:            # FLAC-only search for songs that are not genuine lossless (
 playlists: 10       # rebuild the playlist files. Minimum 5.
 soundcloud: 30      # SoundCloud likes and sets (home IP). Minimum 15: SoundCloud rate-limits bursts.
 fallback: 120       # YouTube/SoundCloud search for songs Soulseek failed twice (home IP). Minimum 60.
+probe: 60           # availability statistics: search the songs in probe.csv (no download), log to logs/probe.jsonl
