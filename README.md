@@ -47,8 +47,9 @@ A song's way into the library:
    Version words (Remix, Edit, Extended, VIP, II) keep songs apart.
 3. **Download.**
    - **Spotify songs:** Soulseek via [Sockseek](https://github.com/fiso64/sockseek), FLAC first.
-     A song that isn't found is retried after 6 h, 12 h, 24 h and so on, at most weekly. After
-     two misses, YouTube/SoundCloud search is tried as well.
+     A song that isn't found is retried after 3 h, 6 h, 12 h, then daily, and every evening a
+     sweep searches all missing songs at once, when the most users are online. After two misses,
+     YouTube/SoundCloud search is tried as well.
    - **SoundCloud likes:** from SoundCloud, as the original upload where the artist allows it.
      Tracks SoundCloud won't hand out (DRM) are looked up on YouTube, and must match exactly.
    - **Never Soulseek for SoundCloud likes:** uploader names are too unreliable to search Soulseek
@@ -64,8 +65,8 @@ A song's way into the library:
    - A download that is a song already in the library is discarded.
    - A genuine lossless download replaces a lossy or fake copy; the old file goes to
      `inbox/replaced/<date>/` for 30 days.
-6. **Upgrade.** Once a week, every Spotify song that isn't genuine lossless is searched again,
-   FLAC only.
+6. **Upgrade.** Twice a day (14:00 and 20:30) Spotify songs that aren't genuine lossless are searched
+   again, FLAC only. Each song waits 12 h, 1 d, 2 d, then 3 d between searches, so a run stays short.
 7. **Playlists.** One `.m3u` per list, in list order, with the list's cover, rebuilt every
    10 minutes. Songs that leave a list stay in the library and move to "<list> – removed".
    Navidrome imports the playlists.
@@ -174,6 +175,9 @@ Why two containers: `sockseek` runs inside gluetun's network (Soulseek over the 
 `sockseek-fallback` runs on the home IP, because YouTube refuses VPN exits and SoundCloud
 rate-limits them. Both share `config/`. Cron starts `scripts/tick.py` every minute in each
 container, and it starts that container's jobs when they are due according to `schedule.yml`.
+A job runs either every N minutes or at fixed local times (`at: ["20:00", "sat,sun 15:00"]`).
+The Soulseek jobs share one connection, so a job that is due while another runs starts right
+after it instead of losing its turn.
 
 **Spotify.** Create an app on developer.spotify.com, add the redirect URI
 `http://127.0.0.1:48721/callback` and add your account under "Users and Access". Put the app's ID
@@ -265,8 +269,13 @@ services:
   `sockseek.conf` sends everything to `inbox/sockseek`, and the hook files it through `library.py`.
 - **Correctness before quality.** `strict-artist = true` in `sockseek.conf` and the identity check
   in `library.py` are deliberate. Loosening them brings in same-titled songs by other artists.
+- **When people are online.** Rare songs often exist on only a few peers, who come and go.
+  Soulseek publishes no usage statistics. The retry sweep and the FLAC upgrade are placed in the
+  European evening (20:00–21:00), which overlaps with the American afternoon, the general
+  internet peak hours, plus weekend afternoons.
 - **Rate limits.**
-  - Soulseek bans clients that search too fast; Sockseek paces itself.
+  - Soulseek bans clients that search too fast (Sockseek allows 34 searches per 220 s), so a
+    search of 900 songs takes about 1.5–2 hours.
   - SoundCloud answers 429 after bursts, so keep its job at 15 minutes or more.
   - Spotify dev-mode apps allow 5 users. Spotify's editorial playlists ("Today's Top Hits",
     "Discover Weekly") can't be read; copy them into a playlist of your own.

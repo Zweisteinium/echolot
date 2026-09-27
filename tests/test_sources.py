@@ -123,15 +123,53 @@ def test_real_file_round_trip() -> None:
 def test_schedule(settings: Settings) -> None:
     root = settings.pipeline_dir
     assert schedule.read(root) == {j.name: j.default for j in schedule.JOBS}
-    (root / "schedule.yml").write_text("sync: 3\nfallback: off\nplaylists: nonsense\n")
+    (root / "schedule.yml").write_text(
+        "sync: 3\nfallback: off\nplaylists: nonsense\nupgrade:\n  at: ['sun 9:05', '21:00']\n"
+    )
     values = schedule.read(root)
     assert (values["sync"], values["fallback"], values["playlists"]) == (10, None, 10)
+    assert values["upgrade"] == ["sun 09:05", "21:00"]
     con = db.connect(settings.db_path)
     with pytest.raises(sources.ConfigError, match="at least"):
         schedule.save(con, root, {**values, "soundcloud": 5})
-    schedule.save(con, root, {**values, "sync": 45})
-    assert schedule.read(root)["sync"] == 45
-    assert "fallback:   off" in (root / "schedule.yml").read_text()
+    schedule.save(con, root, {**values, "sync": 45, "sweep": ["sat,sun 15:00", "20:00"]})
+    again = schedule.read(root)
+    assert (again["sync"], again["sweep"], again["fallback"]) == (
+        45,
+        ["sat,sun 15:00", "20:00"],
+        None,
+    )
+    written = (root / "schedule.yml").read_text()
+    assert 'at: ["sat,sun 15:00", "20:00"]' in written and "fallback: off" in written
     (root / "state" / "last-sync").write_text("1790000000\n")
     status = {s.job.name: s for s in schedule.status(root)}
     assert status["sync"].next_run is not None and status["fallback"].next_run is None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("30", 30), ("off", None), ("", None), ("20:00", ["20:00"]),
+     ("20:00; Sat,Sun 9:30", ["20:00", "sat,sun 09:30"])],
+)  # fmt: skip
+def test_parse_when(text: str, expected: object) -> None:
+    assert schedule.parse_when(text, schedule.BY_NAME["upgrade"] if not text.isdigit()
+                               else schedule.BY_NAME["sync"]) == expected  # fmt: skip
+
+
+@pytest.mark.parametrize("text", ["5", "25:00", "someday 10:00", "noon"])
+def test_parse_when_rejects(text: str) -> None:
+    with pytest.raises(sources.ConfigError):
+        schedule.parse_when(text, schedule.BY_NAME["sync"])
+
+
+def test_next_time() -> None:
+    from datetime import datetime
+
+    sunday_night = datetime(2026, 9, 27, 21, 0)  # a Sunday
+    assert schedule.next_time(["20:00", "sat,sun 15:00"], sunday_night) == datetime(
+        2026, 9, 28, 20, 0
+    )
+    saturday_noon = datetime(2026, 9, 26, 12, 0)
+    assert schedule.next_time(["20:00", "sat,sun 15:00"], saturday_noon) == datetime(
+        2026, 9, 26, 15, 0
+    )

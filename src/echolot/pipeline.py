@@ -34,6 +34,7 @@ PIPELINE_TRACKS = "/music/tracks/"  # library root as the pipeline sees it
 LIKES = {"Spotify Liked Songs", "SoundCloud Likes"}  # pipeline names of the likes lists
 JOBS = {  # log name -> label
     "sync": "Spotify → Soulseek",
+    "sweep": "Missing songs sweep",
     "soundcloud": "SoundCloud",
     "fallback": "YouTube fallback",
     "upgrade": "Weekly FLAC upgrade",

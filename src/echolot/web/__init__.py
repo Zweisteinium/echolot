@@ -65,11 +65,13 @@ def until(value: str | int | None) -> str:
     return "due now" if s < 60 else f"in {_span(s)}"
 
 
-def minutes(m: int | None) -> str:
-    """'every 30 min', 'every 2 h', 'every 7 d' or 'off'."""
-    if m is None:
+def minutes(rule: int | list[str] | None) -> str:
+    """'every 30 min', 'every 2 h', 'at 20:00, sat,sun 15:00' or 'off'."""
+    if rule is None:
         return "off"
-    return f"every {_span(m * 60)}"
+    if isinstance(rule, list):
+        return "at " + ", ".join(rule)
+    return f"every {_span(rule * 60)}"
 
 
 def mmss(seconds: float | None) -> str:
@@ -342,19 +344,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/settings")
     async def settings_save(request: Request) -> RedirectResponse:
         form = await request.form()
-        values: dict[str, int | None] = {}
         try:
             refresh = int(str(form.get("refresh", jobs.REFRESH_MINUTES)))
-            for j in schedule.JOBS:
-                raw = str(form.get(j.name, "")).strip()
-                values[j.name] = int(raw) or None if raw else None
         except ValueError:
-            return back("/settings", error="Intervals must be whole minutes.")
+            return back("/settings", error="Echolot refresh: whole minutes.")
         if refresh < 1:
             return back("/settings", error="Echolot refresh: at least 1 minute.")
         con = db.connect(settings.db_path)
         try:
             if settings.pipeline_dir:
+                current = schedule.read(settings.pipeline_dir)
+                values = {
+                    j.name: schedule.parse_when(str(form[j.name]), j)
+                    if j.name in form
+                    else current[j.name]
+                    for j in schedule.JOBS
+                }
                 schedule.save(con, settings.pipeline_dir, values)
             with con:
                 db.set_meta(con, "refresh_minutes", str(refresh))

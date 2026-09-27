@@ -3,10 +3,14 @@
 Reads /config/sources.yml (what) and the container environment (secrets), then:
   sync       (sockseek container, VPN) fetch the Spotify lists, ask library.py which songs are really missing
              (exact artist + title + length) and let Sockseek download only those from Soulseek, FLAC first.
+             Songs not found are retried after 3 h, 6 h, 12 h, then daily.
+  sweep      search Soulseek again for every missing Spotify song, whatever its retry wait (scheduled at the
+             hours most users are online).
   soundcloud (sockseek-fallback container, home IP) SoundCloud likes/playlists via yt-dlp
              (originals kept lossless, streams as-is). SoundCloud rate-limits the VPN exit.
-  upgrade    weekly: every wanted song whose library copy is not genuine lossless (lossy, or a FLAC that
-             spectrum.py found to be a re-encoded MP3) is searched on Soulseek again, FLAC only.
+  upgrade    every wanted song whose library copy is not genuine lossless (lossy, or a FLAC that spectrum.py
+             found to be a re-encoded MP3) is searched on Soulseek again, FLAC only. Each song waits 12 h, 1 d,
+             2 d, then 3 d between searches (state/upgrade-attempts.json); `upgrade --all` searches every one now.
   fallback   (sockseek-fallback container, home IP) YouTube/SoundCloud search for songs Soulseek failed twice
              (`fallback --all`: every missing song now).
   playlists  rebuild every playlist file from the lists and the library (hourly).
@@ -27,6 +31,7 @@ FB_INBOX = MUSIC / "inbox" / "fallback"           # YouTube/SoundCloud search do
 SC_STATE = STATE / "soundcloud-tracks.json"       # soundcloud id -> {artist, title, duration, stem}
 SC_ARCHIVE = STATE / "soundcloud-archive.txt"     # yt-dlp download archive (never re-download an id)
 ATTEMPTS = STATE / "attempts.json"                # "spotify:<id>" -> {n, last, fb} for songs Soulseek did not deliver
+UPGRADE_ATTEMPTS = STATE / "upgrade-attempts.json" # "spotify:<id>" -> {n, last}: FLAC searches that found nothing better
 EXT_PREF = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]
 SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 SPOTIFY_API = "https://api.spotify.com/v1"
@@ -285,10 +290,10 @@ def load_spotify_lists(src, fetch=True):
         if items is not None: out.append((name, items))
     return out
 
-def due(a):
-    """Retry a song Soulseek did not deliver after 6 h, 12 h, 24 h, ... at most weekly."""
+def due(a, first=3 * 3600, cap=86400):
+    """Retry after `first`, then doubling up to `cap` (missing songs: 3 h, 6 h, 12 h, then daily)."""
     if not a: return True
-    wait = min(6 * 3600 * 2 ** max(a.get("n", 1) - 1, 0), 7 * 86400)
+    wait = min(first * 2 ** max(a.get("n", 1) - 1, 0), cap)
     return time.time() - a.get("last", 0) >= wait - 1800
 
 def wanted_from_soulseek(src, fetch=True):
@@ -300,12 +305,13 @@ def wanted_from_soulseek(src, fetch=True):
         for it in items: wanted.setdefault("spotify:" + it["id"], {**it, "key": "spotify:" + it["id"]})
     return wanted
 
-def run_spotify(src, limit=None, dry=False):
-    wanted = wanted_from_soulseek(src)
+def run_spotify(src, limit=None, dry=False, sweep=False):
+    """sweep: every missing song, whatever its retry wait (the lists are not fetched again)."""
+    wanted = wanted_from_soulseek(src, fetch=not sweep)
     cat = library.Catalog()
     attempts = read_json(ATTEMPTS, {})
     missing = [it for it in wanted.values() if not cat.find(it["artist"], it["title"], it["length"])]
-    todo = [it for it in missing if due(attempts.get(it["key"]))]
+    todo = missing if sweep else [it for it in missing if due(attempts.get(it["key"]))]
     unplayable = set(read_json(STATE / "spotify-unplayable.json", []))
     todo.sort(key=lambda it: it["id"] not in unplayable)    # greyed out on Spotify first: most at risk
     if limit: todo = todo[:limit]
@@ -313,7 +319,7 @@ def run_spotify(src, limit=None, dry=False):
     if dry:
         for it in todo[:40]: log(f"  would fetch: {it['artist']} - {it['title']} ({it['length']}s)")
         return
-    soulseek_download(todo, "spotify")
+    soulseek_download(todo, "sweep" if sweep else "spotify")
     cat = library.Catalog(); now = int(time.time()); got = 0
     for it in todo:
         key = it["key"]
@@ -525,22 +531,32 @@ def sc_items(src):
     return out
 
 # ---------------------------------------------------------------- weekly FLAC upgrade
-def run_upgrade(src, dry=False):
-    """Search Soulseek (FLAC only) for every Spotify song whose library copy is not genuine lossless.
+def run_upgrade(src, dry=False, force=False):
+    """Search Soulseek (FLAC only) for the Spotify songs whose library copy is not genuine lossless and whose
+    wait is over (12 h, 1 d, 2 d, then every 3 d; force: all of them now).
     SoundCloud likes are not upgraded from Soulseek (unreliable artist names led to wrong songs)."""
     cat = library.Catalog()
+    tries = read_json(UPGRADE_ATTEMPTS, {})
     sp_rows, seen = [], set()
     for _, items in load_spotify_lists(src, fetch=False):
         for it in items:
             hit = cat.find(it["artist"], it["title"], it["length"])
             if hit and not hit[0].genuine and str(hit[0].path) not in seen:
                 seen.add(str(hit[0].path)); sp_rows.append(it)
-    log(f"upgrade: {len(sp_rows)} Spotify songs are not genuine lossless yet")
+    todo = sp_rows if force else [it for it in sp_rows if due(tries.get("spotify:" + it["id"]), 12 * 3600, 3 * 86400)]
+    log(f"upgrade: {len(sp_rows)} Spotify songs are not genuine lossless yet, {len(todo)} due for a FLAC search now")
     if dry: return
-    soulseek_download(sp_rows, "upgrade-spotify", ["--format", "flac"])
-    after = library.Catalog()
-    better = sum(1 for it in sp_rows if (h := after.find(it["artist"], it["title"], it["length"])) and h[0].genuine)
-    log(f"upgrade: {better} of {len(sp_rows)} now genuine lossless")
+    soulseek_download(todo, "upgrade-spotify", ["--format", "flac"])
+    after = library.Catalog(); now = int(time.time()); better = 0
+    tries = {k: v for k, v in tries.items() if k in {"spotify:" + it["id"] for it in sp_rows}}   # drop songs that left
+    for it in todo:
+        key = "spotify:" + it["id"]
+        if (h := after.find(it["artist"], it["title"], it["length"])) and h[0].genuine:
+            better += 1; tries.pop(key, None)
+        else:
+            t = tries.setdefault(key, {"n": 0}); t.update(n=t["n"] + 1, last=now)
+    write_json(UPGRADE_ATTEMPTS, tries)
+    log(f"upgrade: {better} of {len(todo)} now genuine lossless")
     write_playlists(src, after)
 
 # ---------------------------------------------------------------- fallback (YouTube / SoundCloud search)
@@ -745,8 +761,9 @@ def main():
     if mode == "playlists":
         subprocess.run([sys.executable, str(SCRIPTS / "library.py"), "purge"])
         return write_playlists(src)
-    if dry and mode in ("sync", "upgrade"):
-        return run_spotify(src, limit, dry=True) if mode == "sync" else run_upgrade(src, dry=True)
+    if dry and mode in ("sync", "sweep", "upgrade"):
+        if mode == "upgrade": return run_upgrade(src, dry=True, force="--all" in args)
+        return run_spotify(src, limit, dry=True, sweep=mode == "sweep")
     # Soulseek work (sync, upgrade, fallback) shares one lock; SoundCloud downloads have their own
     lock = (STATE / ("soundcloud.lock" if mode == "soundcloud" else "music-sync.lock")).open("w")
     try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -754,15 +771,17 @@ def main():
     log(f"=== music-sync {mode} start")
     if mode in ("sync", "spotify"):
         run_spotify(src, limit)
+    elif mode == "sweep":
+        run_spotify(src, limit, sweep=True)
     elif mode == "upgrade":
-        run_upgrade(src)
+        run_upgrade(src, force="--all" in args)
     elif mode == "soundcloud":
         run_soundcloud(src)
     elif mode == "fallback":
         run_fallback(src, force="--all" in args)
     else:
         sys.exit(f"unknown mode {mode}")
-    if mode in ("sync", "spotify", "upgrade", "fallback"): fill_albums(src)
+    if mode in ("sync", "spotify", "sweep", "upgrade", "fallback"): fill_albums(src)
     log(f"=== music-sync {mode} done")
 
 if __name__ == "__main__":

@@ -90,11 +90,16 @@ def test_sources_yaml_keeps_invalid_edit(client: TestClient, settings: Settings)
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
     assert "Spotify → Soulseek" in client.get("/settings").text
-    form = {j.name: str(j.default) for j in schedule.JOBS} | {"sync": "20", "fallback": "0"}
+    form = {j.name: schedule.when_text(j.default) for j in schedule.JOBS} | {
+        "sync": "20",
+        "fallback": "0",
+        "upgrade": "13:00; sat 10:00",
+    }
     response = client.post("/settings", data=form | {"refresh": "7"})
     assert "Settings saved" in response.text
     assert schedule.read(settings.pipeline_dir)["sync"] == 20
     assert schedule.read(settings.pipeline_dir)["fallback"] is None
+    assert schedule.read(settings.pipeline_dir)["upgrade"] == ["13:00", "sat 10:00"]
     assert 'value="7"' in client.get("/settings").text
     bad = client.post("/settings", data=form | {"sync": "2", "refresh": "5"})
     assert "at least 10" in bad.text
