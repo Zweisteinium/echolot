@@ -165,7 +165,7 @@ gets the other (`state/listen-port`). Run it from the host's crontab:
 
 ```sh
 cp -r pipeline /opt/sockseek && cd /opt/sockseek
-git clone https://github.com/fiso64/sockseek src          # Sockseek source for the image
+git clone https://github.com/fiso64/sockseek src          # Sockseek source: its official image is the base
 cp .env.example .env                                      # fill in, see below
 cp config/sources.example.yml config/sources.yml          # your lists
 docker compose up -d --build
