@@ -12,7 +12,7 @@
 # 3) convert WAV/AIFF/ALAC to FLAC (lossless, smaller, standard tags)
 # 4) hi-res (> 48 kHz) -> 44.1/48 kHz, 24 bit (inaudible difference, about half the size)
 # 5) spectrum check (spectrum.py): a FLAC re-encoded from MP3/AAC counts as lossy ("fake")
-# 6) library.py checks it is really the requested artist + title + length (else discarded) and files it: new song -> added; same song already there -> discarded, unless this is a genuine
+# 6) library.py checks it is really the requested artist + title + length (else kept in inbox/review) and files it: new song -> added; same song already there -> discarded, unless this is a genuine
 #    lossless copy of a lossy/fake one, which takes over (the old file goes to inbox/replaced for 30 days)
 # 7) embed the Spotify cover / artist image if missing (artwork.py, output to stderr)
 # The library path is printed as "success;<path>" so Sockseek's index points at it.
@@ -73,16 +73,19 @@ import csv, os, sys
 rows = list(csv.DictReader(open(os.environ["MUSIC_SYNC_CSV"], encoding="utf-8", newline="")))
 r = rows[int(sys.argv[1]) - 2]                        # Sockseek counts the header as row 1
 if sys.argv[2] and r.get("uri") and sys.argv[2] != r["uri"]: sys.exit(1)
-print("\t".join([r["Artist"], r["Title"], r["Length"], r.get("uri", "")]))' "$row" "$uri" 2>>"$LOG") \
+print("\t".join([r.get("want_artist") or r["Artist"], r.get("want_title") or r["Title"], r["Length"], r.get("uri", ""),
+                 r.get("tries") or "0"]))' "$row" "$uri" 2>>"$LOG") \
   || { note "FAIL no CSV row $row (uri $uri) for $f"; echo "failed;"; exit 0; }
-sartist=$(printf '%s' "$want" | cut -f1); stitle=$(printf '%s' "$want" | cut -f2); slength=$(printf '%s' "$want" | cut -f3); uri=$(printf '%s' "$want" | cut -f4)
+sartist=$(printf '%s' "$want" | cut -f1); stitle=$(printf '%s' "$want" | cut -f2); slength=$(printf '%s' "$want" | cut -f3); uri=$(printf '%s' "$want" | cut -f4); tries=$(printf '%s' "$want" | cut -f5)
+# a song Soulseek did not find twice (music-sync.py LOOSEN) may be filed on a probable match, marked for review
+relaxed=""; [ "${tries:-0}" -ge 2 ] 2>/dev/null && relaxed="--relaxed"
 out=$(python3 /config/scripts/library.py file "$f" --artist "$sartist" --title "$stitle" --length "${slength:-0}" \
-        --source soulseek --id "$uri" --strict --loose --file-name "$slskfile" --folder "$slskfolder" $fake 2>>"$LOG")
+        --source soulseek --id "$uri" --strict --loose --file-name "$slskfile" --folder "$slskfolder" $fake $relaxed --tries "${tries:-0}" 2>>"$LOG")
 action=$(printf '%s' "$out" | cut -f1); dest=$(printf '%s' "$out" | cut -f2-)
-# another version of the song (length off by more than max(10 s, 4 %)): discarded, the song stays missing
-if [ "$action" = mismatch ]; then note "mismatch (other version, discarded): $f wanted ${slength}s"; echo "failed;"; exit 0; fi
-# not the requested artist/title (tags and Soulseek names checked): discarded, the song stays missing
-if [ "$action" = wrong-song ]; then note "wrong-song (discarded): $slskfolder/$slskfile for $sartist - $stitle"; echo "failed;"; exit 0; fi
+# another version of the song (length off by more than max(10 s, 4 %)): kept in inbox/review, the song stays missing
+if [ "$action" = mismatch ]; then note "mismatch (other version, kept for review): $f wanted ${slength}s"; echo "failed;"; exit 0; fi
+# not the requested artist/title (tags and Soulseek names checked): kept in inbox/review, the song stays missing
+if [ "$action" = wrong-song ]; then note "wrong-song (kept for review): $slskfolder/$slskfile for $sartist - $stitle"; echo "failed;"; exit 0; fi
 if [ -z "$dest" ] || [ ! -f "$dest" ]; then note "FAIL filing: $f ($out)"; echo "failed;"; exit 0; fi
 if [ "$action" != duplicate ]; then
   [ -n "$fake" ] && python3 /config/scripts/spectrum.py "$dest" --record >/dev/null 2>&1

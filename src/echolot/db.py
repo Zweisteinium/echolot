@@ -98,6 +98,15 @@ MIGRATIONS = [
     );
     CREATE INDEX probes_ts ON probes(ts);
     """,
+    """
+    ALTER TABLE events ADD COLUMN song TEXT;            -- songs.key the download was for
+    ALTER TABLE events ADD COLUMN matched TEXT;         -- exact, probable (loosened search), review (accepted)
+    ALTER TABLE events ADD COLUMN found TEXT;           -- tag title or source file name of the download
+    ALTER TABLE events ADD COLUMN file_name TEXT;       -- source file name (Soulseek) or video title
+    ALTER TABLE events ADD COLUMN fake INTEGER;         -- FLAC made from a lossy file
+    ALTER TABLE events ADD COLUMN tries INTEGER;        -- searches that had not found the song before
+    ALTER TABLE events ADD COLUMN wanted_seconds INTEGER;
+    """,
 ]
 
 

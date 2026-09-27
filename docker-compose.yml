@@ -1,5 +1,5 @@
 # Development instance on debian-server. Echolot writes to ./data and, in the pipeline's config
-# directory, only sources.yml and schedule.yml (from the Sources and Settings pages); the music
+# directory, only sources.yml, schedule.yml and review.yml (Sources, Settings, Review pages); the music
 # library and the pipeline's state, logs and scripts are mounted read-only.
 services:
   echolot:

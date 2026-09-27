@@ -9,11 +9,11 @@ from sqlite3 import Connection
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from echolot import __version__, db, jobs, pipeline, schedule, sources, stats
+from echolot import __version__, db, jobs, pipeline, review, schedule, sources, stats
 from echolot.config import Settings
 from echolot.library import QUALITY
 from echolot.scheduler import Scheduler
@@ -188,6 +188,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             rare=charts.hours(a["hours"]["rare"], "users", "users"),
             common=charts.hours(a["hours"]["common"], "users", "users"),
         )
+
+    def music_dir() -> Path:
+        if not (settings.library_dir and settings.pipeline_dir):
+            raise HTTPException(404, "no library or pipeline configured")
+        return settings.library_dir.parent  # tracks/ and inbox/, as the pipeline's /music
+
+    @app.get("/review", response_class=HTMLResponse)
+    def review_page(request: Request, con: DB) -> HTMLResponse:
+        return page(
+            request,
+            "review.html",
+            nav="review",
+            items=review.items(con, pipeline_root(), music_dir()),
+        )
+
+    @app.post("/review/{event_id}")
+    def review_decide(con: DB, event_id: int, decision: Annotated[str, Form()]) -> RedirectResponse:
+        try:
+            item = review.decide(con, pipeline_root(), music_dir(), event_id, decision)
+        except sources.ConfigError as e:
+            return back("/review", error=str(e))
+        song = f"{item.event['artist']} – {item.event['title']}"
+        return back(
+            "/review", ok=f"{song}: {decision}. The pipeline applies it within about 10 min."
+        )
+
+    @app.get("/review/{event_id}/audio")
+    def review_audio(con: DB, event_id: int) -> FileResponse:
+        item = review.find(con, pipeline_root(), music_dir(), event_id)
+        if item is None:
+            raise HTTPException(404, "not up for review")
+        return FileResponse(item.file)
 
     @app.post("/jobs/{name}/run")
     def run_job(name: str) -> RedirectResponse:
