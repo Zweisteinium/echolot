@@ -50,7 +50,7 @@ def artist_keys(a: str | None) -> set[str]:
 
 _NOISE = [
     r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere"
-    r"|official(?:\s+(?:audio|video|music\s+video|visuali[sz]er))?"
+    r"|official(?:\s+(?:4k|hd))?(?:\s+(?:audio|video|music\s+video|visuali[sz]er))?"
     r"|visuali[sz]er|lyrics?|hq|hd|explicit|clean|original(?:\s+(?:mix|version))?)\s*[\)\]\}]",
     # catalog numbers like [HAK003]
     r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,6}\s?-?\d{2,5}\s*\]",
