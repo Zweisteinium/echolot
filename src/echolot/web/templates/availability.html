@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_chart.html" import column_chart %}
+{% block title %}Availability · Echolot{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Availability</h1>
+  <p class="muted small">Every hour the pipeline searches Soulseek for the songs in <code>probe.csv</code> without downloading and counts how many users have each (after the same filters as real downloads). Rare songs show when the few people who have them are online; common songs show how many users are online overall. Times are local.</p>
+  <dl>
+    <dt>Probe runs</dt><dd>{{ a.runs|num }}{% if a.first %} <span class="muted">since {{ a.first|replace('T', ' ') }}, last {{ a.last|ago }}</span>{% endif %}</dd>
+  </dl>
+</section>
+
+<section class="card charts">
+  {{ column_chart(rare, "Rare songs: users per song, by hour") }}
+  {{ column_chart(common, "Common songs: users per song, by hour") }}
+  <p class="muted small">Needs about a week of probes before the hours can be compared; hover a column for its numbers.</p>
+</section>
+
+<section class="card">
+  <h2>Per song</h2>
+  <table class="rows">
+    <thead><tr><th>Song</th><th>Kind</th><th class="num">Probes</th><th class="num">Found</th><th class="num">Users (avg)</th><th class="num">Max</th><th class="num">Lossless (avg)</th></tr></thead>
+    {% for s in a.songs %}
+    <tr>
+      <td>{{ s.artist }} – {{ s.title }}</td>
+      <td class="muted small">{{ s.kind }}</td>
+      <td class="num">{{ s.probes|num }}</td>
+      <td class="num">{{ (100 * s.found)|round|int }} %</td>
+      <td class="num">{{ '%.1f'|format(s.users) }}</td>
+      <td class="num">{{ s.max_users }}</td>
+      <td class="num">{{ '%.1f'|format(s.lossless) }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="muted">No probes yet. The first one runs within the hour (it waits while another Soulseek job is running).</td></tr>
+    {% endfor %}
+  </table>
+  <details>
+    <summary class="small">By hour as a table</summary>
+    <table class="rows">
+      <thead><tr><th>Hour</th><th class="num">Rare: users</th><th class="num">Rare: lossless</th><th class="num">Common: users</th><th class="num">Runs</th></tr></thead>
+      {% for r in a.hours.rare %}{% set c = a.hours.common[loop.index0] %}
+      <tr>
+        <td>{{ '%02d'|format(r.hour) }}:00</td>
+        <td class="num">{{ '%.1f'|format(r.users) if r.users is not none else '–' }}</td>
+        <td class="num">{{ '%.1f'|format(r.lossless) if r.lossless is not none else '–' }}</td>
+        <td class="num">{{ '%.1f'|format(c.users) if c.users is not none else '–' }}</td>
+        <td class="num">{{ r.runs }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </details>
+</section>
+{% endblock %}

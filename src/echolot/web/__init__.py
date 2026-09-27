@@ -17,6 +17,7 @@ from echolot import __version__, db, jobs, pipeline, schedule, sources, stats
 from echolot.config import Settings
 from echolot.library import QUALITY
 from echolot.scheduler import Scheduler
+from echolot.web import charts
 
 HERE = Path(__file__).parent
 
@@ -174,6 +175,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def activity(request: Request, con: DB, kind: str = "") -> HTMLResponse:
         return page(
             request, "activity.html", nav="activity", events=stats.events(con, kind), kind=kind
+        )
+
+    @app.get("/availability", response_class=HTMLResponse)
+    def availability(request: Request, con: DB) -> HTMLResponse:
+        a = stats.availability(con)
+        return page(
+            request,
+            "availability.html",
+            nav="availability",
+            a=a,
+            rare=charts.hours(a["hours"]["rare"], "users", "users"),
+            common=charts.hours(a["hours"]["common"], "users", "users"),
         )
 
     @app.post("/jobs/{name}/run")

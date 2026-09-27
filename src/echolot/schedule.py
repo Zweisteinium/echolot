@@ -37,6 +37,8 @@ JOBS = [
     JobInfo("upgrade", "FLAC upgrade", ["14:00", "20:30"], 360,
             "FLAC-only search for songs that are not genuine lossless (each song: 12 h, 1 d, 2 d, then every 3 d)"),
     JobInfo("playlists", "Playlist files", 10, 5, "rebuild the playlist files"),
+    JobInfo("probe", "Availability probe", 60, 30,
+            "availability statistics: search the songs in probe.csv (no download), log to logs/probe.jsonl"),
     JobInfo("soundcloud", "SoundCloud", 30, 15,
             "SoundCloud likes and sets (home IP); SoundCloud rate-limits bursts"),
     JobInfo("fallback", "YouTube fallback", 120, 60,

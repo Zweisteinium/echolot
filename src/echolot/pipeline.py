@@ -21,6 +21,7 @@ import os
 import re
 import sqlite3
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ LIKES = {"Spotify Liked Songs", "SoundCloud Likes"}  # pipeline names of the lik
 JOBS = {  # log name -> label
     "sync": "Spotify → Soulseek",
     "sweep": "Missing songs sweep",
+    "probe": "Availability probe",
     "soundcloud": "SoundCloud",
     "fallback": "YouTube fallback",
     "upgrade": "Weekly FLAC upgrade",
@@ -212,7 +214,8 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
         con.execute("DELETE FROM lossy_sourced")
         con.executemany("INSERT INTO lossy_sourced VALUES (?, ?, ?)", lossy)
     events = import_events(con, root / "logs" / "downloads.jsonl")
-    return f"{len(lists)} lists, {len(songs)} songs, {events} new events"
+    probes = import_probes(con, root / "logs" / "probe.jsonl")
+    return f"{len(lists)} lists, {len(songs)} songs, {events} new events, {probes} new probes"
 
 
 EVENT_FIELDS = [
@@ -230,35 +233,57 @@ EVENT_FIELDS = [
 ]
 
 
-def import_events(con: sqlite3.Connection, path: Path) -> int:
-    """Append the lines of downloads.jsonl added since the last import."""
+def _import_jsonl(
+    con: sqlite3.Connection,
+    path: Path,
+    meta_key: str,
+    table: str,
+    fields: list[str],
+    valid: Callable[[dict], bool],
+) -> int:
+    """Append the JSON lines added to `path` since the last import (complete lines only) to
+    `table`. A file that shrank was replaced: the table is filled again from the start."""
     if not path.exists():
         return 0
-    offset = int(db.get_meta(con, "events_offset", "0"))
-    if path.stat().st_size < offset:  # file was replaced: start over
+    offset = int(db.get_meta(con, meta_key, "0"))
+    if path.stat().st_size < offset:
         offset = 0
         with con:
-            con.execute("DELETE FROM events")
+            con.execute(f"DELETE FROM {table}")
     with path.open("rb") as f:
         f.seek(offset)
         data = f.read()
-    data = data[: data.rfind(b"\n") + 1]  # complete lines only
+    data = data[: data.rfind(b"\n") + 1]
     rows = []
     for line in data.splitlines():
         try:
             e = json.loads(line)
         except ValueError:
             continue
-        if isinstance(e, dict) and e.get("ts") and e.get("action"):
-            rows.append([e.get(k) for k in EVENT_FIELDS])
+        if isinstance(e, dict) and valid(e):
+            rows.append([e.get(k) for k in fields])
     with con:
         con.executemany(
-            f"INSERT INTO events ({', '.join(EVENT_FIELDS)}) "
-            f"VALUES ({', '.join('?' * len(EVENT_FIELDS))})",
+            f"INSERT INTO {table} ({', '.join(fields)}) VALUES ({', '.join('?' * len(fields))})",
             rows,
         )
-        db.set_meta(con, "events_offset", str(offset + len(data)))
+        db.set_meta(con, meta_key, str(offset + len(data)))
     return len(rows)
+
+
+def import_events(con: sqlite3.Connection, path: Path) -> int:
+    """Append the lines of downloads.jsonl added since the last import."""
+    return _import_jsonl(con, path, "events_offset", "events", EVENT_FIELDS,
+                         lambda e: bool(e.get("ts") and e.get("action")))  # fmt: skip
+
+
+PROBE_FIELDS = ["ts", "artist", "title", "kind", "users", "lossless_users", "files"]
+
+
+def import_probes(con: sqlite3.Connection, path: Path) -> int:
+    """Append the availability probes logged since the last import (logs/probe.jsonl)."""
+    return _import_jsonl(con, path, "probes_offset", "probes", PROBE_FIELDS,
+                         lambda e: bool(e.get("ts") and e.get("title")))  # fmt: skip
 
 
 def known_files(root: Path) -> Known:

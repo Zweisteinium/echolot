@@ -85,6 +85,19 @@ MIGRATIONS = [
         note TEXT
     );
     """,
+    """
+    CREATE TABLE probes (               -- availability probes: how many Soulseek users have a song, when
+        id INTEGER PRIMARY KEY,
+        ts TEXT NOT NULL,               -- local time the probe started
+        artist TEXT NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,             -- rare, common (from probe.csv)
+        users INTEGER NOT NULL,         -- users with a matching file
+        lossless_users INTEGER NOT NULL,
+        files INTEGER NOT NULL
+    );
+    CREATE INDEX probes_ts ON probes(ts);
+    """,
 ]
 
 

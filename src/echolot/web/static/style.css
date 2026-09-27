@@ -14,6 +14,7 @@
   --q-lossy-high: #3b82c4;
   --q-lossy-mid: #c77c02;
   --q-lossy-low: #d9594c;
+  --chart: #2a78d6;       /* validated series blue (light) */
   --spotify: #1db954;
   --soundcloud: #ff5500;
   color-scheme: light dark;
@@ -36,6 +37,7 @@
     --q-lossy-high: #5aa2e0;
     --q-lossy-mid: #e0a030;
     --q-lossy-low: #e8776b;
+    --chart: #3987e5;     /* validated series blue (dark) */
   }
 }
 
@@ -192,3 +194,14 @@ button:hover, select:hover { border-color: var(--accent); }
   header { gap: 0.75rem; flex-wrap: wrap; }
   .wide { display: none; }
 }
+
+.charts { display: grid; gap: 1.25rem; }
+figure.chart { margin: 0; }
+figure.chart figcaption { font-weight: 600; margin-bottom: 0.4rem; }
+figure.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .tick { fill: var(--muted); font-size: 11px; }
+.chart .mark { fill: var(--chart); }
+.chart .hit { fill: transparent; }
+.chart .col:hover .hit { fill: color-mix(in srgb, var(--chart) 8%, transparent); }
+details summary { cursor: pointer; margin-top: 0.75rem; color: var(--muted); }
