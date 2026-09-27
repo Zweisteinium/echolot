@@ -6,16 +6,16 @@
   <h1>Settings</h1>
   <h2>Pipeline jobs</h2>
   {% if jobs %}
-  <p class="muted small">Minutes between runs; empty or 0 = off. Written to the pipeline's <code>schedule.yml</code>, applied within a minute. A job whose previous run is still busy skips its turn.</p>
+  <p class="muted small">Minutes between runs (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Written to the pipeline's <code>schedule.yml</code>, applied within a minute. Soulseek jobs share one connection: a due job waits for the running one.</p>
   <table class="rows">
-    <thead><tr><th>Job</th><th>Every (min)</th><th></th><th>Last start</th><th>Next</th></tr></thead>
+    <thead><tr><th>Job</th><th>When</th><th></th><th>Last start</th><th>Next</th></tr></thead>
     {% for s in jobs %}
     <tr>
       <td>{{ s.job.label }}<div class="muted small">{{ s.job.help }}</div></td>
-      <td><input type="number" name="{{ s.job.name }}" value="{{ s.minutes or '' }}" min="0" step="1" aria-label="{{ s.job.label }} interval in minutes" class="short"></td>
-      <td class="muted small nowrap">{{ s.minutes|minutes }}<div>min. {{ s.job.minimum }}, default {{ s.job.default }}</div></td>
+      <td><input type="text" name="{{ s.job.name }}" value="{{ s.when }}" aria-label="{{ s.job.label }}: when" size="18"></td>
+      <td class="muted small nowrap">{{ s.rule|minutes }}<div>min. {{ s.job.minimum }} min</div></td>
       <td class="small nowrap">{% if s.running %}<span class="dot on"></span>running{% else %}{{ s.started|ago }}{% endif %}</td>
-      <td class="small nowrap">{% if s.minutes %}{{ s.next_run|until }}{% else %}<span class="muted">off</span>{% endif %}</td>
+      <td class="small nowrap">{% if s.rule is not none %}{{ s.next_run|until }}{% else %}<span class="muted">off</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

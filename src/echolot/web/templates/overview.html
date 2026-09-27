@@ -70,8 +70,8 @@
     {% for s in pipeline_jobs %}
     <dt>{{ s.job.label }}</dt>
     <dd>{% if s.running %}<span class="dot on"></span>running since {{ s.started|ago }}
-        {% elif s.minutes is none %}<span class="dot"></span><span class="muted">off</span>
-        {% else %}<span class="dot"></span><span class="muted">{{ s.minutes|minutes }}, last {{ s.started|ago }}, next {{ s.next_run|until }}</span>{% endif %}</dd>
+        {% elif s.rule is none %}<span class="dot"></span><span class="muted">off</span>
+        {% else %}<span class="dot"></span><span class="muted">{{ s.rule|minutes }}, last {{ s.started|ago }}, next {{ s.next_run|until }}</span>{% endif %}</dd>
     {% endfor %}
     {% set r = o.jobs.get('refresh') %}
     <dt>Echolot refresh</dt>
