@@ -180,3 +180,37 @@ def test_review(client: TestClient, settings: Settings) -> None:
     (root / "state" / "review-done.json").write_text(json.dumps({d["id"]: {} for d in saved}))
     html = client.get("/review").text
     assert "Nothing to check." in html and "Nothing kept." in html
+
+
+def test_review_upgrade_candidate_and_revert(client: TestClient, settings: Settings) -> None:
+    """A genuine FLAC of a song the library has as MP3 (the FLAC upgrade), logged with Sockseek's
+    spotify:track: URI; a decision can be taken back until the pipeline applies it."""
+    root, music = settings.pipeline_dir, settings.library_dir.parent
+    kept = music / "inbox" / "review" / "2026-09-28" / "Artist A - First Song [soulseek].flac"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(b"audio")
+    event = {"ts": "2026-09-28T14:00:00", "action": "wrong-song", "path": "/music/inbox/review/2026-09-28/"
+             "Artist A - First Song [soulseek].flac", "ext": "flac", "seconds": 200, "source": "soulseek",
+             "ids": ["spotify:track:s1"], "artist": "Artist A", "title": "First Song", "found": "01 First Song",
+             "reason": "title differs"}  # fmt: skip
+    with (root / "logs" / "downloads.jsonl").open("a") as f:
+        f.write(json.dumps(event) + "\n")
+    con = db.connect(settings.db_path)
+    jobs.refresh(settings, con)
+    (eid,) = con.execute("SELECT id FROM events WHERE ts = '2026-09-28T14:00:00'").fetchone()
+    assert con.execute("SELECT song FROM events WHERE id = ?", (eid,)).fetchone()[0] == "spotify:s1"
+    con.close()
+
+    html = client.get("/review").text
+    assert "01 First Song" in html and "would replace mp3 in the library" in html
+    client.post(f"/review/{eid}", data={"decision": "accept"})
+    assert "Revert" in client.get("/review").text
+    r = client.post(f"/review/{eid}/revert", follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    assert yaml.safe_load((root / "review.yml").read_text())["decisions"] == []
+    # applied already: no revert
+    client.post(f"/review/{eid}", data={"decision": "accept"})
+    saved = yaml.safe_load((root / "review.yml").read_text())["decisions"]
+    (root / "state" / "review-done.json").write_text(json.dumps({saved[0]["id"]: {}}))
+    r = client.post(f"/review/{eid}/revert", follow_redirects=False)
+    assert "error=" in r.headers["location"]

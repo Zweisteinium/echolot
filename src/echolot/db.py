@@ -121,6 +121,10 @@ MIGRATIONS = [
     ALTER TABLE songs ADD COLUMN artists TEXT;  -- JSON list of all the song's artists (Spotify)
     ALTER TABLE songs ADD COLUMN link TEXT;     -- JSON [artist, title]: the library song it is (review accept)
     """,
+    """
+    -- Soulseek downloads logged the song as its URI (spotify:track:<id>); song keys are spotify:<id>
+    UPDATE events SET song = 'spotify:' || substr(song, 15) WHERE song LIKE 'spotify:track:%';
+    """,
 ]
 
 

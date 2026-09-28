@@ -286,3 +286,56 @@ def test_accept_links_the_same_recording_under_another_artist(
     )
     assert [h.path.name for h in hits] == ["Pbb Yea - Chilln.wav"]
     assert events(tmp_path)[-1]["action"] == "linked"
+
+
+def test_spotify_uri_is_normalised(lib, tmp_path: Path) -> None:
+    """Sockseek hands over spotify:track:<id>; song keys are spotify:<id>."""
+    lib.file_into(download(tmp_path, "a.wav"), "A", "Song", 200, "soulseek", ["spotify:track:abc"])
+    assert events(tmp_path)[-1]["ids"] == ["spotify:abc"]
+    assert lib.norm_key("spotify:track:abc") == "spotify:abc" == lib.norm_key("spotify:abc")
+
+
+def test_accepted_upgrade_is_retagged(lib, tmp_path: Path, monkeypatch) -> None:
+    """Zedd - Ignite: the FLAC is the right recording but tagged 'Green Velvet - La La Land'."""
+    lib.file_into(download(tmp_path, "lossy.wav", 195), "Zedd", "Ignite", 195)
+    (tmp_path / "state" / "lossy-sourced.json").write_text(
+        json.dumps({"Zedd/Zedd - Ignite": {}})
+    )  # as spectrum.py
+    kept = tmp_path / "inbox" / "review" / "2026-09-28" / "Zedd - Ignite [soulseek].wav"
+    kept.parent.mkdir(parents=True)
+    download(tmp_path, "b.wav", 195).rename(kept)
+    monkeypatch.setattr(lib, "_tags", lambda p: (["Green Velvet"], "La La Land"))
+    retagged = []
+    monkeypatch.setattr(
+        lib, "_retag", lambda path, artist, title: retagged.append((path.name, artist, title))
+    )
+    result, _ = lib.review_apply({"decision": "accept", "song": "spotify:track:z", "path": str(kept),
+                                  "artist": "Zedd", "title": "Ignite", "length": 195, "source": "soulseek"})  # fmt: skip
+    assert result.startswith("upgrade Zedd/")
+    assert retagged == [("Zedd - Ignite.wav", "Zedd", "Ignite")]
+
+
+def test_apply_review_queues_attempts_without_the_soulseek_lock(
+    lib, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "spectrum", types.ModuleType("spectrum"))
+    monkeypatch.setitem(sys.modules, "library", lib)
+    sync = load("music-sync")
+    state = tmp_path / "state"
+    for name, value in [("STATE", state), ("REVIEW_FILE", tmp_path / "review.yml"),
+                        ("REVIEW_DONE", state / "review-done.json"), ("REVIEW_RETRY", state / "review-retry.json"),
+                        ("ATTEMPTS", state / "attempts.json"), ("TRACKS", tmp_path / "tracks")]:  # fmt: skip
+        monkeypatch.setattr(sync, name, value)
+    file_capo(lib, tmp_path, relaxed=True)
+    e = events(tmp_path)[-1]
+    (tmp_path / "review.yml").write_text(json.dumps({"decisions": [
+        {"id": "1", "decision": "wrong", "song": "spotify:track:capo", "path": e["path"], "found": e["found"],
+         "file_name": e["file_name"], "artist": CAPO[0], "title": CAPO[1], "tries": 3}]}))  # fmt: skip
+    sync.apply_review(own_lock=False)  # a long upgrade holds the Soulseek lock
+    assert json.loads((state / "review-done.json").read_text())["1"]["result"] == "retired"
+    assert json.loads((state / "review-retry.json").read_text())["spotify:capo"]["n"] == 3
+    assert not (state / "attempts.json").exists()
+    sync.apply_review(own_lock=True)  # the next Soulseek job
+    assert json.loads((state / "attempts.json").read_text())["spotify:capo"] == {
+        "n": 3, "last": 0, "artist": CAPO[0], "title": CAPO[1]}  # fmt: skip
+    assert json.loads((state / "review-retry.json").read_text()) == {}
