@@ -211,8 +211,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return back("/review", error=str(e))
         song = f"{item.event['artist']} – {item.event['title']}"
         return back(
-            "/review", ok=f"{song}: {decision}. The pipeline applies it within about 10 min."
+            "/review",
+            ok=f"{song}: {decision}. The pipeline applies it within about 10 min (Revert until then).",
         )
+
+    @app.post("/review/{event_id}/revert")
+    def review_revert(con: DB, event_id: int) -> RedirectResponse:
+        try:
+            item = review.revert(con, pipeline_root(), music_dir(), event_id)
+        except sources.ConfigError as e:
+            return back("/review", error=str(e))
+        song = f"{item.event['artist']} – {item.event['title']}"
+        return back("/review", ok=f"{song}: decision '{item.decision}' taken back.")
 
     @app.get("/review/{event_id}/audio")
     def review_audio(con: DB, event_id: int) -> FileResponse:

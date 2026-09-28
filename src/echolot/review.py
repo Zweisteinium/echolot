@@ -91,14 +91,22 @@ def near_miss(e: sqlite3.Row, wanted: float) -> bool:
     return not (e["seconds"] and wanted) or 2 / 3 <= e["seconds"] / wanted <= 1.5
 
 
+def upgrade(e: sqlite3.Row) -> bool:
+    """A kept download that would replace the song's lossy library copy with genuine lossless."""
+    lossless = (e["ext"] or "") in ("flac", "wav", "aiff") and not e["fake"]
+    return lossless and e["song_quality"] not in ("lossless", None)
+
+
 def items(con: sqlite3.Connection, root: Path, music_dir: Path) -> dict[str, list[Item]]:
     """What to look at: probable matches still in the library without a decision, and kept rejected
-    downloads of songs that are still missing (newest first)."""
+    downloads of songs that are still missing, or genuine lossless ones of songs the library has only lossy
+    (from the FLAC upgrade; accepting one replaces the lossy copy). Newest first."""
     decided = {d["id"]: d.get("decision") for d in _decisions(root)}
     done = _done(root)
     rows = con.execute(
-        "SELECT e.*, s.length AS wanted_length, s.file AS song_file FROM events e "
-        "LEFT JOIN songs s ON s.key = e.song WHERE (e.action IN ('new', 'upgrade') AND e.matched = 'probable') "
+        "SELECT e.*, s.length AS wanted_length, s.file AS song_file, f.quality AS song_quality, "
+        "f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
+        "LEFT JOIN files f ON f.path = s.file WHERE (e.action IN ('new', 'upgrade') AND e.matched = 'probable') "
         "OR (e.action IN ('wrong-song', 'mismatch') AND e.path LIKE ?) ORDER BY e.id DESC",
         (KEPT + "%",),
     ).fetchall()
@@ -106,7 +114,9 @@ def items(con: sqlite3.Connection, root: Path, music_dir: Path) -> dict[str, lis
     for e in rows:
         kind = "filed" if e["action"] in ("new", "upgrade") else "kept"
         key = decision_id(e["ts"], e["path"])
-        if key in done or (kind == "kept" and e["song"] and e["song_file"]):  # song found meanwhile
+        if key in done or (
+            kind == "kept" and e["song_file"] and not upgrade(e)
+        ):  # song found meanwhile
             continue
         length = e["wanted_length"] or e["wanted_seconds"] or 0
         if kind == "kept" and not near_miss(e, length):
@@ -156,6 +166,21 @@ def decide(
         "at": datetime.now().isoformat(timespec="seconds"),
     }
     decisions = [d for d in _decisions(root) if d["id"] != item.id] + [entry]
+    text = HEADER + yaml.safe_dump(
+        {"decisions": decisions}, allow_unicode=True, sort_keys=False, width=1000
+    )
+    write_atomic(root / FILE, text)
+    return item
+
+
+def revert(con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int) -> Item:
+    """Take back a decision the pipeline has not applied yet (it is removed from review.yml)."""
+    item = find(con, root, music_dir, event_id)
+    if item is None or not item.decision:
+        raise ConfigError("There is no pending decision for this download.")
+    if item.id in _done(root):
+        raise ConfigError("The pipeline has applied this decision already.")
+    decisions = [d for d in _decisions(root) if d["id"] != item.id]
     text = HEADER + yaml.safe_dump(
         {"decisions": decisions}, allow_unicode=True, sort_keys=False, width=1000
     )

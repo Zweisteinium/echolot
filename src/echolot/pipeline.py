@@ -297,9 +297,10 @@ def _import_jsonl(
 
 def _event(e: dict) -> dict:
     ids = e.get("ids")
+    song = ids[0] if isinstance(ids, list) and ids else None
     return {
         **e,
-        "song": ids[0] if isinstance(ids, list) and ids else None,
+        "song": re.sub(r"^spotify:track:", "spotify:", song) if isinstance(song, str) else None,
         "matched": e.get("match"),
     }
 
