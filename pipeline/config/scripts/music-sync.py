@@ -44,7 +44,10 @@ REVIEW_DONE = STATE / "review-done.json"          # decision id -> {at, result}:
 #   2-3: title without feat. credits, 'From "Film"' and plain suffixes (- Radio Edit, - Unmixed Version), first
 #        artist only; a probable match (library.probable_ok) is filed with a review mark
 #   4+ : also without requiring the artist in the Soulseek path (library.py still checks tags and names)
-LOOSEN = [(4, ["--strict-artist", "false"]), (2, [])]   # (failed searches, extra Sockseek options), loosest first
+# Both loosened levels search desperately: a search without any result is repeated with the title alone and the
+# artist alone (any length). Most clients do not answer queries with a phrase the server excludes, e.g. "Scooter"
+# with "DJ" gives nothing while "Aiii Shot the DJ" alone finds Scooter's files.
+LOOSEN = [(4, ["--strict-artist", "false", "--desperate"]), (2, ["--desperate"])]   # (failed searches, extra options), loosest first
 EXT_PREF = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]
 SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 SPOTIFY_API = "https://api.spotify.com/v1"
