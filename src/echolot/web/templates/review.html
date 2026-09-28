@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import quality %}
 {% block title %}Review · Echolot{% endblock %}
 {% macro song(i) -%}
 {% set e = i.event %}
@@ -12,7 +13,7 @@
     {{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %}
     · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.fake %} · made from a lossy file{% endif %}
   </div>
-  {% if i.kind == 'kept' and e.song_file %}<div class="small warn-text">would replace {{ e.song_file.rsplit('.', 1)[-1] }}{% if e.song_kbps %} {{ e.song_kbps }} kbps{% endif %} in the library</div>{% endif %}
+  {% if i.kind == 'kept' and e.song_file %}<div class="small">replaces {{ quality(e.song_quality, e.song_kbps) }} in the library</div>{% endif %}
 </td>
 <td><audio controls preload="none" src="/review/{{ e.id }}/audio"></audio></td>
 {%- endmacro %}
@@ -30,7 +31,7 @@
 {% block content %}
 <section class="card">
   <div class="card-head">
-    <h1>Filed on a probable match <span class="muted">{{ items.filed|length|num }}</span></h1>
+    <h1>Filed on a probable match <span class="count">{{ items.filed|length|num }}</span></h1>
   </div>
   <p class="muted small">A download that is probably the song (the same core title and version words, no other featured artist, the length within a few seconds) is filed and listed here until you confirm it. <em>Wrong</em> takes it out again, never takes that download for the song again and searches anew.</p>
   <table class="rows">
@@ -45,7 +46,7 @@
 
 <section class="card">
   <div class="card-head">
-    <h1>Rejected downloads <span class="muted">{{ items.kept|length|num }}</span></h1>
+    <h1>Rejected downloads <span class="count">{{ items.kept|length|num }}</span></h1>
   </div>
   <p class="muted small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within about 10 minutes; until then <em>Revert</em> takes it back.</p>
   <table class="rows">

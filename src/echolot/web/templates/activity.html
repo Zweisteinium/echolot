@@ -11,12 +11,13 @@
     </nav>
   </div>
   <table class="rows">
-    <thead><tr><th>When</th><th>What</th><th>Song / file</th><th>Source</th><th>Details</th></tr></thead>
+    <thead><tr><th>When</th><th>What</th><th>Song</th><th>Source</th><th>Details</th></tr></thead>
+    <tbody>
     {% for e in events %}
     <tr>
       <td class="muted small nowrap" title="{{ e.ts }}">{{ e.ts|ago }}</td>
       <td><span class="action a-{{ e.action }}">{{ e.action }}</span></td>
-      <td>{% if e.action in ('wrong-song', 'mismatch') %}{{ e.artist }} – {{ e.title }}{% else %}{{ e.path }}{% endif %}</td>
+      <td>{% if e.artist %}{{ e.artist }} – {{ e.title }}{% else %}<span title="{{ e.path }}">{{ (e.path or '').rsplit('/', 1)[-1] }}</span>{% endif %}</td>
       <td class="muted small">{{ e.source or '' }}</td>
       <td class="muted small">
         {% if e.reason %}{{ e.reason }}{% elif e.ext %}{{ e.ext }}{% if e.kbps %} · {{ e.kbps }} kbps{% endif %}{% if e.bytes %} · {{ e.bytes|size }}{% endif %}{% endif %}
@@ -25,6 +26,7 @@
     {% else %}
     <tr><td colspan="5" class="muted">No activity yet.</td></tr>
     {% endfor %}
+    </tbody>
   </table>
   {% if events|length >= 300 %}<p class="muted small">Showing the latest 300.</p>{% endif %}
 </section>
