@@ -202,25 +202,43 @@ def search_title(title):
     if m and all(w in library.PLAIN_WORDS or w.isdigit() for w in library._words(m.group(2)).split()): t = m.group(1)
     return t.strip() or title
 
-def soulseek_download(rows, label, extra=(), loosen=False, probable=True):
-    """Let Sockseek fetch exactly these songs into the inbox. The CSV has the search terms (Artist, Title; loosen:
-    first artist, search_title) and the wanted song (want_artist, want_title, tries, artists), which post-track.sh
-    hands to library.py; probable=False: a probable match is kept for review instead of filed (FLAC upgrades).
-    --no-skip-existing: Sockseek's own fuzzy "already have it" checks are off."""
-    if not rows: return
-    csvp = STATE / f"sockseek-{label}.csv"
-    with csvp.open("w", newline="", encoding="utf-8") as f:
+def search_terms(r, loosen=False):
+    """(artist, title, length) Sockseek searches for a wanted song. loosen: first artist, search_title. A DJ-mix cut
+    is searched as the release at any length. "/" and "\\" cannot occur in a Soulseek path, so strict-artist dropped
+    every result for "AC/DC" or "Miksu / Macloud": "AC DC" matches AC_DC, AC DC."""
+    artist, title = (library.first_artist(r["artist"]) or r["artist"], search_title(r["title"])) if loosen else (r["artist"], r["title"])
+    cut = library.mix_cut(r["title"])
+    if cut: title = library.release_title(title)
+    return re.sub(r"\s*[/\\]+\s*", " ", artist).strip(), title, 0 if cut else int(r.get("length") or 0)
+
+def write_search_csv(rows, path, loosen=False, probable=True):
+    """Sockseek's input: the search terms (Artist, Title, Length) and the wanted song (want_artist, want_title, tries,
+    artists, probable), which post-track.sh hands to library.py."""
+    with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries", "artists", "probable"])
         for r in rows:
-            artist, title = (library.first_artist(r["artist"]) or r["artist"], search_title(r["title"])) if loosen else (r["artist"], r["title"])
-            cut = library.mix_cut(r["title"])     # DJ-mix cut: search the release, at any length
-            if cut: title = library.release_title(title)
-            # "/" and "\" cannot occur in a Soulseek path, so strict-artist dropped every result for "AC/DC" or
-            # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC
-            artist = re.sub(r"\s*[/\\]+\s*", " ", artist).strip()
-            w.writerow([artist, title, r.get("album", ""), 0 if cut else int(r.get("length") or 0), r.get("uri", ""),
+            artist, title, length = search_terms(r, loosen)
+            w.writerow([artist, title, r.get("album", ""), length, r.get("uri", ""),
                         r["artist"], r["title"], r.get("tries", 0), "; ".join(r.get("artists") or []), int(probable)])
+
+def search_groups(rows):
+    """[(label suffix, extra Sockseek options, loosen, rows)]: the songs by how loosely they are searched (LOOSEN,
+    by 'tries', the searches that did not find them)."""
+    out, rest = [], list(rows)
+    for tries, extra in LOOSEN:
+        group = [r for r in rest if r.get("tries", 0) >= tries]; rest = [r for r in rest if r.get("tries", 0) < tries]
+        if group: out.append((f"-loose{tries}", extra, True, group))
+    if rest: out.append(("", [], False, rest))
+    return out
+
+def soulseek_download(rows, label, extra=(), loosen=False, probable=True):
+    """Let Sockseek fetch exactly these songs into the inbox (see write_search_csv; probable=False: a probable match is
+    kept for review instead of filed, for FLAC upgrades). --no-skip-existing: Sockseek's own fuzzy "already have it"
+    checks are off."""
+    if not rows: return
+    csvp = STATE / f"sockseek-{label}.csv"
+    write_search_csv(rows, csvp, loosen, probable)
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
     os.environ["MUSIC_SYNC_CSV"] = str(csvp)      # post-track.sh reads the wanted song from here by row number
@@ -360,12 +378,9 @@ def run_spotify(src, limit=None, dry=False, sweep=False):
         return
     label = "sweep" if sweep else "spotify"
     for it in todo: it["tries"] = (attempts.get(it["key"]) or {}).get("n", 0)
-    rest = todo
-    for tries, extra in LOOSEN:
-        group = [it for it in rest if it["tries"] >= tries]; rest = [it for it in rest if it["tries"] < tries]
-        if group: log(f"soulseek: {len(group)} songs searched loosened (not found {tries}+ times)")
-        soulseek_download(group, f"{label}-loose{tries}", extra, loosen=True)
-    soulseek_download(rest, label)
+    for suffix, extra, loosen, group in search_groups(todo):
+        if loosen: log(f"soulseek: {len(group)} songs searched loosened ({suffix[1:]})")
+        soulseek_download(group, label + suffix, extra, loosen)
     cat = library.Catalog(); now = int(time.time()); got = 0
     for it in todo:
         key = it["key"]
