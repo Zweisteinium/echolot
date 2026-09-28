@@ -1,266 +1,330 @@
 # Echolot
 
-Self-hosted music library sync. Playlists and likes from Spotify and SoundCloud go in; the library
-gets only the right songs, in the best quality available, ready for Navidrome or any other
-Subsonic server.
+Self-hosted music library manager. Echolot follows your playlists and likes on Spotify and
+SoundCloud, keeps a clean local library that matches them, knows the quality of every file, and
+shows what is missing. The library is plain files, ready for Navidrome or any other Subsonic
+server.
 
 The name is German for *sonar*: ping every source, keep only what echoes back clearly.
 
-> **Status:** the downloading is done by the music-sync pipeline in [`pipeline/`](pipeline/)
-> (Sockseek plus Python scripts). Echolot is its dashboard and control panel: statistics, missing
-> songs, activity, and editing sources and schedules. The pipeline's logic will move into Echolot
-> step by step.
+> **Status:** the file handling is done by the music-sync pipeline in [`pipeline/`](pipeline/)
+> (Python scripts around [Sockseek](https://github.com/fiso64/sockseek) and
+> [yt-dlp](https://github.com/yt-dlp/yt-dlp)). Echolot is its dashboard and control panel:
+> statistics, missing songs, review, activity, sources and schedules. The pipeline's logic moves
+> into Echolot step by step.
 
-## How it works
+## Intended use
+
+Echolot organises, verifies and deduplicates audio files and keeps them in step with your lists.
+Which sources you connect, and what you obtain, keep and share through them, is up to you: use it
+for music you are entitled to (purchases, free and Creative Commons releases, artist-provided
+downloads, your own uploads) and respect the terms of the services you connect and the law where
+you live. Echolot does not circumvent copy protection.
+
+## Features
+
+- **Lists as the source of truth.** Spotify Liked Songs and playlists, SoundCloud likes and sets.
+  Every song is kept once, however many lists contain it; every list becomes a playlist file with
+  its cover.
+- **Strict matching.** A file only counts as a song when artist, title and length agree, with
+  explicit rules for noise ("(Original Mix)", "[HAK003]"), versions (remix, live, VIP),
+  featured artists, DJ-mix cuts and scene file names. Wrong files are rejected, near misses land
+  on a review page.
+- **Quality tracking.** Lossless, lossy by bitrate, and FLACs made from lossy files (spectrum
+  check). Better copies replace worse ones automatically; replaced files are kept for 30 days.
+- **Dashboard.** Completeness and quality per list, missing songs with reasons, a review queue
+  with a player, activity, and settings for sources and schedules.
+- **Metrics.** Hourly snapshots, a JSON API and a Prometheus endpoint for Grafana.
+
+## Architecture
 
 ```
- Spotify API ─┐                        VPN (gluetun, forwarded ports)
- SoundCloud ──┤    ┌──────────────────────────────────────────────┐
-              │    │ sockseek (music-sync)       slskd            │
-              ├───▶│  Spotify lists -> Soulseek   shares tracks/  │──▶ Soulseek network
-              │    └──────────────┬───────────────────────────────┘
-              │                   │ inbox/ -> checks -> library.py
-              │    ┌──────────────▼──────────────┐
-              └───▶│ sockseek-fallback (home IP) │──▶ SoundCloud, YouTube
-                   │  SoundCloud lists, fallback │
-                   └──────────────┬──────────────┘
-                                  ▼
-               <music>/tracks/<Artist>/<Artist> - <Title>.flac
-               <music>/playlists/<list>.m3u + cover
-                                  │
-                   Navidrome (scans every 15 min) ──▶ Feishin, Symfonium, ...
+ list sources                 acquisition                        library
+ ─────────────                ───────────                        ───────
+ Spotify API ─┐   ┌────────────────────────────────────┐
+              ├──▶│ music-sync pipeline (2 containers) │──▶ inbox/ ──▶ checks ──▶ tracks/
+ SoundCloud ──┘   │  sockseek: Soulseek (Sockseek)      │                 │        playlists/
+                  │  sockseek-fallback: SoundCloud,     │                 │
+                  │    search fallback (yt-dlp)         │                 ▼
+                  └────────────────────────────────────┘        Navidrome ──▶ any Subsonic client
+                  slskd (optional Soulseek client with web UI)
 
- Echolot: reads the pipeline's state and logs, scans the library, edits sources.yml and
-          schedule.yml. Web UI on port 8490.
+ Echolot: reads the pipeline's state and logs, scans the library, edits sources.yml,
+          schedule.yml and review.yml. Web UI and API on port 8490.
 ```
 
-A song's way into the library:
+| Component | Image | Role |
+|---|---|---|
+| `sockseek` | built from [`pipeline/`](pipeline/) on the official Sockseek image | Spotify lists: searches and downloads via Soulseek, FLAC upgrades, availability probe |
+| `sockseek-fallback` | same image | SoundCloud lists (yt-dlp), search fallback for songs not found otherwise |
+| `slskd` | `slskd/slskd` | optional Soulseek client with a web UI, independent of the pipeline |
+| `navidrome` | `deluan/navidrome` | music server for the library and playlists |
+| `echolot` | built from this repo | dashboard, control panel, metrics |
 
-1. **Lists.** `sources.yml` names the lists: Spotify Liked Songs and playlists, SoundCloud likes
-   and sets. The pipeline fetches them itself and remembers every song it has ever seen.
-2. **Missing?** `library.py` decides whether the library already has a song. Same song means:
-   - the same artist (case, accents and punctuation ignored; the first of several artists counts);
-   - the same title once noise is removed ("(Original Mix)", "(feat. X)", "[HAK003]",
-     "- 2011 Remaster");
-   - a length within max(10 s, 4 %).
+Both pipeline containers run the same scripts with the same `config/` directory; an environment
+variable (`ROLE`) decides which jobs each one runs. Splitting them lets the two kinds of traffic
+use different networks (see [Network](#network)).
 
-   Version words (Remix, Edit, Extended, VIP, II) keep songs apart. A song Spotify lists twice
-   with the artists swapped ("Mabe, Catch Vibe" / "Catch Vibe, Mabe") is found under any of its
-   artists. The same recording under two artist names (an old and a new name) is linked when you
-   accept it on the Review page (`state/song-links.json`), instead of being filed twice.
-3. **Download.**
-   - **Spotify songs:** Soulseek via [Sockseek](https://github.com/fiso64/sockseek), FLAC first.
-     A song that isn't found is retried after 3 h, 6 h, 12 h, then daily, and every evening a
-     sweep searches all missing songs at once, when the most users are online. After two misses,
-     YouTube/SoundCloud search is tried as well.
-   - **SoundCloud likes:** from SoundCloud, as the original upload where the artist allows it.
-     Tracks SoundCloud won't hand out (DRM) are looked up on YouTube, and must match exactly.
-   - **Never Soulseek for SoundCloud likes:** uploader names are too unreliable to search Soulseek
-     with.
-4. **Checks.** `identify` in `library.py` decides whether a download is the song. The artist
-   must appear in its tags or Soulseek path, always. Then:
-   - **exact:** the title tag or file name gives exactly the title (noise like "(Original Mix)",
-     "[HAK003]", "(Official Video)" removed): filed;
-   - **probable:** the same core title (the part before any bracket, " - ", "|" or "feat."), the
-     same version words (remix, live, VIP, remake, Pt. …), no named variant the request lacks
-     ("(Hard Trance Mix)"), no other featured artist, and the length within 3 s (6 s from
-     YouTube): filed and listed on the Review page. FLAC upgrades, which replace a copy, and
-     YouTube matches for SoundCloud tracks keep a probable match for review instead;
-   - otherwise rejected (`wrong-song`, `mismatch`); near misses (right artist, similar length) are
-     kept in `inbox/review/<date>/` for 30 days.
+## A song's way into the library
 
-   A file name that names another version overrules plain tags ("Infinity 2008 - Klaas Vocal
-   Edit" tagged "Infinity 2008"). Files are also:
-   - checked for codec problems;
-   - converted from WAV/AIFF/ALAC to FLAC;
-   - resampled from hi-res to 44.1/48 kHz 24 bit;
-   - spectrum-checked, so FLACs made from MP3s count as lossy.
-
-   **Loosening** (the search only): a Spotify song that two searches did not find is searched
-   without feat. credits, 'From "Film"' and plain suffixes (" - Radio Edit", " - Unmixed
-   Version"), first artist only, and desperately (a search without results is repeated with the
-   title alone and the artist alone); after four misses also without requiring the artist in the
-   Soulseek path. The checks above stay the same.
-5. **Filing.** `library.py` is the only code that writes into `tracks/`, and it never overwrites.
-   - A download that is a song already in the library is discarded.
-   - A genuine lossless download replaces a lossy or fake copy; the old file goes to
-     `inbox/replaced/<date>/` for 30 days.
-6. **Upgrade.** Twice a day (14:00 and 20:30) Spotify songs that aren't genuine lossless are searched
-   again, FLAC only: at most 150 per run (about 30 min), longest waiting first, so syncs are not
-   held up. Each song waits 12 h, 1 d, 2 d, then 3 d between searches.
+1. **Lists.** `sources.yml` names the lists. The pipeline reads them through the Spotify Web API
+   and SoundCloud's web API and remembers every song it has seen.
+2. **Missing?** `library.py` checks whether the library already has the song (see
+   [Matching](#matching)).
+3. **Acquire.**
+   - *Spotify songs:* Sockseek searches Soulseek and prefers FLAC. A song that is not found is
+     retried after 3 h, 6 h, 12 h, then daily; a sweep searches all missing songs at fixed times.
+     After two misses the search is loosened (see below) and the search fallback may try too.
+   - *SoundCloud songs:* downloaded from SoundCloud with yt-dlp, as the original file where the
+     uploader offers it, otherwise the stream. Tracks SoundCloud does not provide are marked as
+     unavailable.
+4. **Verify** every download (see [Verification](#verification)) and prepare it: codec check,
+   WAV/AIFF/ALAC to FLAC, hi-res to 44.1/48 kHz 24 bit, spectrum check.
+5. **File.** `library.py` is the only code that writes into `tracks/`, and it never overwrites:
+   - a song the library already has is discarded, unless the download is genuine lossless and the
+     library copy is not; then it takes over, and the old file goes to `inbox/replaced/<date>/`
+     for 30 days;
+   - layout: `tracks/<Artist>/<Artist> - <Title>.<ext>`, one folder per artist, whatever the
+     spelling.
+6. **Upgrade.** Twice a day songs that are not genuine lossless are searched again, FLAC only: at
+   most 150 per run, longest waiting first; each song waits 12 h, 1 d, 2 d, then 3 d.
 7. **Playlists.** One `.m3u` per list, in list order, with the list's cover, rebuilt every
    10 minutes. Songs that leave a list stay in the library and move to "<list> – removed".
-   Navidrome imports the playlists.
+
+## Matching
+
+*Same song* (library lookup, `Catalog.song`):
+- the same **artist**, ignoring case, accents and punctuation; the first of several artists
+  counts too, and so does any other artist of the song (a collaboration listed twice with the
+  artists swapped is one song);
+- the same **title** once noise is removed: "(Original Mix)", "(feat. X)", "[HAK003]",
+  "- 2011 Remaster", "(Official Video)" and similar;
+- a **length** within max(10 s, 4 %).
+
+Version words (remix, edit, extended, VIP, live, II, Pt. 2) keep songs apart, and so do different
+featured artists ("Swervin (feat. A)" and "Swervin (feat. B)"). A DJ-mix cut ("Song - Mixed",
+from compilation mixes) is the released song at any length. Two artist names for the same
+recording can be linked on the review page (`state/song-links.json`).
+
+## Verification
+
+`identify` decides whether a download is the song. The artist must appear in its tags or source
+path, always. Then:
+
+| Result | Rule | What happens |
+|---|---|---|
+| **exact** | the title tag or file name gives exactly the title (noise removed) | filed |
+| **probable** | same core title (the part before any bracket, " - ", "\|" or "feat."), same version words, no named variant the request lacks ("(Hard Trance Mix)"), no other featured artist, length within 3 s (6 s for the fallback) | filed and listed on the review page; FLAC upgrades keep it for review instead |
+| **none** | anything else | rejected; near misses (right artist, similar length) are kept in `inbox/review/<date>/` for 30 days |
+
+File names are read with and without track numbers ("07 ", "1-04 ", "CD-01 - "), artist
+prefixes, "Album - 07 - Title" and scene-style names (`02-artist-title-grp`). A file name that
+names another version overrules plain tags.
+
+**Loosened search** (the checks stay the same): a song not found twice is searched without
+feat. credits, 'From "Film"' and plain suffixes (" - Radio Edit"), with the first artist only,
+and a search without results is repeated with the title alone and the artist alone. After four
+misses the artist is no longer required in the Soulseek path (the checks still require it).
 
 ## Echolot
 
-| Page     | What it shows or does                                                                        |
-|----------|-----------------------------------------------------------------------------------------------|
-| Overview | Library size, lossless share, quality tiers, completeness of every list, job activity        |
-| Missing  | Songs not in the library yet, with their lists and why (not found, greyed out, DRM)          |
-| Review   | Songs filed on a probable match (right / wrong) and rejected downloads (accept / discard), with a player |
-| Activity | Everything filed, upgraded or rejected, with reasons                                         |
-| Sources  | Add, rename, hide or remove lists, likes and options, or edit `sources.yml` directly (with undo) |
-| Settings | How often each pipeline job runs (`schedule.yml`) and how often Echolot refreshes            |
+| Page | What it shows or does |
+|---|---|
+| Overview | library size, lossless share, quality of all songs, every list with its quality and missing songs, job activity |
+| Missing | songs not in the library yet, with their lists and why (not found yet, unavailable at the source) |
+| Review | songs filed on a probable match (right / wrong) and kept near misses (accept / discard), with a player; decisions can be reverted until applied |
+| Activity | everything filed, upgraded or rejected, with reasons |
+| Availability | how many Soulseek users have a set of probe songs, by hour |
+| Sources | add, rename, hide or remove lists and options, or edit `sources.yml` directly (with undo) |
+| Settings | when each pipeline job runs (`schedule.yml`) and how often Echolot refreshes |
 
 - **Refresh:** every 5 minutes (adjustable) Echolot imports the pipeline's state into its SQLite
   database, rescans the library and matches every song to its best file.
-- **What it writes:** in the pipeline directory, only `sources.yml`, `schedule.yml` and
-  `review.yml`. Each change is validated and written atomically; earlier versions of the first two
-  are kept for undo. The pipeline applies review decisions once (`state/review-done.json`): a
-  wrong match is retired, that download is never taken for the song again, and the song is
-  searched anew.
-- **What it never touches:** the library, and the pipeline's state, logs and scripts, which it
-  mounts read-only.
+- **Writes:** in the pipeline directory only `sources.yml`, `schedule.yml` and `review.yml`, each
+  validated and written atomically; earlier versions of the first two are kept for undo. The
+  pipeline applies review decisions once (`state/review-done.json`).
+- **Never touches** the library, or the pipeline's state, logs and scripts (mounted read-only).
 
-### Stats for dashboards
+### Metrics and API
 
-Every hour the refresh stores a snapshot of these metrics in the `snapshots` table (hourly for 90
-days, then one per day):
+Every hour the refresh stores a snapshot in the `snapshots` table (hourly for 90 days, then one
+per day):
 
 | Metric | Label | What |
 |---|---|---|
 | `library_files`, `library_bytes` | | library size |
-| `library_files_by_quality` | quality | files per tier: lossless, fake, lossy-high/mid/low |
+| `library_files_by_quality` | quality | lossless, fake, lossy-high / -mid / -low |
 | `library_files_by_format`, `library_bytes_by_format` | format | flac, mp3, m4a, opus, ... |
 | `songs_wanted`, `songs_in_library`, `songs_missing` | service | spotify, soundcloud |
-| `songs_missing_by_reason` | reason | not_found, unavailable (greyed out, DRM), waiting |
+| `songs_missing_by_reason` | reason | not_found, unavailable, waiting |
 | `songs_not_found_by_tries` | tries | 1, 2-3, 4+ |
 | `songs_by_quality`, `songs_by_format` | quality / format | wanted songs by their best copy |
-| `list_songs`, `list_in_library`, `list_lossless` | list | per followed list |
-
-Downloads (`events`) and availability probes (`probes`) are time series of their own.
+| `list_songs`, `list_in_library`, `list_lossless` | list | per list |
 
 | Endpoint | Returns |
 |---|---|
 | `GET /metrics` | current values in the Prometheus format, plus `echolot_events_total{action,source}` and `echolot_probe_users{song,kind,lossless}` |
 | `GET /api/stats` | the newest snapshot |
 | `GET /api/stats/metrics` | metric names, labels and meaning |
-| `GET /api/stats/history?metric=songs_missing[&key=spotify][&since=2026-10-01][&until=...]` | one metric over time: `[{ts, time, key, value}]` |
+| `GET /api/stats/history?metric=songs_missing[&key=spotify][&since=...][&until=...]` | one metric over time: `[{ts, time, key, value}]` |
 | `GET /api/stats/downloads?days=30` | events per day, action, source and format |
 | `GET /api/stats/availability?days=30` | probe results per run and song |
+| `GET /api/docs` | OpenAPI documentation of all endpoints |
 
-Grafana, three ways:
-- **Prometheus** scrapes `http://<host>:8490/metrics` (every 5 min is plenty) and keeps the
-  history; Grafana queries Prometheus.
-- **SQLite data source** (plugin `frser-sqlite-datasource`) on a read-only mount of
-  `data/echolot.db`, e.g. `SELECT ts AS time, key AS metric, value FROM snapshots WHERE metric =
-  'library_files_by_format' ORDER BY ts` (time series, one line per format).
-- **Infinity data source** on the JSON endpoints above.
+Grafana: let Prometheus scrape `/metrics`, or read `data/echolot.db` with the SQLite data source
+(`SELECT ts AS time, key AS metric, value FROM snapshots WHERE metric = 'library_files_by_format'
+ORDER BY ts`), or use the Infinity data source on the JSON endpoints.
 
 ## Deploy
 
-What you need:
-- a Docker host;
-- one filesystem for the music, because files are hard-linked from `inbox/` into `tracks/`;
-- a VPN with port forwarding (ProtonVPN through gluetun, as below);
-- two Soulseek accounts (one for slskd, one for the pipeline);
-- a Spotify account for the developer app (Spotify requires Premium for dev-mode apps);
-- a SoundCloud account.
+### Requirements
 
-All containers run as the same user (UID/GID 1000 here) and use the same time zone.
+- a Docker host with Docker Compose;
+- one filesystem for the music: files are hard-linked from `inbox/` into `tracks/`;
+- a Spotify developer app (Spotify requires Premium for development-mode apps) and a SoundCloud
+  account, for reading your lists;
+- for the Soulseek backend: a Soulseek account for the pipeline (and a second one if you also
+  run slskd: an account can be logged in only once).
 
-### 1. Music disk
+All containers run as the same user (UID/GID 1000 below) and in the same time zone.
 
-```
-<music>/tracks/      the library: Navidrome reads it, slskd shares it
-<music>/playlists/   .m3u files and covers
-<music>/inbox/       downloads in progress, replaced files (kept 30 days)
-```
-
-Every container that touches these mounts `<music>` at `/music`; Navidrome mounts `tracks/` and
-`playlists/` at the same paths, read-only. The playlist files hold relative paths
-(`../tracks/...`).
-
-### 2. VPN: gluetun
-
-Soulseek transfers with firewalled peers only work with an open listen port, so the VPN needs
-port forwarding.
-
-```yaml
-services:
-  gluetun:
-    image: qmcgaw/gluetun
-    cap_add: [NET_ADMIN]
-    devices: [/dev/net/tun:/dev/net/tun]
-    environment:
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=...
-      - VPN_PORT_FORWARDING=on
-      - VPN_PORT_FORWARDING_PORTS_COUNT=2   # one port for slskd, one for the pipeline
-      - LOCAL_NETWORK_SUBSET=192.168.1.0/24 # your LAN, for the slskd web UI
-    ports:
-      - "5030:5030"                         # slskd web UI
-```
-
-### 3. slskd
-
-slskd runs in gluetun's network, shares `tracks/` and downloads into `inbox/`:
-
-```yaml
-services:
-  slskd:
-    image: slskd/slskd
-    network_mode: "container:gluetun"
-    volumes: [./slskd:/app, <music>:/music]
-```
-
-Things to set in `slskd.yml`:
-- `directories.downloads: /music/inbox/slskd` and `directories.incomplete: /music/inbox/incomplete`;
-- `shares.directories: [/music/tracks]`;
-- transfer limits under `transfers.upload/download/groups`. There is no `global` level; an
-  invalid config silently breaks search responses.
-
-**Forwarded ports.** ProtonVPN hands out new ports whenever gluetun reconnects, and each client
-must listen on the public port number itself. [`pipeline/host/sync-listen-port.sh`](pipeline/host/sync-listen-port.sh)
-distributes them: slskd gets one (written to `slskd.yml`, followed by a restart) and the pipeline
-gets the other (`state/listen-port`). Run it from the host's crontab:
+### Directory layout
 
 ```
-*/10 * * * * /path/to/pipeline/host/sync-listen-port.sh >> /path/to/sync-listen-port.log 2>&1
+<music>/tracks/      the library (Navidrome reads it)
+<music>/playlists/   .m3u files and covers (relative paths: ../tracks/...)
+<music>/inbox/       downloads in progress, review and replaced files (kept 30 days)
+
+/opt/sockseek/       the pipeline: a copy of pipeline/ with .env, src/ and config/
+/opt/echolot/        Echolot's data directory (SQLite)
 ```
 
-### 4. The pipeline
+Every container that works with files mounts `<music>` at `/music`.
+
+### Network
+
+Peer-to-peer clients show your IP address to the peers they talk to, so running the Soulseek
+side (`sockseek`, and `slskd` if you use it) behind a VPN is a sensible default for privacy.
+[gluetun](https://github.com/qdm12/gluetun) fits this stack well: the P2P containers join its
+network namespace with `network_mode: "container:gluetun"`, and everything else stays on the
+normal network. If your VPN forwards ports for incoming connections,
+[`pipeline/host/sync-listen-port.sh`](pipeline/host/sync-listen-port.sh) hands the forwarded
+ports to slskd and the pipeline whenever they change (run it from cron).
+
+`sockseek-fallback` stays on the normal network: SoundCloud rate-limits VPN addresses, and video
+sites often refuse them.
+
+### The pipeline
 
 ```sh
 cp -r pipeline /opt/sockseek && cd /opt/sockseek
-git clone https://github.com/fiso64/sockseek src          # Sockseek source: its official image is the base
-cp .env.example .env                                      # fill in, see below
-cp config/sources.example.yml config/sources.yml          # your lists
+git clone https://github.com/fiso64/sockseek src     # Sockseek's source: its official image is the base
+cp .env.example .env                                 # fill in, see below
+cp config/sources.example.yml config/sources.yml     # your lists
 docker compose up -d --build
 ```
 
-Why two containers: `sockseek` runs inside gluetun's network (Soulseek over the VPN), while
-`sockseek-fallback` runs on the home IP, because YouTube refuses VPN exits and SoundCloud
-rate-limits them. Both share `config/`. Cron starts `scripts/tick.py` every minute in each
-container, and it starts that container's jobs when they are due according to `schedule.yml`.
-A job runs either every N minutes or at fixed local times (`at: ["20:00", "sat,sun 15:00"]`).
-The Soulseek jobs share one connection, so a job that is due while another runs starts right
-after it instead of losing its turn.
+[`pipeline/docker-compose.yml`](pipeline/docker-compose.yml), in short:
 
-**Spotify.** Create an app on developer.spotify.com, add the redirect URI
-`http://127.0.0.1:48721/callback` and add your account under "Users and Access". Put the app's ID
-and secret into `.env`. Then get the refresh token once:
+```yaml
+services:
+  sockseek-upstream:            # build step only: the official Sockseek image from src/
+    build: ./src
+    image: sockseek:upstream
+    scale: 0
+
+  sockseek:                     # Soulseek jobs
+    build: { context: ., additional_contexts: { sockseek-upstream: "service:sockseek-upstream" } }
+    image: sockseek:local
+    network_mode: "container:gluetun"          # or a normal network without a VPN
+    environment: [PUID=1000, PGID=1000, TZ=Europe/Berlin, ROLE=main,
+                  DOCKER_MODS=linuxserver/mods:universal-cron]
+    env_file: .env
+    volumes: [./config:/config, "${MUSIC_DIR}:/music"]
+    restart: unless-stopped
+
+  sockseek-fallback:            # SoundCloud and the search fallback
+    image: sockseek:local
+    environment: [PUID=1000, PGID=1000, TZ=Europe/Berlin, ROLE=fallback,
+                  DOCKER_MODS=linuxserver/mods:universal-cron]
+    env_file: .env
+    volumes: [./config:/config, "${MUSIC_DIR}:/music"]
+    restart: unless-stopped
+```
+
+`.env` ([`pipeline/.env.example`](pipeline/.env.example)):
+
+| Variable | Meaning |
+|---|---|
+| `MUSIC_DIR` | the music directory on the host |
+| `SLSK_USER`, `SLSK_PASS` | Soulseek account of the pipeline (registered on first login) |
+| `SPOTIFY_ID`, `SPOTIFY_SECRET` | the Spotify app's credentials |
+| `SPOTIFY_REFRESH` | refresh token, see below |
+| `SC_TOKEN` | SoundCloud web token, see below |
+
+**Spotify.** Create an app on developer.spotify.com with the redirect URI
+`http://127.0.0.1:48721/callback` and add your account under "Users and Access". Then get the
+refresh token once:
 
 1. Open in the browser (with your app's ID):
    `https://accounts.spotify.com/authorize?client_id=<ID>&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A48721%2Fcallback&scope=user-library-read%20playlist-read-private%20playlist-read-collaborative`
-2. After you agree, the browser lands on a page that doesn't load. Copy the `code=` value from its
+2. After you agree, the browser lands on a page that doesn't load; copy the `code=` value from its
    address.
-3. Exchange the code for a refresh token and put `refresh_token` into `SPOTIFY_REFRESH`:
+3. Exchange it and put `refresh_token` into `SPOTIFY_REFRESH`:
    ```sh
    curl -s -u '<ID>:<SECRET>' -d grant_type=authorization_code -d code='<CODE>' \
      -d redirect_uri=http://127.0.0.1:48721/callback https://accounts.spotify.com/api/token
    ```
 
 Spotify may rotate the token; the pipeline stores the new one in `state/spotify-refresh-token`.
-Redo the login if `logs/sync.log` shows auth errors.
 
-**SoundCloud.** Log in on soundcloud.com and open the browser's developer tools (Network tab).
-Take any request to `api-v2.soundcloud.com`; `SC_TOKEN` is the part after `OAuth ` in its
+**SoundCloud.** Log in on soundcloud.com, open the browser's developer tools (Network tab) and
+take any request to `api-v2.soundcloud.com`: `SC_TOKEN` is the part after `OAuth ` in its
 `Authorization` header.
 
-First run and checks:
+**Lists** ([`config/sources.example.yml`](pipeline/config/sources.example.yml)):
+
+```yaml
+spotify:
+  likes: true                        # your Liked Songs
+  playlists:
+    - https://open.spotify.com/playlist/<id>
+    - url: https://open.spotify.com/playlist/<id>
+      title: Workout                 # name in the music server (default: the list's own)
+      playlist: false                # songs only, no playlist file
+soundcloud:
+  user: <your user name>
+  likes: true
+  playlists:
+    - https://soundcloud.com/<user>/sets/<set>
+removed_playlists: true              # songs that leave a list move to "<list> – removed"
+```
+
+**Schedule** ([`config/schedule.yml`](pipeline/config/schedule.yml), editable in Echolot's
+Settings): per job minutes between runs, fixed local times or `off`.
+
+```yaml
+sync: 30                      # new and due missing songs
+sweep:
+  at: ["20:00", "sat,sun 15:00"]
+upgrade:
+  at: ["14:00", "20:30"]
+playlists: 10
+soundcloud: 30                # at least 15
+fallback: 120
+probe: 60                     # availability statistics (search only)
+```
+
+Cron starts `scripts/tick.py` every minute in both containers; it starts the jobs that are due.
+The Soulseek jobs share one lock: a job that is due while another runs starts right after it.
+Every Sockseek run is time-limited (20 min + 15 s per song).
+
+**Sockseek settings** live in [`config/sockseek.conf`](pipeline/config/sockseek.conf): FLAC
+preferred, the artist required in the result path, length tolerance 3 s, downloads only into
+`inbox/sockseek` (never into `tracks/`: its own file mover replaces existing files), and a hook
+(`post-track.sh`) that hands every finished file to `library.py`.
+
+First checks:
 
 ```sh
 docker exec -u abc sockseek /config/scripts/music-sync.py sync --dry-run   # what would be fetched
@@ -269,7 +333,27 @@ docker exec -u abc sockseek /config/scripts/music-sync.py status           # ter
 tail -f config/logs/sync.log config/logs/post-track.log
 ```
 
-### 5. Navidrome
+Run manual jobs with `-u abc`, or they write root-owned files into the library.
+
+### slskd (optional)
+
+A Soulseek client with a web UI, handy for searching by hand. It is independent of the pipeline
+and uses its own account.
+
+```yaml
+services:
+  slskd:
+    image: slskd/slskd
+    network_mode: "container:gluetun"    # or a normal network
+    volumes: [./slskd:/app, <music>:/music]
+```
+
+In `slskd.yml` set the download directories (`directories.downloads: /music/inbox/slskd`,
+`directories.incomplete: /music/inbox/incomplete`) and, if you share anything, what and at which
+limits (`shares`, `transfers`). An invalid config silently breaks search responses; check the log
+after every change.
+
+### Navidrome
 
 ```yaml
 services:
@@ -285,18 +369,18 @@ services:
       - <music>/playlists:/music/playlists:ro
 ```
 
-A playlist's name is set when Navidrome first imports it. Rename it later in Navidrome itself.
-A list removed from `sources.yml` keeps its playlist until you delete it in Navidrome.
+A playlist's name is set when Navidrome first imports it; rename it later in Navidrome. A list
+removed from `sources.yml` keeps its playlist until you delete it there.
 
-### 6. Echolot
+### Echolot
 
 ```yaml
 services:
   echolot:
-    image: echolot:local            # docker build -t echolot:local .
+    build: .                            # or image: echolot:local (docker build -t echolot:local .)
     user: "1000:1000"
     ports:
-      - "192.168.1.10:8490:8490"    # LAN only: there is no login yet
+      - "192.168.1.10:8490:8490"        # LAN only: there is no login yet
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_PIPELINE_DIR: /pipeline
@@ -312,46 +396,27 @@ services:
     restart: unless-stopped
 ```
 
-| Variable               | Default     | Meaning                                                  |
-|------------------------|-------------|----------------------------------------------------------|
-| `ECHOLOT_DATA_DIR`     | `data`      | SQLite database (`/data` in the image)                   |
-| `ECHOLOT_LIBRARY_DIR`  | unset       | The library (`<music>/tracks`), read-only                |
-| `ECHOLOT_PIPELINE_DIR` | unset       | The pipeline's `config/` directory                       |
-| `ECHOLOT_HOST`         | `127.0.0.1` | Listen address (`0.0.0.0` in the image)                  |
-| `ECHOLOT_PORT`         | `8490`      | Listen port                                              |
+| Variable | Default | Meaning |
+|---|---|---|
+| `ECHOLOT_DATA_DIR` | `data` | SQLite database (`/data` in the image) |
+| `ECHOLOT_LIBRARY_DIR` | unset | the library (`<music>/tracks`), read-only |
+| `ECHOLOT_PIPELINE_DIR` | unset | the pipeline's `config/` directory |
+| `ECHOLOT_HOST` | `127.0.0.1` | listen address (`0.0.0.0` in the image) |
+| `ECHOLOT_PORT` | `8490` | listen port |
 
-## Things to know
+## Operation
 
-- **VPN and home IP.** Soulseek runs over the VPN. YouTube and SoundCloud don't work well through
-  it, which is why the fallback container exists. Don't move SoundCloud or YouTube jobs into the
-  VPN container.
-- **Never let Sockseek write into `tracks/`.** Its own mover deletes an existing target file.
-  `sockseek.conf` sends everything to `inbox/sockseek`, and the hook files it through `library.py`.
-- **Correctness before quality.** `strict-artist = true` in `sockseek.conf` and the identity check
-  in `library.py` are deliberate. Only the search is loosened for songs that were not found; what
-  is filed on a probable match is listed on the Review page. `pipeline/tools/rules_check.py`
-  checks rule changes against the real library, `pipeline/tools/live_check.py` against live
-  Soulseek searches.
-- **When people are online.** Rare songs often exist on only a few peers, who come and go.
-  Soulseek publishes no usage statistics. The retry sweep and the FLAC upgrade are placed in the
-  European evening (20:00–21:00), which overlaps with the American afternoon, the general
-  internet peak hours, plus weekend afternoons.
-- **Rate limits.**
-  - Soulseek bans clients that search too fast (Sockseek allows 34 searches per 220 s), so a
-    search of 900 songs takes about 1.5–2 hours.
-  - SoundCloud answers 429 after bursts, so keep its job at 15 minutes or more.
-  - Spotify dev-mode apps allow 5 users. Spotify's editorial playlists ("Today's Top Hits",
-    "Discover Weekly") can't be read; copy them into a playlist of your own.
-- **Pausing.** `touch config/state/PAUSED` stops all downloads (playlist rebuilds keep running);
-  remove the file to resume. Turning off single jobs: set their interval to 0 in Settings.
-- **Where to look.**
-  - `config/logs/<job>.log`: output of each job.
-  - `config/logs/post-track.log`: rejected downloads with reasons (the files: `inbox/review/`).
-  - `config/logs/downloads.jsonl`: every filing.
-  - `config/logs/tick.log`: job starts.
-- **Back up** `config/` (state, sources, secrets), Echolot's `data/`, and the library itself.
-- **Legal.** Download only what you may download where you live. Nothing here circumvents copy
-  protection. The Soulseek client shares the library, as the network expects.
+- **Pause** all downloads with `touch config/state/PAUSED` (playlist rebuilds keep running);
+  remove the file to resume. Single jobs: set them to `off` in Settings.
+- **Logs:** `config/logs/<job>.log` per job, `post-track.log` for every checked download,
+  `downloads.jsonl` for every filing, `tick.log` for job starts.
+- **Rate limits:** Soulseek limits searches (about 34 per 220 s), so a large search takes a
+  while; SoundCloud answers 429 after bursts (keep its job at 15 minutes or more); Spotify
+  development-mode apps allow 5 users and cannot read Spotify's own editorial playlists.
+- **Rule changes:** `pipeline/tools/rules_check.py` compares matching rules against the real
+  library and history, `pipeline/tools/live_check.py` runs a sample of searches without
+  downloading and judges every result.
+- **Back up** `config/` (state, sources, secrets), Echolot's `data/` and the library.
 
 ## Develop
 
@@ -359,8 +424,11 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync
-uv run pytest            # tests; with the pipeline on this machine also a parity check against it
+uv run pytest                  # tests; with the pipeline data on this machine also parity checks
 uv run ruff check && uv run ruff format
-uv run echolot serve     # http://127.0.0.1:8490
+uv run echolot serve           # http://127.0.0.1:8490
 docker compose up -d --build   # dev instance, see docker-compose.yml
 ```
+
+Echolot's matching rules (`src/echolot/matching.py`) mirror the pipeline's `library.py`; a test
+checks both on every wanted song and library file.
