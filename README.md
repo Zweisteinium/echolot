@@ -44,7 +44,10 @@ A song's way into the library:
      "- 2011 Remaster");
    - a length within max(10 s, 4 %).
 
-   Version words (Remix, Edit, Extended, VIP, II) keep songs apart.
+   Version words (Remix, Edit, Extended, VIP, II) keep songs apart. A song Spotify lists twice
+   with the artists swapped ("Mabe, Catch Vibe" / "Catch Vibe, Mabe") is found under any of its
+   artists. The same recording under two artist names (an old and a new name) is linked when you
+   accept it on the Review page (`state/song-links.json`), instead of being filed twice.
 3. **Download.**
    - **Spotify songs:** Soulseek via [Sockseek](https://github.com/fiso64/sockseek), FLAC first.
      A song that isn't found is retried after 3 h, 6 h, 12 h, then daily, and every evening a

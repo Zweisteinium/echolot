@@ -4,6 +4,7 @@ scan() keeps the files table in step with the disk; match_songs() finds each wan
 library copy with the same-song rules of matching.py (as the pipeline's library.py does).
 """
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -93,6 +94,23 @@ class Catalog:
         entries = [Entry(p, d, k, p.rpartition(".")[0] in fakes) for p, d, k in rows]
         return cls([e for e in entries if e.ext in AUDIO])
 
+    def song(
+        self,
+        artist: str,
+        title: str,
+        length: float = 0,
+        artists: list[str] | None = None,
+        link: list[str] | None = None,
+    ) -> list[Entry]:
+        """Library files for a wanted song, as the pipeline's Catalog.song: a review link wins, then the
+        song's artist, then its other artists (a collaboration listed twice with the artists swapped)."""
+        if link and (hits := self.find(link[0], link[1])):
+            return hits
+        for a in dict.fromkeys([artist, *(artists or [])]):
+            if hits := self.find(a, title, length):
+                return hits
+        return []
+
     def find(self, artist: str, title: str, length: float = 0) -> list[Entry]:
         """Library files that are the same song, best quality first (any length for a DJ-mix cut)."""
         tk = title_key(title)
@@ -174,10 +192,14 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None) -> str
 def match_songs(con: sqlite3.Connection) -> str:
     """Set each file's quality tier and each song's best library copy."""
     cat = Catalog.from_db(con)
-    songs = con.execute("SELECT key, artist, title, length, stem FROM songs").fetchall()
+    songs = con.execute(
+        "SELECT key, artist, title, length, stem, artists, link FROM songs"
+    ).fetchall()
     found: list[tuple[str | None, str]] = []
-    for key, artist, title, length, stem in songs:
-        hits = cat.find(artist, title, length)
+    for key, artist, title, length, stem, artists, link in songs:
+        hits = cat.song(
+            artist, title, length, json.loads(artists or "[]"), json.loads(link or "null")
+        )
         best = hits[0] if hits else cat.by_stem.get(stem or "")  # SoundCloud: its own download
         found.append((best.path if best else None, key))
     with con:

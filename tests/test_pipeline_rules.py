@@ -106,7 +106,8 @@ def lib(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
                       ("STATE", "state"), ("EVENTS", "logs/downloads.jsonl")]:  # fmt: skip
         monkeypatch.setattr(library, name, tmp_path / sub)
     for name, file in [("LOCKFILE", "library.lock"), ("CACHE", "library-cache.json"),
-                       ("LOSSY_LIST", "lossy-sourced.json"), ("BLOCKED", "review-blocked.json")]:  # fmt: skip
+                       ("LOSSY_LIST", "lossy-sourced.json"), ("BLOCKED", "review-blocked.json"),
+                       ("LINKS", "song-links.json")]:  # fmt: skip
         monkeypatch.setattr(library, name, tmp_path / "state" / file)
     (tmp_path / "tracks").mkdir()
     return library
@@ -241,4 +242,47 @@ def test_only_near_misses_are_kept(lib, tmp_path: Path) -> None:
     assert not reject(
         "c.wav", "just a fake", 1666, "just a fake - Sweaters"
     ).exists()  # a whole mix
-    assert not reject("d.wav", "just a fake", 200, "Mozart - Die Zauberflöte").exists()  # another artist
+    assert not reject(
+        "d.wav", "just a fake", 200, "Mozart - Die Zauberflöte"
+    ).exists()  # another artist
+
+
+def test_collaboration_listed_twice_is_one_song(lib, tmp_path: Path) -> None:
+    """Spotify: "Mabe, Catch Vibe - Atlantis" and "Catch Vibe, Mabe - Atlantis" (single and EP)."""
+    lib.file_into(
+        download(tmp_path, "a.wav", 350), "Mabe", "Atlantis", 350, artists=["Mabe", "Catch Vibe"]
+    )
+    other = {
+        "artist": "Catch Vibe",
+        "artists": ["Catch Vibe", "Mabe"],
+        "title": "Atlantis",
+        "length": 349,
+    }
+    assert lib.Catalog().song(other)
+    action, dest = lib.file_into(download(tmp_path, "b.wav", 350), "Catch Vibe", "Atlantis", 349,
+                                 artists=["Catch Vibe", "Mabe"])  # fmt: skip
+    assert action == "duplicate" and dest.parent.name == "Mabe"
+    # a shared artist alone is not enough: the title and the length must match too
+    assert not lib.Catalog().song({**other, "title": "Atlantis II"})
+    assert not lib.Catalog().song({**other, "length": 200})
+
+
+def test_accept_links_the_same_recording_under_another_artist(
+    lib, tmp_path: Path, monkeypatch
+) -> None:
+    """Spotify: "Pbb Yea - Chilln" and "TheDoDo - Chilln"; YouTube has one video, tagged Pbb Yea."""
+    lib.file_into(download(tmp_path, "a.wav", 227), "Pbb Yea", "Chilln", 227, ids=["spotify:pbb"])
+    kept = download(tmp_path, "b.wav", 227)
+    review = tmp_path / "inbox" / "review" / "2026-09-27" / "TheDoDo - Chilln [youtube].wav"
+    review.parent.mkdir(parents=True)
+    kept.rename(review)
+    monkeypatch.setattr(lib, "_tags", lambda p: (["Pbb Yea"], "Chilln"))
+    result, retry = lib.review_apply({"decision": "accept", "song": "spotify:dodo", "path": str(review),
+                                      "artist": "TheDoDo", "title": "Chilln", "length": 227, "source": "youtube"})  # fmt: skip
+    assert (result, retry) == ("linked Pbb Yea/Pbb Yea - Chilln.wav", False)
+    assert not review.exists() and not (tmp_path / "tracks" / "TheDoDo").exists()
+    hits = lib.Catalog().song(
+        {"artist": "TheDoDo", "title": "Chilln", "length": 227, "key": "spotify:dodo"}
+    )
+    assert [h.path.name for h in hits] == ["Pbb Yea - Chilln.wav"]
+    assert events(tmp_path)[-1]["action"] == "linked"
