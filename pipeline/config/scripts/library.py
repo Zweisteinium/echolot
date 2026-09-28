@@ -319,9 +319,13 @@ class Catalog:
         return TRACKS / clean_name(artist)
 
 # ------------------------------------------------------------------ helpers
+def norm_key(key):
+    """Song keys are 'spotify:<id>' / 'soundcloud:<id>'; Sockseek hands over the URI 'spotify:track:<id>'."""
+    return re.sub(r"^spotify:track:", "spotify:", key or "")
+
 def song_key(it):
     """'spotify:<id>' / 'soundcloud:<id>' of a list item (the key music-sync and Echolot use), or None."""
-    if it.get("key"): return it["key"]
+    if it.get("key"): return norm_key(it["key"])
     uri = str(it.get("uri") or "")
     return f"spotify:{it['id']}" if uri.startswith("spotify:") and it.get("id") else None
 
@@ -401,6 +405,7 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
     src = pathlib.Path(src)
     ext = src.suffix.lower().lstrip(".")
     dur, _ = _probe(src)
+    ids = [norm_key(i) for i in ids or [] if i]
     if mix_cut(title): length = 0             # a DJ-mix cut: the full release is the song
     info = dict(source=source, ids=ids or [], artist=artist, title=title)
     if strict:
@@ -471,7 +476,7 @@ def _keep(src, artist, title, source):
     return src
 
 def _retag(path, artist, title):
-    """Set the artist and title tags (a review accept of a download tagged with another artist)."""
+    """Set the artist and title tags (a download accepted on the review page as this song)."""
     try:
         from mutagen import File as MFile
         m = MFile(str(path), easy=True)
@@ -489,8 +494,8 @@ def _drop(src):
 
 def _blocked(ids, names):
     """A download of this song was marked wrong in review with this tag title or file name."""
-    bad = _read_json(BLOCKED, {})
-    return any(n and n in bad.get(i, []) for i in ids or [] for n in names)
+    bad = {norm_key(k): v for k, v in _read_json(BLOCKED, {}).items()}
+    return any(n and n in bad.get(norm_key(i), []) for i in ids or [] for n in names)
 
 # ------------------------------------------------------------------ review decisions (Echolot)
 def review_apply(d):
@@ -500,7 +505,7 @@ def review_apply(d):
       wrong    a filed probable match is wrong: retire it, never take this download for the song again
       accept   a rejected download kept in inbox/review/ is right: file it (no checks)
       discard  delete such a kept download"""
-    decision, song = d.get("decision"), d.get("song") or ""
+    decision, song = d.get("decision"), norm_key(d.get("song"))
     if decision == "ok": return "kept", False
     if decision == "wrong":
         names = [n for n in (d.get("found"), d.get("file_name")) if n]
@@ -534,8 +539,8 @@ def review_apply(d):
                 return f"linked {hits[0].path.relative_to(TRACKS)}", False
         action, dest = file_into(p, artist, title, d.get("length") or 0, d.get("source", ""),
                                  [song] if song else [], bool(d.get("fake")), match="review")
-        if action == "new" and dest and tag_artists and not any(f" {w} " in _words(a) for w in want for a in tag_artists):
-            _retag(dest, artist, title)       # else music servers file it under the download's artist
+        if action in ("new", "upgrade") and dest:
+            _retag(dest, artist, title)       # accepted as this song: its tags say so (downloads often have none or others)
         return f"{action} {dest.relative_to(TRACKS) if dest else ''}".strip(), False
     return f"unknown decision {decision!r}", False
 

@@ -17,8 +17,8 @@ Reads /config/sources.yml (what) and the container environment (secrets), then:
   playlists  rebuild every playlist file from the lists and the library (hourly).
   probe      availability statistics: search Soulseek for the songs in /config/probe.csv without downloading
              and append how many users have each (and in lossless) to logs/probe.jsonl (hourly).
-  review     apply the decisions from Echolot's review page (config/review.yml); also done at the start of every
-             Soulseek job and by the playlists job when no Soulseek job runs.
+  review     apply the decisions from Echolot's review page (config/review.yml); also done by the playlists job
+             (every 10 min) and at the start of every Soulseek job.
   fill-albums  fill empty album tags from the Spotify metadata.
   status     list sizes, library counts and what is missing.
   sync/upgrade accept --dry-run (show what would be fetched) and a number (limit, for tests).
@@ -39,6 +39,7 @@ ATTEMPTS = STATE / "attempts.json"                # "spotify:<id>" -> {n, last, 
 UPGRADE_ATTEMPTS = STATE / "upgrade-attempts.json" # "spotify:<id>" -> {n, last}: FLAC searches that found nothing better
 REVIEW_FILE = CONFIG / "review.yml"               # decisions from Echolot's review page (written by Echolot only)
 REVIEW_DONE = STATE / "review-done.json"          # decision id -> {at, result}: applied decisions
+REVIEW_RETRY = STATE / "review-retry.json"        # song -> {n, artist, title} (search again) or null (found), for attempts.json
 # Songs Soulseek did not find are searched less strictly with every failure (by the searches that found nothing):
 #   0-1: as requested, the artist must be in the Soulseek path, the file must be exactly the song
 #   2-3: title without feat. credits, 'From "Film"' and plain suffixes (- Radio Edit, - Unmixed Version), first
@@ -661,32 +662,41 @@ def run_fallback(src, force=False):
     write_playlists(src)
 
 # ---------------------------------------------------------------- review decisions (Echolot)
-def apply_review():
+def apply_review(own_lock):
     """Apply the new decisions of Echolot's review page (config/review.yml, each once; see library.review_apply).
-    Needs the Soulseek lock (attempts.json): 'wrong' makes the song due for a search right away."""
-    try: items = (yaml.safe_load(REVIEW_FILE.read_text(encoding="utf-8")) or {}).get("decisions") or []
-    except (OSError, yaml.YAMLError, AttributeError): return
-    done = read_json(REVIEW_DONE, {})
-    todo = [d for d in items if isinstance(d, dict) and d.get("id") and str(d["id"]) not in done]
-    if not todo: return
-    attempts = read_json(ATTEMPTS, {})
-    for d in todo:
-        try: result, retry = library.review_apply(d)
-        except Exception as e: result, retry = f"failed: {e}", False
-        song = d.get("song") or ""
-        if retry and song:
-            a = attempts.setdefault(song, {"n": 0})
-            a.update(n=max(a.get("n", 0), int(d.get("tries") or 0), 2), last=0, artist=d.get("artist"), title=d.get("title"))
-        if d.get("decision") == "accept" and result.startswith(("new", "upgrade", "duplicate")):
-            attempts.pop(song, None)
-            dest = TRACKS / result.split(" ", 1)[1] if " " in result else None
-            if dest and dest.is_file() and result.startswith("new"):
-                art = [str(dest), song.replace("spotify:", "spotify:track:")] if song.startswith("spotify:") else \
-                      [str(dest), "search", "", d.get("artist") or "", d.get("title") or ""]
-                subprocess.run([sys.executable, str(SCRIPTS / "artwork.py"), *art])
-        done[str(d["id"])] = {"at": datetime.datetime.now().isoformat(timespec="seconds"), "result": result}
-        log(f"review: {d.get('decision')} {d.get('artist')} - {d.get('title')}: {result}")
-    write_json(ATTEMPTS, attempts); write_json(REVIEW_DONE, done)
+    The file work is done at once (under the library lock). attempts.json may only change under the Soulseek lock
+    (a running sync writes it at its end): without it, e.g. in the playlists job during a long upgrade, 'search
+    again' / 'found' are queued in state/review-retry.json for the next Soulseek job."""
+    with (STATE / "review.lock").open("w") as rl:
+        fcntl.flock(rl, fcntl.LOCK_EX)                  # one applier at a time (playlists job and Soulseek jobs)
+        try: items = (yaml.safe_load(REVIEW_FILE.read_text(encoding="utf-8")) or {}).get("decisions") or []
+        except (OSError, yaml.YAMLError, AttributeError): items = []
+        done, queue = read_json(REVIEW_DONE, {}), read_json(REVIEW_RETRY, {})
+        todo = [d for d in items if isinstance(d, dict) and d.get("id") and str(d["id"]) not in done]
+        for d in todo:
+            try: result, retry = library.review_apply(d)
+            except Exception as e: result, retry = f"failed: {e}", False
+            song = library.norm_key(d.get("song"))
+            if retry and song:
+                queue[song] = {"n": max(int(d.get("tries") or 0), 2), "artist": d.get("artist"), "title": d.get("title")}
+            if d.get("decision") == "accept" and result.startswith(("new", "upgrade", "duplicate", "linked")):
+                if song: queue[song] = None             # found: no more searches
+                dest = TRACKS / result.split(" ", 1)[1] if " " in result else None
+                if dest and dest.is_file() and result.startswith(("new", "upgrade")):
+                    art = [str(dest), song.replace("spotify:", "spotify:track:")] if song.startswith("spotify:") else \
+                          [str(dest), "search", "", d.get("artist") or "", d.get("title") or ""]
+                    subprocess.run([sys.executable, str(SCRIPTS / "artwork.py"), *art])
+            done[str(d["id"])] = {"at": datetime.datetime.now().isoformat(timespec="seconds"), "result": result}
+            log(f"review: {d.get('decision')} {d.get('artist')} - {d.get('title')}: {result}")
+        if todo: write_json(REVIEW_DONE, done)
+        if own_lock and queue:
+            attempts = read_json(ATTEMPTS, {})
+            for song, v in queue.items():
+                if v is None: attempts.pop(song, None); continue
+                a = attempts.setdefault(song, {"n": 0})
+                a.update(n=max(a.get("n", 0), v["n"]), last=0, artist=v["artist"], title=v["title"])
+            write_json(ATTEMPTS, attempts); queue = {}
+        write_json(REVIEW_RETRY, queue)
 
 # ---------------------------------------------------------------- availability probe
 PROBE_LIST, PROBE_LOG = CONFIG / "probe.csv", CONFIG / "logs" / "probe.jsonl"
@@ -863,9 +873,10 @@ def main():
     if mode == "fill-albums": return fill_albums(src)
     if mode == "playlists":
         subprocess.run([sys.executable, str(SCRIPTS / "library.py"), "purge"])
-        with (STATE / "music-sync.lock").open("w") as lk:     # review decisions, unless a Soulseek job runs
-            try: fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB); apply_review()
-            except BlockingIOError: pass
+        with (STATE / "music-sync.lock").open("w") as lk:     # review decisions; attempts only without a Soulseek job
+            try: fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB); own = True
+            except BlockingIOError: own = False
+            apply_review(own)
         return write_playlists(src)
     if dry and mode in ("sync", "sweep", "upgrade"):
         if mode == "upgrade": return run_upgrade(src, dry=True, force="--all" in args)
@@ -881,7 +892,7 @@ def main():
             if waited == 0: log("another music-sync run is active, waiting for it")
             time.sleep(10)
     log(f"=== music-sync {mode} start")
-    if mode != "soundcloud": apply_review()
+    if mode != "soundcloud": apply_review(True)
     if mode in ("sync", "spotify"):
         run_spotify(src, limit)
     elif mode == "sweep":
