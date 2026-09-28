@@ -31,7 +31,16 @@ def overview(con: Connection) -> dict[str, Any]:
         f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM songs s "
         "LEFT JOIN files f ON f.path = s.file"
     ).fetchone()
+    services = {
+        r[0]: {"songs": r[1], "missing": r[1] - r[2]}
+        for r in con.execute(
+            "SELECT l.service, count(DISTINCT s.key), count(DISTINCT CASE WHEN s.file IS NOT NULL "
+            "THEN s.key END) FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
+            "JOIN songs s ON s.key = ls.song_key GROUP BY l.service"
+        )
+    }
     return {
+        "services": services,  # distinct songs (and missing ones) per service
         "song_tiers": tier_counts(songs),
         "files": files,
         "size": size,

@@ -143,11 +143,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def overview(request: Request, con: DB) -> HTMLResponse:
         root = settings.pipeline_dir
+        o = stats.overview(con)
         return page(
             request,
             "overview.html",
             nav="overview",
-            o=stats.overview(con),
+            o=o,
+            donut=charts.donut(o["song_tiers"]),
+            refresh_minutes=jobs.refresh_minutes(con),
+            refresh_in=scheduler.next_run_in("refresh"),
             pipeline_jobs=schedule.status(root) if root else [],
             paused=bool(root and pipeline.paused(root)),
         )

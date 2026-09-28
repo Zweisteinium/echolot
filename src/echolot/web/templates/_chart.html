@@ -19,3 +19,23 @@
   {% endif %}
 </figure>
 {%- endmacro %}
+
+{# part-to-whole ring (charts.donut) with a figure in the middle; fake FLACs striped #}
+{% macro donut_chart(d, figure, caption) -%}
+<svg class="donut" viewBox="0 0 {{ d.size }} {{ d.size }}" width="{{ d.size }}" height="{{ d.size }}" role="img" aria-label="{{ caption }}">
+  <defs>
+    <pattern id="stripes" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="4" height="4" class="stripe-bg"></rect><rect width="2" height="4" class="stripe"></rect>
+    </pattern>
+  </defs>
+  <g transform="rotate(-90 {{ d.size / 2 }} {{ d.size / 2 }})">
+    <circle class="ring" cx="{{ d.size / 2 }}" cy="{{ d.size / 2 }}" r="{{ d.radius }}" stroke-width="{{ d.width }}"></circle>
+    {% for s in d.slices %}
+    <circle class="slice q-{{ s.key }}" cx="{{ d.size / 2 }}" cy="{{ d.size / 2 }}" r="{{ d.radius }}" stroke-width="{{ d.width }}"
+            pathLength="100" stroke-dasharray="{{ s.dash }}" stroke-dashoffset="{{ s.offset }}"><title>{{ s.label }}: {{ s.count|num }} ({{ '%.1f'|format(100 * s.share) }} %)</title></circle>
+    {% endfor %}
+  </g>
+  <text class="donut-figure" x="50%" y="48%" text-anchor="middle">{{ figure }}</text>
+  <text class="donut-caption" x="50%" y="63%" text-anchor="middle">{{ caption }}</text>
+</svg>
+{%- endmacro %}
