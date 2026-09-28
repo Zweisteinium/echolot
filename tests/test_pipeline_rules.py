@@ -436,3 +436,25 @@ def test_run_sockseek_stops_a_stuck_run(monkeypatch: pytest.MonkeyPatch, capsys)
     p = sync.run_sockseek(["sleep", "30"])
     assert p.returncode != 0 and "stopped" in capsys.readouterr().out
     assert sync.run_sockseek(["true"]).returncode == 0
+
+
+@pytest.mark.parametrize(
+    ("artist", "title", "file_name", "match"),
+    [  # file names from live Soulseek searches (tools/live_check.py)
+        ("Solo Viking", "War Harangue", "02-solo_viking-war_harangue", "exact"),
+        ("Trancemaster Krause", "In Flames", "10-trancemaster_krause_-_in_flames-zzzz", "exact"),
+        ("Pawlowski", "Now Is The Time", "01-johannes_schuster_x_pawlowski-now_is_the_time_(original_mix)", "exact"),
+        ("LAWTON", "Believe In", "Caroline_Roxy__Trancemaster_Krause__Lawton__UK_-Believe_In-Original_Mix-86100923", "exact"),
+        ("A-ha", "Take On Me", "01-a-ha-take_on_me", "exact"),
+        ("Jay-Z", "Empire State of Mind", "jay-z-empire_state_of_mind-group", "exact"),
+        ("Odymel", "The Basement", "1-01 The Basement", "exact"),
+        ("Pendulum", "The Tempest", "10 Pendulum - CD-01 - The Tempest", "exact"),
+        ("SSIO", "Hör Dir nicht dieses Lied an", "01-06 - Hor Dir Nicht Dieses Lied An", "exact"),
+        ("Anyone", "Song", "Anyone - Song-Remix", None),  # a trailing part is a group tag only in scene names
+        ("Anyone", "Song", "anyone-song-remix", None),
+        ("Anyone", "Song-A-Long", "Anyone - Song-A-Long", "exact"),
+        ("Vortex", "Desert", "Portal Vortex", None),
+    ],
+)  # fmt: skip
+def test_file_name_readings(artist: str, title: str, file_name: str, match: str | None) -> None:
+    assert library.identify(artist, title, [], "", file_name, [artist])[0] == match  # the artist folder

@@ -9,13 +9,13 @@ Runs on the host: python3 rules_check.py <new library.py> [<old library.py>]
   B   every logged download with its found name (downloads.jsonl): verdict of the old and the new rules
 Paths: library /media/hdd/medialib/audio/music/tracks, pipeline state /opt/sockseek/config (never written;
 the catalog cache goes to a temporary copy)."""
-import collections, importlib.util, json, pathlib, random, sys, tempfile
+import collections, importlib.machinery, importlib.util, json, pathlib, random, sys, tempfile
 
 MUSIC = pathlib.Path("/media/hdd/medialib/audio/music")
 CONFIG = pathlib.Path("/opt/sockseek/config")
 
 def load(path, name):
-    spec = importlib.util.spec_from_file_location(name, path)
+    spec = importlib.util.spec_from_loader(name, importlib.machinery.SourceFileLoader(name, str(path)))  # also *.bak-*
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     tmp = pathlib.Path(tempfile.mkdtemp())
     cache = json.loads((CONFIG / "state/library-cache.json").read_text())
@@ -44,6 +44,7 @@ def new_verdict(lib, artist, title, tag_artists, tag_title, file_name, folders, 
     return lib.identify(artist, title, tag_artists, tag_title, file_name, folders, dur, length, tol)
 
 def old_verdict(lib, artist, title, tag_artists, tag_title, file_name, folders, dur, length, tol=3):
+    if hasattr(lib, "identify"): return new_verdict(lib, artist, title, tag_artists, tag_title, file_name, folders, dur, length, tol)
     close = bool(dur and length and abs(dur - float(length)) <= 3)
     ok, why = lib.identity_ok(artist, title, tag_artists, tag_title, file_name, folders, True, close)
     if ok: return "exact", why
