@@ -226,3 +226,19 @@ def test_mix_cut_found_at_any_length(lib, tmp_path: Path) -> None:
     cat = lib.Catalog()
     assert cat.find("Neelix", title + " - Mixed", 103)
     assert not cat.find("Neelix", title, 103)  # a real 1:43 version would be another song
+
+
+def test_only_near_misses_are_kept(lib, tmp_path: Path) -> None:
+    def reject(name: str, artist: str, seconds: int, file_name: str) -> Path:
+        lib.file_into(download(tmp_path, name, seconds), artist, "Sweaters", 200, "soulseek",
+                      ["spotify:x"], strict=True, file_name=file_name)  # fmt: skip
+        return Path(events(tmp_path)[-1]["path"])
+
+    assert reject(
+        "a.wav", "just a fake", 190, "just a fake - Sweater Weather"
+    ).is_file()  # other title
+    assert reject("b.wav", "just a fake", 240, "just a fake - Sweaters").is_file()  # other version
+    assert not reject(
+        "c.wav", "just a fake", 1666, "just a fake - Sweaters"
+    ).exists()  # a whole mix
+    assert not reject("d.wav", "just a fake", 200, "Mozart - Die Zauberflöte").exists()  # another artist

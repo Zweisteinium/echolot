@@ -16,7 +16,8 @@ Filing rules (file_into), all under one lock shared by every container:
   - a different song whose file name is taken (e.g. same title, other length) gets its length appended
   - artist folders are matched case/accent-insensitively, so one artist keeps one folder
   - every filing is appended to /config/logs/downloads.jsonl (for statistics and Echolot's review page)
-  - rejected search results (wrong song, other version) are kept in /music/inbox/review/<date>/ for 30 days
+  - rejected search results that are near misses (right artist, similar length) are kept in /music/inbox/review/<date>/
+    for 30 days
   - songs strict searches missed may be filed on a probable match (probable_ok), marked for review
 
 CLI:
@@ -373,8 +374,9 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
     'wrong-song' (strict: tags / source file name are not the requested artist and title).
     strict is for search results (Soulseek, YouTube); file_name/folders = where the download came from.
     relaxed (songs strict searches missed, see music-sync.py): a probable match (probable_ok) is filed too,
-    marked match=probable for review in Echolot. Rejected downloads are kept in inbox/review/ for 30 days,
-    so a near miss can still be accepted there."""
+    marked match=probable for review in Echolot. Near misses among rejected downloads (the artist matched, the
+    length is within 2/3 to 1.5 times the wanted one) are kept in inbox/review/ for 30 days, so they can still
+    be accepted there; other rejects are deleted."""
     src = pathlib.Path(src)
     ext = src.suffix.lower().lstrip(".")
     dur, _ = _probe(src)
@@ -393,10 +395,12 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
         if ok and _blocked(ids, [tag_title, file_name]):
             ok, why = False, "this download was marked wrong in review"
         if not ok:
-            _event("wrong-song", _keep(src, artist, title, source), reason=why, **info)
+            kept = _keep(src, artist, title, source) if not why.startswith("artist ") else _drop(src)
+            _event("wrong-song", kept, reason=why, **info)
             return "wrong-song", None
         if dur and length and not same_length(dur, length):
-            _event("mismatch", _keep(src, artist, title, source), wanted_seconds=round(float(length)), **info)
+            near = 2 / 3 <= dur / float(length) <= 1.5
+            _event("mismatch", _keep(src, artist, title, source) if near else _drop(src), wanted_seconds=round(float(length)), **info)
             return "mismatch", None
         info["reason"] = why
     if match: info["match"] = match
@@ -442,6 +446,11 @@ def _keep(src, artist, title, source):
         except FileExistsError: continue
         except OSError: break
     src.unlink(missing_ok=True)
+    return src
+
+def _drop(src):
+    """Delete a rejected download that is no near miss (another artist, or a very different length: a mix)."""
+    src = pathlib.Path(src); src.unlink(missing_ok=True)
     return src
 
 def _blocked(ids, names):

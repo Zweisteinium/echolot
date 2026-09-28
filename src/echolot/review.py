@@ -83,6 +83,14 @@ def local_file(path: str, music_dir: Path) -> Path | None:
     return p if p.is_relative_to(base.resolve()) else None
 
 
+def near_miss(e: sqlite3.Row, wanted: float) -> bool:
+    """A rejected download worth a look: the artist matched and the length is not far off (the pipeline
+    keeps only these since 2026-09-28; earlier ones are hidden)."""
+    if (e["reason"] or "").startswith("artist "):
+        return False
+    return not (e["seconds"] and wanted) or 2 / 3 <= e["seconds"] / wanted <= 1.5
+
+
 def items(con: sqlite3.Connection, root: Path, music_dir: Path) -> dict[str, list[Item]]:
     """What to look at: probable matches still in the library without a decision, and kept rejected
     downloads of songs that are still missing (newest first)."""
@@ -100,10 +108,12 @@ def items(con: sqlite3.Connection, root: Path, music_dir: Path) -> dict[str, lis
         key = decision_id(e["ts"], e["path"])
         if key in done or (kind == "kept" and e["song"] and e["song_file"]):  # song found meanwhile
             continue
+        length = e["wanted_length"] or e["wanted_seconds"] or 0
+        if kind == "kept" and not near_miss(e, length):
+            continue
         file = local_file(e["path"], music_dir)
         if file is None or not file.is_file():
             continue
-        length = e["wanted_length"] or e["wanted_seconds"] or 0
         out[kind].append(Item(e, kind, file, float(length), decided.get(key)))
     return out
 
