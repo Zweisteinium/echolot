@@ -10,6 +10,7 @@ Layout of the pipeline directory:
   state/spotify-unplayable.json      liked songs Spotify greys out
   state/attempts.json                songs Soulseek did not deliver yet
   state/lossy-sourced.json           FLACs made from lossy files
+  state/song-links.json              song -> the library song it is (a review accept)
   state/library-cache.json           duration and bitrate of library files
   state/PAUSED                       downloads paused
   logs/downloads.jsonl               every filing into the library
@@ -136,6 +137,15 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
     meta = _read_json(state / "playlist-meta.json", {})
     unplayable = set(_read_json(state / "spotify-unplayable.json", []))
     sc_tracks = _read_json(state / "soundcloud-tracks.json", {})
+    links = _read_json(state / "song-links.json", {})
+
+    def link(key: str) -> str | None:
+        v = links.get(key)
+        return (
+            json.dumps([v["artist"], v["title"]])
+            if isinstance(v, dict) and v.get("artist")
+            else None
+        )
 
     lists, songs, list_songs = [], {}, []
     for src in sources(config):
@@ -156,6 +166,8 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
                         float(it.get("length") or 0),
                         why,
                         None,
+                        json.dumps(it.get("artists") or [it["artist"]]),
+                        link(key),
                     ),
                 )
                 keys.append(key)
@@ -178,6 +190,8 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
                         float(t.get("duration") or 0),
                         why,
                         t.get("stem"),
+                        None,
+                        link(key),
                     ),
                 )
                 keys.append(key)
@@ -200,10 +214,11 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
         con.execute("DELETE FROM lists")
         con.executemany("INSERT INTO lists VALUES (?, ?, ?, ?, ?, ?, ?)", lists)
         con.executemany(
-            "INSERT INTO songs (key, service, artist, title, album, length, unavailable, stem) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET "
+            "INSERT INTO songs (key, service, artist, title, album, length, unavailable, stem, artists, link) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET "
             "artist = excluded.artist, title = excluded.title, album = excluded.album, "
-            "length = excluded.length, unavailable = excluded.unavailable, stem = excluded.stem",
+            "length = excluded.length, unavailable = excluded.unavailable, stem = excluded.stem, "
+            "artists = excluded.artists, link = excluded.link",
             songs.values(),
         )
         old = {r[0] for r in con.execute("SELECT key FROM songs")}

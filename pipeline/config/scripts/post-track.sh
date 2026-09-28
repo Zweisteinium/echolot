@@ -74,13 +74,13 @@ rows = list(csv.DictReader(open(os.environ["MUSIC_SYNC_CSV"], encoding="utf-8", 
 r = rows[int(sys.argv[1]) - 2]                        # Sockseek counts the header as row 1
 if sys.argv[2] and r.get("uri") and sys.argv[2] != r["uri"]: sys.exit(1)
 print("\t".join([r.get("want_artist") or r["Artist"], r.get("want_title") or r["Title"], r["Length"], r.get("uri", ""),
-                 r.get("tries") or "0"]))' "$row" "$uri" 2>>"$LOG") \
+                 r.get("tries") or "0", r.get("artists") or ""]))' "$row" "$uri" 2>>"$LOG") \
   || { note "FAIL no CSV row $row (uri $uri) for $f"; echo "failed;"; exit 0; }
-sartist=$(printf '%s' "$want" | cut -f1); stitle=$(printf '%s' "$want" | cut -f2); slength=$(printf '%s' "$want" | cut -f3); uri=$(printf '%s' "$want" | cut -f4); tries=$(printf '%s' "$want" | cut -f5)
+sartist=$(printf '%s' "$want" | cut -f1); stitle=$(printf '%s' "$want" | cut -f2); slength=$(printf '%s' "$want" | cut -f3); uri=$(printf '%s' "$want" | cut -f4); tries=$(printf '%s' "$want" | cut -f5); artists=$(printf '%s' "$want" | cut -f6)
 # a song Soulseek did not find twice (music-sync.py LOOSEN) may be filed on a probable match, marked for review
 relaxed=""; [ "${tries:-0}" -ge 2 ] 2>/dev/null && relaxed="--relaxed"
 out=$(python3 /config/scripts/library.py file "$f" --artist "$sartist" --title "$stitle" --length "${slength:-0}" \
-        --source soulseek --id "$uri" --strict --loose --file-name "$slskfile" --folder "$slskfolder" $fake $relaxed --tries "${tries:-0}" 2>>"$LOG")
+        --source soulseek --id "$uri" --strict --loose --file-name "$slskfile" --folder "$slskfolder" $fake $relaxed --tries "${tries:-0}" --artists "$artists" 2>>"$LOG")
 action=$(printf '%s' "$out" | cut -f1); dest=$(printf '%s' "$out" | cut -f2-)
 # another version of the song (length off by more than max(10 s, 4 %)): kept in inbox/review, the song stays missing
 if [ "$action" = mismatch ]; then note "mismatch (other version, kept for review): $f wanted ${slength}s"; echo "failed;"; exit 0; fi

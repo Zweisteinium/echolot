@@ -117,6 +117,10 @@ MIGRATIONS = [
     );
     CREATE INDEX snapshots_metric ON snapshots(metric, ts);
     """,
+    """
+    ALTER TABLE songs ADD COLUMN artists TEXT;  -- JSON list of all the song's artists (Spotify)
+    ALTER TABLE songs ADD COLUMN link TEXT;     -- JSON [artist, title]: the library song it is (review accept)
+    """,
 ]
 
 

@@ -206,7 +206,7 @@ def soulseek_download(rows, label, extra=(), loosen=False):
     if not rows: return
     csvp = STATE / f"sockseek-{label}.csv"
     with csvp.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries"])
+        w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries", "artists"])
         for r in rows:
             artist, title = (library.first_artist(r["artist"]) or r["artist"], search_title(r["title"])) if loosen else (r["artist"], r["title"])
             cut = library.mix_cut(r["title"])     # DJ-mix cut: search the release, at any length
@@ -215,7 +215,7 @@ def soulseek_download(rows, label, extra=(), loosen=False):
             # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC
             artist = re.sub(r"\s*[/\\]+\s*", " ", artist).strip()
             w.writerow([artist, title, r.get("album", ""), 0 if cut else int(r.get("length") or 0), r.get("uri", ""),
-                        r["artist"], r["title"], r.get("tries", 0)])
+                        r["artist"], r["title"], r.get("tries", 0), "; ".join(r.get("artists") or [])])
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
     os.environ["MUSIC_SYNC_CSV"] = str(csvp)      # post-track.sh reads the wanted song from here by row number
@@ -344,7 +344,7 @@ def run_spotify(src, limit=None, dry=False, sweep=False):
     wanted = wanted_from_soulseek(src, fetch=not sweep)
     cat = library.Catalog()
     attempts = read_json(ATTEMPTS, {})
-    missing = [it for it in wanted.values() if not cat.find(it["artist"], it["title"], it["length"])]
+    missing = [it for it in wanted.values() if not cat.song(it)]
     todo = missing if sweep else [it for it in missing if due(attempts.get(it["key"]))]
     unplayable = set(read_json(STATE / "spotify-unplayable.json", []))
     todo.sort(key=lambda it: it["id"] not in unplayable)    # greyed out on Spotify first: most at risk
@@ -364,7 +364,7 @@ def run_spotify(src, limit=None, dry=False, sweep=False):
     cat = library.Catalog(); now = int(time.time()); got = 0
     for it in todo:
         key = it["key"]
-        if cat.find(it["artist"], it["title"], it["length"]): attempts.pop(key, None); got += 1
+        if cat.song(it): attempts.pop(key, None); got += 1
         else:
             a = attempts.setdefault(key, {"n": 0}); a.update(n=a["n"] + 1, last=now, artist=it["artist"], title=it["title"])
     write_json(ATTEMPTS, attempts)
@@ -581,7 +581,7 @@ def run_upgrade(src, dry=False, force=False):
     sp_rows, seen = [], set()
     for _, items in load_spotify_lists(src, fetch=False):
         for it in items:
-            hit = cat.find(it["artist"], it["title"], it["length"])
+            hit = cat.song(it)
             if hit and not hit[0].genuine and str(hit[0].path) not in seen:
                 seen.add(str(hit[0].path)); sp_rows.append(it)
     todo = sp_rows if force else [it for it in sp_rows if due(tries.get("spotify:" + it["id"]), 12 * 3600, 3 * 86400)]
@@ -592,7 +592,7 @@ def run_upgrade(src, dry=False, force=False):
     tries = {k: v for k, v in tries.items() if k in {"spotify:" + it["id"] for it in sp_rows}}   # drop songs that left
     for it in todo:
         key = "spotify:" + it["id"]
-        if (h := after.find(it["artist"], it["title"], it["length"])) and h[0].genuine:
+        if (h := after.song(it)) and h[0].genuine:
             better += 1; tries.pop(key, None)
         else:
             t = tries.setdefault(key, {"n": 0}); t.update(n=t["n"] + 1, last=now)
@@ -638,7 +638,7 @@ def run_fallback(src, force=False):
     sc_drm = [it for _, items in sc_items(src) for it in items if it["unavailable"]]
     for it in list(wanted_from_soulseek(src, fetch=False).values()) + sc_drm:
         a = attempts.setdefault(it["key"], {"n": 0}) if it in sc_drm else attempts.get(it["key"])
-        if cat.find(it["artist"], it["title"], it["length"]): continue
+        if cat.song(it): continue
         if force: a = attempts.setdefault(it["key"], {"n": 0}); time.sleep(2)   # gentle on YouTube
         elif (it not in sc_drm and (not a or a.get("n", 0) < 2)) or now - a.get("fb", 0) < 7 * 86400: continue
         a["fb"] = now; write_json(ATTEMPTS, attempts)
@@ -649,7 +649,7 @@ def run_fallback(src, force=False):
         # same identity check as Soulseek downloads: the video must really be <artist> - <title>
         action, dest = library.file_into(got, it["artist"], it["title"], it["length"], site, [it["key"]],
                                          strict=True, file_name=vtitle, folders=uploader, loose=it not in sc_drm,
-                                         relaxed=it not in sc_drm, tries=a.get("n", 0))
+                                         relaxed=it not in sc_drm, tries=a.get("n", 0), artists=it.get("artists") or ())
         if dest is None: log(f"fallback: {action}, '{vtitle}' for {it['artist']} - {it['title']} kept in inbox/review"); continue
         log(f"fallback: {action} {dest.relative_to(TRACKS)} ({site})")
         if action != "duplicate":
@@ -724,7 +724,7 @@ def write_playlists(src, cat=None):
     """Every list becomes one .m3u in list order, pointing at the best library copy of each song."""
     cat = cat or library.Catalog()
     def best(it):
-        h = cat.find(it["artist"], it["title"], it["length"])
+        h = cat.song(it)
         return str(h[0].path) if h else None
     def playlist(name, paths):
         """The list's playlist, or with `playlist: false` none (an earlier file and cover are removed)."""
@@ -762,7 +762,7 @@ def fill_albums(src):
     cat = library.Catalog(); n = 0
     for _, items in load_spotify_lists(src, fetch=False):
         for it in items:
-            h = cat.find(it["artist"], it["title"], it["length"])
+            h = cat.song(it)
             if not h: continue
             try:
                 a = MFile(str(h[0].path), easy=True)
@@ -820,10 +820,10 @@ def status(src):
     print(f"   {dim}{_fit('', 32)} {'songs':>6} {'have':>6} {'miss':>5}  {'':20} {'':>5}{off}")
     rows = []
     for name, items in load_spotify_lists(src, fetch=False):
-        have = sum(1 for it in items if cat.find(it["artist"], it["title"], it["length"]))
+        have = sum(1 for it in items if cat.song(it))
         rows.append((meta.get(name, {}).get("title") or name, "spotify", len(items), have))
     for name, items in sc_items(src):
-        have = sum(1 for it in items if cat.find(it["artist"], it["title"], it["length"]) or (it["stem"] and resolve(it["stem"])))
+        have = sum(1 for it in items if cat.song(it) or (it["stem"] and resolve(it["stem"])))
         rows.append((meta.get(name, {}).get("title") or name, "soundcloud", len(items), have))
     for title, kind, total, have in rows:
         f = have / total if total else 1
