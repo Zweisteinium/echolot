@@ -4,14 +4,15 @@ Reads /config/sources.yml (what) and the container environment (secrets), then:
   sync       (sockseek container, VPN) fetch the Spotify lists, ask library.py which songs are really missing
              (exact artist + title + length) and let Sockseek download only those from Soulseek, FLAC first.
              Songs not found are retried after 3 h, 6 h, 12 h, then daily; after 2 failed searches the search is
-             loosened (see LOOSEN), and a probable match is filed with a review mark (Echolot's review page).
+             loosened (see LOOSEN). A download that is only probably the song is filed marked for review.
   sweep      search Soulseek again for every missing Spotify song, whatever its retry wait (scheduled at the
              hours most users are online).
   soundcloud (sockseek-fallback container, home IP) SoundCloud likes/playlists via yt-dlp
              (originals kept lossless, streams as-is). SoundCloud rate-limits the VPN exit.
   upgrade    every wanted song whose library copy is not genuine lossless (lossy, or a FLAC that spectrum.py
              found to be a re-encoded MP3) is searched on Soulseek again, FLAC only. Each song waits 12 h, 1 d,
-             2 d, then 3 d between searches (state/upgrade-attempts.json); `upgrade --all` searches every one now.
+             2 d, then 3 d between searches (state/upgrade-attempts.json); at most UPGRADE_BATCH songs per run,
+             longest waiting first. `upgrade --all` searches every one now.
   fallback   (sockseek-fallback container, home IP) YouTube/SoundCloud search for songs Soulseek failed twice
              (`fallback --all`: every missing song now).
   playlists  rebuild every playlist file from the lists and the library (hourly).
@@ -37,13 +38,14 @@ SC_STATE = STATE / "soundcloud-tracks.json"       # soundcloud id -> {artist, ti
 SC_ARCHIVE = STATE / "soundcloud-archive.txt"     # yt-dlp download archive (never re-download an id)
 ATTEMPTS = STATE / "attempts.json"                # "spotify:<id>" -> {n, last, fb} for songs Soulseek did not deliver
 UPGRADE_ATTEMPTS = STATE / "upgrade-attempts.json" # "spotify:<id>" -> {n, last}: FLAC searches that found nothing better
+UPGRADE_BATCH = 150                               # songs per upgrade run (~30 min); `upgrade --all` searches all
 REVIEW_FILE = CONFIG / "review.yml"               # decisions from Echolot's review page (written by Echolot only)
 REVIEW_DONE = STATE / "review-done.json"          # decision id -> {at, result}: applied decisions
 REVIEW_RETRY = STATE / "review-retry.json"        # song -> {n, artist, title} (search again) or null (found), for attempts.json
 # Songs Soulseek did not find are searched less strictly with every failure (by the searches that found nothing):
 #   0-1: as requested, the artist must be in the Soulseek path, the file must be exactly the song
 #   2-3: title without feat. credits, 'From "Film"' and plain suffixes (- Radio Edit, - Unmixed Version), first
-#        artist only; a probable match (library.probable_ok) is filed with a review mark
+#        artist only
 #   4+ : also without requiring the artist in the Soulseek path (library.py still checks tags and names)
 # Both loosened levels search desperately: a search without any result is repeated with the title alone and the
 # artist alone (any length). Most clients do not answer queries with a phrase the server excludes, e.g. "Scooter"
@@ -200,14 +202,16 @@ def search_title(title):
     if m and all(w in library.PLAIN_WORDS or w.isdigit() for w in library._words(m.group(2)).split()): t = m.group(1)
     return t.strip() or title
 
-def soulseek_download(rows, label, extra=(), loosen=False):
+def soulseek_download(rows, label, extra=(), loosen=False, probable=True):
     """Let Sockseek fetch exactly these songs into the inbox. The CSV has the search terms (Artist, Title; loosen:
-    first artist, search_title) and the wanted song (want_artist, want_title, tries), which post-track.sh hands to
-    library.py. --no-skip-existing: Sockseek's own fuzzy "already have it" checks are off."""
+    first artist, search_title) and the wanted song (want_artist, want_title, tries, artists), which post-track.sh
+    hands to library.py; probable=False: a probable match is kept for review instead of filed (FLAC upgrades).
+    --no-skip-existing: Sockseek's own fuzzy "already have it" checks are off."""
     if not rows: return
     csvp = STATE / f"sockseek-{label}.csv"
     with csvp.open("w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f); w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries", "artists"])
+        w = csv.writer(f)
+        w.writerow(["Artist", "Title", "Album", "Length", "uri", "want_artist", "want_title", "tries", "artists", "probable"])
         for r in rows:
             artist, title = (library.first_artist(r["artist"]) or r["artist"], search_title(r["title"])) if loosen else (r["artist"], r["title"])
             cut = library.mix_cut(r["title"])     # DJ-mix cut: search the release, at any length
@@ -216,7 +220,7 @@ def soulseek_download(rows, label, extra=(), loosen=False):
             # "Miksu / Macloud"; "AC DC" matches AC_DC, AC DC
             artist = re.sub(r"\s*[/\\]+\s*", " ", artist).strip()
             w.writerow([artist, title, r.get("album", ""), 0 if cut else int(r.get("length") or 0), r.get("uri", ""),
-                        r["artist"], r["title"], r.get("tries", 0), "; ".join(r.get("artists") or [])])
+                        r["artist"], r["title"], r.get("tries", 0), "; ".join(r.get("artists") or []), int(probable)])
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
     os.environ["MUSIC_SYNC_CSV"] = str(csvp)      # post-track.sh reads the wanted song from here by row number
@@ -586,9 +590,11 @@ def run_upgrade(src, dry=False, force=False):
             if hit and not hit[0].genuine and str(hit[0].path) not in seen:
                 seen.add(str(hit[0].path)); sp_rows.append(it)
     todo = sp_rows if force else [it for it in sp_rows if due(tries.get("spotify:" + it["id"]), 12 * 3600, 3 * 86400)]
-    log(f"upgrade: {len(sp_rows)} Spotify songs are not genuine lossless yet, {len(todo)} due for a FLAC search now")
+    if not force:   # a run holds the Soulseek lock: keep it short, so syncs are not held up for hours
+        todo = sorted(todo, key=lambda it: (tries.get("spotify:" + it["id"]) or {}).get("last", 0))[:UPGRADE_BATCH]
+    log(f"upgrade: {len(sp_rows)} Spotify songs are not genuine lossless yet, {len(todo)} searched now (at most {UPGRADE_BATCH}, longest waiting first)")
     if dry: return
-    soulseek_download(todo, "upgrade-spotify", ["--format", "flac"])
+    soulseek_download(todo, "upgrade-spotify", ["--format", "flac"], probable=False)   # replaces a copy: exact only
     after = library.Catalog(); now = int(time.time()); better = 0
     tries = {k: v for k, v in tries.items() if k in {"spotify:" + it["id"] for it in sp_rows}}   # drop songs that left
     for it in todo:
@@ -649,9 +655,9 @@ def run_fallback(src, force=False):
         if not got: log(f"fallback: nothing found for {it['artist']} - {it['title']}"); continue
         # same identity check as Soulseek downloads: the video must really be <artist> - <title>
         action, dest = library.file_into(got, it["artist"], it["title"], it["length"], site, [it["key"]],
-                                         strict=True, file_name=vtitle, folders=uploader, loose=it not in sc_drm,
-                                         relaxed=it not in sc_drm, tries=a.get("n", 0), artists=it.get("artists") or ())
-        if dest is None: log(f"fallback: {action}, '{vtitle}' for {it['artist']} - {it['title']} kept in inbox/review"); continue
+                                         strict=True, file_name=vtitle, folders=uploader, probable=it not in sc_drm,
+                                         tries=a.get("n", 0), artists=it.get("artists") or ())
+        if dest is None: log(f"fallback: {action}, '{vtitle}' for {it['artist']} - {it['title']} not filed"); continue
         log(f"fallback: {action} {dest.relative_to(TRACKS)} ({site})")
         if action != "duplicate":
             art = [str(dest), it["uri"]] if it.get("uri") else [str(dest), "search", "", it["artist"], it["title"]]

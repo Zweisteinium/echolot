@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from echolot.matching import artist_key, artist_keys, identity_ok, same_length, title_key
+from echolot.matching import artist_key, artist_keys, same_length, title_key
 
 
 @pytest.mark.parametrize(
@@ -51,49 +51,43 @@ def test_same_length() -> None:
     assert same_length(0, 123)  # unknown length
 
 
-def test_identity() -> None:
-    assert not identity_ok("TINOS", "All Night", ["Vanilla"], "All Night")[0]
-    assert identity_ok("TINOS", "All Night", ["TINOS"], "All Night")[0]
-    assert identity_ok("Hi-Rez", "Smiling", file_name="Hi-Rez_A Walk To Remember_13_Smiling")[0]
-    edit = dict(tag_artists=["A"], tag_title="Song - Radio Edit")
-    assert not identity_ok("A", "Song - Edit", **edit)[0]
-    assert identity_ok("A", "Song - Edit", **edit, loose=True, length_close=True)[0]
-    assert not identity_ok("A", "Song - Edit", **edit, loose=True, length_close=False)[0]
+PIPELINE = Path("/opt/sockseek/config")  # real song data
+SCRIPTS = Path(__file__).parents[1] / "pipeline" / "config" / "scripts"  # the rules' source
 
 
-PIPELINE = Path("/opt/sockseek/config")
-
-
-@pytest.mark.skipif(not PIPELINE.exists(), reason="needs the music-sync pipeline on this machine")
+@pytest.mark.skipif(
+    not PIPELINE.exists(), reason="needs the music-sync pipeline data on this machine"
+)
 def test_parity_with_pipeline() -> None:
-    """The port behaves exactly like the pipeline's library.py on the real song data."""
-    spec = importlib.util.spec_from_file_location(
-        "pipeline_library", PIPELINE / "scripts/library.py"
-    )
+    """The port gives exactly what the pipeline's library.py gives, on every wanted song and library file."""
+    spec = importlib.util.spec_from_file_location("pipeline_library", SCRIPTS / "library.py")
     assert spec and spec.loader
     old = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(old)
 
     from echolot import matching
 
-    songs = json.loads((PIPELINE / "state/spotify-spotify-liked-songs.json").read_text())
+    songs = [
+        s
+        for f in PIPELINE.glob("state/spotify-spotify-*.json")
+        if not f.stem.endswith("-history")
+        for s in json.loads(f.read_text())
+    ]
     files = [
-        p.removeprefix("/music/tracks/").rsplit(".", 1)[0]
+        p.removeprefix("/music/tracks/")
         for p in json.loads((PIPELINE / "state/library-cache.json").read_text())
     ]
-    assert len(songs) > 100 and len(files) > 100
-    for s in songs:
-        for name in ("title_key", "artist_keys", "first_artist", "clean_name", "fold"):
-            value = s["title"] if name in ("title_key", "clean_name") else s["artist"]
-            assert getattr(matching, name)(value) == getattr(old, name)(value), (name, value)
-    for i, s in enumerate(songs):
-        folder, _, stem = files[i % len(files)].partition("/")
-        tag_title = stem.split(" - ", 1)[-1]
-        for loose in (False, True):
-            args = (s["artist"], s["title"], [folder], tag_title, stem, [folder], loose, True)
-            assert matching.identity_ok(*args) == old.identity_ok(*args), args
-            own = (s["artist"], s["title"], [s["artist"]], s["title"], "", [], loose, True)
-            assert matching.identity_ok(*own) == old.identity_ok(*own), own
+    assert len(songs) > 1000 and len(files) > 1000
+    titles = [s["title"] for s in songs] + [f.rsplit(".", 1)[0].split(" - ", 1)[-1] for f in files]
+    artists = [a for s in songs for a in s.get("artists") or [s["artist"]]] + [
+        f.split("/")[0] for f in files
+    ]
+    for t in titles:
+        for name in ("title_key", "clean_name", "mix_cut", "feat_keys"):
+            assert getattr(matching, name)(t) == getattr(old, name)(t), (name, t)
+    for a in artists:
+        for name in ("artist_keys", "first_artist", "fold"):
+            assert getattr(matching, name)(a) == getattr(old, name)(a), (name, a)
 
 
 def test_catalog_song_other_artists_and_link() -> None:

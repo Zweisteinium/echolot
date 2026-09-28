@@ -18,7 +18,7 @@ Filing rules (file_into), all under one lock shared by every container:
   - every filing is appended to /config/logs/downloads.jsonl (for statistics and Echolot's review page)
   - rejected search results that are near misses (right artist, similar length) are kept in /music/inbox/review/<date>/
     for 30 days
-  - songs strict searches missed may be filed on a probable match (probable_ok), marked for review
+  - a download that is only probably the song (identify) is filed marked for review in Echolot
 
 CLI:
   library.py file <src> --artist A --title T [--length S] [--source X] [--id ID] [--fake]  -> prints "<action>\t<path>"
@@ -68,10 +68,11 @@ def artist_keys(a):
     """Full name and first artist ("Above & Beyond" -> {aboveandbeyond, above}); empty keys dropped."""
     return {k for k in (artist_key(a), artist_key(first_artist(a))) if k}
 
+_MIX_CUT_RE = r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$"
 _NOISE = [
-    r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere|official(?:\s+(?:4k|hd))?(?:\s+(?:audio|video|music\s+video|visuali[sz]er))?"
+    r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere|official(?:\s+(?:4k|hd))?(?:\s+(?:audio|video|music\s+video|lyrics?\s+video|visuali[sz]er))?|lyrics?\s+video"
     r"|visuali[sz]er|lyrics?|hq|hd|explicit|clean|original(?:\s+(?:mix|version))?)\s*[\)\]\}]",
-    r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,6}\s?-?\d{2,5}\s*\]",   # catalog no. [HAK003]
+    r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,8}\s?-?\d{2,5}\s*\]",   # catalog no. [HAK003]
     r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]",
     r"\s+(?:feat|ft|featuring)\.?\s[^\-\(\[]*$",
     r"\s+-\s+original(?:\s+(?:mix|version))?\s*$",
@@ -85,9 +86,9 @@ _NOISE = [
     r"\s+(?:clean|dirty)(?=\s+\d{1,2}[ab]\s+\d{2,3}\s*$|\s*$)",
     r"\s+\d{1,2}[ab]\s+\d{2,3}\s*$",                                   # DJ-pool Camelot key + BPM: "1A 132"
     r"[\(\[][^a-z0-9\(\)\[\]]+[\)\]]",                                 # parentheses without Latin letters (translations)
-    r"[\(\[]\s*mixed\s*[\)\]]", r"\s+-\s+mixed\s*$",                       # DJ-mix cut, see mix_cut()
+    _MIX_CUT_RE,                                                        # DJ-mix cut, see mix_cut()
 ]
-_MIX_CUT = re.compile(r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$", re.I)
+_MIX_CUT = re.compile(_MIX_CUT_RE, re.I)
 
 def mix_cut(title):
     """A cut out of a continuous DJ mix ("Song - Mixed", "Song (Mixed) - X Remix", from albums like "Kontor
@@ -98,6 +99,19 @@ def mix_cut(title):
 def release_title(title):
     """The title without a DJ-mix cut marker ("Song (Mixed) - X Remix" -> "Song - X Remix"), for searching."""
     return re.sub(r"\s+", " ", _MIX_CUT.sub("", title or "")).strip()
+
+_FEAT = re.compile(r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s([^\)\]]*)[\)\]]|\s(?:feat|ft|featuring)\.?\s([^\-\(\[]*)$", re.I)
+
+def feat_keys(t):
+    """Artist keys of the featured artists in a title ("Swervin (feat. 6ix9ine)" -> {"6ix9ine"})."""
+    names = [n for m in _FEAT.finditer(t or "") for n in m.groups() if n]
+    return {k for n in names for a in re.split(r"\s*(?:,|&|\band\b|\bx\b)\s*", n, flags=re.I) if (k := artist_key(a))}
+
+def same_feat(a, b):
+    """Titles with featured artists on both sides must share one: "Swervin (feat. 6ix9ine)" and "Swervin
+    (feat. Veysel)" are two recordings; a credit on one side only ("Monody (feat. Laura Brehm)") is not."""
+    fa, fb = feat_keys(a), feat_keys(b)
+    return not fa or not fb or bool(fa & fb)
 
 def title_key(t):
     s = fold(t).replace("&", " and ")
@@ -110,34 +124,45 @@ def title_key(t):
     return re.sub(r"\bpart\b", "pt", s)                                  # "Pt. III" == "Part III"
 
 def _words(s):
-    return " " + re.sub(r"[\W_]+", " ", fold(s).replace("&", " and ")).strip() + " "
+    """' w1 w2 ... ': whole-word form for 'contains' checks; apostrophes vanish ("N'to" = "NTO")."""
+    return " " + re.sub(r"[\W_]+", " ", re.sub(r"['’`´]", "", fold(s)).replace("&", " and ")).strip() + " "
 
 def _strip_track_no(s):
     return re.sub(r"^\s*(?:[a-z]?\d{1,4}|\d{1,2}-\d{1,3})[\s.\-_)]+(?=\S)", "", s, flags=re.I)
 
-def identity_ok(artist, title, tag_artists=(), tag_title="", file_name="", folders=(), loose=False, length_close=False):
-    """Is this file really <artist> - <title>? (Download matching goes by search results and length and can
-    pick another artist's song with the same title, e.g. "Vanilla - All Night" for "TINOS - All Night".)
-    Artist: the requested artist (full or first) appears as whole words in the file's artist tags or in its
-    Soulseek file or folder names. Title: the title tag, or the file name (never a folder: that is the album)
-    without track number and artist prefix, gives exactly the requested title (noise rules of title_key).
-    loose (Spotify songs): the title may also just contain the requested title's words in order ("Edit" vs
-    "Radio Edit") when the length is within 3 s. The artist must always match. Returns (ok, reason)."""
-    want_a = _artist_words(artist)
+def identify(artist, title, tag_artists=(), tag_title="", file_name="", folders=(), dur=0, length=0, tol=3):
+    """Is this download <artist> - <title>? (Search results can be another artist's song with the same title,
+    e.g. "Vanilla - All Night" for "TINOS - All Night".) Returns (match, reason), match one of
+      'exact'     the artist appears as whole words in the artist tags or the source file/folder names, and the
+                  title tag or file name (never a folder: that is the album), read without track number and artist
+                  prefix (_readings), gives exactly the requested title (noise rules of title_key)
+      'probable'  the artist as above, the same core title (the part before any bracket, ' - ', '|' or 'feat.'),
+                  the same version words (remix, live, VIP, remake, ...), a named variant such as "(Hard Trance Mix)"
+                  only if the request names it too, and the length within `tol` seconds. This replaces a list of
+                  harmless extras ("(Official 4K Video)", "(prod. von X)", "| JCC 2020") by a list of what makes
+                  another recording.
+      None        neither."""
+    want = _artist_words(artist)
     texts = [t for t in [*tag_artists, file_name, *folders] if t]
-    if not want_a or not any(f" {w} " in _words(t) for w in want_a for t in texts):
-        return False, f"artist '{artist}' not in {texts}"
+    has_artist = lambda x: any(f" {w} " in _words(x) for w in want)
+    if not want or not any(has_artist(t) for t in texts):
+        return None, f"artist '{artist}' not in {texts}"
     tk = title_key(title)
-    has_artist = lambda x: any(f" {w} " in _words(x) for w in want_a)
-    candidates = lambda name: _readings(name, has_artist)
-    if tag_title and any(title_key(c) == tk for c in candidates(tag_title)): return True, "tags"
-    if file_name and any(title_key(c) == tk for c in candidates(file_name)): return True, "file name"
-    if loose and length_close and tk:
-        def in_order(want, have):          # every requested word, in order ("... Edit" in "... Radio Edit")
-            it = iter(have.split()); return all(w in it for w in want.split())
-        for c in candidates(tag_title) if tag_title else []:   # tag only: file names mix in album names
-            if in_order(tk, title_key(c)): return True, "title tag has the title words in order, length within 3 s"
-    return False, f"title '{title}' is neither tag '{tag_title}' nor file name '{file_name}'"
+    artist_words = set(" ".join(want).split())
+    readings = {"tags": _readings(tag_title, has_artist) if tag_title else [],
+                "file name": _readings(file_name, has_artist) if file_name else []}
+    # the file name can name a version the tags leave out ("Infinity 2008 - Klaas Vocal Edit" tagged "Infinity 2008")
+    if c := _other_version(title, readings["file name"], artist_words):
+        return None, f"file name '{c}' names another version than '{title}'"
+    for source, names in readings.items():
+        if tk and any(title_key(c) == tk and same_feat(c, title) for c in names): return "exact", source
+    if not (dur and length and abs(dur - float(length)) <= tol):
+        return None, (f"title '{title}' is neither tag '{tag_title}' nor file name '{file_name}' "
+                      f"(a probable match needs the length within {tol} s: {dur or 0:.0f} s, wanted {float(length or 0):.0f} s)")
+    names = readings["tags"] + readings["file name"]
+    if c := _probable(title, names, artist_words):
+        return "probable", f"probable: '{c}' has the core title, the same version words, length within {tol} s"
+    return None, f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' has the same core title and version"
 
 def _artist_words(artist):
     """The requested artist as whole-word forms: full name, first artist, without a disambiguation suffix."""
@@ -145,30 +170,32 @@ def _artist_words(artist):
     return [w for w in {_words(artist).strip(), _words(first_artist(artist)).strip(), _words(base).strip()} if w]
 
 def _readings(name, has_artist):
-    """Readings of a tag title / file name as a plain title: without track number, without (repeated)
-    artist prefixes, 'Album - 07 - Title' and reversed 'Title - Artist' forms."""
+    """Readings of a tag title / file name as a plain title: with and without a leading track number (a title can
+    start with a number: "10 out 10", "93 Bang Bang"), without (repeated) artist prefixes, 'Album - 07 - Title',
+    'Artist_Album_13_Title' and reversed 'Title - Artist' forms."""
+    out = []
+    add = lambda x: x and x not in out and out.append(x)
     m = re.match(r"^[^_]+_[^_]+_\d{1,3}_(.+)$", name)      # "Artist_Album_13_Title"
+    if m: add(m.group(1).replace("_", " "))
     name = name.replace("_-_", " - ").replace("_", " ") if name.count("_") > 2 else name
-    rest = _strip_track_no(name)
-    out = [name, rest]              # the unstripped form too: "93 Bang Bang", "H2 (...)" start with a number
-    if m: out.append(m.group(1).replace("_", " "))
-    while " - " in rest:
-        head, tail = rest.split(" - ", 1)
-        if not has_artist(head): break
-        rest = _strip_track_no(tail); out.append(rest)
-    m = re.match(r"^.+? - \d{1,3} - (.+)$", rest)
-    if m: out.append(m.group(1))
-    if " - " in rest:
-        head, tail = rest.rsplit(" - ", 1)
-        if has_artist(tail): out.append(head)
+    for rest in (name, _strip_track_no(name)):
+        add(rest)
+        while " - " in rest:
+            head, tail = rest.split(" - ", 1)
+            if not has_artist(head): break
+            rest = tail; add(rest)
+            add(_strip_track_no(rest))
+        if m := re.match(r"^.+? - \d{1,3} - (.+)$", rest): add(m.group(1))
+        if " - " in rest:
+            head, tail = rest.rsplit(" - ", 1)
+            if has_artist(tail): add(head)
     return out
 
-# ------------------------------------------------------------------ probable match (songs strict searches missed)
 # Words that mark another recording of a song: request and download must agree on them.
 VERSION_WORDS = {"remix", "remixed", "rmx", "live", "acoustic", "instrumental", "inst", "slowed", "sped", "nightcore",
                  "reverb", "cover", "karaoke", "vip", "bootleg", "mashup", "rework", "flip", "remake", "reprise",
                  "unplugged", "demo", "acapella", "orchestral", "piano", "lofi", "8d", "medley", "tribute", "dub",
-                 "megamix", "part", "pt", "ii", "iii", "iv"}
+                 "megamix", "pt", "ii", "iii", "iv"}
 # Words that name no other recording (an edit or extended mix differs in length, which is checked instead)
 PLAIN_WORDS = {"original", "radio", "extended", "club", "album", "single", "edit", "mix", "version", "remaster",
                "remastered", "mono", "stereo", "explicit", "clean", "dirty", "short", "long", "full", "unmixed", "mixed",
@@ -177,46 +204,46 @@ PLAIN_WORDS = {"original", "radio", "extended", "club", "album", "single", "edit
                "a", "the", "at", "in", "on", "of", "from", "for", "to", "de", "der", "die", "das"}
 _MARKERS = VERSION_WORDS | {"mix", "edit", "version"}      # a segment with one of these names a variant
 _SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+-\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
-PROBABLE_TOLERANCE = {"soulseek": 3}                       # seconds; search sources (YouTube: intros) get 6
 
 def _segments(title):
     """'Run Run Run feat. X (prod. Y) [Official Remix]' -> 'Run Run Run', ['feat. X', 'prod. Y', 'Official Remix']."""
     parts = [p.strip() for p in _SEGMENT.split(title or "") if p and p.strip()]
     return (parts[0], parts[1:]) if parts else ("", [])
 
-def probable_ok(artist, title, tag_artists=(), tag_title="", file_name="", folders=(), dur=0, length=0, tol=3):
-    """Looser identity for songs strict searches did not find; such filings get a review mark in Echolot.
-    Instead of listing every harmless extra ("(Official 4K Video)", "(prod. von X)", "| JCC 2020") it lists what
-    makes another recording: same artist (as identity_ok), the same core title (the part before any bracket,
-    ' - ', '|' or 'feat.'), the same version words (remix, live, VIP, remake, ...), a named variant such as
-    "(Hard Trance Mix)" or "(RL Grime Remix)" only when the request names it too, and the length within `tol`
-    seconds (required). Returns (ok, reason)."""
-    if not (dur and length and abs(dur - float(length)) <= tol):
-        return False, f"length {dur or 0:.0f} s, wanted {float(length or 0):.0f} s (probable match needs {tol} s)"
-    want_a = _artist_words(artist)
-    texts = [t for t in [*tag_artists, file_name, *folders] if t]
-    if not want_a or not any(f" {w} " in _words(t) for w in want_a for t in texts):
-        return False, f"artist '{artist}' not in {texts}"
-    has_artist = lambda x: any(f" {w} " in _words(x) for w in want_a)
-    artist_words = set(" ".join(want_a).split())
-    head, tail = _segments(title)
-    core, want_all = title_key(head), set(_words(title).split())
-    want_version = want_all & VERSION_WORDS
-    # remixers etc. the request names ("- OsTEKKe & Zombic Remix") must appear in the download
-    need = {w for seg in tail if set(_words(seg).split()) & _MARKERS for w in _words(seg).split()
-            if w not in PLAIN_WORDS and w not in VERSION_WORDS and not w.isdigit()}
-    if not core: return False, "no title"
-    names = [*(_readings(tag_title, has_artist) if tag_title else []), *(_readings(file_name, has_artist) if file_name else [])]
+def _vwords(s):
+    """Words of s, 'part' as 'pt' (as title_key does)."""
+    return ["pt" if w == "part" else w for w in _words(s).split()]
+
+def _named(segments, known):
+    """Words that name a variant ("RL Grime" in "(RL Grime Remix)") and are not in `known`."""
+    return {w for seg in segments if set(_vwords(seg)) & _MARKERS for w in _vwords(seg)
+            if w not in PLAIN_WORDS and w not in VERSION_WORDS and w not in known and not w.isdigit()}
+
+def _other_version(title, names, artist_words):
+    """The first of `names` with the requested core title that names another version: a version word or a named
+    variant the request does not have. None if there is none."""
+    head, _ = _segments(title)
+    core, want_all = title_key(head), set(_vwords(title))
     for c in names:
         c_head, c_tail = _segments(c)
-        have_all = set(_words(c).split())
-        if title_key(c_head) != core or have_all & VERSION_WORDS != want_version or not need <= have_all: continue
-        named = {w for seg in c_tail if set(_words(seg).split()) & _MARKERS for w in _words(seg).split()
-                 if w not in PLAIN_WORDS and w not in VERSION_WORDS and w not in want_all and w not in artist_words
-                 and not w.isdigit()}
-        if named: continue
-        return True, f"probable: '{c}' has the core title '{head}', the same version words, length within {tol} s"
-    return False, f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' has the same core title and version"
+        if core and title_key(c_head) == core and ((set(_vwords(c)) & VERSION_WORDS) - want_all
+                                                   or _named(c_tail, want_all | artist_words) or not same_feat(c, title)):
+            return c
+    return None
+
+def _probable(title, names, artist_words):
+    """The first of `names` (readings of the download) that is probably the requested title, or None (see identify)."""
+    head, tail = _segments(title)
+    core, want_all = title_key(head), set(_vwords(title))
+    if not core: return None
+    need = _named(tail, set())                              # remixers etc. the request names must be in the download
+    for c in names:
+        c_head, c_tail = _segments(c)
+        have_all = set(_vwords(c))
+        if (title_key(c_head) == core and have_all & VERSION_WORDS == want_all & VERSION_WORDS and need <= have_all
+                and not _named(c_tail, want_all | artist_words) and same_feat(c, title)):
+            return c
+    return None
 
 def _tags(p):
     try:
@@ -308,7 +335,7 @@ class Catalog:
         hits = {}
         for k in artist_keys(artist):
             for e in self.by_key.get((k, tk), []):
-                if same_length(e.dur, length): hits[str(e.path)] = e
+                if same_length(e.dur, length) and same_feat(e.title, title): hits[str(e.path)] = e
         return sorted(hits.values(), key=lambda e: e.rank(), reverse=True)
 
     def artist_dir(self, artist):
@@ -390,18 +417,18 @@ def _event(action, path, **kw):
         pass
 
 # ------------------------------------------------------------------ filing
-def file_into(src, artist, title, length=0, source="", ids=None, fake=False, strict=False, file_name="", folders=(), loose=False,
-              relaxed=False, tries=0, match=None, artists=()):
+def file_into(src, artist, title, length=0, source="", ids=None, fake=False, strict=False, file_name="", folders=(),
+              probable=True, tries=0, match=None, artists=()):
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy/fake copy), 'duplicate' (discarded, the library already has it),
     'mismatch' (strict: length is not the requested song's, i.e. another version) or
     'wrong-song' (strict: tags / source file name are not the requested artist and title).
-    strict is for search results (Soulseek, YouTube); file_name/folders = where the download came from.
-    artists: all artists of the song; the library copy of any of them (or a review link) is the same song.
-    relaxed (songs strict searches missed, see music-sync.py): a probable match (probable_ok) is filed too,
-    marked match=probable for review in Echolot. Near misses among rejected downloads (the artist matched, the
-    length is within 2/3 to 1.5 times the wanted one) are kept in inbox/review/ for 30 days, so they can still
-    be accepted there; other rejects are deleted."""
+    strict is for search results (Soulseek, YouTube): the download must be the song (identify; file_name/folders =
+    where it came from). An exact match is filed; a probable one is filed marked match=probable for review in
+    Echolot, or, with probable=False (FLAC upgrades replacing a copy, SoundCloud uploader names), kept for review.
+    Rejected near misses (the artist matched, 2/3 to 1.5 times the wanted length) are kept in inbox/review/ for
+    30 days, so they can still be accepted there; other rejects are deleted.
+    artists: all artists of the song; the library copy of any of them (or a review link) is the same song."""
     src = pathlib.Path(src)
     ext = src.suffix.lower().lstrip(".")
     dur, _ = _probe(src)
@@ -411,13 +438,10 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
     if strict:
         tag_artists, tag_title = _tags(src)
         info.update(found=tag_title or file_name, file_name=file_name, folders=list(folders), fake=bool(fake), tries=tries)
-        close = bool(dur and length and abs(dur - float(length)) <= 3)
-        ok, why = identity_ok(artist, title, tag_artists, tag_title, file_name, folders, loose, close)
-        match = "exact"
-        if not ok and relaxed:
-            tol = PROBABLE_TOLERANCE.get(source, 6)
-            ok, pwhy = probable_ok(artist, title, tag_artists, tag_title, file_name, folders, dur, length, tol)
-            if ok: why, match = pwhy, "probable"
+        tol = 3 if source == "soulseek" else 6              # YouTube videos have intros
+        match, why = identify(artist, title, tag_artists, tag_title, file_name, folders, dur, length, tol)
+        ok = match == "exact" or (match == "probable" and probable)
+        if match == "probable" and not probable: why = f"{why} (not filed: {source} probable matches need a review)"
         if ok and _blocked(ids, [tag_title, file_name]):
             ok, why = False, "this download was marked wrong in review"
         if not ok:
@@ -624,14 +648,14 @@ def main():
     ap.add_argument("--strict", action="store_true", help="discard the file unless it is really --artist/--title with --length")
     ap.add_argument("--file-name", default="", help="source file name of the download, without extension (for --strict)")
     ap.add_argument("--folder", action="append", default=[], help="source folder name of the download (for --strict)")
-    ap.add_argument("--loose", action="store_true", help="with --strict: title may contain the requested title if the length is within 3 s")
-    ap.add_argument("--relaxed", action="store_true", help="with --strict: also file a probable match (marked for review)")
+    ap.add_argument("--no-probable", action="store_true", help="with --strict: keep a probable match for review instead of filing it")
     ap.add_argument("--tries", type=int, default=0, help="earlier searches that did not find the song (logged)")
     ap.add_argument("--artists", default="", help="all artists of the song, '; '-separated (Spotify's artist list)")
     a = ap.parse_args()
     if a.cmd == "file":
-        action, path = file_into(a.src, a.artist, a.title, a.length, a.source, [i for i in a.id if i], a.fake, a.strict, a.file_name, [f for f in a.folder if f], a.loose,
-                                 a.relaxed, a.tries, artists=[x.strip() for x in a.artists.split("; ") if x.strip()])
+        action, path = file_into(a.src, a.artist, a.title, a.length, a.source, [i for i in a.id if i], a.fake, a.strict, a.file_name,
+                                 [f for f in a.folder if f], not a.no_probable, a.tries,
+                                 artists=[x.strip() for x in a.artists.split("; ") if x.strip()])
         print(f"{action}\t{path or ''}")
     elif a.cmd == "find":
         for e in Catalog().find(a.artist, a.title, a.length):
