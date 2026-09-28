@@ -202,7 +202,11 @@ def test_review_upgrade_candidate_and_revert(client: TestClient, settings: Setti
     con.close()
 
     html = client.get("/review").text
-    assert "01 First Song" in html and "would replace mp3 in the library" in html
+    assert "01 First Song" in html and "replaces" in html
+    assert (
+        '<span class="chip q-lossy-low"><span class="swatch" aria-hidden="true"></span>lossy</span>'
+        in html
+    )
     client.post(f"/review/{eid}", data={"decision": "accept"})
     assert "Revert" in client.get("/review").text
     r = client.post(f"/review/{eid}/revert", follow_redirects=False)
