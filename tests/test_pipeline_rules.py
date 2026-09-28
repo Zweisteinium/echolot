@@ -457,4 +457,5 @@ def test_run_sockseek_stops_a_stuck_run(monkeypatch: pytest.MonkeyPatch, capsys)
     ],
 )  # fmt: skip
 def test_file_name_readings(artist: str, title: str, file_name: str, match: str | None) -> None:
-    assert library.identify(artist, title, [], "", file_name, [artist])[0] == match  # the artist folder
+    # the Soulseek path has the artist folder
+    assert library.identify(artist, title, [], "", file_name, [artist])[0] == match
