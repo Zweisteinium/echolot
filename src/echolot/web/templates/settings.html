@@ -15,7 +15,7 @@
       <td><input type="text" name="{{ s.job.name }}" value="{{ s.when }}" aria-label="{{ s.job.label }}: when" size="18"></td>
       <td class="muted small nowrap">{{ s.rule|minutes }}<div>min. {{ s.job.minimum }} min</div></td>
       <td class="small nowrap">{% if s.running %}<span class="dot on"></span>running{% else %}{{ s.started|ago }}{% endif %}</td>
-      <td class="small nowrap">{% if s.rule is not none %}{{ s.next_run|until }}{% else %}<span class="muted">off</span>{% endif %}</td>
+      <td class="small nowrap">{% if s.rule is not none %}{% if s.waiting_for %}waiting for {{ s.waiting_for }}{% else %}{{ s.next_run|until }}{% endif %}{% else %}<span class="muted">off</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

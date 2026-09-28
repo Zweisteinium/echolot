@@ -1,4 +1,5 @@
-"""Is this the same song? The rules of the music-sync pipeline (library.py), unchanged.
+"""Is this the same song? The library rules of the music-sync pipeline (library.py), unchanged; the check of
+downloads (identify) stays in the pipeline.
 
 Same song = same artist (case, accents and punctuation ignored; the first of several artists also
 counts) + same title after removing noise that does not change the recording ("(Free DL)",
@@ -9,7 +10,6 @@ Pt. 2, ...) stay part of the title: "Glow" and "Glow - X Remix" are different so
 
 import re
 import unicodedata
-from collections.abc import Iterable
 
 _LETTERS = str.maketrans(
     {
@@ -48,12 +48,14 @@ def artist_keys(a: str | None) -> set[str]:
     return {k for k in (artist_key(a), artist_key(first_artist(a))) if k}
 
 
+_MIX_CUT_RE = r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$"
 _NOISE = [
     r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere"
-    r"|official(?:\s+(?:4k|hd))?(?:\s+(?:audio|video|music\s+video|visuali[sz]er))?"
+    r"|official(?:\s+(?:4k|hd))?(?:\s+(?:audio|video|music\s+video|lyrics?\s+video|visuali[sz]er))?"
+    r"|lyrics?\s+video"
     r"|visuali[sz]er|lyrics?|hq|hd|explicit|clean|original(?:\s+(?:mix|version))?)\s*[\)\]\}]",
     # catalog numbers like [HAK003]
-    r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,6}\s?-?\d{2,5}\s*\]",
+    r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,8}\s?-?\d{2,5}\s*\]",
     r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]",
     r"\s+(?:feat|ft|featuring)\.?\s[^\-\(\[]*$",
     r"\s+-\s+original(?:\s+(?:mix|version))?\s*$",
@@ -69,16 +71,39 @@ _NOISE = [
     r"\s+(?:clean|dirty)(?=\s+\d{1,2}[ab]\s+\d{2,3}\s*$|\s*$)",
     r"\s+\d{1,2}[ab]\s+\d{2,3}\s*$",  # DJ-pool Camelot key + BPM: "1A 132"
     r"[\(\[][^a-z0-9\(\)\[\]]+[\)\]]",  # parentheses without Latin letters (translations)
-    r"[\(\[]\s*mixed\s*[\)\]]",  # DJ-mix cut, see mix_cut()
-    r"\s+-\s+mixed\s*$",
+    _MIX_CUT_RE,  # DJ-mix cut, see mix_cut()
 ]
-_MIX_CUT = re.compile(r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$", re.I)
+_MIX_CUT = re.compile(_MIX_CUT_RE, re.I)
 
 
 def mix_cut(title: str | None) -> bool:
     """A cut out of a continuous DJ mix ("Song - Mixed", "Song (Mixed) - X Remix"): the same song as the
     release, and its length says nothing, so length checks are skipped for it."""
     return bool(_MIX_CUT.search(title or ""))
+
+
+_FEAT = re.compile(
+    r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s([^\)\]]*)[\)\]]|\s(?:feat|ft|featuring)\.?\s([^\-\(\[]*)$",
+    re.I,
+)
+
+
+def feat_keys(t: str | None) -> set[str]:
+    """Artist keys of the featured artists in a title ("Swervin (feat. 6ix9ine)" -> {"6ix9ine"})."""
+    names = [n for m in _FEAT.finditer(t or "") for n in m.groups() if n]
+    return {
+        k
+        for n in names
+        for a in re.split(r"\s*(?:,|&|\band\b|\bx\b)\s*", n, flags=re.I)
+        if (k := artist_key(a))
+    }
+
+
+def same_feat(a: str | None, b: str | None) -> bool:
+    """Featured artists on both sides must share one: "Swervin (feat. 6ix9ine)" and "Swervin (feat. Veysel)"
+    are two recordings; a credit on one side only ("Monody (feat. Laura Brehm)") is not."""
+    fa, fb = feat_keys(a), feat_keys(b)
+    return not fa or not fb or bool(fa & fb)
 
 
 def title_key(t: str | None) -> str:
@@ -95,88 +120,3 @@ def title_key(t: str | None) -> str:
 def same_length(a: float | str | None, b: float | str | None) -> bool:
     a, b = float(a or 0), float(b or 0)
     return not a or not b or abs(a - b) <= max(10.0, 0.04 * max(a, b))
-
-
-def _words(s: str) -> str:
-    return " " + re.sub(r"[\W_]+", " ", fold(s).replace("&", " and ")).strip() + " "
-
-
-def _strip_track_no(s: str) -> str:
-    return re.sub(r"^\s*(?:[a-z]?\d{1,4}|\d{1,2}-\d{1,3})[\s.\-_)]+(?=\S)", "", s, flags=re.I)
-
-
-def identity_ok(
-    artist: str,
-    title: str,
-    tag_artists: Iterable[str] = (),
-    tag_title: str = "",
-    file_name: str = "",
-    folders: Iterable[str] = (),
-    loose: bool = False,
-    length_close: bool = False,
-) -> tuple[bool, str]:
-    """Is a downloaded file really <artist> - <title>? Returns (ok, reason).
-
-    Artist: the wanted artist (full or first) appears as whole words in the file's artist tags or
-    in its source file or folder names. Title: the title tag, or the file name (never a folder:
-    that is the album) without track number and artist prefix, gives exactly the wanted title.
-    loose (Spotify songs): the title tag may also just contain the wanted title's words in order
-    ("Edit" vs "Radio Edit") when the length is within 3 s. The artist must always match.
-    """
-    base = re.sub(r"\s*\([^)]*\)\s*$", "", artist or "")  # Spotify disambiguation: "Vegas (Brazil)"
-    want_a = [
-        w
-        for w in {
-            _words(artist).strip(),
-            _words(first_artist(artist)).strip(),
-            _words(base).strip(),
-        }
-        if w
-    ]
-    texts = [t for t in [*tag_artists, file_name, *folders] if t]
-    if not want_a or not any(f" {w} " in _words(t) for w in want_a for t in texts):
-        return False, f"artist '{artist}' not in {texts}"
-    tk = title_key(title)
-
-    def has_artist(x: str) -> bool:
-        return any(f" {w} " in _words(x) for w in want_a)
-
-    def readings(name: str) -> list[str]:
-        """A tag title or file name read as a plain title: without track number, without
-        (repeated) artist prefixes, 'Album - 07 - Title' and reversed 'Title - Artist' forms."""
-        m = re.match(r"^[^_]+_[^_]+_\d{1,3}_(.+)$", name)  # "Artist_Album_13_Title"
-        name = name.replace("_-_", " - ").replace("_", " ") if name.count("_") > 2 else name
-        rest = _strip_track_no(name)
-        out = [name, rest]  # unstripped too: "93 Bang Bang", "H2 (...)" start with a number
-        if m:
-            out.append(m.group(1).replace("_", " "))
-        while " - " in rest:
-            head, tail = rest.split(" - ", 1)
-            if not has_artist(head):
-                break
-            rest = _strip_track_no(tail)
-            out.append(rest)
-        m = re.match(r"^.+? - \d{1,3} - (.+)$", rest)
-        if m:
-            out.append(m.group(1))
-        if " - " in rest:
-            head, tail = rest.rsplit(" - ", 1)
-            if has_artist(tail):
-                out.append(head)
-        return out
-
-    if tag_title and any(title_key(c) == tk for c in readings(tag_title)):
-        return True, "tags"
-    if file_name and any(title_key(c) == tk for c in readings(file_name)):
-        return True, "file name"
-    if loose and length_close and tk:
-
-        def in_order(want: str, have: str) -> bool:  # "... Edit" in "... Radio Edit"
-            it = iter(have.split())
-            return all(w in it for w in want.split())
-
-        # tag only: file names mix in album names
-        for c in readings(tag_title) if tag_title else []:
-            if in_order(tk, title_key(c)):
-                return True, "title tag has the title words in order, length within 3 s"
-    return False, f"title '{title}' is neither tag '{tag_title}' nor file name '{file_name}'"

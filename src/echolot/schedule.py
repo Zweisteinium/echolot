@@ -45,6 +45,7 @@ JOBS = [
             "YouTube/SoundCloud search for songs Soulseek failed twice (home IP)"),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
+SOULSEEK = {"sync", "sweep", "upgrade", "probe", "fallback"}  # share one lock (tick.py LOCKS)
 
 HEADER = """\
 # When the music-sync jobs run. scripts/tick.py reads this every minute; Echolot's settings page edits it.
@@ -175,6 +176,7 @@ class Status:
     started: str | None  # ISO local time of the last start
     running: bool
     next_run: str | None  # ISO local time
+    waiting_for: str | None = None  # due, but another Soulseek job holds the lock (label)
 
     @property
     def when(self) -> str:
@@ -185,6 +187,9 @@ def status(root: Path, now: datetime | None = None) -> list[Status]:
     now = now or datetime.now()
     rules = read(root)
     activity = {a.job: a for a in pipeline.activity(root)}
+    busy = next(
+        (BY_NAME[a.job].label for a in activity.values() if a.running and a.job in SOULSEEK), None
+    )
     out = []
     for j in JOBS:
         stamp = last_start(root, j.name)
@@ -202,6 +207,9 @@ def status(root: Path, now: datetime | None = None) -> list[Status]:
                 a.started if a and a.started else stamp,
                 bool(a and a.running),
                 nxt.isoformat(timespec="seconds") if nxt else None,
+                busy
+                if nxt and nxt <= now and not (a and a.running) and j.name in SOULSEEK
+                else None,
             )
         )
     return out

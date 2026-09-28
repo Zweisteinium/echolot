@@ -10,7 +10,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.matching import artist_keys, mix_cut, same_length, title_key
+from echolot.matching import artist_keys, mix_cut, same_feat, same_length, title_key
 
 AUDIO = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]  # preference order
 LOSSLESS = {"flac", "wav", "aiff"}
@@ -122,7 +122,7 @@ class Catalog:
             e.path: e
             for k in artist_keys(artist)
             for e in self.by_key.get((k, tk), [])
-            if same_length(e.duration, length)
+            if same_length(e.duration, length) and same_feat(e.title, title)
         }
         return sorted(hits.values(), key=Entry.rank, reverse=True)
 
