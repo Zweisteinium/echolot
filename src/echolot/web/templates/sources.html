@@ -14,7 +14,7 @@
     <label><input type="checkbox" name="soundcloud_likes" value="1" {% if likes.soundcloud %}checked{% endif %}> SoundCloud likes of</label>
     <input type="text" name="soundcloud_user" value="{{ likes.soundcloud_user }}" placeholder="user name" aria-label="SoundCloud user name" size="16">
     <label title="Songs that leave a list keep their files and move to a '&lt;list&gt; – removed' playlist"><input type="checkbox" name="removed_playlists" value="1" {% if likes.removed_playlists %}checked{% endif %}> "– removed" playlists</label>
-    <button>Save</button>
+    <button class="primary">Save</button>
   </form>
 </section>
 
@@ -25,13 +25,13 @@
     <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/user/sets/…" aria-label="URL" class="grow">
     <input type="text" name="title" placeholder="Name (optional)" aria-label="Name">
     <label title="Show as a playlist in the music server"><input type="checkbox" name="playlist" value="1" checked> playlist</label>
-    <button>Add</button>
+    <button class="primary">Add</button>
   </form>
   <p class="muted small">Spotify: your own and other users' public playlists (Spotify's editorial playlists can't be read). SoundCloud: any public set or a user's likes page.</p>
 </section>
 
 <section class="card">
-  <h2>Lists <span class="muted">{{ entries|length }}</span></h2>
+  <h2>Lists <span class="count">{{ entries|length }}</span></h2>
   <table class="rows">
     <thead><tr><th></th><th>List</th><th class="num">Songs</th><th>Name override</th><th>Playlist</th><th></th></tr></thead>
     {% for e in entries %}

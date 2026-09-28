@@ -1,11 +1,31 @@
-{% macro bar(part, whole, cls='') -%}
-<span class="bar {{ cls }}"><span style="width: {{ pct(part, whole) }}%"></span></span>
-{%- endmacro %}
-
 {% macro service(name) -%}
-<span class="service {{ name }}" title="{{ name|capitalize }}">{{ 'Spotify' if name == 'spotify' else 'SoundCloud' }}</span>
+<span class="service">{{ 'Spotify' if name == 'spotify' else 'SoundCloud' }}</span>
 {%- endmacro %}
 
-{% macro quality(key, kbps=None) -%}
-<span class="quality q-{{ key }}">{{ 'FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else (kbps ~ ' kbps') }}</span>
+{% macro quality(key, kbps=None, label=None) -%}
+<span class="chip q-{{ key }}"><span class="swatch" aria-hidden="true"></span>{{ label or ('FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else 'missing' if key == 'missing' else (kbps ~ ' kbps') if kbps else 'lossy') }}</span>
+{%- endmacro %}
+
+{# counts: [(tier, label, n)], best first (stats.tier_counts / tiers_of) #}
+{% macro qbar(counts, large=False) -%}
+{% set total = counts|sum(attribute=2) %}
+<span class="qbar{{ ' large' if large }}" role="img" aria-label="{% for k, label, n in counts if n %}{{ label }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}">
+  {%- for k, label, n in counts if n -%}
+  <span class="q-{{ k }}" style="flex: {{ n }} 1 0" title="{{ label }}: {{ n|num }} ({{ share(n, total) }})"></span>
+  {%- endfor -%}
+</span>
+{%- endmacro %}
+
+{# a share in whole percent; a small non-zero share is "< 1 %", never "0 %" #}
+{% macro share(n, total) -%}
+{{ '< 1' if n and not pct(n, total) else pct(n, total) }} %
+{%- endmacro %}
+
+{% macro legend(counts) -%}
+{% set total = counts|sum(attribute=2) %}
+<ul class="legend">
+  {% for k, label, n in counts %}
+  <li class="q-{{ k }}"><span class="swatch" aria-hidden="true"></span>{{ label }} <span class="num">{{ n|num }} · {{ share(n, total) }}</span></li>
+  {% endfor %}
+</ul>
 {%- endmacro %}

@@ -6,6 +6,7 @@ from typing import Any
 
 from echolot.library import QUALITY
 
+TIERS = [*QUALITY, ("missing", "Missing")]  # the quality scale of songs, best first
 ADDED = ("new", "upgrade")
 REJECTED = ("wrong-song", "mismatch")
 
@@ -26,7 +27,12 @@ def overview(con: Connection) -> dict[str, Any]:
         "SELECT count(*) FROM songs s JOIN attempts a ON a.song_key = s.key "
         "WHERE s.file IS NULL AND a.tries >= 1"
     ).fetchone()[0]
+    songs = con.execute(
+        f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM songs s "
+        "LEFT JOIN files f ON f.path = s.file"
+    ).fetchone()
     return {
+        "song_tiers": tier_counts(songs),
         "files": files,
         "size": size,
         "tiers": [(key, label, by_tier.get(key, 0)) for key, label in QUALITY],
@@ -42,12 +48,32 @@ def overview(con: Connection) -> dict[str, Any]:
     }
 
 
+_TIER_SUMS = ", ".join(f"coalesce(sum(f.quality = '{k}'), 0) AS \"{k}\"" for k, _ in QUALITY)
+
+
+def tier_counts(row: Row | dict) -> list[tuple[str, str, int]]:
+    """(tier, label, songs) for a row with a column per quality tier, 'songs' and 'have'."""
+    counts = [(k, label, row[k] or 0) for k, label in QUALITY]
+    return [*counts, ("missing", "Missing", (row["songs"] or 0) - (row["have"] or 0))]
+
+
+def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
+    """tier_counts of a list of songs (list_songs rows)."""
+    n: dict[str, int] = {}
+    for r in songs:
+        key = (r["quality"] or "lossy-low") if r["file"] else "missing"
+        n[key] = n.get(key, 0) + 1
+    return [(k, label, n.get(k, 0)) for k, label in TIERS]
+
+
 def lists(con: Connection) -> list[Row]:
+    """The followed lists with song counts per quality tier (tier_counts)."""
     return con.execute(
         "SELECT l.key, l.service, l.title, l.url, l.playlist, l.fetched, "
-        "count(ls.song_key) AS songs, count(s.file) AS have "
+        f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS} "
         "FROM lists l LEFT JOIN list_songs ls ON ls.list_key = l.key "
-        "LEFT JOIN songs s ON s.key = ls.song_key GROUP BY l.key ORDER BY l.position"
+        "LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
+        "GROUP BY l.key ORDER BY l.position"
     ).fetchall()
 
 

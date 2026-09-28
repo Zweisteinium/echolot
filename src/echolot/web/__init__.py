@@ -15,7 +15,6 @@ from fastapi.templating import Jinja2Templates
 
 from echolot import __version__, db, history, jobs, pipeline, review, schedule, sources, stats
 from echolot.config import Settings
-from echolot.library import QUALITY
 from echolot.scheduler import Scheduler
 from echolot.web import charts
 
@@ -108,7 +107,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.filters.update(
         num=num, size=size, ago=ago, until=until, mmss=mmss, minutes=minutes
     )
-    templates.env.globals.update(pct=pct, quality_labels=dict(QUALITY), version=__version__)
+    templates.env.globals.update(
+        pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__
+    )
 
     def get_db() -> Iterator[Connection]:
         con = db.connect(settings.db_path)
@@ -169,7 +170,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lst = stats.get_list(con, key)
         if lst is None:
             raise HTTPException(404, "no such list")
-        return page(request, "list.html", nav="overview", lst=lst, songs=stats.list_songs(con, key))
+        songs = stats.list_songs(con, key)
+        return page(
+            request, "list.html", nav="overview", lst=lst, songs=songs, tiers=stats.tiers_of(songs)
+        )
 
     @app.get("/activity", response_class=HTMLResponse)
     def activity(request: Request, con: DB, kind: str = "") -> HTMLResponse:

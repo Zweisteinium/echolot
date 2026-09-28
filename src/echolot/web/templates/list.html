@@ -1,25 +1,33 @@
 {% extends "base.html" %}
-{% from "_macros.html" import service, quality %}
+{% from "_macros.html" import legend, qbar, quality, service %}
 {% block title %}{{ lst.title }} · Echolot{% endblock %}
 {% block content %}
-{% set have = songs|selectattr('file')|list|length %}
+{% set missing = tiers[-1][2] %}
 <section class="card">
   <div class="card-head">
-    <h1>{{ service(lst.service) }} {{ lst.title }}</h1>
-    <a class="muted" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a>
+    <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
+    <span>{{ service(lst.service) }} <a class="small" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a></span>
   </div>
-  <p class="muted">{{ songs|length|num }} songs · {{ have|num }} in the library · {{ (songs|length - have)|num }} missing{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
+  <p class="lead">{{ (songs|length - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
+  {{ qbar(tiers, large=True) }}
+  {{ legend(tiers) }}
+</section>
+
+<section class="card">
   <table class="rows">
-    <thead><tr><th class="num">#</th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Library</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Quality</th><th class="hide-narrow">File</th></tr></thead>
+    <tbody>
     {% for s in songs %}
-    <tr {% if not s.file %}class="missing"{% endif %}>
+    <tr{% if not s.file %} class="missing"{% endif %}>
       <td class="num muted">{{ s.position + 1 }}</td>
       <td>{{ s.artist }}</td>
       <td>{{ s.title }}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
-      <td class="small">{% if s.file %}{{ quality(s.quality, s.kbps) }} <span class="muted">{{ s.file }}</span>{% elif s.unavailable %}<span class="warn-text">{{ s.unavailable }}</span>{% else %}<span class="warn-text">missing</span>{% endif %}</td>
+      <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}</td>
+      <td class="hide-narrow">{% if s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
 </section>
 {% endblock %}

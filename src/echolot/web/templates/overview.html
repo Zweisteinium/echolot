@@ -1,59 +1,56 @@
 {% extends "base.html" %}
-{% from "_macros.html" import bar, service %}
+{% from "_macros.html" import legend, qbar, share %}
 {% block content %}
+{% set missing = o.wanted - o.have %}
 <section class="tiles">
   <div class="tile">
     <div class="label">Library</div>
     <div class="value">{{ o.files|num }}</div>
-    <div class="muted">songs · {{ o.size|size }}</div>
+    <div class="sub">files · {{ o.size|size }}</div>
   </div>
   <div class="tile">
     <div class="label">Lossless</div>
     <div class="value">{{ pct(o.lossless, o.files) }} %</div>
-    <div class="muted">{{ o.lossless|num }} genuine FLACs</div>
+    <div class="sub">{{ o.lossless|num }} genuine FLACs</div>
   </div>
   <div class="tile">
     <div class="label">Lists complete</div>
     <div class="value">{{ pct(o.have, o.wanted) }} %</div>
-    <div class="muted">{{ o.have|num }} of {{ o.wanted|num }} songs</div>
+    <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs</div>
   </div>
   <a class="tile" href="/missing">
     <div class="label">Missing</div>
-    <div class="value">{{ (o.wanted - o.have)|num }}</div>
-    <div class="muted">{{ o.not_found|num }} searched, not found yet</div>
+    <div class="value{{ ' bad-text' if missing }}">{{ missing|num }}</div>
+    <div class="sub">{{ o.not_found|num }} searched, not found yet</div>
   </a>
 </section>
 
 <section class="card">
-  <h2>Quality</h2>
-  <table class="rows">
-    {% for key, label, n in o.tiers %}
-    <tr>
-      <td>{{ label }}</td>
-      <td class="num">{{ n|num }}</td>
-      <td class="wide">{{ bar(n, o.files, 'q-' ~ key) }}</td>
-      <td class="num muted">{{ pct(n, o.files) }} %</td>
-    </tr>
-    {% endfor %}
-  </table>
+  <h2>Quality of your songs</h2>
+  {{ qbar(o.song_tiers, large=True) }}
+  {{ legend(o.song_tiers) }}
 </section>
 
 <section class="card">
-  <h2>Lists</h2>
+  <h2>Lists <span class="count">{{ o.lists|length }}</span></h2>
   <table class="rows">
-    <thead><tr><th></th><th>List</th><th class="num">Songs</th><th class="num">Have</th><th class="num">Missing</th><th class="wide"></th><th></th></tr></thead>
-    {% for l in o.lists %}
+    <thead><tr><th>List</th><th class="num">Songs</th><th class="wide">Quality</th><th class="num">FLAC</th><th class="num">Missing</th></tr></thead>
+    {% for svc, group in o.lists|groupby('service')|reverse %}
+    <tbody>
+    <tr class="group"><th colspan="5">{{ 'Spotify' if svc == 'spotify' else 'SoundCloud' }} <span class="count">{{ group|length }}</span></th></tr>
+    {% for l in group %}
+    {% set miss = l.songs - l.have %}
     <tr>
-      <td>{{ service(l.service) }}</td>
-      <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted">(waiting for the first sync)</span>{% endif %}{% if not l.playlist %} <span class="muted" title="songs only, no playlist in the music server">(no playlist)</span>{% endif %}</td>
+      <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}</td>
       <td class="num">{{ l.songs|num }}</td>
-      <td class="num">{{ l.have|num }}</td>
-      <td class="num">{% if l.songs - l.have %}<a href="/missing?list={{ l.key|urlencode }}">{{ (l.songs - l.have)|num }}</a>{% else %}<span class="muted">0</span>{% endif %}</td>
-      <td class="wide">{{ bar(l.have, l.songs, 'ok' if pct(l.have, l.songs) >= 95 else 'warn' if pct(l.have, l.songs) < 80 else '') }}</td>
-      <td class="num muted">{{ pct(l.have, l.songs) }} %</td>
+      <td class="wide">{{ qbar(tier_counts(l)) }}</td>
+      <td class="num muted">{{ share(l.lossless, l.songs) }}</td>
+      <td class="num">{% if miss %}<a class="bad-text" href="/missing?list={{ l.key|urlencode }}">{{ miss|num }}</a>{% else %}<span class="muted">–</span>{% endif %}</td>
     </tr>
+    {% endfor %}
+    </tbody>
     {% else %}
-    <tr><td colspan="7" class="muted">No lists yet. They appear after the first refresh.</td></tr>
+    <tbody><tr><td colspan="5" class="muted">No lists yet. They appear after the first refresh.</td></tr></tbody>
     {% endfor %}
   </table>
 </section>
