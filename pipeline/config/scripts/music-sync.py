@@ -72,26 +72,22 @@ def run(cmd, check=False, capture=False):
         raise RuntimeError(f"command failed ({r.returncode}): {cmd[0]}")
     return r
 
-def run_sockseek(cmd):
-    """Run Sockseek, dropping one known-harmless exception block from its output.
-    With an open listen port, peers connect in to deliver search results; Soulseek.NET disposes
-    those connections when a search ends and reports each one as an unobserved
-    ObjectDisposedException ('Connection'), thousands per hour. Other output passes unchanged."""
+SOCKSEEK_LIMIT = (20 * 60, 15)                    # seconds per run + per song (see run_sockseek)
+
+def run_sockseek(cmd, songs=1):
+    """Run Sockseek, at most 20 min + 15 s per song (SOCKSEEK_LIMIT): a download queued at a peer can wait forever (Sockseek keeps
+    queued downloads alive while the same peer delivers others), and a run holds the Soulseek lock. Songs it did not
+    finish count as not found and are searched again later."""
+    limit = SOCKSEEK_LIMIT[0] + SOCKSEEK_LIMIT[1] * songs
     log("$ " + " ".join(cmd))
-    p = subprocess.Popen(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
-    block, dropped = [], 0
-    for line in p.stdout:
-        if not block and "Unobserved task exception" not in line:
-            print(line, end="", flush=True); continue
-        block.append(line)
-        if "End of inner exception stack trace" in line or len(block) > 20:
-            text = "".join(block)
-            if "ObjectDisposedException" in text and "'Connection'" in text: dropped += 1
-            else: print(text, end="", flush=True)
-            block = []
-    print("".join(block), end="", flush=True)
-    p.wait()
-    if dropped: log(f"sockseek: suppressed {dropped} disposed-connection exceptions (harmless)")
+    p = subprocess.Popen(cmd, text=True)
+    try:
+        p.wait(timeout=limit)
+    except subprocess.TimeoutExpired:
+        log(f"sockseek: still running after {limit // 60} min (downloads stuck in peer queues), stopped")
+        p.terminate()
+        try: p.wait(timeout=30)
+        except subprocess.TimeoutExpired: p.kill(); p.wait()
     return p
 
 def slug(name): return re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-").lower()
@@ -242,7 +238,7 @@ def soulseek_download(rows, label, extra=(), loosen=False, probable=True):
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)
     log(f"soulseek: {len(rows)} songs to fetch ({label})")
     os.environ["MUSIC_SYNC_CSV"] = str(csvp)      # post-track.sh reads the wanted song from here by row number
-    run_sockseek(sockseek_cmd(str(csvp), ["--no-skip-existing", "-o", str(SLSK_INBOX), *extra]))
+    run_sockseek(sockseek_cmd(str(csvp), ["--no-skip-existing", "-o", str(SLSK_INBOX), *extra]), len(rows))
     shutil.rmtree(SLSK_INBOX, ignore_errors=True)   # anything the hook did not file (failed checks)
 
 # ---------------------------------------------------------------- Spotify

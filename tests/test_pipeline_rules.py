@@ -426,3 +426,13 @@ def test_search_terms_and_groups(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
     assert groups == [("-loose4", ["--strict-artist", "false", "--desperate"], True, [4, 9]),
                       ("-loose2", ["--desperate"], True, [2, 3]), ("", [], False, [0, 1])]  # fmt: skip
+
+
+def test_run_sockseek_stops_a_stuck_run(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setitem(sys.modules, "spectrum", types.ModuleType("spectrum"))
+    monkeypatch.setitem(sys.modules, "library", library)
+    sync = load("music-sync")
+    monkeypatch.setattr(sync, "SOCKSEEK_LIMIT", (1, 0))
+    p = sync.run_sockseek(["sleep", "30"])
+    assert p.returncode != 0 and "stopped" in capsys.readouterr().out
+    assert sync.run_sockseek(["true"]).returncode == 0
