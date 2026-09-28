@@ -25,5 +25,15 @@
     {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+    // remember which collapsible sections are closed (per browser; the page works without it)
+    for (const d of document.querySelectorAll("details[data-remember]")) {
+      const key = "echolot:" + d.dataset.remember;
+      try { if (localStorage.getItem(key) === "closed") d.open = false; } catch (e) {}
+      d.addEventListener("toggle", () => {
+        try { localStorage.setItem(key, d.open ? "open" : "closed"); } catch (e) {}
+      });
+    }
+  </script>
 </body>
 </html>

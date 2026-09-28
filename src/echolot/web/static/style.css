@@ -197,6 +197,84 @@ audio { height: 2rem; max-width: 260px; vertical-align: middle; }
 .legend li { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
 .legend .num { color: var(--muted); }
 
+/* donut + legend table */
+.quality-split { display: flex; align-items: center; gap: 2.5rem; flex-wrap: wrap; }
+.donut { flex: none; overflow: visible; }
+.donut .ring { fill: none; stroke: var(--track); }
+.donut .slice { fill: none; stroke: var(--q); transition: stroke-width 0.1s; }
+.donut .slice:hover { stroke-width: 32px; }
+.donut .slice.q-fake { stroke: url(#stripes); }
+.donut .stripe { fill: var(--q-fake); }
+.donut .stripe-bg { fill: color-mix(in srgb, var(--q-fake) 35%, var(--surface)); }
+.donut-figure { font-size: 28px; font-weight: 650; fill: var(--text); }
+.donut-caption { font-size: 12px; fill: var(--muted); }
+.legend-table { border-collapse: collapse; flex: 1; min-width: 260px; max-width: 560px; }
+.legend-table th { text-align: left; font-weight: 500; font-size: 0.8rem; color: var(--muted); padding: 0.2rem 0.5rem; }
+.legend-table th.num { text-align: right; }
+.legend-table td { padding: 0.3rem 0.5rem; border-top: 1px solid var(--border); }
+.legend-table td.sw { width: 1.5rem; padding-right: 0; }
+.legend-table tr.dim td { color: var(--muted); }
+
+/* collapsible list groups */
+details.group { border-top: 1px solid var(--border); }
+details.group:first-of-type { border-top: none; }
+details.group > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.25rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+details.group > summary::-webkit-details-marker { display: none; }
+details.group > summary { flex-wrap: wrap; row-gap: 0.25rem; }
+details.group > summary > .muted { white-space: nowrap; }
+details.group > summary::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  margin: 0 0.25rem 0 0.1rem;
+}
+details.group[open] > summary::before { transform: rotate(45deg); }
+details.group > summary:hover .group-name { color: var(--accent); }
+.group-name { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 650; font-size: 1rem; }
+.icon { flex: none; vertical-align: -3px; }
+.pill {
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--track);
+  padding: 0.05rem 0.55rem;
+  border-radius: 999px;
+}
+details.group table { margin-bottom: 0.75rem; }
+table.lists { table-layout: fixed; }
+table.lists col.c-num { width: 5.5rem; }
+table.lists col.c-bar { width: 34%; }
+table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* activity */
+.stats { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.25rem 0 1rem; }
+.stat {
+  display: flex;
+  flex-direction: column;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 11rem;
+  color: inherit;
+}
+a.stat:hover { text-decoration: none; border-color: var(--accent); }
+.stat-value { font-size: 1.4rem; font-weight: 650; line-height: 1.2; }
+.stat-label { font-size: 0.8rem; color: var(--muted); }
+.dot.wait { background: var(--warn); opacity: 1; }
+
 /* ------------------------------------------------------------------ small labels */
 .service {
   display: inline-block;
@@ -298,5 +376,13 @@ details summary { cursor: pointer; margin-top: 0.75rem; color: var(--muted); }
   header nav a { white-space: nowrap; }
   .version { margin-left: auto; }
   .wide, .hide-narrow { display: none; }
+  .tiles { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+  .tile { padding: 0.75rem 1rem; }
+  .tile .value { font-size: 1.6rem; }
+  table.lists { table-layout: auto; }
+  table.lists col { width: auto !important; }
+  table.lists td:first-child { max-width: 9rem; }
+  table.lists .qbar { min-width: 90px; }
+  .quality-split { gap: 1rem; justify-content: center; }
   .file { max-width: 12rem; }
 }
