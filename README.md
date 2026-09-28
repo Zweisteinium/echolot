@@ -57,28 +57,37 @@ A song's way into the library:
      Tracks SoundCloud won't hand out (DRM) are looked up on YouTube, and must match exactly.
    - **Never Soulseek for SoundCloud likes:** uploader names are too unreliable to search Soulseek
      with.
-4. **Checks.** Every search result must really be the wanted artist and title (tags or source
-   file name) at the right length. Anything else is rejected as `wrong-song` or `mismatch` and kept
-   in `inbox/review/<date>/` for 30 days. Files are also:
+4. **Checks.** `identify` in `library.py` decides whether a download is the song. The artist
+   must appear in its tags or Soulseek path, always. Then:
+   - **exact:** the title tag or file name gives exactly the title (noise like "(Original Mix)",
+     "[HAK003]", "(Official Video)" removed): filed;
+   - **probable:** the same core title (the part before any bracket, " - ", "|" or "feat."), the
+     same version words (remix, live, VIP, remake, Pt. …), no named variant the request lacks
+     ("(Hard Trance Mix)"), no other featured artist, and the length within 3 s (6 s from
+     YouTube): filed and listed on the Review page. FLAC upgrades, which replace a copy, and
+     YouTube matches for SoundCloud tracks keep a probable match for review instead;
+   - otherwise rejected (`wrong-song`, `mismatch`); near misses (right artist, similar length) are
+     kept in `inbox/review/<date>/` for 30 days.
+
+   A file name that names another version overrules plain tags ("Infinity 2008 - Klaas Vocal
+   Edit" tagged "Infinity 2008"). Files are also:
    - checked for codec problems;
    - converted from WAV/AIFF/ALAC to FLAC;
    - resampled from hi-res to 44.1/48 kHz 24 bit;
    - spectrum-checked, so FLACs made from MP3s count as lossy.
 
-   **Loosening.** A Spotify song that two searches did not find is searched less strictly: without
-   feat. credits, 'From "Film"' and plain suffixes (" - Radio Edit", " - Unmixed Version"), first
-   artist only; after four misses also without requiring the artist in the Soulseek path. A
-   *probable* match is then filed too, marked for review: the artist must still match, and the
-   download must have the same core title (the part before any bracket, " - ", "|" or "feat."),
-   the same version words (remix, live, VIP, remake, ...; a named mix like "(Hard Trance Mix)" only
-   if the request names it) and a length within 3 s (6 s from YouTube). Harmless extras such as
-   "(Official 4K Video)" or "(prod. von X)" need no rule of their own.
+   **Loosening** (the search only): a Spotify song that two searches did not find is searched
+   without feat. credits, 'From "Film"' and plain suffixes (" - Radio Edit", " - Unmixed
+   Version"), first artist only, and desperately (a search without results is repeated with the
+   title alone and the artist alone); after four misses also without requiring the artist in the
+   Soulseek path. The checks above stay the same.
 5. **Filing.** `library.py` is the only code that writes into `tracks/`, and it never overwrites.
    - A download that is a song already in the library is discarded.
    - A genuine lossless download replaces a lossy or fake copy; the old file goes to
      `inbox/replaced/<date>/` for 30 days.
 6. **Upgrade.** Twice a day (14:00 and 20:30) Spotify songs that aren't genuine lossless are searched
-   again, FLAC only. Each song waits 12 h, 1 d, 2 d, then 3 d between searches, so a run stays short.
+   again, FLAC only: at most 150 per run (about 30 min), longest waiting first, so syncs are not
+   held up. Each song waits 12 h, 1 d, 2 d, then 3 d between searches.
 7. **Playlists.** One `.m3u` per list, in list order, with the list's cover, rebuilt every
    10 minutes. Songs that leave a list stay in the library and move to "<list> – removed".
    Navidrome imports the playlists.
@@ -319,8 +328,10 @@ services:
 - **Never let Sockseek write into `tracks/`.** Its own mover deletes an existing target file.
   `sockseek.conf` sends everything to `inbox/sockseek`, and the hook files it through `library.py`.
 - **Correctness before quality.** `strict-artist = true` in `sockseek.conf` and the identity check
-  in `library.py` are deliberate. They are loosened only for songs that were not found, and what
-  that files is listed on the Review page.
+  in `library.py` are deliberate. Only the search is loosened for songs that were not found; what
+  is filed on a probable match is listed on the Review page. `pipeline/tools/rules_check.py`
+  checks rule changes against the real library, `pipeline/tools/live_check.py` against live
+  Soulseek searches.
 - **When people are online.** Rare songs often exist on only a few peers, who come and go.
   Soulseek publishes no usage statistics. The retry sweep and the FLAC upgrade are placed in the
   European evening (20:00–21:00), which overlaps with the American afternoon, the general
