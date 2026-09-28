@@ -94,3 +94,18 @@ def test_parity_with_pipeline() -> None:
             assert matching.identity_ok(*args) == old.identity_ok(*args), args
             own = (s["artist"], s["title"], [s["artist"]], s["title"], "", [], loose, True)
             assert matching.identity_ok(*own) == old.identity_ok(*own), own
+
+
+def test_catalog_song_other_artists_and_link() -> None:
+    from echolot.library import Catalog, Entry
+
+    cat = Catalog(
+        [
+            Entry("Mabe/Mabe - Atlantis.opus", 350, 160, False),
+            Entry("Pbb Yea/Pbb Yea - Chilln.opus", 227, 160, False),
+        ]
+    )
+    assert cat.song("Catch Vibe", "Atlantis", 349, ["Catch Vibe", "Mabe"])
+    assert not cat.song("Catch Vibe", "Atlantis", 349)
+    assert cat.song("TheDoDo", "Chilln", 227, ["TheDoDo"], ["Pbb Yea", "Chilln"])
+    assert not cat.song("TheDoDo", "Chilln", 227, ["TheDoDo"])

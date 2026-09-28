@@ -37,6 +37,7 @@ LOCKFILE = STATE / "library.lock"
 CACHE = STATE / "library-cache.json"
 LOSSY_LIST = STATE / "lossy-sourced.json"      # written by spectrum.py: library stem -> detection result
 BLOCKED = STATE / "review-blocked.json"       # song id -> tag titles / file names marked wrong in review
+LINKS = STATE / "song-links.json"             # song id -> {artist, title}: the library song it is (review accept)
 AUDIO = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]
 LOSSLESS = {"flac", "wav", "aiff"}
 KEEP_REPLACED_DAYS = 30
@@ -285,6 +286,19 @@ class Catalog:
         self.by_key = {}
         for e in self.entries:
             for k in e.akeys: self.by_key.setdefault((k, e.tkey), []).append(e)
+        self.links = _read_json(LINKS, {})
+
+    def song(self, it):
+        """Library files for a wanted song (artist, title, length; artists and id/key when known), best first.
+        A link set on the review page wins (the same recording under another artist name, e.g. Spotify's
+        "Pbb Yea - Chilln" and "TheDoDo - Chilln"); then the song's artist; then its other artists: a
+        collaboration Spotify lists twice with the artists swapped ("Mabe, Catch Vibe - Atlantis" and
+        "Catch Vibe, Mabe - Atlantis") is one song."""
+        link = self.links.get(song_key(it) or "")
+        if link and (hits := self.find(link["artist"], link["title"])): return hits
+        for a in dict.fromkeys([it["artist"], *(it.get("artists") or [])]):
+            if hits := self.find(a, it["title"], it.get("length") or 0): return hits
+        return []
 
     def find(self, artist, title, length=0):
         """Library files that are the same song, best quality first (any length for a DJ-mix cut)."""
@@ -305,6 +319,12 @@ class Catalog:
         return TRACKS / clean_name(artist)
 
 # ------------------------------------------------------------------ helpers
+def song_key(it):
+    """'spotify:<id>' / 'soundcloud:<id>' of a list item (the key music-sync and Echolot use), or None."""
+    if it.get("key"): return it["key"]
+    uri = str(it.get("uri") or "")
+    return f"spotify:{it['id']}" if uri.startswith("spotify:") and it.get("id") else None
+
 def _read_json(p, default):
     try: return json.loads(p.read_text(encoding="utf-8"))
     except Exception: return default
@@ -367,12 +387,13 @@ def _event(action, path, **kw):
 
 # ------------------------------------------------------------------ filing
 def file_into(src, artist, title, length=0, source="", ids=None, fake=False, strict=False, file_name="", folders=(), loose=False,
-              relaxed=False, tries=0, match=None):
+              relaxed=False, tries=0, match=None, artists=()):
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy/fake copy), 'duplicate' (discarded, the library already has it),
     'mismatch' (strict: length is not the requested song's, i.e. another version) or
     'wrong-song' (strict: tags / source file name are not the requested artist and title).
     strict is for search results (Soulseek, YouTube); file_name/folders = where the download came from.
+    artists: all artists of the song; the library copy of any of them (or a review link) is the same song.
     relaxed (songs strict searches missed, see music-sync.py): a probable match (probable_ok) is filed too,
     marked match=probable for review in Echolot. Near misses among rejected downloads (the artist matched, the
     length is within 2/3 to 1.5 times the wanted one) are kept in inbox/review/ for 30 days, so they can still
@@ -408,7 +429,8 @@ def file_into(src, artist, title, length=0, source="", ids=None, fake=False, str
     new_genuine = ext in LOSSLESS and not fake
     with locked():
         cat = Catalog()
-        same = cat.find(artist, title, length)
+        same = cat.song({"artist": artist, "artists": list(artists), "title": title, "length": length,
+                         "key": (ids or [None])[0]})
         if same:
             best = same[0]
             if not (new_genuine and not best.genuine):
@@ -448,6 +470,18 @@ def _keep(src, artist, title, source):
     src.unlink(missing_ok=True)
     return src
 
+def _retag(path, artist, title):
+    """Set the artist and title tags (a review accept of a download tagged with another artist)."""
+    try:
+        from mutagen import File as MFile
+        m = MFile(str(path), easy=True)
+        if m is None: return
+        if m.tags is None: m.add_tags()
+        m["artist"], m["title"] = [artist], [title]
+        m.save()
+    except Exception:
+        pass
+
 def _drop(src):
     """Delete a rejected download that is no near miss (another artist, or a very different length: a mix)."""
     src = pathlib.Path(src); src.unlink(missing_ok=True)
@@ -482,8 +516,26 @@ def review_apply(d):
     if decision == "discard":
         p.unlink(); return "deleted", False
     if decision == "accept":
-        action, dest = file_into(p, d.get("artist", ""), d.get("title", ""), d.get("length") or 0, d.get("source", ""),
+        artist, title = d.get("artist", ""), d.get("title", "")
+        # the download is tagged with another artist who already has this song in the library: the same recording
+        # under two artist names (Spotify lists it twice). Link the song to that file instead of filing a copy.
+        tag_artists, _ = _tags(p)
+        want = _artist_words(artist)
+        dur, _ = _probe(p)
+        with locked():                        # released before file_into, which takes it itself
+            cat = Catalog()
+            for other in tag_artists:
+                if any(f" {w} " in _words(other) for w in want) or not (hits := cat.find(other, title, dur)): continue
+                if song:
+                    links = _read_json(LINKS, {}); links[song] = {"artist": other, "title": title}; _write_json(LINKS, links)
+                p.unlink()
+                _event("linked", hits[0].path, ids=[song] if song else [], artist=artist, title=title, source=d.get("source", ""),
+                       reason=f"same recording as {hits[0].path.relative_to(TRACKS)} ({other})", match="review")
+                return f"linked {hits[0].path.relative_to(TRACKS)}", False
+        action, dest = file_into(p, artist, title, d.get("length") or 0, d.get("source", ""),
                                  [song] if song else [], bool(d.get("fake")), match="review")
+        if action == "new" and dest and tag_artists and not any(f" {w} " in _words(a) for w in want for a in tag_artists):
+            _retag(dest, artist, title)       # else music servers file it under the download's artist
         return f"{action} {dest.relative_to(TRACKS) if dest else ''}".strip(), False
     return f"unknown decision {decision!r}", False
 
@@ -570,10 +622,11 @@ def main():
     ap.add_argument("--loose", action="store_true", help="with --strict: title may contain the requested title if the length is within 3 s")
     ap.add_argument("--relaxed", action="store_true", help="with --strict: also file a probable match (marked for review)")
     ap.add_argument("--tries", type=int, default=0, help="earlier searches that did not find the song (logged)")
+    ap.add_argument("--artists", default="", help="all artists of the song, '; '-separated (Spotify's artist list)")
     a = ap.parse_args()
     if a.cmd == "file":
         action, path = file_into(a.src, a.artist, a.title, a.length, a.source, [i for i in a.id if i], a.fake, a.strict, a.file_name, [f for f in a.folder if f], a.loose,
-                                 a.relaxed, a.tries)
+                                 a.relaxed, a.tries, artists=[x.strip() for x in a.artists.split("; ") if x.strip()])
         print(f"{action}\t{path or ''}")
     elif a.cmd == "find":
         for e in Catalog().find(a.artist, a.title, a.length):
