@@ -1,5 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import legend, qbar, share %}
+{% from "_macros.html" import qbar, share %}
+{% from "_icons.html" import icon %}
+{% from "_chart.html" import donut_chart %}
 {% block content %}
 {% set missing = o.wanted - o.have %}
 <section class="tiles">
@@ -25,59 +27,89 @@
   </a>
 </section>
 
-<section class="card">
-  <h2>Quality of your songs</h2>
-  {{ qbar(o.song_tiers, large=True) }}
-  {{ legend(o.song_tiers) }}
+<section class="card quality-card">
+  <h2>Quality of your songs <span class="count">{{ donut.total|num }}</span></h2>
+  <div class="quality-split">
+    {{ donut_chart(donut, share(o.song_tiers[0][2], donut.total), 'FLAC') }}
+    <table class="legend-table">
+      <thead><tr><th colspan="2">Tier</th><th class="num">Songs</th><th class="num">Share</th></tr></thead>
+      <tbody>
+      {% for k, label, n in o.song_tiers %}
+      <tr class="q-{{ k }}{{ ' dim' if not n }}">
+        <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
+        <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
+        <td class="num">{{ n|num }}</td>
+        <td class="num muted">{{ share(n, donut.total) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="card">
   <h2>Lists <span class="count">{{ o.lists|length }}</span></h2>
-  <table class="rows">
-    <thead><tr><th>List</th><th class="num">Songs</th><th class="wide">Quality</th><th class="num">FLAC</th><th class="num">Missing</th></tr></thead>
-    {% for svc, group in o.lists|groupby('service')|reverse %}
-    <tbody>
-    <tr class="group"><th colspan="5">{{ 'Spotify' if svc == 'spotify' else 'SoundCloud' }} <span class="count">{{ group|length }}</span></th></tr>
-    {% for l in group %}
-    {% set miss = l.songs - l.have %}
-    <tr>
-      <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}</td>
-      <td class="num">{{ l.songs|num }}</td>
-      <td class="wide">{{ qbar(tier_counts(l)) }}</td>
-      <td class="num muted">{{ share(l.lossless, l.songs) }}</td>
-      <td class="num">{% if miss %}<a class="bad-text" href="/missing?list={{ l.key|urlencode }}">{{ miss|num }}</a>{% else %}<span class="muted">–</span>{% endif %}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-    {% else %}
-    <tbody><tr><td colspan="5" class="muted">No lists yet. They appear after the first refresh.</td></tr></tbody>
-    {% endfor %}
-  </table>
+  {% for svc, group in o.lists|groupby('service')|reverse %}
+  {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
+  <details class="group" data-remember="lists-{{ svc }}" open>
+    <summary>
+      <span class="group-name">{{ icon(svc) }} {{ 'Spotify' if svc == 'spotify' else 'SoundCloud' }}</span>
+      <span class="pill">{{ group|length }} list{{ 's' if group|length != 1 }}</span>
+      <span class="muted small">{{ t.songs|num }} songs{% if t.missing %} · <span class="bad-text">{{ t.missing|num }} missing</span>{% endif %}</span>
+    </summary>
+    <table class="rows lists">
+      <colgroup><col><col class="c-num"><col class="c-bar"><col class="c-num"><col class="c-num"></colgroup>
+      <thead><tr><th>List</th><th class="num hide-narrow">Songs</th><th>Quality</th><th class="num hide-narrow">FLAC</th><th class="num">Missing</th></tr></thead>
+      <tbody>
+      {% for l in group %}
+      {% set m = l.songs - l.have %}
+      <tr>
+        <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}</td>
+        <td class="num hide-narrow">{{ l.songs|num }}</td>
+        <td>{{ qbar(tier_counts(l)) }}</td>
+        <td class="num muted hide-narrow">{{ share(l.lossless, l.songs) }}</td>
+        <td class="num">{% if m %}<a class="bad-text" href="/missing?list={{ l.key|urlencode }}">{{ m|num }}</a>{% else %}<span class="muted">–</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% else %}
+  <p class="muted">No lists yet. They appear after the first refresh.</p>
+  {% endfor %}
 </section>
 
 <section class="card">
-  <h2>Activity</h2>
-  <dl>
-    <dt>Last 24 h</dt>
-    <dd><a href="/activity?kind=added">{{ o.added_24h|num }} songs added</a> ({{ o.added_bytes_24h|size }}),
-        <a href="/activity?kind=rejected">{{ o.rejected_24h|num }} wrong downloads rejected</a></dd>
-    {% if paused %}
-    <dt>Pipeline</dt><dd><span class="dot err"></span>downloads paused (state/PAUSED)</dd>
-    {% endif %}
+  <div class="card-head">
+    <h2>Activity</h2>
+    <form method="post" action="/jobs/refresh/run"><button>Refresh now</button></form>
+  </div>
+  <div class="stats">
+    <a class="stat" href="/activity?kind=added"><span class="stat-value">{{ o.added_24h|num }}</span><span class="stat-label">songs added in 24 h · {{ o.added_bytes_24h|size }}</span></a>
+    <a class="stat" href="/activity?kind=rejected"><span class="stat-value">{{ o.rejected_24h|num }}</span><span class="stat-label">downloads rejected in 24 h</span></a>
+    {% if paused %}<span class="stat"><span class="stat-value bad-text">paused</span><span class="stat-label">downloads (state/PAUSED)</span></span>{% endif %}
+  </div>
+  <table class="rows jobs">
+    <thead><tr><th>Job</th><th>State</th><th class="hide-narrow">Schedule</th><th>Last run</th><th>Next</th></tr></thead>
+    <tbody>
     {% for s in pipeline_jobs %}
-    <dt>{{ s.job.label }}</dt>
-    <dd>{% if s.running %}<span class="dot on"></span>running since {{ s.started|ago }}
-        {% elif s.rule is none %}<span class="dot"></span><span class="muted">off</span>
-        {% else %}<span class="dot"></span><span class="muted">{{ s.rule|minutes }}, last {{ s.started|ago }}, next {% if s.waiting_for %}waiting for {{ s.waiting_for }}{% else %}{{ s.next_run|until }}{% endif %}</span>{% endif %}</dd>
+    <tr>
+      <td>{{ s.job.label }}</td>
+      <td class="nowrap">{% if s.running %}<span class="dot on"></span>running{% elif s.rule is none %}<span class="dot"></span><span class="muted">off</span>{% elif s.waiting_for %}<span class="dot wait"></span>waiting{% else %}<span class="dot"></span><span class="muted">idle</span>{% endif %}</td>
+      <td class="muted small hide-narrow">{{ s.rule|minutes }}</td>
+      <td class="small nowrap">{{ s.started|ago }}</td>
+      <td class="small">{% if s.rule is none %}<span class="muted">–</span>{% elif s.running %}<span class="muted">–</span>{% elif s.waiting_for %}after {{ s.waiting_for }}{% else %}{{ s.next_run|until }}{% endif %}</td>
+    </tr>
     {% endfor %}
     {% set r = o.jobs.get('refresh') %}
-    <dt>Echolot refresh</dt>
-    <dd>
-      {% if r and not r.finished %}<span class="dot on"></span>running since {{ r.started|ago }}
-      {% elif r %}{% if r.ok %}<span class="dot"></span>{% else %}<span class="dot err"></span>{% endif %}{{ r.finished|ago }}: <span class="muted">{{ r.message }}</span>
-      {% else %}<span class="muted">not run yet</span>{% endif %}
-      <form method="post" action="/jobs/refresh/run" class="inline"><button>Refresh now</button></form>
-    </dd>
-  </dl>
+    <tr>
+      <td>Echolot refresh</td>
+      <td class="nowrap" title="{{ r.message if r else '' }}">{% if r and not r.finished %}<span class="dot on"></span>running{% elif r and not r.ok %}<span class="dot err"></span>failed{% elif r %}<span class="dot"></span><span class="muted">idle</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+      <td class="muted small hide-narrow">every {{ refresh_minutes }} min</td>
+      <td class="small nowrap">{{ r.finished|ago if r and r.finished else '–' }}</td>
+      <td class="small">{% if refresh_in is not none %}{{ 'due now' if refresh_in < 60 else 'in ' ~ ((refresh_in / 60)|round(0, 'ceil')|int) ~ ' min' }}{% else %}<span class="muted">–</span>{% endif %}</td>
+    </tr>
+    </tbody>
+  </table>
 </section>
 {% endblock %}
