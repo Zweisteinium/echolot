@@ -131,6 +131,8 @@ def test_review(client: TestClient, settings: Settings) -> None:
     kept = music / "inbox" / "review" / "2026-09-27" / "Artist C - Gone Song [soulseek].flac"
     kept.parent.mkdir(parents=True)
     kept.write_bytes(b"audio")
+    other = kept.with_name("Artist C - Gone Song [soulseek] (2).flac")
+    other.write_bytes(b"audio")
     new = [
         {"ts": "2026-09-27T10:00:00", "action": "new", "path": "Artist A/Artist A - First Song.mp3",
          "ext": "mp3", "seconds": 202, "source": "youtube", "ids": ["spotify:s1"], "artist": "Artist A",
@@ -139,6 +141,10 @@ def test_review(client: TestClient, settings: Settings) -> None:
          "path": "/music/inbox/review/2026-09-27/Artist C - Gone Song [soulseek].flac", "ext": "flac",
          "seconds": 181, "source": "soulseek", "ids": ["spotify:s3"], "artist": "Artist C",
          "title": "Gone Song", "found": "Gone Song (Club Mix)", "reason": "title differs"},
+        {"ts": "2026-09-27T11:30:00", "action": "wrong-song",
+         "path": "/music/inbox/review/2026-09-27/Artist C - Gone Song [soulseek] (2).flac",
+         "seconds": 180, "ids": ["spotify:s3"], "artist": "Artist C", "title": "Gone Song",
+         "found": "Requiem in D minor", "reason": "artist 'Artist C' not in ['Mozart']"},
         {"ts": "2026-09-27T12:00:00", "action": "wrong-song", "path": "/etc/passwd",
          "ids": ["spotify:s3"], "artist": "Artist C", "title": "Gone Song"},
     ]  # fmt: skip
@@ -153,6 +159,7 @@ def test_review(client: TestClient, settings: Settings) -> None:
     assert "First Song (Official Video)" in html and "(+2 s)" in html
     assert "Gone Song (Club Mix)" in html and "title differs" in html
     assert "/etc/passwd" not in html
+    assert "Requiem in D minor" not in html  # another artist: no near miss
     assert client.get(f"/review/{ids[1]}/audio").content == b"audio"
     assert client.get(f"/review/{ids[2]}/audio").status_code == 404
 
