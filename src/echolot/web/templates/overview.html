@@ -71,7 +71,7 @@
     <dt>{{ s.job.label }}</dt>
     <dd>{% if s.running %}<span class="dot on"></span>running since {{ s.started|ago }}
         {% elif s.rule is none %}<span class="dot"></span><span class="muted">off</span>
-        {% else %}<span class="dot"></span><span class="muted">{{ s.rule|minutes }}, last {{ s.started|ago }}, next {{ s.next_run|until }}</span>{% endif %}</dd>
+        {% else %}<span class="dot"></span><span class="muted">{{ s.rule|minutes }}, last {{ s.started|ago }}, next {% if s.waiting_for %}waiting for {{ s.waiting_for }}{% else %}{{ s.next_run|until }}{% endif %}</span>{% endif %}</dd>
     {% endfor %}
     {% set r = o.jobs.get('refresh') %}
     <dt>Echolot refresh</dt>

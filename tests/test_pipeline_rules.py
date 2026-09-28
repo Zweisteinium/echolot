@@ -32,7 +32,10 @@ def probable(
     dur: float = 200,
     length: float = 200,
 ):
-    return library.probable_ok(artist, title, [artist], found, file_name, (), dur, length, 3)[0]
+    return (
+        library.identify(artist, title, [artist], found, file_name, (), dur, length, 3)[0]
+        is not None
+    )
 
 
 # (artist, requested title, tag title of the download): the same recording
@@ -84,9 +87,10 @@ def test_probable_needs_length_and_artist() -> None:
     capo = RIGHT[0]
     assert not probable(*capo, dur=210)  # 10 s off
     assert not probable(*capo, dur=0)  # unknown
-    assert not library.probable_ok(
-        "Other", capo[1], ["Other Artist"], capo[2], "", (), 200, 200, 3
-    )[0]
+    assert (
+        library.identify("Other", capo[1], ["Other Artist"], capo[2], "", (), 200, 200, 3)[0]
+        is None
+    )
 
 
 def test_probable_from_file_name() -> None:
@@ -134,13 +138,13 @@ CAPO = ("CAPO", "Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix")
 CAPO_FILE = "CAPO - RUN RUN RUN feat. YUNG KAFA & KÜCÜK EFENDI (prod. von Jurijgold & Falconi) [Official Remix]"
 
 
-def file_capo(lib, tmp_path: Path, relaxed: bool):
+def file_capo(lib, tmp_path: Path, probable: bool):
     return lib.file_into(download(tmp_path, "1.wav"), *CAPO, 200, "soulseek", ["spotify:capo"],
-                         strict=True, file_name=CAPO_FILE, loose=True, relaxed=relaxed, tries=2)  # fmt: skip
+                         strict=True, file_name=CAPO_FILE, probable=probable, tries=2)  # fmt: skip
 
 
 def test_strict_rejection_is_kept_for_review(lib, tmp_path: Path) -> None:
-    action, dest = file_capo(lib, tmp_path, relaxed=False)
+    action, dest = file_capo(lib, tmp_path, probable=False)
     assert (action, dest) == ("wrong-song", None)
     e = events(tmp_path)[-1]
     assert e["action"] == "wrong-song" and e["found"] == CAPO_FILE and e["tries"] == 2
@@ -150,7 +154,7 @@ def test_strict_rejection_is_kept_for_review(lib, tmp_path: Path) -> None:
 
 
 def test_relaxed_files_probable_match_with_review_mark(lib, tmp_path: Path) -> None:
-    action, dest = file_capo(lib, tmp_path, relaxed=True)
+    action, dest = file_capo(lib, tmp_path, probable=True)
     assert action == "new" and dest.is_file()
     assert dest.name == "CAPO - Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix.wav"
     e = events(tmp_path)[-1]
@@ -158,19 +162,19 @@ def test_relaxed_files_probable_match_with_review_mark(lib, tmp_path: Path) -> N
 
 
 def test_review_wrong_retires_and_blocks(lib, tmp_path: Path) -> None:
-    _, dest = file_capo(lib, tmp_path, relaxed=True)
+    _, dest = file_capo(lib, tmp_path, probable=True)
     e = events(tmp_path)[-1]
     result, retry = lib.review_apply({"decision": "wrong", "song": "spotify:capo", "path": e["path"],
                                       "found": e["found"], "file_name": e["file_name"]})  # fmt: skip
     assert (result, retry) == ("retired", True)
     assert not dest.exists()
     # the same download is not taken again, even though it is a probable match
-    assert file_capo(lib, tmp_path, relaxed=True) == ("wrong-song", None)
+    assert file_capo(lib, tmp_path, probable=True) == ("wrong-song", None)
     assert events(tmp_path)[-1]["reason"] == "this download was marked wrong in review"
 
 
 def test_review_accept_files_a_kept_download(lib, tmp_path: Path) -> None:
-    file_capo(lib, tmp_path, relaxed=False)
+    file_capo(lib, tmp_path, probable=False)
     e = events(tmp_path)[-1]
     decision = {"decision": "accept", "song": "spotify:capo", "path": e["path"], "artist": CAPO[0],
                 "title": CAPO[1], "length": 200, "source": "soulseek"}  # fmt: skip
@@ -184,7 +188,7 @@ def test_review_discard_only_inside_review_folder(lib, tmp_path: Path) -> None:
     outside = download(tmp_path, "keep.wav")
     assert lib.review_apply({"decision": "discard", "path": str(outside)}) == ("file gone", False)
     assert outside.exists()
-    file_capo(lib, tmp_path, relaxed=False)
+    file_capo(lib, tmp_path, probable=False)
     kept = events(tmp_path)[-1]["path"]
     assert lib.review_apply({"decision": "discard", "path": kept}) == ("deleted", False)
     assert not Path(kept).exists()
@@ -326,7 +330,7 @@ def test_apply_review_queues_attempts_without_the_soulseek_lock(
                         ("REVIEW_DONE", state / "review-done.json"), ("REVIEW_RETRY", state / "review-retry.json"),
                         ("ATTEMPTS", state / "attempts.json"), ("TRACKS", tmp_path / "tracks")]:  # fmt: skip
         monkeypatch.setattr(sync, name, value)
-    file_capo(lib, tmp_path, relaxed=True)
+    file_capo(lib, tmp_path, probable=True)
     e = events(tmp_path)[-1]
     (tmp_path / "review.yml").write_text(json.dumps({"decisions": [
         {"id": "1", "decision": "wrong", "song": "spotify:track:capo", "path": e["path"], "found": e["found"],
@@ -339,3 +343,69 @@ def test_apply_review_queues_attempts_without_the_soulseek_lock(
     assert json.loads((state / "attempts.json").read_text())["spotify:capo"] == {
         "n": 3, "last": 0, "artist": CAPO[0], "title": CAPO[1]}  # fmt: skip
     assert json.loads((state / "review-retry.json").read_text()) == {}
+
+
+@pytest.mark.parametrize(
+    ("title", "found", "dur", "match"),
+    [
+        ("Hells Bells", "AC/DC - Hells Bells (Official 4K Video)", 0, "exact"),  # noise only
+        ("Tale Part 2", "Tale Pt. 2", 0, "exact"),
+        ("Tale Part 2 (Club Mix)", "Tale Pt. 2 (Club Mix) [HAK003]", 0, "exact"),
+        (
+            "Tale Part 2 - Remix",
+            "Tale Pt. 2 (Official Remix)",
+            200,
+            "probable",
+        ),  # part == pt in version words
+        ("Song - Edit", "Song (Radio Edit)", 200, "probable"),  # the old 'loose' case
+        ("Song - Edit", "Song (Radio Edit)", 210, None),  # ... needs the length
+        ("Song", "Song (Hard Trance Mix)", 200, None),  # a named variant
+        ("Song", "Other Song", 200, None),
+    ],
+)
+def test_identify(title: str, found: str, dur: int, match: str | None) -> None:
+    assert library.identify("AC/DC", title, ["AC/DC"], found, "", (), dur, 200, 3)[0] == match
+
+
+def test_identify_artist_first() -> None:
+    assert library.identify("TINOS", "All Night", ["Vanilla"], "All Night")[0] is None
+    assert library.identify("TINOS", "All Night", ["TINOS"], "All Night")[0] == "exact"
+
+
+def test_feat_versions_are_different_songs(lib, tmp_path: Path) -> None:
+    """Spotify: "Swervin (feat. 6ix9ine)" and "Swervin (feat. Veysel)"; one credit alone is no difference."""
+    lib.file_into(download(tmp_path, "a.wav", 189), "A Boogie", "Swervin (feat. 6ix9ine)", 189)
+    cat = lib.Catalog()
+    assert not cat.find("A Boogie", "Swervin (feat. Veysel)", 186)
+    assert cat.find("A Boogie", "Swervin", 189) and cat.find(
+        "A Boogie", "Swervin (feat. 6ix9ine & X)", 189
+    )
+    assert (
+        lib.identify("A Boogie", "Swervin (feat. Veysel)", ["A Boogie"], "Swervin (feat. 6ix9ine)")[
+            0
+        ]
+        is None
+    )
+
+
+def test_file_name_version_overrules_tags() -> None:
+    """Guru Josh Project: the Klaas Vocal Edit is tagged plainly 'Infinity 2008'."""
+    args = ("Guru Josh Project", "Infinity 2008", ["Guru Josh Project"], "Infinity 2008")
+    assert (
+        library.identify(*args, "Guru Josh Project - Infinity 2008 - Klaas Vocal Edit")[0] is None
+    )
+    assert library.identify(*args, "03 - Infinity 2008 (Original Mix)")[0] == "exact"
+    assert library.identify(*args, "Guru Josh Project - Infinity 2008 (Live)")[0] is None
+    assert (
+        library.identify(*args, "Guru Josh Project - Club Hits 2009 - 03 - Something Else")[0]
+        == "exact"
+    )
+
+
+def test_small_gaps() -> None:
+    assert library.identify(
+        "NTO", "Trauma - Worakls Remix", ["N'to"], "Trauma (Worakls Remix)", "", (), 0, 0
+    )[0]
+    assert library.title_key("10 out 10 [ARONAVA08]") == library.title_key("10 out 10")
+    assert library.title_key("Liebeslied (Official Lyric Video)") == library.title_key("Liebeslied")
+    assert library.title_key("Liebeslied (Lyric Video)") == library.title_key("Liebeslied")
