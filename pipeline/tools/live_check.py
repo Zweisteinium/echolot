@@ -18,6 +18,8 @@ def log(msg):
     with LOG.open("a", encoding="utf-8") as f: f.write(msg + "\n")
 
 def judge(r, dur, path):
+    path = path.split(") ", 1)[1] if path.startswith("(") else path      # "(5.40MB/s) user\\..."
+    path = path.rsplit(" (nec:", 1)[0]                                    # "... (nec:Satisfied, prf:...)"
     parts = [p for p in path.split("\\") if p]
     stem, folders = pathlib.PurePath(parts[-1]).stem, parts[1:-1]           # parts[0] is the user
     tol = 3

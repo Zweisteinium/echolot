@@ -128,7 +128,8 @@ def _words(s):
     return " " + re.sub(r"[\W_]+", " ", re.sub(r"['’`´]", "", fold(s)).replace("&", " and ")).strip() + " "
 
 def _strip_track_no(s):
-    return re.sub(r"^\s*(?:[a-z]?\d{1,4}|\d{1,2}-\d{1,3})[\s.\-_)]+(?=\S)", "", s, flags=re.I)
+    """Without a leading track number: "07 ", "A2. ", disc-track "1-04 ", "CD-01 - ", "Disc 2 - "."""
+    return re.sub(r"^\s*(?:(?:cd|disc|disk)[\s\-_]?\d{1,2}|\d{1,2}-\d{1,3}|[a-z]?\d{1,4})[\s.\-_)]+(?=\S)", "", s, flags=re.I)
 
 def identify(artist, title, tag_artists=(), tag_title="", file_name="", folders=(), dur=0, length=0, tol=3):
     """Is this download <artist> - <title>? (Search results can be another artist's song with the same title,
@@ -170,25 +171,36 @@ def _artist_words(artist):
     return [w for w in {_words(artist).strip(), _words(first_artist(artist)).strip(), _words(base).strip()} if w]
 
 def _readings(name, has_artist):
-    """Readings of a tag title / file name as a plain title: with and without a leading track number (a title can
-    start with a number: "10 out 10", "93 Bang Bang"), without (repeated) artist prefixes, 'Album - 07 - Title',
-    'Artist_Album_13_Title' and reversed 'Title - Artist' forms."""
+    """Readings of a tag title / file name as a plain title, for comparing with the requested one:
+      - with and without a leading track number ("07 ", "1-04 ", "CD-01 - "; a title can start with a number)
+      - without (repeated) artist prefixes "Artist - ", and 'Album - 07 - Title', reversed 'Title - Artist'
+      - 'Artist_Album_13_Title'
+      - scene names without ' - ': "02-solo_viking-war_harangue-grp" -> "war harangue"; every dash is tried as the
+        end of the artist ("a-ha-take_on_me"), and a trailing group tag or id is dropped only in real scene names
+        (all lower case without spaces) or when it is a number, so "Song-Remix" is never read as "Song"."""
     out = []
     add = lambda x: x and x not in out and out.append(x)
     m = re.match(r"^[^_]+_[^_]+_\d{1,3}_(.+)$", name)      # "Artist_Album_13_Title"
     if m: add(m.group(1).replace("_", " "))
+    scene = bool(re.fullmatch(r"[a-z0-9_\-().&'!]+", name))
     name = name.replace("_-_", " - ").replace("_", " ") if name.count("_") > 2 else name
     for rest in (name, _strip_track_no(name)):
         add(rest)
         while " - " in rest:
             head, tail = rest.split(" - ", 1)
             if not has_artist(head): break
-            rest = tail; add(rest)
-            add(_strip_track_no(rest))
+            rest = tail; add(rest); add(_strip_track_no(rest))
+            if scene: add(re.sub(r"(?<=\S)-[^\s-]+$", "", rest))   # group tag: "in flames-zzzz"
         if m := re.match(r"^.+? - \d{1,3} - (.+)$", rest): add(m.group(1))
         if " - " in rest:
             head, tail = rest.rsplit(" - ", 1)
             if has_artist(tail): add(head)
+        parts = [x.strip() for x in re.split(r"\s*-\s*", rest)]
+        for i in range(1, len(parts)):                   # dash-joined names (scene releases)
+            if not has_artist("-".join(parts[:i])): continue
+            tail = parts[i:]
+            add(" - ".join(tail))
+            if len(tail) > 1 and (scene or tail[-1].isdigit()): add(" - ".join(tail[:-1]))
     return out
 
 # Words that mark another recording of a song: request and download must agree on them.
