@@ -1,5 +1,5 @@
-"""Review: songs the pipeline filed on a probable match (it loosens the search for songs it did not find,
-see LOOSEN in music-sync.py) and rejected downloads it keeps in inbox/review/ for 30 days.
+"""Review: songs the pipeline filed on a probable match (library.identify) and rejected downloads it
+keeps in inbox/review/ for 30 days.
 
 Decisions are appended to review.yml in the pipeline directory; music-sync applies each one once (at the
 start of its Soulseek jobs, or within 10 min by the playlists job) and records the result in
