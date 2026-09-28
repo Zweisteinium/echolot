@@ -409,3 +409,20 @@ def test_small_gaps() -> None:
     assert library.title_key("10 out 10 [ARONAVA08]") == library.title_key("10 out 10")
     assert library.title_key("Liebeslied (Official Lyric Video)") == library.title_key("Liebeslied")
     assert library.title_key("Liebeslied (Lyric Video)") == library.title_key("Liebeslied")
+
+
+def test_search_terms_and_groups(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "spectrum", types.ModuleType("spectrum"))
+    monkeypatch.setitem(sys.modules, "library", library)
+    sync = load("music-sync")
+    ac = {"artist": "AC/DC", "title": "Hells Bells", "length": 313}
+    assert sync.search_terms(ac) == ("AC DC", "Hells Bells", 313)
+    cut = {"artist": "Neelix, X", "title": "The Twenty Five - Mixed", "length": 103}
+    assert sync.search_terms(cut, loosen=True) == ("Neelix", "The Twenty Five", 0)
+    rows = [{**ac, "tries": n} for n in (0, 1, 2, 3, 4, 9)]
+    groups = [
+        (suffix, extra, loosen, [r["tries"] for r in g])
+        for suffix, extra, loosen, g in sync.search_groups(rows)
+    ]
+    assert groups == [("-loose4", ["--strict-artist", "false", "--desperate"], True, [4, 9]),
+                      ("-loose2", ["--desperate"], True, [2, 3]), ("", [], False, [0, 1])]  # fmt: skip
