@@ -5,12 +5,12 @@
 # to the Soulseek server; without an open port, transfers with firewalled peers are impossible.
 #   slskd:    keeps its current port while it is still forwarded, else takes the first one;
 #             slskd.yml is updated and slskd restarted only when the port changed.
-#   Sockseek: gets the other port via /opt/sockseek/config/state/listen-port, which
-#             music-sync.py passes as --listen-port at the start of every run.
+#   Sockseek: gets the other port via /opt/sockseek/daemon/listen-port; the daemon (run.sh there)
+#             restarts with it when it changes.
 # Run it from the host's crontab every 10 minutes (paths overridable: SLSKD_CONF, SOCKSEEK_PORT_FILE).
 set -euo pipefail
 CONF=${SLSKD_CONF:-/opt/slskd/slskd/slskd.yml}
-SOCKSEEK_PORT_FILE=${SOCKSEEK_PORT_FILE:-/opt/sockseek/config/state/listen-port}
+SOCKSEEK_PORT_FILE=${SOCKSEEK_PORT_FILE:-/opt/sockseek/daemon/listen-port}
 mapfile -t PORTS < <(docker exec gluetun cat /tmp/gluetun/forwarded_port 2>/dev/null | grep -E '^[0-9]+$' || true)
 [ "${#PORTS[@]}" -gt 0 ] || { echo "$(date -Is) no forwarded port from gluetun"; exit 0; }
 
@@ -36,5 +36,5 @@ if [ -z "$SOCKSEEK" ]; then
   fi
 elif [ "$SOCKSEEK" != "$OLD" ]; then
   echo "$SOCKSEEK" > "$SOCKSEEK_PORT_FILE.tmp" && mv "$SOCKSEEK_PORT_FILE.tmp" "$SOCKSEEK_PORT_FILE"
-  echo "$(date -Is) sockseek listen_port ${OLD:-none} -> $SOCKSEEK (applies from its next run)"
+  echo "$(date -Is) sockseek listen_port ${OLD:-none} -> $SOCKSEEK (the daemon restarts with it)"
 fi

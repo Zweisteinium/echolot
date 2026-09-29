@@ -149,6 +149,13 @@ def test_accounts_page(client: TestClient, settings: Settings) -> None:
     assert "not+the+address+of+the+last" in r.headers["location"]
 
 
+def test_connection_line(client: TestClient) -> None:
+    assert 'hx-get="/accounts/line"' in client.get("/").text
+    html = client.get("/accounts/line").text
+    assert "Spotify: not connected" in html and "SoundCloud: not connected" in html
+    assert "Soulseek: daemon not reachable" in html and " free</span>" in html
+
+
 def test_settings_save(client: TestClient, settings: Settings) -> None:
     assert "Spotify → Soulseek" in client.get("/settings").text
     form = {j.name: schedule.when_text(j.default) for j in schedule.JOBS} | {
