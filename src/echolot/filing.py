@@ -13,6 +13,7 @@ keeps current (library.scan picks up changes made by others):
 """
 
 import datetime
+import glob
 import os
 import shutil
 import sqlite3
@@ -171,6 +172,12 @@ def drop(src: Path) -> Path:
     """Delete a rejected download that is no near miss (another artist, or a whole mix)."""
     src.unlink(missing_ok=True)
     return src
+
+
+def in_review(paths: Paths, artist: str, title: str) -> bool:
+    """A kept download of this song waits on the review page (named as keep() names it)."""
+    name = f"{clean_name(artist)} - {clean_name(title)} ["
+    return any(paths.inbox("review").glob(f"*/{glob.escape(name)}*"))
 
 
 def is_blocked(con: sqlite3.Connection, key: str, names: list[str]) -> bool:

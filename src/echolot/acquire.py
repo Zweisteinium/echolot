@@ -11,7 +11,9 @@ One song, one attempt:
   5. filed, or kept for review; else the next result (at most MAX_RESULTS)
 """
 
+import collections
 import datetime
+import json
 import logging
 import shutil
 import sqlite3
@@ -43,6 +45,20 @@ TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
 FOUND = {"new", "upgrade", "duplicate"}
 
 
+def stage(tries: int) -> int:
+    """How far the search is loosened for a song not found `tries` times: 0, 1 or 2 (see LOOSEN)."""
+    return sum(tries >= n for n, _ in LOOSEN)
+
+
+def kind(why: str) -> str:
+    """A prejudge reason as a short kind, counted in the search reports."""
+    for start, name in (("length", "another length"), ("artist not", "artist missing"), ("neither", "another song"),
+                        ("the file name lacks", "lacks the version"), ("marked wrong", "marked wrong")):  # fmt: skip
+        if why.startswith(start):
+            return name
+    return "another version" if why.endswith("names another version") else why
+
+
 def level(tries: int) -> tuple[bool, dict[str, bool]]:
     """(loosened search terms, search options) for a song not found `tries` times."""
     for n, opts in LOOSEN:
@@ -51,11 +67,17 @@ def level(tries: int) -> tuple[bool, dict[str, bool]]:
     return False, {}
 
 
+MISSING_RETRY = (3 * 3600, 86400)  # missing songs are searched again after 3 h, 6 h, 12 h, then daily
+
+
+def retry_at(tries: int, last: int, first: int, cap: int) -> float:
+    """When a song searched `tries` times is due again: `first` seconds after the last search, doubling up
+    to `cap` (half an hour early, so it makes the run at that time)."""
+    return (last or 0) + min(first * 2 ** max(tries - 1, 0), cap) - 1800
+
+
 def due(tries: int, last: int, first: int, cap: int, now: float) -> bool:
-    """Retry after `first` seconds, doubling up to `cap` (missing songs: 3 h, 6 h, 12 h, then daily)."""
-    if not tries:
-        return True
-    return now - (last or 0) >= min(first * 2 ** max(tries - 1, 0), cap) - 1800
+    return not tries or now >= retry_at(tries, last, first, cap)
 
 
 # ---------------------------------------------------------------- one song
@@ -65,6 +87,7 @@ def due(tries: int, last: int, first: int, cap: int, now: float) -> bool:
 class Outcome:
     action: str  # new, upgrade, duplicate, not found, failed, ...
     detail: str = ""
+    report: dict | None = None  # what the search saw: {stage, results, fits, rejected: {kind: n}, tried}
 
 
 class Fetcher:
@@ -99,14 +122,18 @@ class Fetcher:
         finally:
             con.close()
         wanted = 0 if rules.mix_cut(want.title) else want.length
-        judged = []
+        judged, rejected = [], collections.Counter()
         for c in found:
-            verdict, rank, _ = rules.prejudge(want.artist, want.title, c.path, c.length, wanted,
-                                              opts.get("strict_artist", True), blocked)  # fmt: skip
+            verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, wanted,
+                                                opts.get("strict_artist", True), blocked)  # fmt: skip
             if verdict != rules.REJECT:
                 judged.append((rank, c.rank, c))
+            else:
+                rejected[kind(why)] += 1
+        report = {"stage": stage(tries) if self.purpose == "search" else 0, "results": len(found),
+                  "fits": len(judged), "rejected": dict(rejected), "tried": []}  # fmt: skip
         if not judged:
-            return Outcome("not found", f"{len(found)} results, none fits" if found else "no results")
+            return Outcome("not found", f"{len(found)} results, none fits" if found else "no results", report)
         tried = []
         for _, _, c in sorted(judged, key=lambda j: j[:2])[:MAX_RESULTS]:
             if self.run.stop.is_set():
@@ -115,7 +142,8 @@ class Fetcher:
             if outcome.action == "upgrade" or (outcome.action in FOUND and self.purpose == "search"):
                 return outcome
             tried.append(f"{c.name}: {outcome.detail or outcome.action}")
-        return Outcome("not found", f"{len(found)} results; tried " + "; ".join(tried))
+            report["tried"].append([c.name, outcome.action, outcome.detail])
+        return Outcome("not found", f"{len(found)} results; tried " + "; ".join(tried), report)
 
     def attempt(self, search_job: str, c: soulseek.Candidate, want: Want, tries: int, settings: dict) -> Outcome:
         name = uuid.uuid4().hex[:12]
@@ -242,7 +270,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
             run.stop.set()
         con = run.connect()
         try:
-            _count(con, purpose, want.key, outcome.action)
+            _count(con, purpose, want.key, outcome.action, outcome.report)
         finally:
             con.close()
         log.info("%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail)
@@ -264,9 +292,9 @@ def _logged_in(daemon: soulseek.Daemon) -> bool:
         return False
 
 
-def _count(con: sqlite3.Connection, purpose: str, key: str, action: str) -> None:
-    """Record a search: found songs leave the attempts, the others count one more try (a search the
-    daemon lost does not count)."""
+def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report: dict | None = None) -> None:
+    """Record a search: found songs leave the attempts, the others count one more try and keep what the
+    search saw (a search the daemon lost does not count)."""
     table = "attempts" if purpose == "search" else "upgrades"
     success = action in FOUND if purpose == "search" else action == "upgrade"
     with con:
@@ -278,6 +306,8 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str) -> None
                 "DO UPDATE SET tries = tries + 1, last_try = excluded.last_try",
                 (key, int(time.time())),
             )
+            if report and purpose == "search":
+                con.execute("UPDATE attempts SET result = ? WHERE song_key = ?", (json.dumps(report), key))
 
 
 def sync(run: "Run") -> str:
@@ -289,7 +319,7 @@ def sync(run: "Run") -> str:
     try:
         library.refresh(con, run.paths.tracks)
         now = time.time()
-        songs = [r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], 3 * 3600, 86400, now)]
+        songs = [r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], *MISSING_RETRY, now)]
     finally:
         con.close()
     parts.append(_search(run, songs, "search"))
@@ -399,7 +429,7 @@ def fallback(run: "Run") -> str:
     finally:
         con.close()
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
-    added = 0
+    added = kept = 0
     for n, row in enumerate(songs, 1):
         if run.stop.is_set():
             break
@@ -413,43 +443,80 @@ def fallback(run: "Run") -> str:
                     "(song_key) DO UPDATE SET last_fallback = excluded.last_fallback",
                     (want.key, int(time.time())),
                 )
-            action = _fallback_song(run, con, ydl, want, row["tries"], strict_probable=row["service"] == "spotify")
+            action, report = _fallback_song(run, con, ydl, want, row["tries"], row["service"] == "spotify")
+            with con:
+                con.execute(
+                    "UPDATE attempts SET fallback_result = ? WHERE song_key = ?", (json.dumps(report), want.key)
+                )
         finally:
             con.close()
         added += action in ("new", "upgrade")
+        kept += action == "mismatch"
         log.info("fallback: %s - %s: %s", want.artist, want.title, action)
     shutil.rmtree(run.paths.inbox("fallback"), ignore_errors=True)
     run.after.add("library")
-    return f"{added} of {len(songs)} songs found on YouTube or SoundCloud"
+    return f"{added} of {len(songs)} songs found on YouTube or SoundCloud" + (
+        f", {kept} of another length kept for review" if kept else ""
+    )
 
 
 def _fallback_song(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: Want, tries: int,
-                   strict_probable: bool) -> str:  # fmt: skip
+                   strict_probable: bool) -> tuple[str, dict]:  # fmt: skip
+    """Search YouTube, then SoundCloud, and file the first result that passes the checks. Failing that, the
+    result closest in length that names exactly this song but is another length (an official video often
+    has its own edit) is downloaded and kept for review: only a listener can tell. One at a time; one
+    discarded in review is not kept again. Returns the action and what the search saw, per site."""
     cut = rules.mix_cut(want.title)
     query = f"{want.artist} - {rules.release_title(want.title)}"
     wanted = 0 if cut else want.length
+    report: dict = {}
+    near: tuple[str, dict] | None = None
     for site in ("youtube", "soundcloud"):
-        judged = []
-        for i, r in enumerate(ydl.search(query, site, run.stop)):
+        results = ydl.search(query, site, run.stop)
+        judged, rejected = [], collections.Counter()
+        for i, r in enumerate(results):
             path = f"{r['uploader']}/{r['title']}"
-            verdict, rank, _ = rules.prejudge(want.artist, want.title, path, r["duration"], wanted)
+            verdict, rank, why = rules.prejudge(want.artist, want.title, path, r["duration"], wanted)
             if verdict != rules.REJECT:
                 judged.append((rank, i, r))
+                continue
+            rejected[kind(why)] += 1
+            if (wanted and r["duration"] and 2 / 3 <= r["duration"] / wanted <= 1.5
+                    and rules.prejudge(want.artist, want.title, path, r["duration"], 0)[:2] == (rules.ACCEPT, 0)
+                    and (near is None or abs(r["duration"] - wanted) < abs(near[1]["duration"] - wanted))):  # fmt: skip
+                near = (site, r)
+        seen = report[site] = {"results": len(results), "fits": len(judged), "rejected": dict(rejected), "tried": []}
         for _, _, r in sorted(judged, key=lambda j: j[:2])[:3]:
-            got = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
-            if not got:
-                continue
-            try:
-                prepared = audio.prepare(got)
-            except audio.Rejected:
-                continue
-            source = "youtube" if site == "youtube" else "soundcloud-search"
-            action, dest = filing.file_into(
-                con, run.paths, prepared.path, want, source, strict=True, file_name=r["title"],
-                folders=(r["uploader"],), probable=strict_probable, tries=tries, fake=prepared.fake,
-            )  # fmt: skip
-            if dest and action in ("new", "upgrade"):
-                finish(run, con, dest, want)
+            action, detail = _fallback_fetch(run, con, ydl, want, site, r, tries, strict_probable)
+            seen["tried"].append([r["title"], action, detail])
             if action in FOUND:
-                return action
-    return "not found"
+                return action, report
+    if (
+        near
+        and not filing.in_review(run.paths, want.artist, want.title)
+        and not filing.is_blocked(con, want.key, [near[1]["title"]])
+    ):
+        site, r = near
+        action, detail = _fallback_fetch(run, con, ydl, want, site, r, tries, strict_probable)
+        report["near"] = [site, r["title"], round(r["duration"]), action, detail]  # 'mismatch': kept for review
+        return action, report
+    return "not found", report
+
+
+def _fallback_fetch(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: Want, site: str, r: dict,
+                    tries: int, strict_probable: bool) -> tuple[str, str]:  # fmt: skip
+    got, error = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
+    if not got:
+        return "download failed", error
+    try:
+        prepared = audio.prepare(got)
+    except audio.Rejected as e:
+        return "bad file", str(e)
+    source = "youtube" if site == "youtube" else "soundcloud-search"
+    action, dest = filing.file_into(
+        con, run.paths, prepared.path, want, source, strict=True, file_name=r["title"],
+        folders=(r["uploader"],), probable=strict_probable, tries=tries, fake=prepared.fake,
+    )  # fmt: skip
+    if dest and action in ("new", "upgrade"):
+        finish(run, con, dest, want)
+    return action, ""

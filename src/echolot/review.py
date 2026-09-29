@@ -164,15 +164,21 @@ def _search_again(con: sqlite3.Connection, key: str, tries: int) -> None:
         )
 
 
+def _block(con: sqlite3.Connection, key: str, d: sqlite3.Row) -> None:
+    """Never take this download for the song again (its found and file names)."""
+    names = [n for n in (d["found"], d["file_name"]) if n]
+    if key and names:
+        with con:
+            con.executemany("INSERT OR IGNORE INTO blocked (song_key, name) VALUES (?, ?)", [(key, n) for n in names])
+
+
 def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     paths, key = run.paths, rules.norm_key(d["song"])
     decision = d["decision"]
     if decision == "ok":
         return "kept"
     if decision == "wrong":
-        names = [n for n in (d["found"], d["file_name"]) if n]
-        with con:
-            con.executemany("INSERT OR IGNORE INTO blocked (song_key, name) VALUES (?, ?)", [(key, n) for n in names])
+        _block(con, key, d)
         with filing.LOCK:
             cat = library.Catalog.from_db(con)
             entry = next((e for e in cat.entries if e.path == d["path"]), None)
@@ -188,6 +194,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
         return "file gone"
     if decision == "discard":
         p.unlink()
+        _block(con, key, d)  # the search fallback would keep it again
         return "deleted"
     # accept: the download is tagged with another artist who has this song in the library already: the
     # same recording under two artist names (Spotify lists it twice). Link the song to that file.
@@ -218,6 +225,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
 
         finish(run, con, dest, want)
     if key and action in ("new", "upgrade", "duplicate"):
-        with con:
+        with con:  # the link makes the song this file whatever its length (a near miss of another edit)
             con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
+            con.execute("UPDATE songs SET link = ? WHERE key = ?", (json.dumps([want.artist, want.title]), key))
     return f"{action} {dest.relative_to(paths.tracks) if dest else ''}".strip()

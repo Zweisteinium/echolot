@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from echolot import __version__, auth, db, history, options, review, schedule, stats, vault
+from echolot import __version__, auth, db, filing, history, options, review, schedule, stats, vault
 from echolot.config import Settings
 from echolot.sources import ConfigError
 from echolot.web import access, accounts, admin, charts, lists
@@ -211,11 +211,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/missing", response_class=HTMLResponse)
     def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "") -> HTMLResponse:
+        paths = filing.Paths(settings.library_dir.parent) if settings.library_dir else None
         return page(
             request,
             "missing.html",
             nav="missing",
-            songs=stats.missing(con, list_key or None),
+            songs=stats.missing(con, list_key or None, paths),
             lists=stats.lists(con),
             selected=list_key,
         )

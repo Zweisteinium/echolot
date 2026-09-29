@@ -218,6 +218,10 @@ MIGRATIONS = [
         kind TEXT NOT NULL,             -- rare, common
         PRIMARY KEY (artist, title)
     );
+    """,  # v10: what the searches saw, for the missing songs page (JSON, see acquire.Fetcher.song and fallback)
+    """
+    ALTER TABLE attempts ADD COLUMN result TEXT;
+    ALTER TABLE attempts ADD COLUMN fallback_result TEXT;
     """,
 ]
 

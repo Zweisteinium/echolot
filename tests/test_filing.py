@@ -238,3 +238,27 @@ def test_accept_links_the_same_recording_under_another_artist(env, monkeypatch) 
     assert result.endswith("linked Pbb Yea/Pbb Yea - Chilln.wav")
     assert not kept.exists() and not (paths.tracks / "TheDoDo").exists()
     assert con.execute("SELECT link FROM songs WHERE key = 'spotify:dodo'").fetchone()[0] == '["Pbb Yea", "Chilln"]'
+
+
+def test_accepted_other_length_counts_and_a_discarded_one_is_blocked(env) -> None:
+    """Downloads of another length, kept for review: accepted, the song has it whatever its length; one
+    discarded is never taken again (the search fallback would bring it back every week)."""
+    con, paths, run = env
+    with con:
+        con.execute("INSERT INTO songs (key, service, artist, title, length) VALUES "
+                    "('spotify:a', 'spotify', 'LAWTON', 'Believe In', 200), ('spotify:b', 'spotify', 'LAWTON', 'Horizon', 200)")  # fmt: skip
+    video = "LAWTON - Believe In (Official Visualizer)"
+    want = Want("LAWTON", "Believe In", 200, "spotify:a")
+    assert filing.file_into(
+        con, paths, download(paths, "a.wav", 219), want, "youtube", strict=True, file_name=video
+    ) == ("mismatch", None)
+    assert filing.in_review(paths, "LAWTON", "Believe In")
+    assert "new LAWTON/" in decide(con, run, events(con)[-1]["id"], "accept")
+    library.match_songs(con)
+    file = con.execute("SELECT file FROM songs WHERE key = 'spotify:a'").fetchone()[0]
+    assert file == "LAWTON/LAWTON - Believe In.wav"
+    other = "LAWTON - Horizon (Official Video)"
+    filing.file_into(con, paths, download(paths, "b.wav", 240), Want("LAWTON", "Horizon", 200, "spotify:b"), "youtube",
+                     strict=True, file_name=other)  # fmt: skip
+    assert decide(con, run, events(con)[-1]["id"], "discard").endswith("deleted")
+    assert filing.is_blocked(con, "spotify:b", [other])

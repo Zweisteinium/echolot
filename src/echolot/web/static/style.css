@@ -436,8 +436,22 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .src-card form { margin-top: auto; padding-top: 0.3rem; }  /* the buttons line up at the bottom of a row */
 .src-card .body > p { margin: 0; }
 .kind-filter { margin-top: 0.25rem; }
-.legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; margin: 0; }
-.legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.mode-legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; margin: 0; }
+.mode-legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+/* missing songs: what was tried */
+table.missing td.tried { min-width: 16rem; }
+.tried .chips { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.2rem; }
+.tried .chips a.pill { text-decoration: none; }
+.tried summary { cursor: pointer; white-space: nowrap; }
+.tried dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.3rem 0.75rem; margin: 0.4rem 0 0.2rem; }
+.tried dt { font-weight: 600; }
+.tried dd { margin: 0; min-width: 0; }
+.tried .item { display: flex; gap: 0.3rem; min-width: 0; }
+.tried .item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.stage { display: inline-flex; gap: 2px; margin: 0 0.25rem; vertical-align: 1px; }
+.stage i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--track); }
+.stage i.on { background: var(--warn); }
 .seg .icon { vertical-align: -2px; }
 .kind-filter .n { opacity: 0.7; font-weight: 400; margin-left: 0.15rem; }
 .cards[data-show="own"] > .src-card:not([data-kind="own"]),
