@@ -182,6 +182,6 @@ def setup(
     except auth.AuthError as err:
         return page(request, "setup.html", 400, admin=ADMIN, error=str(err))
     log.info("account %s created", user.name)
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse("/accounts", status_code=303)
     set_session_cookie(request, response, con, user)
     return response

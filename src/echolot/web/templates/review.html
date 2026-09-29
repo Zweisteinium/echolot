@@ -48,7 +48,7 @@
   <div class="card-head">
     <h1>Rejected downloads <span class="count">{{ items.kept|length|num }}</span></h1>
   </div>
-  <p class="muted small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within about 10 minutes; until then <em>Revert</em> takes it back.</p>
+  <p class="muted small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within a few minutes; until then <em>Revert</em> takes it back.</p>
   <table class="rows">
     <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
     {% for i in items.kept %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Accounts · Echolot{% endblock %}
+{% block content %}
+<section class="card intro">
+  <h1>Connect your accounts</h1>
+  <p class="lead">Echolot follows your playlists and likes on Spotify and SoundCloud and gets the songs, in the best quality it finds, from Soulseek. Connect what you use, then <a href="/sources">choose the lists to follow</a>. You can change everything here later.</p>
+  <ol class="steps-overview">
+    <li class="{{ 'done' if s.spotify.connected and not s.spotify.error }}">{{ icon('spotify') }} Spotify</li>
+    <li class="{{ 'done' if s.soundcloud.connected and not s.soundcloud.error }}">{{ icon('soundcloud') }} SoundCloud</li>
+    <li class="{{ 'done' if s.soulseek.ready }}">Soulseek</li>
+    <li><a href="/sources">Choose lists →</a></li>
+  </ol>
+</section>
+
+{# ------------------------------------------------------------ Spotify #}
+<section class="card account" id="spotify">
+  <div class="card-head">
+    <h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
+    {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">connected as {{ s.spotify.name }}</span>
+    {% elif s.spotify.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
+  </div>
+  {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }} Connect again below.</p>{% endif %}
+
+  {% if s.spotify.connected and not s.spotify.error %}
+  <p class="muted">Echolot reads your playlists and liked songs. Spotify's own mixes and editorial playlists can't be read through its API: copy them into a playlist of yours.</p>
+  <div class="row-form">
+    <form method="post" action="/accounts/spotify/login">{{ csrf_input }}<button>Connect again</button></form>
+    <form method="post" action="/accounts/spotify/disconnect" onsubmit="return confirm('Disconnect Spotify? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>
+  </div>
+  {% else %}
+  <p class="muted">Spotify lets private apps read your playlists. You create one for yourself (free, takes two minutes); its keys stay in Echolot, encrypted.</p>
+  <ol class="steps">
+    <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify developer dashboard ↗</a>, log in, accept the terms and click <b>Create app</b>. Your Spotify account needs Premium for this.</li>
+    <li>Name and description: anything, e.g. <i>Echolot</i>. Under <b>Redirect URIs</b> add this address exactly, and tick <b>Web API</b>:
+      <div class="copy-row"><input id="redirect" type="text" value="{{ redirect_uri }}" readonly aria-label="Redirect URI"><button type="button" data-copy="#redirect">Copy</button></div>
+      <span class="muted small">{% if automatic %}Spotify sends you back to Echolot right away.{% else %}Spotify accepts only https addresses or 127.0.0.1 here. After the login your browser tries to open this address and shows an error page: that is expected, you copy its address back into Echolot (step 5).{% endif %}</span></li>
+    <li>In the new app open <b>User Management</b> and add the email address of your Spotify account (apps in development mode serve up to 5 listed users).</li>
+    <li>Open the app's <b>Settings</b>, copy the <b>Client ID</b> and, after <i>View client secret</i>, the <b>Client secret</b>:
+      <form method="post" action="/accounts/spotify/app" class="stack narrow-form">{{ csrf_input }}
+        <label>Client ID <input type="text" name="client_id" value="{{ s.spotify.client_id }}" autocomplete="off" required></label>
+        <label>Client secret {% if s.spotify.app %}<span class="muted small">saved; leave empty to keep it</span>{% endif %}<input type="password" name="client_secret" autocomplete="off" {% if not s.spotify.app %}required{% endif %}></label>
+        <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
+        <p><button class="primary">Save app</button></p>
+      </form></li>
+    <li>Connect your account:
+      <form method="post" action="/accounts/spotify/login">{{ csrf_input }}<button class="primary" {% if not s.spotify.app %}disabled{% endif %}>Connect Spotify</button></form>
+      {% if not automatic %}
+      <p class="muted small">Log in and allow access. Then copy the whole address from your browser's address bar (it starts with <code>{{ redirect_uri.split('?')[0] }}?code=</code>) and paste it here:</p>
+      <form method="post" action="/accounts/spotify/paste" class="row-form">{{ csrf_input }}
+        <input type="url" name="url" class="grow" placeholder="{{ redirect_uri }}?code=…" aria-label="Address after the login" required {% if not s.spotify.app %}disabled{% endif %}>
+        <button {% if not s.spotify.app %}disabled{% endif %}>Finish</button>
+      </form>
+      {% endif %}</li>
+  </ol>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------ SoundCloud #}
+<section class="card account" id="soundcloud">
+  <div class="card-head">
+    <h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
+    {% if s.soundcloud.connected %}<span class="pill ok-pill">connected as {{ s.soundcloud.name }}</span>
+    {% elif s.soundcloud.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
+  </div>
+  {% if s.soundcloud.error %}<p class="flash error">{{ s.soundcloud.error }} Paste a new token below.</p>{% endif %}
+  {% if s.soundcloud.connected %}
+  <p class="muted">Echolot reads your likes and sets and downloads the songs, originals in their own quality where the uploader allows it. The token stops working when you log out of SoundCloud in that browser: then paste a new one.</p>
+  {% else %}
+  <p class="muted">SoundCloud gives out no app keys, so Echolot uses your browser's login token:</p>
+  <ol class="steps">
+    <li>Open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com ↗</a> and log in.</li>
+    <li>Open the developer tools (<kbd>F12</kbd>, or right click → Inspect), tab <b>Network</b>, and reload the page.</li>
+    <li>Type <code>api-v2</code> into the filter, click any request, and find <b>Authorization</b> under <i>Request Headers</i>. Its value looks like <code>OAuth 2-123456-…</code>.</li>
+    <li>Copy it and paste it here (with or without "OAuth"):</li>
+  </ol>
+  {% endif %}
+  <form method="post" action="/accounts/soundcloud" class="row-form">{{ csrf_input }}
+    <input type="password" name="token" class="grow" placeholder="OAuth 2-…" aria-label="SoundCloud token" autocomplete="off" required>
+    <button class="{{ 'primary' if not s.soundcloud.connected }}">{{ 'Replace token' if s.soundcloud.connected else 'Connect SoundCloud' }}</button>
+  </form>
+  {% if s.soundcloud.connected %}
+  <form method="post" action="/accounts/soundcloud/disconnect" class="spaced" onsubmit="return confirm('Disconnect SoundCloud? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------ Soulseek #}
+{% include "_soulseek.html" %}
+{% endblock %}

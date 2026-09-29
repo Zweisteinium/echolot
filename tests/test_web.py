@@ -1,22 +1,17 @@
-import json
 from collections.abc import Callable
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
-from echolot import __version__, db, jobs, schedule
+from echolot import __version__, db, schedule
 from echolot.config import Settings
+from echolot.filing import Paths
 from echolot.web import create_app
 
 
 @pytest.fixture
 def client(settings: Settings, login: Callable[..., TestClient]) -> TestClient:
-    app = create_app(settings)  # takes the pipeline's sources.yml and schedule.yml over
-    con = db.connect(settings.db_path)
-    jobs.refresh(settings, con)
-    con.close()
-    return login(app)
+    return login(create_app(settings))  # no `with`: the worker thread stays off
 
 
 def test_healthz(client: TestClient) -> None:
@@ -30,7 +25,7 @@ def test_overview(client: TestClient) -> None:
     assert "Playlist A" in html
     assert 'href="/lists/spotify:playlist:BBB222"' in html
     assert "no playlist" in html
-    assert "Refresh now" in html
+    assert "Run now" in html and "Resume" in html  # jobs paused since the takeover
 
 
 def test_missing(client: TestClient) -> None:
@@ -53,44 +48,105 @@ def test_activity(client: TestClient) -> None:
     assert "Gone Song" in html and "First Song" not in html
 
 
-def test_trigger_job(client: TestClient) -> None:
-    response = client.post("/jobs/refresh/run", follow_redirects=False)
-    assert (response.status_code, response.headers["location"]) == (303, "/")
+def test_jobs(client: TestClient) -> None:
+    response = client.post("/jobs/library/run", follow_redirects=False)
+    assert response.status_code == 303 and response.headers["location"].startswith("/?ok=")
+    assert client.app.state.worker.requested == {"library"}
     assert client.post("/jobs/nope/run").status_code == 404
+    html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
+    assert 'id="jobs"' in html and "Pause all" in html
+    jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
+    assert jobs["sync"]["schedule"] == 30 and not jobs["sync"]["running"]
 
 
 def test_static_stylesheet(client: TestClient) -> None:
     assert client.get("/static/style.css").status_code == 200
 
 
-def test_sources_page_and_add(client: TestClient, settings: Settings) -> None:
+def test_sources_page(client: TestClient) -> None:
     html = client.get("/sources").text
-    assert "Playlist A" in html and "Renamed" in html
-    version = html.split('name="version" value="')[1].split('"')[0]
-    response = client.post(
-        "/sources/add",
-        data={"version": version, "url": "https://open.spotify.com/playlist/NEW1", "playlist": "1"},
-        follow_redirects=False,
-    )
-    assert response.status_code == 303 and "ok=" in response.headers["location"]
-    assert "playlist/NEW1" in (settings.pipeline_dir / "sources.yml").read_text()
-    stale = client.post(
-        "/sources/remove", data={"version": version, "key": "spotify:playlist:NEW1"}
-    )
-    assert "changed elsewhere" in stale.text
+    assert "Connect Spotify" in html and "Connect SoundCloud" in html  # no accounts yet
+    cards = client.get("/sources/other").text  # followed lists without an account: all of them
+    assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
+    assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
 
 
-def test_sources_yaml_keeps_invalid_edit(client: TestClient, settings: Settings) -> None:
-    html = client.get("/sources/yaml").text
-    version = html.split('name="version" value="')[1].split('"')[0]
-    response = client.post("/sources/yaml", data={"version": version, "text": "spotfy: {}\n"})
-    assert response.status_code == 400
-    assert "Unknown setting" in response.text and "spotfy: {}" in response.text
-    before = (settings.pipeline_dir / "sources.yml").read_text()
-    new = before.replace("removed_playlists: true", "removed_playlists: false")
-    ok = client.post("/sources/yaml", data={"version": version, "text": new + "# a note\n"})
-    assert ok.status_code == 200 and (settings.pipeline_dir / "sources.yml").read_text() == new
-    assert "before: edited as YAML" in ok.text and "before: Echolot took the file over" in ok.text
+def test_follow_and_stop_following(client: TestClient, settings: Settings) -> None:
+    card = {"key": "spotify:playlist:NEW1", "service": "spotify", "url": "https://open.spotify.com/playlist/NEW1",
+            "name": "New list", "owner": "you", "songs": "12", "image": ""}  # fmt: skip
+    html = client.post(
+        "/sources/follow", data=card | {"mode": "songs"}, headers={"HX-Request": "true"}
+    ).text
+    assert 'class="src-card on"' in html and 'value="songs" checked' in html
+    con = db.connect(settings.db_path)
+    assert (
+        con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[
+            0
+        ]
+        == 0
+    )
+    assert (
+        con.execute("SELECT title FROM lists WHERE key = 'spotify:playlist:NEW1'").fetchone()[0]
+        == "New list"
+    )
+    client.post("/sources/follow", data=card | {"mode": "playlist"}, headers={"HX-Request": "true"})
+    assert (
+        con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[
+            0
+        ]
+        == 1
+    )
+    html = client.post(
+        "/sources/follow", data=card | {"mode": "off"}, headers={"HX-Request": "true"}
+    ).text
+    assert 'class="src-card"' in html and 'value="off" checked' in html
+    assert not con.execute("SELECT 1 FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()
+    likes = {
+        "key": "spotify:likes",
+        "service": "spotify",
+        "url": "likes",
+        "name": "Liked Songs",
+        "mode": "off",
+    }
+    client.post("/sources/follow", data=likes, headers={"HX-Request": "true"})
+    assert con.execute("SELECT enabled FROM sources WHERE key = 'spotify:likes'").fetchone()[0] == 0
+    con.close()
+    assert client.app.state.worker.requested == {"sync"}
+
+
+def test_add_by_link(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "echolot.web.lists._preview", lambda con, request, service, url: ("Their list", None)
+    )
+    r = client.post("/sources/add", data={"url": "https://soundcloud.com/other/sets/techno", "mode": "songs"},
+                    follow_redirects=False)  # fmt: skip
+    assert "Following+Their+list" in r.headers["location"]
+    assert "Their list" in client.get("/sources/other").text
+    r = client.post("/sources/add", data={"url": "https://example.com/x"}, follow_redirects=False)
+    assert "error=" in r.headers["location"]
+
+
+def test_accounts_page(client: TestClient, settings: Settings) -> None:
+    html = client.get("/accounts").text
+    assert (
+        "developer.spotify.com/dashboard" in html
+        and "http://127.0.0.1:0/accounts/spotify/callback" in html
+    )
+    r = client.post("/accounts/spotify/app", data={"client_id": "short"}, follow_redirects=False)
+    assert "32+characters" in r.headers["location"]
+    r = client.post(
+        "/accounts/soulseek", data={"user": "me", "password": "secret pw"}, follow_redirects=False
+    )
+    assert "ok=" in r.headers["location"]
+    conf = (settings.daemon_dir / "daemon.conf").read_text()
+    assert (
+        "user = me\npass = secret pw\n" in conf
+        and oct((settings.daemon_dir / "daemon.conf").stat().st_mode & 0o777) == "0o600"
+    )
+    # the Spotify login: a pasted address with another state is refused
+    r = client.post("/accounts/spotify/paste", data={"url": "http://127.0.0.1:48721/callback?code=x&state=y"},
+                    follow_redirects=False)  # fmt: skip
+    assert "not+the+address+of+the+last" in r.headers["location"]
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
@@ -99,14 +155,20 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
         "sync": "20",
         "fallback": "0",
         "upgrade": "13:00; sat 10:00",
+        "parallel": "3",
     }
-    response = client.post("/settings", data=form | {"refresh": "7"})
+    response = client.post("/settings", data=form)
     assert "Settings saved" in response.text
-    written = schedule.read_file(settings.pipeline_dir)  # the file the pipeline reads
-    assert (written["sync"], written["fallback"]) == (20, None)
-    assert written["upgrade"] == ["13:00", "sat 10:00"]
-    assert 'value="7"' in client.get("/settings").text
-    bad = client.post("/settings", data=form | {"sync": "2", "refresh": "5"})
+    con = db.connect(settings.db_path)
+    rules = schedule.rules(con)
+    con.close()
+    assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (
+        20,
+        None,
+        ["13:00", "sat 10:00"],
+    )
+    assert 'value="3"' in client.get("/settings").text
+    bad = client.post("/settings", data=form | {"sync": "2"})
     assert "at least 10" in bad.text
 
 
@@ -129,94 +191,69 @@ def test_chart_geometry() -> None:
 
 
 def test_review(client: TestClient, settings: Settings) -> None:
-    root, music = settings.pipeline_dir, settings.library_dir.parent
+    from echolot import filing
+
+    music = settings.library_dir.parent
+    paths = Paths(music)
     kept = music / "inbox" / "review" / "2026-09-27" / "Artist C - Gone Song [soulseek].flac"
     kept.parent.mkdir(parents=True)
     kept.write_bytes(b"audio")
     other = kept.with_name("Artist C - Gone Song [soulseek] (2).flac")
     other.write_bytes(b"audio")
-    new = [
-        {"ts": "2026-09-27T10:00:00", "action": "new", "path": "Artist A/Artist A - First Song.mp3",
-         "ext": "mp3", "seconds": 202, "source": "youtube", "ids": ["spotify:s1"], "artist": "Artist A",
-         "title": "First Song", "match": "probable", "found": "First Song (Official Video)", "tries": 2},
-        {"ts": "2026-09-27T11:00:00", "action": "wrong-song",
-         "path": "/music/inbox/review/2026-09-27/Artist C - Gone Song [soulseek].flac", "ext": "flac",
-         "seconds": 181, "source": "soulseek", "ids": ["spotify:s3"], "artist": "Artist C",
-         "title": "Gone Song", "found": "Gone Song (Club Mix)", "reason": "title differs"},
-        {"ts": "2026-09-27T11:30:00", "action": "wrong-song",
-         "path": "/music/inbox/review/2026-09-27/Artist C - Gone Song [soulseek] (2).flac",
-         "seconds": 180, "ids": ["spotify:s3"], "artist": "Artist C", "title": "Gone Song",
-         "found": "Requiem in D minor", "reason": "artist 'Artist C' not in ['Mozart']"},
-        {"ts": "2026-09-27T12:00:00", "action": "wrong-song", "path": "/etc/passwd",
-         "ids": ["spotify:s3"], "artist": "Artist C", "title": "Gone Song"},
-    ]  # fmt: skip
-    with (root / "logs" / "downloads.jsonl").open("a") as f:
-        f.write("".join(json.dumps(e) + "\n" for e in new))
     con = db.connect(settings.db_path)
-    jobs.refresh(settings, con)
-    ids = [r[0] for r in con.execute("SELECT id FROM events WHERE ts >= '2026-09-27' ORDER BY id")]
-    con.close()
-
+    filing.event(con, paths, "new", paths.tracks / "Artist A" / "Artist A - First Song.mp3", song="spotify:s1",
+                 artist="Artist A", title="First Song", source="youtube", matched="probable",
+                 found="First Song (Official Video)", tries=2)  # fmt: skip
+    filing.event(con, paths, "wrong-song", kept, song="spotify:s3", artist="Artist C", title="Gone Song",
+                 source="soulseek", found="Gone Song (Club Mix)", reason="title differs")  # fmt: skip
+    filing.event(con, paths, "wrong-song", other, song="spotify:s3", artist="Artist C", title="Gone Song",
+                 found="Requiem in D minor", reason="artist 'Artist C' not in ['Mozart']")  # fmt: skip
+    with con:
+        con.execute("INSERT INTO events (ts, action, path, song, artist, title) VALUES "
+                    "('2026-09-27T12:00:00', 'wrong-song', '/etc/passwd', 'spotify:s3', 'Artist C', 'Gone Song')")  # fmt: skip
+    ids = [
+        r[0]
+        for r in con.execute(
+            "SELECT id FROM events WHERE song IS NOT NULL ORDER BY id DESC LIMIT 4"
+        )
+    ][::-1]
     html = client.get("/review").text
-    assert "First Song (Official Video)" in html and "(+2 s)" in html
+    assert "First Song (Official Video)" in html
     assert "Gone Song (Club Mix)" in html and "title differs" in html
-    assert "/etc/passwd" not in html
-    assert "Requiem in D minor" not in html  # another artist: no near miss
+    assert "/etc/passwd" not in html and "Requiem in D minor" not in html  # no near miss
     assert client.get(f"/review/{ids[1]}/audio").content == b"audio"
     assert client.get(f"/review/{ids[2]}/audio").status_code == 404
-
-    # a decision the download does not allow, then the right ones
     r = client.post(f"/review/{ids[0]}", data={"decision": "accept"}, follow_redirects=False)
-    assert "error=" in r.headers["location"]
+    assert "error=" in r.headers["location"]  # not a decision for a filed song
     client.post(f"/review/{ids[0]}", data={"decision": "wrong"})
     client.post(f"/review/{ids[1]}", data={"decision": "accept"})
-    saved = yaml.safe_load((root / "review.yml").read_text())["decisions"]
-    assert [(d["decision"], d["song"]) for d in saved] == [
-        ("wrong", "spotify:s1"),
-        ("accept", "spotify:s3"),
-    ]
-    assert saved[1]["path"].startswith("/music/inbox/review/") and saved[0]["length"] == 200
-    assert "applied soon" in client.get("/review").text
-
-    # applied by the pipeline: no longer listed
-    (root / "state" / "review-done.json").write_text(json.dumps({d["id"]: {} for d in saved}))
+    decided = {r["event_id"]: r["decision"] for r in con.execute("SELECT * FROM review_decisions")}
+    assert decided == {ids[0]: "wrong", ids[1]: "accept"}
     html = client.get("/review").text
-    assert "Nothing to check." in html and "Nothing kept." in html
-
-
-def test_review_upgrade_candidate_and_revert(client: TestClient, settings: Settings) -> None:
-    """A genuine FLAC of a song the library has as MP3 (the FLAC upgrade), logged with Sockseek's
-    spotify:track: URI; a decision can be taken back until the pipeline applies it."""
-    root, music = settings.pipeline_dir, settings.library_dir.parent
-    kept = music / "inbox" / "review" / "2026-09-28" / "Artist A - First Song [soulseek].flac"
-    kept.parent.mkdir(parents=True)
-    kept.write_bytes(b"audio")
-    event = {"ts": "2026-09-28T14:00:00", "action": "wrong-song", "path": "/music/inbox/review/2026-09-28/"
-             "Artist A - First Song [soulseek].flac", "ext": "flac", "seconds": 200, "source": "soulseek",
-             "ids": ["spotify:track:s1"], "artist": "Artist A", "title": "First Song", "found": "01 First Song",
-             "reason": "title differs"}  # fmt: skip
-    with (root / "logs" / "downloads.jsonl").open("a") as f:
-        f.write(json.dumps(event) + "\n")
-    con = db.connect(settings.db_path)
-    jobs.refresh(settings, con)
-    (eid,) = con.execute("SELECT id FROM events WHERE ts = '2026-09-28T14:00:00'").fetchone()
-    assert con.execute("SELECT song FROM events WHERE id = ?", (eid,)).fetchone()[0] == "spotify:s1"
+    assert "applied soon" in html and "Revert" in html
+    r = client.post(f"/review/{ids[1]}/revert", follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    assert con.execute("SELECT count(*) FROM review_decisions").fetchone()[0] == 1
     con.close()
 
-    html = client.get("/review").text
-    assert "01 First Song" in html and "replaces" in html
-    assert (
-        '<span class="chip q-lossy-low"><span class="swatch" aria-hidden="true"></span>lossy</span>'
-        in html
-    )
-    client.post(f"/review/{eid}", data={"decision": "accept"})
-    assert "Revert" in client.get("/review").text
-    r = client.post(f"/review/{eid}/revert", follow_redirects=False)
-    assert "ok=" in r.headers["location"]
-    assert yaml.safe_load((root / "review.yml").read_text())["decisions"] == []
-    # applied already: no revert
-    client.post(f"/review/{eid}", data={"decision": "accept"})
-    saved = yaml.safe_load((root / "review.yml").read_text())["decisions"]
-    (root / "state" / "review-done.json").write_text(json.dumps({saved[0]["id"]: {}}))
-    r = client.post(f"/review/{eid}/revert", follow_redirects=False)
-    assert "error=" in r.headers["location"]
+
+def test_library_job(client: TestClient, settings: Settings) -> None:
+    """The library job writes the playlists: one per shown list, in list order, with only the songs in
+    the library, and never touches files it did not write."""
+    import threading
+
+    from echolot import worker
+
+    playlists = settings.library_dir.parent / "playlists"
+    playlists.mkdir()
+    (playlists / "My own.m3u").write_text("#EXTM3U\n")
+    run = worker.Run(__import__("echolot.schedule", fromlist=["BY_NAME"]).BY_NAME["library"], settings,
+                     client.app.state.vault, "manual")  # fmt: skip
+    run.stop = threading.Event()
+    message = worker.upkeep(run)
+    assert "playlists written" in message
+    likes = (playlists / "Spotify Liked Songs.m3u").read_text()
+    assert likes.splitlines()[:2] == ["#EXTM3U", "#PLAYLIST:Liked Songs"]
+    assert "../tracks/Artist A/Artist A - First Song.mp3" in likes
+    assert not (playlists / "spotify-BBB222.m3u").exists()  # playlist: false
+    assert (playlists / "My own.m3u").exists()

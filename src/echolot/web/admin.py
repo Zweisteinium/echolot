@@ -7,36 +7,28 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from echolot import auth, configfile, jobs, options, pipeline_config, schedule, sources, vault
+from echolot import auth, configfile, options, schedule
+from echolot.sources import ConfigError
 from echolot.web.access import set_session_cookie
 from echolot.web.common import DB, back, page
 
 router = APIRouter()
 
 
-def _written(request: Request, con: sqlite3.Connection) -> None:
-    """Write the pipeline's config files after a change, and refresh."""
-    pipeline_config.write(con, request.app.state.settings)
-    request.app.state.scheduler.trigger("refresh")
-
-
 def _settings_page(request: Request, con: sqlite3.Connection, status_code: int = 200,
                    **extra: Any) -> HTMLResponse:  # fmt: skip
-    settings = request.app.state.settings
-    root = settings.pipeline_dir
-    user: auth.User = request.state.user
+    rules = schedule.rules(con)
     return page(
         request,
         "settings.html",
         status_code,
         nav="settings",
-        jobs=schedule.status(root, schedule.rules(con)) if root else [],
-        refresh=jobs.refresh_minutes(con),
-        settings=settings,
+        jobs=[(j, schedule.when_text(rules[j.name])) for j in schedule.JOBS],
+        settings=request.app.state.settings,
+        soulseek=options.get(con, options.Soulseek),
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
-        tokens=auth.tokens(con, user),
-        secrets=vault.listing(con),
+        tokens=auth.tokens(con, request.state.user),
         vault_source=request.app.state.vault.source,
         **extra,
     )
@@ -49,25 +41,23 @@ def settings_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.post("/settings", include_in_schema=False)
 async def settings_save(request: Request, con: DB) -> RedirectResponse:
-    form = await request.form()  # one field per pipeline job
-    try:
-        general = options.validate(options.General, {"refresh_minutes": form.get("refresh", "")})
-    except options.OptionsError:
-        return back("/settings", error="Echolot refresh: whole minutes, 1 to 1440.")
+    form = await request.form()  # one field per job
     try:
         values = {
             j.name: schedule.parse_when(str(form[j.name]), j)
             for j in schedule.JOBS
             if j.name in form
         }
+        soulseek = options.validate(options.Soulseek, {
+            **options.get(con, options.Soulseek).model_dump(),
+            **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},
+        })  # fmt: skip
         with con:
             schedule.store(con, values)
-            options.put(con, general)
-    except sources.ConfigError as err:
+            options.put(con, soulseek)
+    except (ConfigError, options.OptionsError) as err:
         return back("/settings", error=str(err))
-    pipeline_config.write(con, request.app.state.settings)
-    request.app.state.scheduler.set_interval("refresh", general.refresh_minutes * 60)
-    return back("/settings", ok="Settings saved. The pipeline applies them within a minute.")
+    return back("/settings", ok="Settings saved.")
 
 
 @router.post("/settings/access", include_in_schema=False)
@@ -161,7 +151,7 @@ async def config_import_preview(
         return back("/settings", error="Choose an echolot.yml to import.")
     try:
         diff = configfile.preview(con, text)
-    except configfile.ConfigError as err:
+    except ConfigError as err:
         return page(request, "config_import.html", 400, nav="settings", text=text, diff="",
                     error=f"Not imported: {err}")  # fmt: skip
     return page(request, "config_import.html", nav="settings", text=text, diff=diff)
@@ -173,10 +163,8 @@ def config_import_apply(
 ) -> RedirectResponse:
     try:
         configfile.apply(con, text.replace("\r\n", "\n"))
-    except configfile.ConfigError as err:
+    except ConfigError as err:
         return back("/settings", error=f"Not imported: {err}")
-    _written(request, con)
-    request.app.state.scheduler.set_interval("refresh", jobs.refresh_minutes(con) * 60)
     return back("/settings", ok="Configuration imported.")
 
 
@@ -200,9 +188,6 @@ def api_config_put(
         diff = configfile.preview(con, text)
         if diff and not dry_run:
             configfile.apply(con, text)
-    except configfile.ConfigError as err:
+    except ConfigError as err:
         raise HTTPException(422, str(err)) from err
-    if diff and not dry_run:
-        _written(request, con)
-        request.app.state.scheduler.set_interval("refresh", jobs.refresh_minutes(con) * 60)
     return {"changed": bool(diff), "applied": bool(diff) and not dry_run, "diff": diff}

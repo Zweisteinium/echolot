@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from echolot import auth, db, pipeline_config
+from echolot import auth, db, history, library, migrate, vault
 from echolot.config import Settings
 
 PASSWORD = "correct horse battery"
@@ -142,25 +142,26 @@ def library_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def bare_settings(tmp_path: Path, pipeline_dir: Path, library_dir: Path) -> Settings:
-    """Settings with an empty database (the pipeline's config files not taken over yet)."""
-    s = Settings(
-        data_dir=tmp_path / "data",
-        library_dir=library_dir,
-        pipeline_dir=pipeline_dir,
-        host="127.0.0.1",
-        port=0,
-    )
+def bare_settings(tmp_path: Path, library_dir: Path) -> Settings:
+    """Settings with an empty database."""
+    s = Settings(data_dir=tmp_path / "data", library_dir=library_dir, host="127.0.0.1", port=0,
+                 daemon_dir=tmp_path / "daemon")  # fmt: skip
     db.init(s.db_path)
     return s
 
 
 @pytest.fixture
-def settings(bare_settings: Settings) -> Settings:
-    """As after a start: the pipeline's sources.yml and schedule.yml taken over and written."""
+def settings(bare_settings: Settings, pipeline_dir: Path) -> Settings:
+    """As after the takeover: the test pipeline's lists, songs and state in the database, the library
+    scanned and matched, the first snapshot stored."""
     con = db.connect(bare_settings.db_path)
-    pipeline_config.start(con, bare_settings)
-    con.close()
+    try:
+        migrate.run(con, pipeline_dir, bare_settings.library_dir.parent, {},
+                    vault.Vault.from_env(bare_settings.data_dir, {}))  # fmt: skip
+        library.refresh(con, bare_settings.library_dir)
+        history.snapshot(con)
+    finally:
+        con.close()
     return bare_settings
 
 

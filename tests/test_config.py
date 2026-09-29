@@ -21,11 +21,11 @@ def con(settings: Settings) -> Iterator[sqlite3.Connection]:
 
 
 def test_options(con: sqlite3.Connection) -> None:
-    assert options.get(con, options.General).refresh_minutes == 5  # never saved: defaults
-    options.update(con, options.General, refresh_minutes=12)
-    assert options.get(con, options.General).refresh_minutes == 12
-    with pytest.raises(options.OptionsError, match="refresh_minutes"):
-        options.update(con, options.General, refresh_minutes=0)
+    assert options.get(con, options.Soulseek).parallel == 4  # never saved: defaults
+    options.update(con, options.Soulseek, parallel=2)
+    assert options.get(con, options.Soulseek).parallel == 2
+    with pytest.raises(options.OptionsError, match="parallel"):
+        options.update(con, options.Soulseek, parallel=0)
     options.put_raw(con, "auth", {"session_days": "many", "unknown": 1})  # an old or broken value
     assert options.get(con, options.Auth).session_days == 30
 
@@ -41,7 +41,7 @@ def test_migration_moves_refresh_minutes(tmp_path) -> None:
     c.close()
     db.init(path)
     c = db.connect(path)
-    assert options.get(c, options.General).refresh_minutes == 9
+    assert options.raw(c, "echolot") == {"refresh_minutes": 9}
     assert db.get_meta(c, "refresh_minutes") == ""
     c.close()
 
@@ -79,7 +79,7 @@ def test_export_import_round_trip(con: sqlite3.Connection) -> None:
     assert configfile.preview(con, text) == ""
     data["sources"]["spotify"]["playlists"].append("https://open.spotify.com/playlist/NEW1")
     data["schedule"]["sync"] = 20
-    data["settings"]["echolot"] = {"refresh_minutes": 3}
+    data["settings"]["soulseek"] = {"parallel": 3}
     changed = configfile.dump(data)
     diff = configfile.preview(con, changed)
     assert "+      - https://open.spotify.com/playlist/NEW1" in diff and "+  sync: 20" in diff
@@ -87,14 +87,13 @@ def test_export_import_round_trip(con: sqlite3.Connection) -> None:
     configfile.apply(con, changed)
     assert "spotify:playlist:NEW1" in [s.key for s in sources.lists(con)]
     assert schedule.rules(con)["sync"] == 20
-    assert options.get(con, options.General).refresh_minutes == 3
-    assert sources.versions(con)[0]["note"] == "imported echolot.yml"
+    assert options.get(con, options.Soulseek).parallel == 3
 
 
 def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
-    before = sources.render(con)
+    before = sources.as_config(con)
     configfile.apply(con, "schedule:\n  probe: off\n")
-    assert sources.render(con) == before and schedule.rules(con)["probe"] is None
+    assert sources.as_config(con) == before and schedule.rules(con)["probe"] is None
     assert schedule.rules(con)["sync"] == 30
 
 
@@ -130,7 +129,9 @@ def test_config_pages(settings: Settings, login: Callable[..., TestClient]) -> N
     assert "-  probe: 60" in html and "+  probe: &#39;off&#39;" in html
     r = client.post("/settings/config/import/apply", data={"text": configfile.dump(data)})
     assert "Configuration imported" in r.text
-    assert "probe: off" in (settings.pipeline_dir / "schedule.yml").read_text()
+    con = db.connect(settings.db_path)
+    assert schedule.rules(con)["probe"] is None
+    con.close()
     html = client.post("/settings/config/import", files={
         "file": ("x.yml", io.BytesIO(b"sourcez: 1"), "text/yaml")}).text  # fmt: skip
     assert "Not imported: Unknown part" in html
@@ -147,21 +148,20 @@ def test_cli_config_and_secrets(
     from echolot.cli import main
 
     monkeypatch.setenv("ECHOLOT_DATA_DIR", str(settings.data_dir))
-    monkeypatch.setenv("ECHOLOT_PIPELINE_DIR", str(settings.pipeline_dir))
     out = tmp_path / "echolot.yml"
     assert main(["config", "export", str(out)]) == 0
-    text = out.read_text().replace("fallback: 120", "fallback: 90")
-    out.write_text(text)
+    out.write_text(out.read_text().replace("fallback: 120", "fallback: 90"))
     assert main(["config", "import", str(out), "--dry-run"]) == 0
     assert "+  fallback: 90" in capsys.readouterr().out
-    assert "fallback: 120" in (settings.pipeline_dir / "schedule.yml").read_text()
+    con = db.connect(settings.db_path)
+    assert schedule.rules(con)["fallback"] == 120
     assert main(["config", "import", str(out)]) == 0
-    assert "wrote schedule.yml" in capsys.readouterr().out.lower()
-    assert "fallback: 90" in (settings.pipeline_dir / "schedule.yml").read_text()
-
+    assert schedule.rules(con)["fallback"] == 90
+    con.close()
     monkeypatch.setattr("sys.stdin", io.StringIO("tok-123\n"))
     assert main(["secret", "set", "soundcloud.token", "--stdin"]) == 0
     main(["secret", "list"])
     listed = capsys.readouterr().out
     assert "soundcloud.token\tset" in listed and "tok-123" not in listed
     assert main(["secret", "delete", "soundcloud.token"]) == 0
+    assert main(["jobs", "resume"]) == 0

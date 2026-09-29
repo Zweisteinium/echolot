@@ -1,0 +1,34 @@
+{# the jobs table: htmx reloads it every few seconds while something runs #}
+<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '5s' if running else '30s' }}" hx-swap="outerHTML">
+  <div class="card-head">
+    <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
+    <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}
+      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule; Run now still works">Pause all</button>{% endif %}
+    </form>
+  </div>
+  <table class="rows jobs">
+    <thead><tr><th>Job</th><th>State</th><th class="hide-narrow">Schedule</th><th>Last run</th><th>Next</th><th></th></tr></thead>
+    <tbody>
+    {% for r in jobs %}
+    {% set last = r.last %}
+    <tr>
+      <td>{{ r.job.label }}<div class="muted small hide-narrow">{{ r.job.help }}</div></td>
+      <td class="small">
+        {% if r.run %}<span class="dot on"></span>running<div class="muted small">{{ r.run.progress }}</div>
+        {% elif r.waiting %}<span class="dot wait"></span>waiting for {{ r.waiting }}
+        {% elif last and last.ok == 0 %}<span class="dot err"></span><span title="{{ last.message }}">failed</span><div class="muted small">{{ last.message|truncate(90) }}</div>
+        {% elif r.rule is none %}<span class="dot"></span><span class="muted">off</span>
+        {% else %}<span class="dot"></span><span class="muted" title="{{ last.message if last else '' }}">idle</span>{% endif %}
+      </td>
+      <td class="muted small hide-narrow nowrap">{{ r.rule|minutes }}</td>
+      <td class="small nowrap" title="{{ last.message if last else '' }}">{{ last.started|ago if last and last.started else '–' }}</td>
+      <td class="small nowrap">{% if r.run or r.rule is none %}<span class="muted">–</span>{% elif paused %}<span class="muted">paused</span>{% else %}{{ r.next|until }}{% endif %}</td>
+      <td class="nowrap">
+        {% if r.run %}<form method="post" action="/jobs/{{ r.job.name }}/cancel" hx-post="/jobs/{{ r.job.name }}/cancel" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<button>Stop</button></form>
+        {% else %}<form method="post" action="/jobs/{{ r.job.name }}/run" hx-post="/jobs/{{ r.job.name }}/run" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<button>Run now</button></form>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>

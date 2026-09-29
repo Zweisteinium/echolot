@@ -18,11 +18,6 @@ class Section(BaseModel):
     SECTION: ClassVar[str]
 
 
-class General(Section):
-    SECTION = "echolot"
-    refresh_minutes: int = Field(5, ge=1, le=1440, description="import the pipeline state, rescan")
-
-
 class SourceOptions(Section):
     SECTION = "sources"
     soundcloud_user: str = Field("", description="whose SoundCloud likes 'likes' means")
@@ -41,7 +36,30 @@ class Auth(Section):
     session_days: int = Field(30, ge=1, le=365, description="how long a login lasts")
 
 
-SECTIONS: list[type[Section]] = [General, SourceOptions, Metrics, Auth]
+class Jobs(Section):
+    SECTION = "jobs"
+    paused: bool = Field(False, description="no job starts (running ones finish)")
+
+
+class Spotify(Section):
+    SECTION = "spotify"
+    client_id: str = Field("", description="of your Spotify developer app")
+    redirect_uri: str = Field("", description="the one registered in the app and used to connect")
+
+
+class Soulseek(Section):
+    SECTION = "soulseek"
+    url: str = Field("http://gluetun:5031", description="the Sockseek daemon's API")
+    user: str = Field("", description="the Soulseek account the daemon logs in with")
+    daemon_music: str = Field("/music", description="the music directory as the daemon sees it")
+    parallel: int = Field(4, ge=1, le=8, description="songs searched and downloaded at a time")
+    upgrade_batch: int = Field(150, ge=1, le=2000, description="FLAC searches per upgrade run")
+    stall_minutes: int = Field(
+        10, ge=2, le=120, description="a download without progress this long is given up"
+    )
+
+
+SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Jobs, Spotify, Soulseek]
 BY_NAME = {s.SECTION: s for s in SECTIONS}
 
 
