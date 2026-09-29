@@ -436,6 +436,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .src-card form { margin-top: auto; padding-top: 0.3rem; }  /* the buttons line up at the bottom of a row */
 .src-card .body > p { margin: 0; }
 .kind-filter { margin-top: 0.25rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; margin: 0; }
+.legend span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.seg .icon { vertical-align: -2px; }
 .kind-filter .n { opacity: 0.7; font-weight: 400; margin-left: 0.15rem; }
 .cards[data-show="own"] > .src-card:not([data-kind="own"]),
 .cards[data-show="collab"] > .src-card:not([data-kind="collab"]),

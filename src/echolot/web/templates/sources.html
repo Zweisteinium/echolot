@@ -7,7 +7,12 @@
     <h1>Sources</h1>
     <a href="/accounts">Accounts</a>
   </div>
-  <p class="lead">The lists Echolot follows. For each one choose <b>Songs</b> (they are downloaded into the library) or <b>Songs + playlist</b> (the list also appears as a playlist in your music server). <b>Off</b> stops following it; nothing is deleted.</p>
+  <p class="lead">The lists Echolot follows. For each one choose:</p>
+  <p class="legend">
+    <span>{{ icon('songs') }} <b>Songs</b>: downloaded into the library</span>
+    <span>{{ icon('playlist') }} <b>Playlist</b>: the songs, and the list as a playlist in your music server</span>
+    <span><b>Off</b>: not followed; nothing is deleted</span>
+  </p>
 </section>
 
 <section class="card">
@@ -38,8 +43,8 @@
   <form method="post" action="/sources/add" class="add">{{ csrf_input }}
     <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/…/sets/…" aria-label="Link" class="grow">
     <span class="seg" role="radiogroup" aria-label="Follow as">
-      <label><input type="radio" name="mode" value="songs"> Songs</label>
-      <label><input type="radio" name="mode" value="playlist" checked> Songs + playlist</label>
+      <label title="Songs into the library"><input type="radio" name="mode" value="songs"> {{ icon('songs', 13) }} Songs</label>
+      <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> {{ icon('playlist', 13) }} Playlist</label>
     </span>
     <button class="primary">Follow</button>
   </form>

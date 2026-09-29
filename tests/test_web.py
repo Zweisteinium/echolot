@@ -73,6 +73,7 @@ def test_sources_page(client: TestClient) -> None:
     cards = client.get("/sources/other").text  # followed lists without an account: all of them
     assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
     assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
+    assert 'class="legend"' in html and " Playlist</label>" in cards and "Songs + playlist" not in html + cards
 
 
 def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
