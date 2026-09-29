@@ -1,0 +1,15 @@
+{# the overview's connection line; every pill leads to the Accounts page #}
+{% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
+<nav class="connections" aria-label="Connections">
+  {% if sp.connected and not sp.error %}<a class="pill ok-pill" href="/accounts">Spotify: {{ sp.name }}</a>
+  {% elif sp.error %}<a class="pill bad-pill" href="/accounts" title="{{ sp.error }}">Spotify: error</a>
+  {% else %}<a class="pill warn-pill" href="/accounts">Spotify: not connected</a>{% endif %}
+  {% if sc.connected %}<a class="pill ok-pill" href="/accounts">SoundCloud: {{ sc.name }}</a>
+  {% elif sc.error %}<a class="pill bad-pill" href="/accounts" title="{{ sc.error }}">SoundCloud: token invalid</a>
+  {% else %}<a class="pill warn-pill" href="/accounts">SoundCloud: not connected</a>{% endif %}
+  {% if sl.ready %}<a class="pill ok-pill" href="/accounts">Soulseek: logged in</a>
+  {% elif not sl.reachable %}<a class="pill bad-pill" href="/accounts" title="{{ sl.error }}">Soulseek: daemon not reachable</a>
+  {% elif sl.user %}<a class="pill" href="/accounts">Soulseek: logs in with the next search</a>
+  {% else %}<a class="pill warn-pill" href="/accounts">Soulseek: no account</a>{% endif %}
+  {% if free is not none %}<span class="pill{{ ' bad-pill' if free < low_disk }}">{{ free|size }} free</span>{% endif %}
+</nav>

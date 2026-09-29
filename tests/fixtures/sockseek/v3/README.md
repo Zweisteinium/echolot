@@ -1,4 +1,4 @@
-Answers of the Sockseek 3.0.6 daemon's job API, recorded in mock mode by `pipeline/tools/daemon_check.py --mock ... --record ...`
+Answers of the Sockseek 3.0.6 daemon's job API, recorded in mock mode by `tools/daemon_check.py --mock ... --record ...`
 (one peer, `local`; three short test files). Each file holds the request and the status and JSON the daemon answered.
 For the contract tests of the Soulseek backend (PLAN.md phase 3b); record `v4/` the same way when v4 is out.
 

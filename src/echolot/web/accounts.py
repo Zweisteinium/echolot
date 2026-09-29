@@ -4,6 +4,7 @@ SoundCloud (the web token, checked right away) and Soulseek (the account the Soc
 with; Echolot writes its login file, the daemon restarts with it)."""
 
 import secrets
+import shutil
 import sqlite3
 import time
 import urllib.parse
@@ -19,6 +20,8 @@ from echolot.web.common import DB, back, page
 router = APIRouter(include_in_schema=False)
 CALLBACK = "/accounts/spotify/callback"
 STATE = "spotify_login_state"  # meta: '<state> <unix time>' of the login started last
+CACHE_SECONDS = 120  # the overview's connection line reuses a status this young
+LOW_DISK = 20 * 2**30
 
 
 def default_redirect(request: Request) -> str:
@@ -28,9 +31,14 @@ def default_redirect(request: Request) -> str:
     return f"http://127.0.0.1:{request.app.state.settings.port}{CALLBACK}"
 
 
-def status(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
-    """What is connected, for this page, the Sources page and the overview."""
-    vault = request.app.state.vault
+def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> dict[str, Any]:
+    """What is connected, for this page, the Sources page and the overview (asks all three services;
+    `cached`: a result of the last CACHE_SECONDS will do)."""
+    state = request.app.state
+    last = getattr(state, "account_status", None)
+    if cached and last and time.monotonic() - last[0] < CACHE_SECONDS:
+        return last[1]
+    vault = state.vault
     sp: dict[str, Any] = {"app": False, "connected": False, "client_id": ""}
     try:  # a secret stored with another key can't be read: shown as the account's error
         creds = spotify.Credentials.load(con, vault)
@@ -52,7 +60,9 @@ def status(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
         slsk.update(soulseek.Daemon(opts.url, timeout=5).status(), reachable=True)
     except soulseek.DaemonError as e:
         slsk.update(reachable=False, ready=False, error=str(e))
-    return {"spotify": sp, "soundcloud": sc, "soulseek": slsk}
+    result = {"spotify": sp, "soundcloud": sc, "soulseek": slsk}
+    state.account_status = (time.monotonic(), result)
+    return result
 
 
 @router.get("/accounts", response_class=HTMLResponse)
@@ -62,6 +72,15 @@ def accounts_page(request: Request, con: DB) -> HTMLResponse:
                 redirect_uri=sp.redirect_uri or default_redirect(request),
                 automatic=request.url.scheme == "https",
                 has_daemon_dir=request.app.state.settings.daemon_dir is not None)  # fmt: skip
+
+
+@router.get("/accounts/line", response_class=HTMLResponse)
+def connection_line(request: Request, con: DB) -> HTMLResponse:
+    """The connections and the free disk space on the overview (loaded after the page)."""
+    folder = request.app.state.settings.library_dir
+    free = shutil.disk_usage(folder).free if folder and folder.is_dir() else None
+    return page(request, "_connections.html", s=status(request, con, cached=True), free=free,
+                low_disk=LOW_DISK)  # fmt: skip
 
 
 @router.get("/accounts/soulseek", response_class=HTMLResponse)
