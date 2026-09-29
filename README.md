@@ -304,6 +304,7 @@ networks:
 | `ECHOLOT_ADMIN_PASSWORD` | unset | the password of the `admin` account, set on a start when there is none yet (else: asked for on the first visit) |
 | `ECHOLOT_WORKER` | `on` | `off`: run no jobs (a test copy) |
 | `ECHOLOT_HOST`, `ECHOLOT_PORT` | `127.0.0.1`, `8490` | listen address (`0.0.0.0` in the image) and port |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | behind a reverse proxy: the address the proxy's requests come from (for a proxy in another container reaching the published port: the gateway of Echolot's Docker network). Echolot then trusts its `X-Forwarded-Proto`/`-For`: https addresses, the Spotify login's automatic return, Secure cookies, the real client IP for the login throttle |
 
 Then open Echolot, set the admin password, and follow the Accounts page: it explains the Spotify
 app (and the address to register for the login), the SoundCloud token, and the Soulseek account.
