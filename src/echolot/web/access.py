@@ -3,14 +3,14 @@
 Every request needs one of them, except /healthz, the login page, the static files and, when the
 metrics setting allows it, /metrics. A session's changing requests (POST, PUT, ...) also need its
 CSRF token: the csrf_token form field or the X-CSRF-Token header (htmx sends it for every request).
-With no user yet, /setup sets the password of the admin account; its link, with a one-time token,
-is in the log (or ECHOLOT_ADMIN_PASSWORD sets it at the start).
+As long as there is no account, every page leads to /setup, where the password of the admin account
+is set (or ECHOLOT_ADMIN_PASSWORD sets it at the start). Whoever opens Echolot first sets it: do that
+right after the first start, before Echolot is reachable from outside the home network.
 """
 
 import hmac
 import logging
 import os
-import secrets
 import sqlite3
 import urllib.parse
 from collections.abc import Awaitable, Callable
@@ -31,20 +31,22 @@ UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def first_user(app: FastAPI, con: sqlite3.Connection) -> None:
-    """With no user yet: create the admin account with ECHOLOT_ADMIN_PASSWORD, else log a /setup link
-    where its password is set."""
-    app.state.setup_token = None
+    """With no account yet: create the admin account with ECHOLOT_ADMIN_PASSWORD, if set."""
     if auth.has_users(con):
         return
     if password := os.environ.get("ECHOLOT_ADMIN_PASSWORD"):
         auth.add_user(con, ADMIN, password)
         log.info("account %s created with ECHOLOT_ADMIN_PASSWORD", ADMIN)
-        return
-    app.state.setup_token = secrets.token_urlsafe(18)
-    log.warning(
-        "No account yet. Set the admin password at /setup?token=%s (this link works until then)",
-        app.state.setup_token,
-    )
+    else:
+        log.warning("No account yet: open Echolot and set the admin password.")
+
+
+def _has_users(request: Request) -> bool:
+    con = db.connect(request.app.state.settings.db_path)
+    try:
+        return auth.has_users(con)
+    finally:
+        con.close()
 
 
 def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
@@ -74,6 +76,8 @@ async def authenticate(
     request.state.user, request.state.via, request.state.csrf = user, via, csrf
     if user is None and not public:
         if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+            if not await run_in_threadpool(_has_users, request):
+                return RedirectResponse("/setup", status_code=303)
             target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
             return RedirectResponse(
                 "/login?" + urllib.parse.urlencode({"next": target}), status_code=303
@@ -118,7 +122,7 @@ def login_page(request: Request, con: DB, next: str = "/") -> Response:
     if getattr(request.state, "user", None):
         return RedirectResponse(_safe_next(next), status_code=303)
     if not auth.has_users(con):
-        return page(request, "login.html", first_run=True, next=next)
+        return RedirectResponse("/setup", status_code=303)
     return page(request, "login.html", next=next)
 
 
@@ -156,35 +160,27 @@ def logout(request: Request, con: DB) -> RedirectResponse:
     return response
 
 
-def _setup_allowed(request: Request, con: sqlite3.Connection, token: str) -> None:
-    expected = request.app.state.setup_token
-    if auth.has_users(con) or not expected:
-        raise HTTPException(404, "The admin password is set already: log in.")
-    if not hmac.compare_digest(token, expected):
-        raise HTTPException(403, "Open the /setup link from Echolot's log.")
-
-
-@router.get("/setup", response_class=HTMLResponse)
-def setup_page(request: Request, con: DB, token: str = "") -> HTMLResponse:
-    _setup_allowed(request, con, token)
-    return page(request, "setup.html", token=token, admin=ADMIN)
+@router.get("/setup", response_class=HTMLResponse, response_model=None)
+def setup_page(request: Request, con: DB) -> Response:
+    if auth.has_users(con):
+        return RedirectResponse("/login", status_code=303)
+    return page(request, "setup.html", admin=ADMIN)
 
 
 @router.post("/setup", response_class=HTMLResponse, response_model=None)
 def setup(
     request: Request,
     con: DB,
-    token: Annotated[str, Form()],
     password: Annotated[str, Form()],
     repeat: Annotated[str, Form()],
 ) -> Response:
-    _setup_allowed(request, con, token)
+    if auth.has_users(con):
+        raise HTTPException(403, "The admin password is set already: log in.")
     try:
         auth.check_new_password(password, repeat)
         user = auth.add_user(con, ADMIN, password)
     except auth.AuthError as err:
-        return page(request, "setup.html", 400, token=token, admin=ADMIN, error=str(err))
-    request.app.state.setup_token = None
+        return page(request, "setup.html", 400, admin=ADMIN, error=str(err))
     log.info("account %s created", user.name)
     response = RedirectResponse("/", status_code=303)
     set_session_cookie(request, response, con, user)

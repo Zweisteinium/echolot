@@ -140,8 +140,8 @@ misses the artist is no longer required in the Soulseek path (the checks still r
 
 - **Login:** every page and API call needs a login (browser) or an API token (scripts,
   `Authorization: Bearer <token>`); only `/healthz` and, by default, `/metrics` are open. You log
-  in as `admin`: on the first start the log shows a one-time `/setup?token=...` link where its
-  password is set (or set `ECHOLOT_ADMIN_PASSWORD`). Forms and htmx requests carry a CSRF token.
+  in as `admin`: until its password is set, opening Echolot asks for it (do that right after the
+  first start, or set `ECHOLOT_ADMIN_PASSWORD`). Forms and htmx requests carry a CSRF token.
 - **Configuration:** the lists, the pipeline's schedule and the settings live in Echolot's SQLite
   database. On its first start Echolot takes the pipeline's `sources.yml` and `schedule.yml` over;
   from then on it writes both from the database after every change (an edit made to the files
@@ -421,7 +421,7 @@ services:
 | `ECHOLOT_PORT` | `8490` | listen port |
 | `ECHOLOT_SECRET_KEY` | unset | key for the stored secrets: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Unset: a key file `data/secret.key` is created (a copy of `data/` then holds key and secrets together) |
 | `ECHOLOT_SECRET_KEY_FILE` | `data/secret.key` | the key file, when the key is not in the environment |
-| `ECHOLOT_ADMIN_PASSWORD` | unset | the password of the `admin` account, set on a start when there is none yet (else: the `/setup` link in the log) |
+| `ECHOLOT_ADMIN_PASSWORD` | unset | the password of the `admin` account, set on a start when there is none yet (else: asked for on the first visit) |
 
 Forgotten password: `docker exec -it echolot echolot user passwd admin`.
 
