@@ -189,6 +189,17 @@ def read_tags(path: Path) -> tuple[list[str], str]:
         return [], ""
 
 
+def read_isrc(path: Path) -> str:
+    """The ISRC tag ('' if none)."""
+    from mutagen import File
+
+    try:
+        m = File(path, easy=True)
+        return ((m.tags.get("isrc") if m is not None and m.tags is not None else None) or [""])[0].strip()
+    except Exception:
+        return ""
+
+
 def write_tags(path: Path, **values: str) -> None:
     """Set tags (artist=..., title=..., album=...); <tag>_if_empty=... only where the tag is empty."""
     from mutagen import File
