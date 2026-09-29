@@ -45,7 +45,7 @@ a Premium account (Spotify only runs developer apps of Premium users).
 git clone https://github.com/Zweisteinium/echolot && cd echolot/deploy
 cp .env.example .env            # set MUSIC to your music folder, e.g. MUSIC=/srv/music
 mkdir -p data/echolot data/sockseek data/navidrome /srv/music/inbox/soulseek
-docker compose up -d            # the first start builds Echolot and Sockseek (a few minutes)
+docker compose up -d            # pulls Echolot, builds Sockseek on the first start (a few minutes)
 ```
 
 1. Open **http://&lt;host&gt;:8490** and set the admin password. Do this first: whoever opens
@@ -56,7 +56,7 @@ docker compose up -d            # the first start builds Echolot and Sockseek (a
 
 | Service | Role |
 |---|---|
-| `echolot` | the web app and its jobs; the only one that writes the library |
+| `echolot` | the web app and its jobs, one image ([`lordlayer/echolot`](https://hub.docker.com/r/lordlayer/echolot)); the only one that writes the library |
 | `sockseek` | the [Sockseek](https://github.com/fiso64/sockseek) daemon: Soulseek searches and downloads for Echolot (not reachable from outside) |
 | `navidrome` | plays the library and the playlists |
 
