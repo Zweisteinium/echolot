@@ -12,9 +12,11 @@ dependencies = [
     "fastapi>=0.141.1",
     "jinja2>=3.1.6",
     "mutagen>=1.48.1",
+    "numpy>=2.5.3",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "uvicorn>=0.54.0",
+    "yt-dlp[curl-cffi,default]>=2026.8.19",
 ]
 
 [project.scripts]
@@ -40,6 +42,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 ignore = [
     "E501",    # line length is the formatter's job; long strings and comments are fine
     "RUF001",  # non-ASCII characters in strings are intended (music titles, typography)
+    "RUF002",  # ... and in docstrings (they quote such strings)
 ]
 
 [tool.pytest.ini_options]

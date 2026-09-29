@@ -1,0 +1,6 @@
+{% if error %}<p class="flash error">{{ error }}</p>{% endif %}
+{% if cards %}
+<div class="cards">
+  {% for c in cards %}{% include "_card.html" %}{% endfor %}
+</div>
+{% elif not error and service != 'other' %}<p class="muted">No lists found in this account.</p>{% endif %}

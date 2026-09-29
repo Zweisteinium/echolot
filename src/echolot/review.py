@@ -1,55 +1,33 @@
-"""Review: songs the pipeline filed on a probable match (library.identify) and rejected downloads it
-keeps in inbox/review/ for 30 days.
-
-Decisions are appended to review.yml (in the pipeline directory, or the directory the pipeline's
-config files are written to: `out`); music-sync applies each one once (at the start of its Soulseek jobs,
-or within 10 min by the playlists job) and records the result in state/review-done.json:
+"""Review: songs filed on a probable match (rules.identify) and rejected downloads kept in inbox/review/
+for 30 days. A decision is applied once it is UNDO_SECONDS old (until then Revert takes it back):
   ok       the probable match is right
   wrong    it is not: the file is retired, that download is never taken for the song again, and the song
            is searched again
-  accept   a rejected download is the right song after all: it is filed
+  accept   a rejected download is the right song after all: it is filed (and tagged as the song)
   discard  delete a rejected download now (else after 30 days)
 """
 
+import datetime
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import yaml
+from echolot import audio, filing, library, rules
+from echolot.filing import MUSIC, Want
+from echolot.sources import ConfigError
 
-from echolot.sources import ConfigError, write_atomic
+if TYPE_CHECKING:
+    from echolot.worker import Run
 
-FILE = "review.yml"
-DONE = "state/review-done.json"
-PIPELINE_MUSIC = "/music/"  # the music directory as the pipeline sees it
-KEPT = PIPELINE_MUSIC + "inbox/review/"
+KEPT = MUSIC + "inbox/review/"
 DECISIONS = {"filed": ("ok", "wrong"), "kept": ("accept", "discard")}
-HEADER = """\
-# Decisions from Echolot's review page. music-sync applies each one once (state/review-done.json).
-# ok / wrong: a song filed on a probable match; accept / discard: a rejected download kept in inbox/review.
-"""
+UNDO_SECONDS = 120
 
 
 def decision_id(ts: str, path: str) -> str:
     return f"{ts} {path}"
-
-
-def _decisions(root: Path) -> list[dict]:
-    try:
-        data = yaml.safe_load((root / FILE).read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return []
-    items = data.get("decisions") if isinstance(data, dict) else None
-    return [d for d in items or [] if isinstance(d, dict) and d.get("id")]
-
-
-def _done(root: Path) -> dict[str, dict]:
-    try:
-        return json.loads((root / DONE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
 
 
 @dataclass
@@ -71,10 +49,9 @@ class Item:
 
 
 def local_file(path: str, music_dir: Path) -> Path | None:
-    """Echolot's path of an event file: library-relative, or under the pipeline's /music/inbox/review/."""
+    """Echolot's path of an event file: library-relative, or /music/inbox/review/<...>."""
     if path.startswith(KEPT):
-        p = music_dir / path.removeprefix(PIPELINE_MUSIC)
-        base = music_dir / "inbox" / "review"
+        p, base = music_dir / path.removeprefix(MUSIC), music_dir / "inbox" / "review"
     elif not path.startswith("/"):
         p, base = music_dir / "tracks" / path, music_dir / "tracks"
     else:
@@ -84,8 +61,7 @@ def local_file(path: str, music_dir: Path) -> Path | None:
 
 
 def near_miss(e: sqlite3.Row, wanted: float) -> bool:
-    """A rejected download worth a look: the artist matched and the length is not far off (the pipeline
-    keeps only these since 2026-09-28; earlier ones are hidden)."""
+    """A rejected download worth a look: the artist matched and the length is not far off."""
     if (e["reason"] or "").startswith("artist "):
         return False
     return not (e["seconds"] and wanted) or 2 / 3 <= e["seconds"] / wanted <= 1.5
@@ -93,18 +69,15 @@ def near_miss(e: sqlite3.Row, wanted: float) -> bool:
 
 def upgrade(e: sqlite3.Row) -> bool:
     """A kept download that would replace the song's lossy library copy with genuine lossless."""
-    lossless = (e["ext"] or "") in ("flac", "wav", "aiff") and not e["fake"]
+    lossless = (e["ext"] or "") in audio.LOSSLESS and not e["fake"]
     return lossless and e["song_quality"] not in ("lossless", None)
 
 
-def items(
-    con: sqlite3.Connection, root: Path, music_dir: Path, out: Path | None = None
-) -> dict[str, list[Item]]:
-    """What to look at: probable matches still in the library without a decision, and kept rejected
-    downloads of songs that are still missing, or genuine lossless ones of songs the library has only lossy
-    (from the FLAC upgrade; accepting one replaces the lossy copy). Newest first."""
-    decided = {d["id"]: d.get("decision") for d in _decisions(out or root)}
-    done = _done(root)
+def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
+    """What to look at: probable matches still in the library without an applied decision, and kept
+    rejected downloads of songs that are still missing, or genuine lossless ones of songs the library
+    has only lossy (accepting one replaces the lossy copy). Newest first."""
+    decisions = {r["id"]: r for r in con.execute("SELECT * FROM review_decisions")}
     rows = con.execute(
         "SELECT e.*, s.length AS wanted_length, s.file AS song_file, f.quality AS song_quality, "
         "f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
@@ -115,87 +88,149 @@ def items(
     out: dict[str, list[Item]] = {"filed": [], "kept": []}
     for e in rows:
         kind = "filed" if e["action"] in ("new", "upgrade") else "kept"
-        key = decision_id(e["ts"], e["path"])
-        if key in done or (
-            kind == "kept" and e["song_file"] and not upgrade(e)
-        ):  # song found meanwhile
-            continue
+        d = decisions.get(decision_id(e["ts"], e["path"]))
+        if (d and d["applied"]) or (kind == "kept" and e["song_file"] and not upgrade(e)):
+            continue  # decided, or the song was found meanwhile
         length = e["wanted_length"] or e["wanted_seconds"] or 0
         if kind == "kept" and not near_miss(e, length):
             continue
         file = local_file(e["path"], music_dir)
         if file is None or not file.is_file():
             continue
-        out[kind].append(Item(e, kind, file, float(length), decided.get(key)))
+        out[kind].append(Item(e, kind, file, float(length), d["decision"] if d else None))
     return out
 
 
-def find(
-    con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int, out: Path | None = None
-) -> Item | None:
+def find(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item | None:
     return next(
-        (
-            i
-            for group in items(con, root, music_dir, out).values()
-            for i in group
-            if i.event["id"] == event_id
-        ),
+        (i for group in items(con, music_dir).values() for i in group if i.event["id"] == event_id),
         None,
     )
 
 
-def decide(
-    con: sqlite3.Connection,
-    root: Path,
-    music_dir: Path,
-    event_id: int,
-    decision: str,
-    out: Path | None = None,
-) -> Item:
-    """Append a decision to review.yml (atomically; the pipeline only reads it)."""
-    out = out or root
-    item = find(con, root, music_dir, event_id, out)
+def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: str) -> Item:
+    item = find(con, music_dir, event_id)
     if item is None:
         raise ConfigError("This download is no longer up for review.")
     if decision not in DECISIONS[item.kind]:
         raise ConfigError(f"'{decision}' is not a decision for this download.")
-    e = item.event
-    entry = {
-        "id": item.id,
-        "decision": decision,
-        "song": e["song"] or "",
-        "path": e["path"],
-        "artist": e["artist"] or "",
-        "title": e["title"] or "",
-        "length": round(item.length),
-        "source": e["source"] or "",
-        "found": e["found"] or "",
-        "file_name": e["file_name"] or "",
-        "fake": bool(e["fake"]),
-        "tries": e["tries"] or 0,
-        "at": datetime.now().isoformat(timespec="seconds"),
-    }
-    decisions = [d for d in _decisions(out) if d["id"] != item.id] + [entry]
-    text = HEADER + yaml.safe_dump(
-        {"decisions": decisions}, allow_unicode=True, sort_keys=False, width=1000
-    )
-    write_atomic(out / FILE, text)
+    with con:
+        con.execute(
+            "INSERT OR REPLACE INTO review_decisions (id, event_id, decision, decided) VALUES (?, ?, ?, ?)",
+            (item.id, event_id, decision, datetime.datetime.now().isoformat(timespec="seconds")),
+        )
     return item
 
 
-def revert(
-    con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int, out: Path | None = None
-) -> Item:
-    """Take back a decision the pipeline has not applied yet (it is removed from review.yml)."""
-    out = out or root
-    item = find(con, root, music_dir, event_id, out)
+def revert(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item:
+    """Take back a decision that is not applied yet."""
+    item = find(con, music_dir, event_id)
     if item is None or not item.decision:
-        raise ConfigError("There is no pending decision for this download.")
-    if item.id in _done(root):
-        raise ConfigError("The pipeline has applied this decision already.")
-    decisions = [d for d in _decisions(out) if d["id"] != item.id]
-    text = HEADER + yaml.safe_dump(
-        {"decisions": decisions}, allow_unicode=True, sort_keys=False, width=1000
-    )
-    write_atomic(out / FILE, text)
+        raise ConfigError(
+            "There is no pending decision for this download (or it is applied already)."
+        )
+    with con:
+        con.execute("DELETE FROM review_decisions WHERE id = ? AND applied IS NULL", (item.id,))
     return item
+
+
+# ---------------------------------------------------------------- applying
+
+
+def apply_due(run: "Run", con: sqlite3.Connection) -> list[str]:
+    """Apply the decisions older than UNDO_SECONDS; returns what happened."""
+    cutoff = (datetime.datetime.now() - datetime.timedelta(seconds=UNDO_SECONDS)).isoformat(
+        timespec="seconds"
+    )
+    done = []
+    for d in con.execute(
+        "SELECT r.id AS decision_id, r.decision, e.* FROM review_decisions r JOIN events e ON e.id = r.event_id "
+        "WHERE r.applied IS NULL AND r.decided <= ?",
+        (cutoff,),
+    ).fetchall():
+        try:
+            result = _apply(run, con, d)
+        except Exception as e:  # keep the others going; the result says what went wrong
+            result = f"failed: {e}"
+        with con:
+            con.execute(
+                "UPDATE review_decisions SET applied = ?, result = ? WHERE id = ?",
+                (datetime.datetime.now().isoformat(timespec="seconds"), result, d["decision_id"]),
+            )
+        done.append(f"{d['decision']} {d['artist']} - {d['title']}: {result}")
+    return done
+
+
+def _search_again(con: sqlite3.Connection, key: str, tries: int) -> None:
+    """The song is due for a search right away, searched loosened (as after 2 failed searches)."""
+    with con:
+        con.execute(
+            "INSERT INTO attempts (song_key, tries, last_try) VALUES (?, ?, 0) ON CONFLICT (song_key) "
+            "DO UPDATE SET tries = max(tries, excluded.tries), last_try = 0",
+            (key, max(tries, 2)),
+        )
+
+
+def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
+    paths, key = run.paths, rules.norm_key(d["song"])
+    decision = d["decision"]
+    if decision == "ok":
+        return "kept"
+    if decision == "wrong":
+        names = [n for n in (d["found"], d["file_name"]) if n]
+        with con:
+            con.executemany("INSERT OR IGNORE INTO blocked (song_key, name) VALUES (?, ?)",
+                            [(key, n) for n in names])  # fmt: skip
+        with filing.LOCK:
+            cat = library.Catalog.from_db(con)
+            entry = next((e for e in cat.entries if e.path == d["path"]), None)
+            result = "already gone"
+            if entry and (paths.tracks / entry.path).is_file():
+                filing.retire(con, paths, entry, "marked wrong in review")
+                result = "retired"
+        if key:
+            _search_again(con, key, d["tries"] or 0)
+        return result
+    p = local_file(d["path"], paths.music)
+    if p is None or not p.is_file() or not d["path"].startswith(KEPT):
+        return "file gone"
+    if decision == "discard":
+        p.unlink()
+        return "deleted"
+    # accept: the download is tagged with another artist who has this song in the library already: the
+    # same recording under two artist names (Spotify lists it twice). Link the song to that file.
+    want = Want(d["artist"] or "", d["title"] or "", 0, key)
+    song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
+    if song:
+        want = Want.of(song)
+    tag_artists, _ = audio.read_tags(p)
+    own = rules.artist_words(want.artist)
+    dur, _ = audio.probe(p)
+    cat = library.Catalog.from_db(con)
+    for other in tag_artists:
+        if any(f" {w} " in rules.words(other) for w in own):
+            continue
+        if hits := cat.find(other, want.title, dur):
+            if key:
+                with con:
+                    con.execute(
+                        "UPDATE songs SET link = ? WHERE key = ?",
+                        (json.dumps([other, want.title]), key),
+                    )
+            p.unlink()
+            filing.event(con, paths, "linked", paths.tracks / hits[0].path, song=key or None, artist=want.artist,
+                         title=want.title, source=d["source"], matched="review",
+                         reason=f"same recording as {hits[0].path} ({other})")  # fmt: skip
+            return f"linked {hits[0].path}"
+    action, dest = filing.file_into(
+        con, paths, p, want, d["source"] or "", match="review", fake=bool(d["fake"])
+    )
+    if dest and action in ("new", "upgrade"):
+        audio.write_tags(dest, artist=want.artist, title=want.title)  # accepted as this song
+        from echolot.acquire import finish
+
+        finish(run, con, dest, want)
+    if key and action in ("new", "upgrade", "duplicate"):
+        with con:
+            con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
+    return f"{action} {dest.relative_to(paths.tracks) if dest else ''}".strip()

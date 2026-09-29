@@ -1,36 +1,30 @@
 """Web dashboard and HTTP API."""
 
 import logging
-from collections.abc import AsyncIterator, Callable
+import sqlite3
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from sqlite3 import Connection
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from echolot import (
-    __version__,
-    auth,
-    db,
-    history,
-    jobs,
-    pipeline,
-    pipeline_config,
-    review,
-    schedule,
-    sources,
-    stats,
-    vault,
-)
+from echolot import __version__, auth, db, history, options, review, schedule, stats, vault
 from echolot.config import Settings
-from echolot.scheduler import Scheduler
-from echolot.web import access, admin, charts
+from echolot.sources import ConfigError
+from echolot.web import access, accounts, admin, charts, lists
 from echolot.web.common import DB, back, page
+from echolot.worker import Worker
 
 log = logging.getLogger(__name__)
 
@@ -98,18 +92,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
     secret_store = vault.Vault.from_env(settings.data_dir)  # a wrong key stops Echolot here
-    con = db.connect(settings.db_path)
-    try:
-        pipeline_config.start(con, settings)
-        scheduler = Scheduler(settings.db_path, jobs.all_jobs(settings, jobs.refresh_minutes(con)))
-    finally:
-        con.close()
+    worker = Worker(settings, secret_store)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        scheduler.start()
+        worker.start()
         yield
-        scheduler.stop()
+        worker.stop()
 
     app = FastAPI(
         title="Echolot",
@@ -120,7 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dependencies=[Depends(access.csrf_protect)],
     )
     app.state.settings = settings
-    app.state.scheduler = scheduler
+    app.state.worker = worker
     app.state.vault = secret_store
     app.state.throttle = auth.Throttle()
     con = db.connect(settings.db_path)
@@ -138,18 +127,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__
     )
     app.state.templates = templates
-    app.include_router(access.router)
-    app.include_router(admin.router)
+    for router in (access.router, admin.router, accounts.router, lists.router):
+        app.include_router(router)
 
-    def pipeline_root() -> Path:
-        if not settings.pipeline_dir:
-            raise HTTPException(404, "no pipeline configured (ECHOLOT_PIPELINE_DIR)")
-        return settings.pipeline_dir
-
-    def out_dir() -> Path:
-        pipeline_root()
-        assert settings.out_dir is not None
-        return settings.out_dir
+    def music_dir() -> Path:
+        if not settings.library_dir:
+            raise HTTPException(404, "no library configured (ECHOLOT_LIBRARY_DIR)")
+        return settings.library_dir.parent
 
     # ------------------------------------------------------------ pages
 
@@ -159,7 +143,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def overview(request: Request, con: DB) -> HTMLResponse:
-        root = settings.pipeline_dir
         o = stats.overview(con)
         return page(
             request,
@@ -167,11 +150,82 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             nav="overview",
             o=o,
             donut=charts.donut(o["song_tiers"]),
-            refresh_minutes=jobs.refresh_minutes(con),
-            refresh_in=scheduler.next_run_in("refresh"),
-            pipeline_jobs=schedule.status(root, schedule.rules(con)) if root else [],
-            paused=bool(root and pipeline.paused(root)),
+            connected=bool(
+                secret_store.get(con, "spotify.refresh_token")
+                or secret_store.get(con, "soundcloud.token")
+            ),
+            **job_status(con),
         )
+
+    def job_status(con: sqlite3.Connection) -> dict:
+        now = datetime.now()
+        rules = schedule.rules(con)
+        last = {r["name"]: r for r in con.execute("SELECT * FROM jobs")}
+        runs = dict(worker.runs)
+        busy = {r.job.resource: r.job.label for r in runs.values()}
+        rows = []
+        for j in schedule.JOBS:
+            r, run = last.get(j.name), runs.get(j.name)
+            started = datetime.fromisoformat(r["started"]) if r and r["started"] else None
+            nxt = schedule.next_run(rules[j.name], started, now)
+            rows.append({
+                "job": j, "rule": rules[j.name], "last": r, "run": run,
+                "next": nxt.isoformat(timespec="seconds") if nxt else None,
+                "waiting": busy.get(j.resource) if not run and nxt and nxt <= now else None,
+            })  # fmt: skip
+        return {
+            "jobs": rows,
+            "paused": options.get(con, options.Jobs).paused,
+            "running": bool(runs),
+        }
+
+    @app.get("/jobs", response_class=HTMLResponse)
+    def jobs_fragment(request: Request, con: DB) -> HTMLResponse:
+        """The jobs table (htmx refreshes it while jobs run)."""
+        return page(request, "_jobs.html", **job_status(con))
+
+    @app.get("/api/jobs", tags=["jobs"])
+    def api_jobs(con: DB) -> dict:
+        """Every job: its schedule, last run, whether it runs now (with progress) and when it runs next."""
+        s = job_status(con)
+        return {
+            "paused": s["paused"],
+            "jobs": [
+                {"name": r["job"].name, "label": r["job"].label, "schedule": r["rule"],
+                 "running": bool(r["run"]), "progress": r["run"].progress if r["run"] else None,
+                 "last_start": r["last"]["started"] if r["last"] else None,
+                 "last_end": r["last"]["finished"] if r["last"] else None,
+                 "last_ok": bool(r["last"]["ok"]) if r["last"] and r["last"]["ok"] is not None else None,
+                 "last_message": r["last"]["message"] if r["last"] else None, "next": r["next"]}
+                for r in s["jobs"]
+            ],
+        }  # fmt: skip
+
+    def jobs_answer(request: Request, con: sqlite3.Connection, ok: str) -> Response:
+        if request.headers.get("hx-request"):
+            return page(request, "_jobs.html", **job_status(con))
+        return back("/", ok=ok)
+
+    @app.post("/jobs/{name}/run", tags=["jobs"])
+    def run_job(request: Request, con: DB, name: str) -> Response:
+        """Start a job now (also while jobs are paused)."""
+        if not worker.trigger(name):
+            raise HTTPException(404, "no such job")
+        return jobs_answer(request, con, f"{schedule.BY_NAME[name].label} starts in a moment.")
+
+    @app.post("/jobs/{name}/cancel", tags=["jobs"])
+    def cancel_job(request: Request, con: DB, name: str) -> Response:
+        """Stop a running job (songs in progress end as they are)."""
+        if not worker.cancel(name):
+            raise HTTPException(404, "not running")
+        return jobs_answer(request, con, "Stopping.")
+
+    @app.post("/jobs/pause", tags=["jobs"])
+    def pause_jobs(request: Request, con: DB, paused: Annotated[bool, Form()] = False) -> Response:
+        """Pause (no job starts on its schedule) or resume."""
+        with con:
+            options.update(con, options.Jobs, paused=paused)
+        return jobs_answer(request, con, "Jobs paused." if paused else "Jobs resumed.")
 
     @app.get("/missing", response_class=HTMLResponse)
     def missing(
@@ -214,44 +268,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             common=charts.hours(a["hours"]["common"], "users", "users"),
         )
 
-    def music_dir() -> Path:
-        if not (settings.library_dir and settings.pipeline_dir):
-            raise HTTPException(404, "no library or pipeline configured")
-        return settings.library_dir.parent  # tracks/ and inbox/, as the pipeline's /music
-
     @app.get("/review", response_class=HTMLResponse)
     def review_page(request: Request, con: DB) -> HTMLResponse:
-        return page(
-            request,
-            "review.html",
-            nav="review",
-            items=review.items(con, pipeline_root(), music_dir(), out_dir()),
-        )
+        return page(request, "review.html", nav="review", items=review.items(con, music_dir()))
 
     @app.post("/review/{event_id}")
     def review_decide(con: DB, event_id: int, decision: Annotated[str, Form()]) -> RedirectResponse:
         try:
-            item = review.decide(con, pipeline_root(), music_dir(), event_id, decision, out_dir())
-        except sources.ConfigError as e:
+            item = review.decide(con, music_dir(), event_id, decision)
+        except ConfigError as e:
             return back("/review", error=str(e))
         song = f"{item.event['artist']} – {item.event['title']}"
         return back(
-            "/review",
-            ok=f"{song}: {decision}. The pipeline applies it within about 10 min (Revert until then).",
+            "/review", ok=f"{song}: {decision}. Applied within a few minutes (Revert until then)."
         )
 
     @app.post("/review/{event_id}/revert")
     def review_revert(con: DB, event_id: int) -> RedirectResponse:
         try:
-            item = review.revert(con, pipeline_root(), music_dir(), event_id, out_dir())
-        except sources.ConfigError as e:
+            item = review.revert(con, music_dir(), event_id)
+        except ConfigError as e:
             return back("/review", error=str(e))
         song = f"{item.event['artist']} – {item.event['title']}"
         return back("/review", ok=f"{song}: decision '{item.decision}' taken back.")
 
     @app.get("/review/{event_id}/audio")
     def review_audio(con: DB, event_id: int) -> FileResponse:
-        item = review.find(con, pipeline_root(), music_dir(), event_id, out_dir())
+        item = review.find(con, music_dir(), event_id)
         if item is None:
             raise HTTPException(404, "not up for review")
         return FileResponse(item.file)
@@ -311,155 +354,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def metrics(con: DB) -> PlainTextResponse:
         """Current values in the Prometheus text format."""
         return PlainTextResponse(history.prometheus(con), media_type="text/plain; version=0.0.4")
-
-    @app.post("/jobs/{name}/run")
-    def run_job(name: str) -> RedirectResponse:
-        if not scheduler.trigger(name):
-            raise HTTPException(404, "no such job")
-        return RedirectResponse("/", status_code=303)
-
-    # ------------------------------------------------------------ sources
-
-    def edit_sources(
-        con: Connection, expected: str, change: Callable[[], object], ok: str
-    ) -> RedirectResponse:
-        """Apply a change to the lists unless they changed since the page was loaded; then write the
-        pipeline's sources.yml and refresh."""
-        try:
-            if sources.current_version(con) != expected:
-                raise sources.Conflict(
-                    "The lists were changed elsewhere in the meantime. Reload and try again."
-                )
-            change()
-        except sources.ConfigError as err:
-            return back("/sources", error=str(err))
-        pipeline_config.write(con, settings)
-        scheduler.trigger("refresh")
-        return back("/sources", ok=ok)
-
-    @app.get("/sources", response_class=HTMLResponse)
-    def sources_page(request: Request, con: DB) -> HTMLResponse:
-        known = {r["key"]: r for r in stats.lists(con)}
-        return page(
-            request,
-            "sources.html",
-            nav="sources",
-            entries=sources.entries(con),
-            known=known,
-            likes=sources.likes_state(con),
-            file_version=sources.current_version(con),
-        )
-
-    @app.post("/sources/add")
-    def sources_add(
-        con: DB,
-        version: Annotated[str, Form()],
-        url: Annotated[str, Form()],
-        title: Annotated[str, Form()] = "",
-        playlist: Annotated[bool, Form()] = False,
-    ) -> RedirectResponse:
-        return edit_sources(
-            con,
-            version,
-            lambda: sources.add_list(con, url, title, playlist),
-            "List added. The pipeline fetches it on its next run.",
-        )
-
-    @app.post("/sources/update")
-    def sources_update(
-        con: DB,
-        version: Annotated[str, Form()],
-        key: Annotated[str, Form()],
-        title: Annotated[str, Form()] = "",
-        playlist: Annotated[bool, Form()] = False,
-    ) -> RedirectResponse:
-        return edit_sources(
-            con, version, lambda: sources.update_list(con, key, title, playlist), "List saved."
-        )
-
-    @app.post("/sources/remove")
-    def sources_remove(
-        con: DB, version: Annotated[str, Form()], key: Annotated[str, Form()]
-    ) -> RedirectResponse:
-        return edit_sources(
-            con,
-            version,
-            lambda: sources.remove_list(con, key),
-            "List removed. Its songs stay in the library; delete its playlist in the music "
-            "server if you no longer want it.",
-        )
-
-    @app.post("/sources/options")
-    def sources_options(
-        con: DB,
-        version: Annotated[str, Form()],
-        spotify_likes: Annotated[bool, Form()] = False,
-        soundcloud_likes: Annotated[bool, Form()] = False,
-        soundcloud_user: Annotated[str, Form()] = "",
-        removed_playlists: Annotated[bool, Form()] = False,
-    ) -> RedirectResponse:
-        def change() -> None:
-            sources.set_likes(con, "spotify", spotify_likes)
-            sources.set_likes(con, "soundcloud", soundcloud_likes, soundcloud_user)
-            sources.set_removed_playlists(con, removed_playlists)
-
-        return edit_sources(con, version, change, "Options saved.")
-
-    @app.get("/sources/yaml", response_class=HTMLResponse)
-    def sources_yaml(request: Request, con: DB) -> HTMLResponse:
-        text = sources.render(con)
-        return page(
-            request,
-            "sources_yaml.html",
-            nav="sources",
-            text=text,
-            file_version=sources.version(text),
-            versions=sources.versions(con),
-        )
-
-    @app.post("/sources/yaml", response_model=None)
-    def sources_yaml_save(
-        request: Request,
-        con: DB,
-        version: Annotated[str, Form()],
-        text: Annotated[str, Form()],
-    ) -> HTMLResponse | RedirectResponse:
-        text = text.replace("\r\n", "\n")
-        try:
-            sources.save_text(con, text, version, "edited as YAML")
-        except sources.ConfigError as err:  # keep the user's edit on the page
-            return page(
-                request,
-                "sources_yaml.html",
-                400,
-                nav="sources",
-                text=text,
-                file_version=version,
-                versions=sources.versions(con),
-                error=str(err),
-            )
-        pipeline_config.write(con, settings)
-        scheduler.trigger("refresh")
-        return back("/sources/yaml", ok="Lists saved.")
-
-    @app.get("/sources/versions/{vid}", response_class=PlainTextResponse)
-    def sources_version(con: DB, vid: int) -> str:
-        text = sources.old_version(con, vid)
-        if text is None:
-            raise HTTPException(404, "no such version")
-        return text
-
-    @app.post("/sources/versions/{vid}/restore")
-    def sources_restore(con: DB, vid: int, version: Annotated[str, Form()]) -> RedirectResponse:
-        text = sources.old_version(con, vid)
-        if text is None:
-            raise HTTPException(404, "no such version")
-        try:
-            sources.save_text(con, text, version, f"restored version {vid}")
-        except sources.ConfigError as err:
-            return back("/sources/yaml", error=str(err))
-        pipeline_config.write(con, settings)
-        scheduler.trigger("refresh")
-        return back("/sources/yaml", ok=f"Version {vid} restored.")
 
     return app

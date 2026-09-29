@@ -3,15 +3,14 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from echolot import db, history, jobs
+from echolot import db, history
 from echolot.config import Settings
 from echolot.web import create_app
 
 
 @pytest.fixture
 def con(settings: Settings):
-    con = db.connect(settings.db_path)
-    jobs.refresh(settings, con)  # stores the first snapshot
+    con = db.connect(settings.db_path)  # the first snapshot is stored
     yield con
     con.close()
 

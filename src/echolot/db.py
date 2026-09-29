@@ -176,6 +176,49 @@ MIGRATIONS = [
         FROM meta WHERE key = 'refresh_minutes';
     DELETE FROM meta WHERE key = 'refresh_minutes';
     """,
+    """
+    -- Echolot runs the pipeline itself (PLAN.md phase 3). Songs stay known when they leave every list
+    -- (links, attempts and SoundCloud downloads are kept); the wanted ones are those in a list.
+    ALTER TABLE songs ADD COLUMN url TEXT;          -- SoundCloud: the track page it is downloaded from
+    ALTER TABLE songs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;  -- SoundCloud: downloaded once
+    ALTER TABLE songs ADD COLUMN isrc TEXT;         -- Spotify: the recording's ISRC
+    ALTER TABLE lists ADD COLUMN cover_url TEXT;    -- the list's picture at its source
+    ALTER TABLE lists ADD COLUMN cover_file TEXT;   -- the cover_url saved next to its playlist file
+    ALTER TABLE lists ADD COLUMN snapshot TEXT;     -- Spotify: snapshot_id of the last listing
+    ALTER TABLE lists ADD COLUMN fetched_at TEXT;   -- last successful listing
+    CREATE VIEW wanted AS SELECT * FROM songs WHERE key IN (SELECT song_key FROM list_songs);
+    CREATE TABLE list_history (         -- every song a list ever had, for its "– removed" playlist
+        list_key TEXT NOT NULL,
+        song_key TEXT NOT NULL,
+        first_seen TEXT NOT NULL,       -- date
+        last_seen TEXT NOT NULL,
+        PRIMARY KEY (list_key, song_key)
+    );
+    CREATE TABLE upgrades (             -- FLAC searches that found nothing better yet
+        song_key TEXT PRIMARY KEY,
+        tries INTEGER NOT NULL,
+        last_try INTEGER NOT NULL       -- unix time
+    );
+    CREATE TABLE blocked (              -- downloads marked wrong in review: never taken for the song again
+        song_key TEXT NOT NULL,
+        name TEXT NOT NULL,             -- tag title or source file name
+        PRIMARY KEY (song_key, name)
+    );
+    CREATE TABLE review_decisions (
+        id TEXT PRIMARY KEY,            -- review.decision_id: '<event ts> <path>'
+        event_id INTEGER,
+        decision TEXT NOT NULL,         -- ok, wrong, accept, discard
+        decided TEXT NOT NULL,
+        applied TEXT,                   -- NULL: not yet (can be reverted)
+        result TEXT
+    );
+    CREATE TABLE probe_songs (          -- songs the availability probe searches
+        artist TEXT NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,             -- rare, common
+        PRIMARY KEY (artist, title)
+    );
+    """,
 ]
 
 
