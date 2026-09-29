@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/jobs/122d8818-132b-4769-b0d6-d8c827b98a9a/downloads/files",
+    "body": {
+      "files": [
+        {
+          "username": "local",
+          "filename": "Scooter\\Scooter - Aiii Shot The DJ.flac"
+        }
+      ],
+      "options": {
+        "outputParentDir": "/out/picked"
+      }
+    }
+  },
+  "status": 202,
+  "response": [
+    {
+      "jobId": "906ee597-cc98-4e44-b6a1-640c91916774",
+      "displayId": 3,
+      "workflowId": "392f8918-3c01-4eb4-94e1-261371f0e8db",
+      "kind": "song",
+      "lifecycleState": "Pending",
+      "activityPhase": "None",
+      "terminalOutcome": "None",
+      "skipReason": "None",
+      "queryText": "Scooter - Aiii Shot The DJ",
+      "sourceJobId": "122d8818-132b-4769-b0d6-d8c827b98a9a",
+      "appliedAutoProfiles": [],
+      "availableActions": [],
+      "cancellationSource": "None",
+      "printOption": 0
+    }
+  ]
+}

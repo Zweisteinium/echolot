@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/server/status",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "soulseekClient": {
+      "state": "None",
+      "flags": [],
+      "isReady": false
+    },
+    "totalJobCount": 0,
+    "activeJobCount": 0,
+    "totalWorkflowCount": 0,
+    "activeWorkflowCount": 0,
+    "restartCount": 0
+  }
+}

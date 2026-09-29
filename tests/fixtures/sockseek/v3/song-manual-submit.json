@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/jobs/downloads/song",
+    "body": {
+      "songQuery": {
+        "artist": "Scooter",
+        "title": "Aiii Shot The DJ",
+        "length": 5
+      },
+      "options": {
+        "outputParentDir": "/out/manual"
+      },
+      "downloadBehavior": {
+        "default": "Manual"
+      }
+    }
+  },
+  "status": 202,
+  "response": {
+    "jobId": "5d17e10b-b6ce-485a-9f3c-61e6b5aa3905",
+    "displayId": 4,
+    "workflowId": "718f3ab1-bdd8-40c5-b505-4b06ce5015d9",
+    "kind": "song",
+    "lifecycleState": "Pending",
+    "activityPhase": "None",
+    "terminalOutcome": "None",
+    "skipReason": "None",
+    "queryText": "Scooter - Aiii Shot The DJ",
+    "appliedAutoProfiles": [],
+    "availableActions": [],
+    "cancellationSource": "None",
+    "printOption": 0
+  }
+}

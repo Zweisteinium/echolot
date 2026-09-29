@@ -257,7 +257,6 @@ services:
 | Variable | Meaning |
 |---|---|
 | `MUSIC_DIR` | the music directory on the host |
-| `SLSK_USER`, `SLSK_PASS` | Soulseek account of the pipeline (registered on first login) |
 | `SPOTIFY_ID`, `SPOTIFY_SECRET` | the Spotify app's credentials |
 | `SPOTIFY_REFRESH` | refresh token, see below |
 | `SC_TOKEN` | SoundCloud web token, see below |
@@ -322,7 +321,8 @@ Every Sockseek run is time-limited (20 min + 15 s per song).
 **Sockseek settings** live in [`config/sockseek.conf`](pipeline/config/sockseek.conf): FLAC
 preferred, the artist required in the result path, length tolerance 3 s, downloads only into
 `inbox/sockseek` (never into `tracks/`: its own file mover replaces existing files), and a hook
-(`post-track.sh`) that hands every finished file to `library.py`.
+(`post-track.sh`) that hands every finished file to `library.py`. The pipeline account's Soulseek
+login goes there too (`user`, `pass`; `chmod 600` the file), so it never shows up in the process list.
 
 First checks:
 

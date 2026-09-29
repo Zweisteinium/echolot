@@ -1,0 +1,90 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/jobs/122d8818-132b-4769-b0d6-d8c827b98a9a/results/files",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "revision": 2,
+    "isComplete": true,
+    "items": [
+      {
+        "ref": {
+          "username": "local",
+          "filename": "Scooter\\Scooter - Aiii Shot The DJ.flac"
+        },
+        "username": "local",
+        "filename": "Scooter\\Scooter - Aiii Shot The DJ.flac",
+        "peer": {
+          "username": "local",
+          "hasFreeUploadSlot": true,
+          "uploadSpeed": 100
+        },
+        "size": 68199,
+        "bitRate": 95,
+        "sampleRate": 44100,
+        "length": 5,
+        "extension": ".flac",
+        "attributes": [
+          {
+            "type": "BitRate",
+            "value": 95
+          },
+          {
+            "type": "Length",
+            "value": 5
+          },
+          {
+            "type": "VariableBitRate",
+            "value": 1
+          },
+          {
+            "type": "SampleRate",
+            "value": 44100
+          },
+          {
+            "type": "BitDepth",
+            "value": 16
+          }
+        ]
+      },
+      {
+        "ref": {
+          "username": "local",
+          "filename": "Scooter\\Scooter - Aiii Shot The DJ (Club Mix).mp3"
+        },
+        "username": "local",
+        "filename": "Scooter\\Scooter - Aiii Shot The DJ (Club Mix).mp3",
+        "peer": {
+          "username": "local",
+          "hasFreeUploadSlot": true,
+          "uploadSpeed": 100
+        },
+        "size": 202754,
+        "bitRate": 320,
+        "sampleRate": 44100,
+        "length": 5,
+        "extension": ".mp3",
+        "attributes": [
+          {
+            "type": "BitRate",
+            "value": 320
+          },
+          {
+            "type": "Length",
+            "value": 5
+          },
+          {
+            "type": "VariableBitRate",
+            "value": 0
+          },
+          {
+            "type": "SampleRate",
+            "value": 44100
+          }
+        ]
+      }
+    ]
+  }
+}

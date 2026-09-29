@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/jobs/search/tracks",
+    "body": {
+      "songQuery": {
+        "artist": "Nobody",
+        "title": "Nothing At All",
+        "length": 100
+      }
+    }
+  },
+  "status": 202,
+  "response": {
+    "jobId": "4e862738-a413-4c1f-80a0-8da60a13e5ea",
+    "displayId": 2,
+    "workflowId": "7b8df0c0-5613-4b75-813f-247209ef0f3f",
+    "kind": "search",
+    "lifecycleState": "Pending",
+    "activityPhase": "None",
+    "terminalOutcome": "None",
+    "skipReason": "None",
+    "queryText": "Nobody - Nothing At All",
+    "appliedAutoProfiles": [],
+    "availableActions": [],
+    "cancellationSource": "None",
+    "printOption": 0
+  }
+}

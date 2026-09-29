@@ -1,0 +1,81 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/jobs/9853fdc3-96a8-4d9a-bcce-03cb600dd84a",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "summary": {
+      "jobId": "9853fdc3-96a8-4d9a-bcce-03cb600dd84a",
+      "displayId": 2,
+      "workflowId": "3adb5046-483f-412e-b81b-4f4c67bbeea2",
+      "kind": "song",
+      "lifecycleState": "Terminal",
+      "activityPhase": "None",
+      "terminalOutcome": "Cancelled",
+      "skipReason": "None",
+      "queryText": "Scooter - Aiii Shot The DJ",
+      "failureReason": "Cancelled",
+      "sourceJobId": "97199dd4-efe2-4eb3-b4b0-68c06aa9127b",
+      "appliedAutoProfiles": [],
+      "availableActions": [],
+      "cancellationSource": "UserRequestedJob",
+      "printOption": 0
+    },
+    "payload": {
+      "kind": "song",
+      "query": {
+        "artist": "Scooter",
+        "title": "Aiii Shot The DJ",
+        "length": 5,
+        "artistMaybeWrong": false
+      },
+      "candidateCount": 1,
+      "resolvedUsername": "local",
+      "resolvedFilename": "Scooter\\Scooter - Aiii Shot The DJ.flac",
+      "resolvedHasFreeUploadSlot": true,
+      "resolvedUploadSpeed": 100,
+      "resolvedSize": 68199,
+      "resolvedSampleRate": 44100,
+      "resolvedExtension": ".flac",
+      "resolvedAttributes": [
+        {
+          "type": "BitRate",
+          "value": 95
+        },
+        {
+          "type": "Length",
+          "value": 5
+        },
+        {
+          "type": "VariableBitRate",
+          "value": 1
+        },
+        {
+          "type": "SampleRate",
+          "value": 44100
+        },
+        {
+          "type": "BitDepth",
+          "value": 16
+        }
+      ],
+      "jobId": "9853fdc3-96a8-4d9a-bcce-03cb600dd84a",
+      "displayId": 2,
+      "lifecycleState": "Terminal",
+      "activityPhase": "None",
+      "terminalOutcome": "Cancelled",
+      "skipReason": "None",
+      "failureReason": "Cancelled",
+      "bytesTransferred": 3409,
+      "totalBytes": 68199,
+      "progressPercent": 5,
+      "availableActions": [],
+      "transferState": "Cancelled",
+      "cancellationSource": "UserRequestedJob",
+      "downloadSource": "None"
+    },
+    "children": []
+  }
+}

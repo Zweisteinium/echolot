@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/server/info",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "name": "Sockseek",
+    "version": "3.0.6.0",
+    "startedAtUtc": "2026-09-29T07:43:00.25114+00:00"
+  }
+}
