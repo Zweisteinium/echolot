@@ -25,6 +25,9 @@ def test_password_hash() -> None:
 
 
 def test_login_required(app) -> None:
+    con = db.connect(app.state.settings.db_path)
+    auth.add_user(con, "admin", PASSWORD)
+    con.close()
     client = TestClient(app)
     assert client.get("/healthz").status_code == 200
     assert client.get("/static/style.css").status_code == 200
@@ -142,30 +145,29 @@ def test_password_change(app, login: Callable[..., TestClient]) -> None:
     assert other.get("/api/stats").status_code == 401
 
 
-def test_first_user_setup(app) -> None:
-    token = app.state.setup_token
-    assert token
+def test_first_visit_sets_admin_password(app) -> None:
     client = TestClient(app)
-    assert "/setup" in client.get("/login").text
-    assert client.get("/setup", params={"token": "wrong"}).status_code == 403
-    assert "admin</strong> account" in client.get("/setup", params={"token": token}).text
-    r = client.post("/setup", data={"token": token, "password": "long enough 1",
-                                    "repeat": "different 12"})  # fmt: skip
+    r = client.get("/", headers=HTML, follow_redirects=False)
+    assert (r.status_code, r.headers["location"]) == (303, "/setup")
+    assert client.get("/login", follow_redirects=False).headers["location"] == "/setup"
+    assert "admin</strong> account" in client.get("/setup").text
+    r = client.post("/setup", data={"password": "long enough 1", "repeat": "different 12"})
     assert r.status_code == 400 and "differ" in r.text
-    r = client.post("/setup", data={"token": token, "name": "someone", "password": "long enough 1",
+    r = client.post("/setup", data={"name": "someone", "password": "long enough 1",
                                     "repeat": "long enough 1"}, follow_redirects=False)  # fmt: skip
     assert r.status_code == 303
     assert client.get("/api/stats").status_code == 200  # logged in right away
     con = db.connect(app.state.settings.db_path)
     assert [u["name"] for u in auth.users(con)] == ["admin"]  # always the admin account
     con.close()
-    assert client.get("/setup", params={"token": token}).status_code == 404
+    assert client.get("/setup", follow_redirects=False).headers["location"] == "/login"
+    other = TestClient(app)  # nobody can set it again
+    assert other.post("/setup", data={"password": "x" * 12, "repeat": "x" * 12}).status_code == 403
 
 
 def test_admin_from_env(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ECHOLOT_ADMIN_PASSWORD", PASSWORD)
-    app = create_app(settings)
-    assert app.state.setup_token is None
+    create_app(settings)
     con = db.connect(settings.db_path)
     assert auth.get_user(con, "admin")
     con.close()
