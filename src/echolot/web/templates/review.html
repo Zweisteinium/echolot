@@ -1,63 +1,56 @@
 {% extends "base.html" %}
 {% from "_macros.html" import quality %}
 {% block title %}Review · Echolot{% endblock %}
-{% macro song(i) -%}
+{% macro item(i, choices, note) -%}
 {% set e = i.event %}
-<td>
-  {% if e.song and e.song.startswith('spotify:') %}<a href="https://open.spotify.com/track/{{ e.song.split(':')[1] }}" target="_blank" rel="noopener">{{ e.artist }} – {{ e.title }}</a>{% else %}{{ e.artist }} – {{ e.title }}{% endif %}
-  <div class="muted small">wanted {{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</div>
-</td>
-<td>
-  {{ e.found or e.file_name or '–' }}
-  <div class="muted small">
-    {{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %}
-    · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.fake %} · made from a lossy file{% endif %}
+<article class="review-item{{ ' decided' if i.decision }}">
+  <div class="review-head">
+    <dl>
+      <dt>Wanted</dt>
+      <dd>{% if e.song and e.song.startswith('spotify:') %}<a href="https://open.spotify.com/track/{{ e.song.split(':')[1] }}" target="_blank" rel="noopener">{{ e.artist }} – {{ e.title }}</a>{% else %}{{ e.artist }} – {{ e.title }}{% endif %}
+        <span class="muted small">{{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</span></dd>
+      <dt>Downloaded</dt>
+      <dd>{{ e.found or e.file_name or '–' }}
+        <span class="muted small">{{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %} · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.fake %} · made from a lossy file{% endif %}</span>
+        {% if i.kind == 'kept' and e.song_file %}<div class="small">replaces {{ quality(e.song_quality, e.song_kbps) }} in the library</div>{% endif %}</dd>
+    </dl>
+    <div class="review-actions">
+      {% if i.decision %}<span class="muted small">{{ i.decision }}: applied soon</span>
+      <form method="post" action="/review/{{ e.id }}/revert">{{ csrf_input }}<button>Revert</button></form>
+      {% else %}
+      {% for value, label, cls in choices %}
+      <form method="post" action="/review/{{ e.id }}">{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ cls }}">{{ label }}</button></form>
+      {% endfor %}
+      {% endif %}
+    </div>
   </div>
-  {% if i.kind == 'kept' and e.song_file %}<div class="small">replaces {{ quality(e.song_quality, e.song_kbps) }} in the library</div>{% endif %}
-</td>
-<td><audio controls preload="none" src="/review/{{ e.id }}/audio"></audio></td>
-{%- endmacro %}
-{% macro buttons(i, choices) -%}
-<td class="nowrap">
-  {% if i.decision %}<span class="muted small">{{ i.decision }}: applied soon</span>
-  <form method="post" action="/review/{{ i.event.id }}/revert" class="inline">{{ csrf_input }}<button>Revert</button></form>
-  {% else %}
-  {% for value, label, cls in choices %}
-  <form method="post" action="/review/{{ i.event.id }}" class="inline">{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ cls }}">{{ label }}</button></form>
-  {% endfor %}
-  {% endif %}
-</td>
+  <audio controls preload="none" src="/review/{{ e.id }}/audio"></audio>
+  {% if note %}<p class="muted small">{{ note }}</p>{% endif %}
+</article>
 {%- endmacro %}
 {% block content %}
 <section class="card">
   <div class="card-head">
     <h1>Filed on a probable match <span class="count">{{ items.filed|length|num }}</span></h1>
   </div>
-  <p class="muted small">A download that is probably the song (the same core title and version words, no other featured artist, the length within a few seconds) is filed and listed here until you confirm it. <em>Wrong</em> takes it out again, never takes that download for the song again and searches anew.</p>
-  <table class="rows">
-    <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
-    {% for i in items.filed %}
-    <tr>{{ song(i) }}{{ buttons(i, [('ok', 'Right song', ''), ('wrong', 'Wrong', 'danger')]) }}</tr>
-    {% if i.event.audio %}<tr class="sub"><td colspan="4" class="muted small">{{ i.event.audio }}</td></tr>{% endif %}
-    {% else %}
-    <tr><td colspan="4" class="muted">Nothing to check.</td></tr>
-    {% endfor %}
-  </table>
+  <p class="lead small">A download that is probably the song (the same core title and version words, no other featured artist, the length within a few seconds) is filed and listed here until you confirm it. <em>Wrong</em> takes it out again, never takes that download for the song again and searches anew.</p>
+  <div class="review-list">
+    {% for i in items.filed %}{{ item(i, [('ok', 'Right song', ''), ('wrong', 'Wrong', 'danger')], i.event.audio) }}
+    {% else %}<p class="muted">Nothing to check.</p>{% endfor %}
+  </div>
 </section>
 
 <section class="card">
   <div class="card-head">
     <h1>Rejected downloads <span class="count">{{ items.kept|length|num }}</span></h1>
   </div>
-  <p class="muted small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within a few minutes; until then <em>Revert</em> takes it back.</p>
-  <table class="rows">
-    <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
+  <p class="lead small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within a few minutes; until then <em>Revert</em> takes it back.</p>
+  <div class="review-list">
     {% for i in items.kept %}
-    <tr>{{ song(i) }}{{ buttons(i, [('accept', 'Accept', ''), ('discard', 'Discard', 'danger')]) }}</tr>
-    <tr class="sub"><td colspan="4" class="muted small">{{ i.event.action }}: {{ i.event.reason or ('length ' ~ (i.event.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss)) }}{% if i.event.audio and i.event.audio not in (i.event.reason or '') %} · {{ i.event.audio }}{% endif %}</td></tr>
-    {% else %}
-    <tr><td colspan="4" class="muted">Nothing kept.</td></tr>
-    {% endfor %}
-  </table>
+    {% set e = i.event %}
+    {% set why = e.action ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) %}
+    {{ item(i, [('accept', 'Accept', ''), ('discard', 'Discard', 'danger')], why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '')) }}
+    {% else %}<p class="muted">Nothing kept.</p>{% endfor %}
+  </div>
 </section>
 {% endblock %}

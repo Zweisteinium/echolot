@@ -126,6 +126,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ------------------------------------------------------------ pages
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        return FileResponse(HERE / "static" / "favicon.ico", headers={"Cache-Control": "max-age=86400"})
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok", "version": __version__}

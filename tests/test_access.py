@@ -31,6 +31,7 @@ def test_login_required(app) -> None:
     client = TestClient(app)
     assert client.get("/healthz").status_code == 200
     assert client.get("/static/style.css").status_code == 200
+    assert client.get("/favicon.ico").headers["content-type"] == "image/vnd.microsoft.icon"
     r = client.get("/sources", headers=HTML, follow_redirects=False)
     assert (r.status_code, r.headers["location"]) == (303, "/login?next=%2Fsources")
     r = client.get("/api/stats")
