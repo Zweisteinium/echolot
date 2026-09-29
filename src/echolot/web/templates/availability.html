@@ -4,7 +4,7 @@
 {% block content %}
 <section class="card">
   <h1>Availability</h1>
-  <p class="muted small">Every hour the pipeline searches Soulseek for the songs in <code>probe.csv</code> without downloading and counts how many users have each (after the same filters as real downloads). Rare songs show when the few people who have them are online; common songs show how many users are online overall. Times are local.</p>
+  <p class="muted small">Every hour the probe job searches Soulseek for a set of probe songs without downloading and counts how many users have each (after the same filters as real downloads). Rare songs show when the few people who have them are online; common songs show how many users are online overall. Times are local.</p>
   <dl>
     <dt>Probe runs</dt><dd>{{ a.runs|num }}{% if a.first %} <span class="muted">since {{ a.first|replace('T', ' ') }}, last {{ a.last|ago }}</span>{% endif %}</dd>
   </dl>

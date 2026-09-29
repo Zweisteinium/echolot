@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the Sockseek daemon's job API and optionally record its answers as test fixtures.
 
-Runs inside a throwaway container of the pipeline image, without network, against a daemon in mock mode
+Runs inside a throwaway container of the Sockseek image, without network, against a daemon in mock mode
 (every file under the mock directory belongs to one peer, "local"):
 
   S=<scratch dir>; mkdir -p $S/out $S/fixtures

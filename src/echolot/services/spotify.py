@@ -18,8 +18,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from echolot import options
-from echolot.vault import Vault
+from echolot.settings import options
+from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
 

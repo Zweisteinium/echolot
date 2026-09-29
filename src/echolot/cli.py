@@ -19,7 +19,8 @@ def _password(args: argparse.Namespace) -> str:
 
 
 def _user(args: argparse.Namespace, settings: Settings) -> int:
-    from echolot import auth, db
+    from echolot import db
+    from echolot.settings import auth
 
     con = db.connect(settings.db_path)
     try:
@@ -44,7 +45,8 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _config(args: argparse.Namespace, settings: Settings) -> int:
-    from echolot import configfile, db
+    from echolot import db
+    from echolot.settings import configfile
 
     con = db.connect(settings.db_path)
     try:
@@ -72,7 +74,8 @@ def _config(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _secret(args: argparse.Namespace, settings: Settings) -> int:
-    from echolot import db, vault
+    from echolot import db
+    from echolot.settings import vault
 
     con = db.connect(settings.db_path)
     try:
@@ -97,38 +100,9 @@ def _secret(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
-def _migrate(args: argparse.Namespace, settings: Settings) -> int:
-    from echolot import db, migrate, vault
-
-    if settings.library_dir is None:
-        raise SystemExit("ECHOLOT_LIBRARY_DIR is not set.")
-    env = migrate.parse_env(sys.stdin.read()) if args.env_stdin else {}
-    target = settings.db_path
-    if args.dry_run:  # on a copy of the database
-        import tempfile
-
-        target = Path(tempfile.mkdtemp()) / "echolot.db"
-        src = db.connect(settings.db_path)
-        src.execute(f"VACUUM INTO '{target}'")
-        src.close()
-    con = db.connect(target)
-    try:
-        report = migrate.run(con, Path(args.pipeline), settings.library_dir.parent, env,
-                             vault.Vault.from_env(settings.data_dir))  # fmt: skip
-    finally:
-        con.close()
-    if not args.dry_run and settings.daemon_dir and env.get("SLSK_USER") and env.get("SLSK_PASS"):
-        from echolot import soulseek
-
-        soulseek.write_conf(settings.daemon_dir, env["SLSK_USER"], env["SLSK_PASS"])
-        report.append("the Sockseek daemon's login file written")
-    print("\n".join(report))
-    print("(dry run: nothing stored)" if args.dry_run else "Done. The jobs are paused: `echolot jobs resume`.")
-    return 0
-
-
 def _jobs(args: argparse.Namespace, settings: Settings) -> int:
-    from echolot import db, options
+    from echolot import db
+    from echolot.settings import options
 
     con = db.connect(settings.db_path)
     try:
@@ -173,11 +147,6 @@ def main(argv: list[str] | None = None) -> int:
     d = secret_actions.add_parser("delete", help="delete a secret")
     d.add_argument("name")
 
-    mig = commands.add_parser("migrate-pipeline", help="take over the music-sync pipeline's state (once)")
-    mig.add_argument("pipeline", help="the pipeline's config directory (state/, logs/, review.yml)")
-    mig.add_argument("--env-stdin", action="store_true", help="read the pipeline's .env from stdin (secrets)")
-    mig.add_argument("--dry-run", action="store_true", help="import into a copy of the database")
-
     jobs = commands.add_parser("jobs", help="pause or resume the scheduled jobs")
     jobs.add_argument("action", choices=["pause", "resume"])
 
@@ -191,8 +160,7 @@ def main(argv: list[str] | None = None) -> int:
         from echolot import db
 
         db.init(settings.db_path)
-        handler = {"user": _user, "config": _config, "secret": _secret, "migrate-pipeline": _migrate,
-                   "jobs": _jobs}[args.command]  # fmt: skip
+        handler = {"user": _user, "config": _config, "secret": _secret, "jobs": _jobs}[args.command]
         return handler(args, settings)
 
     import logging

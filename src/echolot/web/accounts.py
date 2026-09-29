@@ -13,8 +13,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from echolot import db, options, soulseek, soundcloud, spotify
-from echolot.vault import VaultError
+from echolot import db
+from echolot.services import soulseek, soundcloud, spotify
+from echolot.settings import options
+from echolot.settings.vault import VaultError
 from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)

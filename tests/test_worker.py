@@ -6,9 +6,11 @@ from datetime import datetime
 
 import pytest
 
-from echolot import db, options, worker
+from echolot import db
 from echolot.config import Settings
-from echolot.vault import Vault
+from echolot.jobs import worker
+from echolot.settings import options
+from echolot.settings.vault import Vault
 
 
 @pytest.fixture

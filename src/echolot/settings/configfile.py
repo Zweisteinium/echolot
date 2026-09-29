@@ -1,5 +1,5 @@
 """echolot.yml: Echolot's whole configuration as one YAML file, for backups, moving to another
-install and editing in bulk. It holds the lists, the pipeline's schedule and the settings sections;
+install and editing in bulk. It holds the lists, the schedule and the settings sections;
 never secrets or users.
 
 An import is checked completely before anything changes, then applied in one transaction. Parts left
@@ -15,8 +15,9 @@ from typing import Any
 
 import yaml
 
-from echolot import options, schedule, sources
-from echolot.sources import ConfigError
+from echolot.jobs import schedule
+from echolot.settings import options, sources
+from echolot.settings.sources import ConfigError
 
 FORMAT = 1
 TOP_LEVEL = {"version", "sources", "schedule", "settings"}
@@ -119,7 +120,7 @@ def _apply(con: sqlite3.Connection, parsed: Parsed) -> None:
 
 def apply(con: sqlite3.Connection, text: str) -> None:
     """Import an echolot.yml (checked first, then all of it in one transaction)."""
-    from echolot import lists
+    from echolot.jobs import lists
 
     parsed = parse(con, text)
     with con:

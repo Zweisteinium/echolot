@@ -1,3 +1,0 @@
-# Formatting-only commits, skipped by git blame (GitHub reads this file; locally: git config blame.ignoreRevsFile .git-blame-ignore-revs)
-# ruff: 120 columns, skip-magic-trailing-comma
-c31c8a066288cec5e24ba5fa19b6b6b3955bdb44

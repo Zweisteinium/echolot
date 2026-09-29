@@ -26,11 +26,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot import audio, filing, identity, library, options, rules, soulseek, spotify, ytdlp
-from echolot.filing import Want
+from echolot.library import audio, catalog, filing, identity, rules
+from echolot.library.filing import Want
+from echolot.services import soulseek, spotify, ytdlp
+from echolot.settings import options
 
 if TYPE_CHECKING:
-    from echolot.worker import Run
+    from echolot.jobs.worker import Run
 
 log = logging.getLogger(__name__)
 
@@ -320,12 +322,12 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 def sync(run: "Run") -> str:
     """Fetch the Spotify lists, then search the missing songs whose wait is over."""
-    from echolot import lists
+    from echolot.jobs import lists
 
     parts = [lists.fetch_spotify(run)]
     con = run.connect()
     try:
-        library.refresh(con, run.paths.tracks)
+        catalog.refresh(con, run.paths.tracks)
         now = time.time()
         songs = [r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], *MISSING_RETRY, now)]
     finally:
@@ -338,7 +340,7 @@ def sweep(run: "Run") -> str:
     """Search every missing Spotify song now, whatever its wait (at the hours most users are online)."""
     con = run.connect()
     try:
-        library.refresh(con, run.paths.tracks)
+        catalog.refresh(con, run.paths.tracks)
         songs = _spotify_missing(con)
     finally:
         con.close()
@@ -351,7 +353,7 @@ def upgrade(run: "Run") -> str:
     upgrade_batch per run. SoundCloud songs are not upgraded from Soulseek."""
     con = run.connect()
     try:
-        library.refresh(con, run.paths.tracks)
+        catalog.refresh(con, run.paths.tracks)
         batch = options.get(con, options.Soulseek).upgrade_batch
         rows = con.execute(
             "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
@@ -426,7 +428,7 @@ def fallback(run: "Run") -> str:
     week = int(time.time()) - 7 * 86400
     con = run.connect()
     try:
-        library.refresh(con, run.paths.tracks)
+        catalog.refresh(con, run.paths.tracks)
         songs = con.execute(
             "SELECT s.*, coalesce(a.tries, 0) AS tries FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key "
             "WHERE s.file IS NULL AND coalesce(a.last_fallback, 0) < ? AND ((s.service = 'spotify' "

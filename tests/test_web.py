@@ -5,11 +5,13 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 
-from echolot import __version__, db, schedule, spotify
+from echolot import __version__, db
 from echolot.config import Settings
-from echolot.filing import Paths
+from echolot.jobs import schedule
+from echolot.library.filing import Paths
+from echolot.services import spotify
 from echolot.web import create_app
-from echolot.web import lists as lists_web
+from echolot.web import sources as sources_web
 
 
 @pytest.fixture
@@ -92,12 +94,12 @@ def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
             return [own, shared, shared | {"id": "X1", "name": "Hers", "collaborative": False, "readable": False}]
 
     monkeypatch.setattr(spotify, "Spotify", FakeSpotify)
-    lists_web._found.clear()
+    sources_web._found.clear()
     html = client.get("/sources/found/spotify").text
     assert 'class="seg kind-filter"' in html and "By others" in html and "Collaborative" in html
     assert html.count('data-kind="own"') == 2 and 'data-kind="other"' in html and "· collaborative" in html
     assert html.count('class="small warn-text"') == 1  # only on the one Spotify withholds
-    lists_web._found.clear()
+    sources_web._found.clear()
 
 
 def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) -> None:
@@ -145,7 +147,7 @@ def test_follow_and_stop_following(client: TestClient, settings: Settings) -> No
 
 
 def test_add_by_link(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr("echolot.web.lists._preview", lambda con, request, service, url: ("Their list", None))
+    monkeypatch.setattr("echolot.web.sources._preview", lambda con, request, service, url: ("Their list", None))
     r = client.post("/sources/add", data={"url": "https://soundcloud.com/other/sets/techno", "mode": "songs"},
                     follow_redirects=False)  # fmt: skip
     assert "Following+Their+list" in r.headers["location"]
@@ -233,7 +235,7 @@ def test_chart_geometry() -> None:
 
 
 def test_review(client: TestClient, settings: Settings) -> None:
-    from echolot import filing
+    from echolot.library import filing
 
     music = settings.library_dir.parent
     paths = Paths(music)
@@ -279,12 +281,12 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
     the library, and never touches files it did not write."""
     import threading
 
-    from echolot import worker
+    from echolot.jobs import worker
 
     playlists = settings.library_dir.parent / "playlists"
     playlists.mkdir()
     (playlists / "My own.m3u").write_text("#EXTM3U\n")
-    run = worker.Run(__import__("echolot.schedule", fromlist=["BY_NAME"]).BY_NAME["library"], settings,
+    run = worker.Run(__import__("echolot.jobs.schedule", fromlist=["BY_NAME"]).BY_NAME["library"], settings,
                      client.app.state.vault, "manual")  # fmt: skip
     run.stop = threading.Event()
     message = worker.upkeep(run)

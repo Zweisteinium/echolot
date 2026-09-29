@@ -15,8 +15,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from echolot import lists, options, soundcloud, sources, spotify, stats
-from echolot.sources import ConfigError
+from echolot.jobs import lists
+from echolot.services import soundcloud, spotify
+from echolot.settings import options, sources
+from echolot.settings.sources import ConfigError
+from echolot.web import stats
 from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)

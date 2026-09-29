@@ -1,13 +1,15 @@
-"""The takeover of the pipeline's state (migrate.py), the library scan and song matching, end to end."""
+"""The library scan, song matching and the pages' queries, on the small collection of conftest.seed."""
 
-import json
 import os
 from pathlib import Path
 
 import pytest
+from conftest import insert
 
-from echolot import db, library, pipeline, stats, vault
+from echolot import db
 from echolot.config import Settings
+from echolot.library import catalog
+from echolot.web import stats
 
 
 @pytest.fixture
@@ -43,7 +45,7 @@ def test_files_and_quality(con) -> None:
     quality = dict(con.execute("SELECT path, quality FROM files").fetchall())
     assert quality == {
         "Artist A/Artist A - First Song.mp3": "lossy-low",  # not real audio: 0 kbps
-        "Artist B/Artist B - Second Song.flac": "fake",  # in lossy-sourced.json
+        "Artist B/Artist B - Second Song.flac": "fake",  # made from a lossy file
         "Uploader/Uploader - Trance Tune.m4a": "lossy-low",
     }
 
@@ -60,24 +62,12 @@ def test_missing_and_overview(con) -> None:
     ]
 
 
-def test_events_are_imported_once(con, pipeline_dir: Path) -> None:
-    assert con.execute("SELECT count(*) FROM events").fetchone()[0] == 2
-    log = pipeline_dir / "logs" / "downloads.jsonl"
-    assert pipeline.import_events(con, log) == 0
-    with log.open("a") as f:
-        f.write(json.dumps({"ts": "2026-09-27T09:00:00", "action": "new", "path": "x"}) + "\n")
-        f.write('{"ts": "2026-09-27T09:01:00", "act')  # being written: not imported yet
-    assert pipeline.import_events(con, log) == 1
-    assert [r["action"] for r in stats.events(con, "added")] == ["new", "new"]
-    assert [r["action"] for r in stats.events(con, "rejected")] == ["wrong-song"]
-
-
 def test_scan_notices_changes(con, settings: Settings) -> None:
     (settings.library_dir / "Artist A" / "Artist A - First Song.mp3").unlink()
     new = settings.library_dir / "Artist C" / "Artist C - Gone Song.flac"
     new.parent.mkdir()
     new.write_bytes(b"x")
-    library.refresh(con, settings.library_dir)
+    catalog.refresh(con, settings.library_dir)
     songs = dict(con.execute("SELECT key, file FROM songs").fetchall())
     assert songs["spotify:s1"] is None
     assert songs["spotify:s3"] == "Artist C/Artist C - Gone Song.flac"
@@ -87,9 +77,9 @@ def test_scan_keeps_data_when_library_vanishes(con, settings: Settings, tmp_path
     empty = tmp_path / "empty"
     empty.mkdir()
     with pytest.raises(RuntimeError):
-        library.scan(con, empty)
+        catalog.scan(con, empty)
     with pytest.raises(FileNotFoundError):
-        library.scan(con, tmp_path / "nowhere")
+        catalog.scan(con, tmp_path / "nowhere")
     assert con.execute("SELECT count(*) FROM files").fetchone()[0] == 3
 
 
@@ -99,50 +89,24 @@ def test_scan_uses_known_durations(con, settings: Settings) -> None:
     known = {"Uploader/Uploader - Trance Tune.m4a": (st.st_size + 1, int(st.st_mtime), 400.0, 256)}
     path.write_bytes(path.read_bytes() + b"1")  # changed: size now matches `known`
     os.utime(path, (st.st_atime, st.st_mtime))
-    library.scan(con, settings.library_dir, known)
+    catalog.scan(con, settings.library_dir, known)
     row = con.execute("SELECT duration, kbps FROM files WHERE path LIKE 'Uploader/%'").fetchone()
     assert tuple(row) == (400.0, 256)
 
 
-def test_probes_imported_and_summarised(con, pipeline_dir: Path) -> None:
-    log = pipeline_dir / "logs" / "probe.jsonl"
-    lines = [
-        {"ts": "2026-09-27T20:05:00", "artist": "A", "title": "Rare", "kind": "rare", "users": 2,
-         "lossless_users": 1, "files": 3},
-        {"ts": "2026-09-27T20:05:00", "artist": "B", "title": "Hit", "kind": "common", "users": 200,
-         "lossless_users": 80, "files": 400},
-        {"ts": "2026-09-28T03:05:00", "artist": "A", "title": "Rare", "kind": "rare", "users": 0,
-         "lossless_users": 0, "files": 0},
-    ]  # fmt: skip
-    log.write_text("".join(json.dumps(x) + "\n" for x in lines))
-    assert pipeline.import_probes(con, log) == 3
-    assert pipeline.import_probes(con, log) == 0
+def test_probes_summarised(con) -> None:
+    rare, hit, evening, night = (
+        ("A", "Rare", "rare"),
+        ("B", "Hit", "common"),
+        "2026-09-27T20:05:00",
+        "2026-09-28T03:05:00",
+    )
+    rows = [(evening, *rare, 2, 1, 3), (evening, *hit, 200, 80, 400), (night, *rare, 0, 0, 0)]
+    with con:
+        insert(con, "probes", "ts, artist, title, kind, users, lossless_users, files", rows)
     a = stats.availability(con)
     assert a["runs"] == 2
     rare = {r["hour"]: r for r in a["hours"]["rare"]}
     assert (rare[20]["users"], rare[3]["users"], rare[12]["users"]) == (2, 0, None)
     song = {s["title"]: s for s in a["songs"]}["Rare"]
     assert (song["probes"], song["found"], song["max_users"]) == (2, 0.5, 2)
-
-
-def test_takeover_details(con, pipeline_dir: Path, settings: Settings) -> None:
-    """History, attempts, SoundCloud downloads, schedule and paused jobs come over; a second run adds
-    nothing twice."""
-    from echolot import migrate, options, schedule
-
-    history = con.execute("SELECT count(*) FROM list_history").fetchone()[0]
-    assert history == con.execute("SELECT count(*) FROM list_songs").fetchone()[0] == 8
-    assert tuple(con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:s3'").fetchone()) == (
-        3,
-        1790000000,
-    )
-    assert con.execute("SELECT archived FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0] == 1
-    assert options.get(con, options.Jobs).paused
-    assert schedule.rules(con)["sync"] == 30
-    before = con.execute("SELECT count(*) FROM songs").fetchone()[0]
-    migrate.run(con, pipeline_dir, settings.library_dir.parent, {"SC_TOKEN": "tok", "SPOTIFY_ID": "x" * 32,
-                "SLSK_USER": "me"}, vault.Vault.from_env(settings.data_dir, {}))  # fmt: skip
-    assert con.execute("SELECT count(*) FROM songs").fetchone()[0] == before
-    assert vault.Vault.from_env(settings.data_dir, {}).get(con, "soundcloud.token") == "tok"
-    assert options.get(con, options.Soulseek).user == "me"
-    assert options.get(con, options.Spotify).client_id == "x" * 32

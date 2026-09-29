@@ -7,8 +7,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from echolot import auth, configfile, options, schedule
-from echolot.sources import ConfigError
+from echolot.jobs import schedule
+from echolot.settings import auth, configfile, options
+from echolot.settings.sources import ConfigError
 from echolot.web.access import set_session_cookie
 from echolot.web.common import DB, back, page
 

@@ -7,11 +7,15 @@ from typing import ClassVar
 
 import pytest
 
-from echolot import acquire, audio, db, filing, options, soulseek, vault
+from echolot import db
 from echolot.config import Settings
-from echolot.filing import Want
-from echolot.schedule import BY_NAME
-from echolot.worker import Run
+from echolot.jobs import acquire
+from echolot.jobs.schedule import BY_NAME
+from echolot.jobs.worker import Run
+from echolot.library import audio, filing
+from echolot.library.filing import Want
+from echolot.services import soulseek
+from echolot.settings import options, vault
 
 
 def wav(path: Path, seconds: int = 200) -> None:
