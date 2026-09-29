@@ -23,7 +23,7 @@
   {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }} Connect again below. (Spotify also stops apps whose owner no longer has Premium.)</p>{% endif %}
 
   {% if s.spotify.connected and not s.spotify.error %}
-  <p class="muted">Echolot reads your liked songs and the playlists you own or collaborate on. Other people's playlists and Spotify's own mixes can't be read through its API: copy their songs into a playlist of yours.</p>
+  <p class="muted">Echolot reads your liked songs and playlists, also other people's that you saved. Spotify's own mixes and editorial playlists can't be read through its API: copy their songs into a playlist of yours. Spotify's rules let it withhold other people's playlists from private apps; the Sources page marks any it does.</p>
   <div class="row-form">
     <form method="post" action="/accounts/spotify/login">{{ csrf_input }}<button>Connect again</button></form>
     <form method="post" action="/accounts/spotify/disconnect" onsubmit="return confirm('Disconnect Spotify? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>

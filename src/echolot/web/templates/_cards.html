@@ -1,5 +1,11 @@
 {% if error %}<p class="flash error">{{ error }}</p>{% endif %}
 {% if cards %}
+{% if kinds|length > 1 %}
+<span class="seg kind-filter" role="radiogroup" aria-label="Show" data-filter="{{ service }}">
+  <label><input type="radio" name="show-{{ service }}" value="all" checked> All <span class="n">{{ cards|length }}</span></label>
+  {% for k, label, n in kinds %}<label><input type="radio" name="show-{{ service }}" value="{{ k }}"> {{ label }} <span class="n">{{ n }}</span></label>{% endfor %}
+</span>
+{% endif %}
 <div class="cards">
   {% for c in cards %}{% include "_card.html" %}{% endfor %}
 </div>

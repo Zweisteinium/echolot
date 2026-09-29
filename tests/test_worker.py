@@ -2,6 +2,7 @@
 
 import threading
 import time
+from datetime import datetime
 
 import pytest
 
@@ -74,7 +75,13 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
     wait_for(lambda: not wk.runs)
     started.clear()
     release.clear()
-    wk._start_due()  # sweep and upgrade run at fixed times; probe and fallback are next in line
+    con = db.connect(settings.db_path)
+    with con:  # sweep and upgrade run at fixed times: one may be due at this hour, so they just ran
+        now = datetime.now().isoformat(timespec="seconds")
+        con.executemany("INSERT OR REPLACE INTO jobs (name, started, finished, ok, message) VALUES (?, ?, ?, 1, '')",
+                        [(n, now, now) for n in ("sweep", "upgrade")])  # fmt: skip
+    con.close()
+    wk._start_due()  # probe and fallback are next in line
     wait_for(lambda: len(started) == 2)
     assert set(started) == {"probe", "fallback"}
     release.set()
