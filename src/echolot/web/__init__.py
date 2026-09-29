@@ -17,7 +17,7 @@ from echolot import __version__, auth, db, filing, history, options, review, sch
 from echolot.config import Settings
 from echolot.sources import ConfigError
 from echolot.web import access, accounts, admin, charts, lists
-from echolot.web.common import DB, back, page
+from echolot.web.common import DB, asset_urls, back, page
 from echolot.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -115,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(num=num, size=size, ago=ago, until=until, mmss=mmss, minutes=minutes)
     templates.env.globals.update(pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__)
+    templates.env.globals["asset"] = asset_urls(HERE / "static")
     app.state.templates = templates
     for router in (access.router, admin.router, accounts.router, lists.router):
         app.include_router(router)
