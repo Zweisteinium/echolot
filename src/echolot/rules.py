@@ -352,6 +352,7 @@ def prejudge(
     wanted: float = 0,
     strict_artist: bool = True,
     blocked: Iterable[str] = (),
+    loosened: bool = False,
 ) -> tuple[str, int, str]:
     """A search result, judged from its path and length before it is downloaded: (verdict, rank,
     reason). Only what is certain from the name rejects: the artist missing (when the search requires
@@ -359,8 +360,9 @@ def prejudge(
     marked wrong in review, or the requested title without the version it asks for ("Paradies" for
     "Paradies - Abrissgebeat Remix"). With the artist in the path, a name that shows the title is
     accepted (rank 0 exact, 1 probable) and one that says nothing about it is unknown (rank 2): its tags
-    decide after the download. Without the artist (a loosened search), only a name showing the title is
-    worth a download (unknown: the tags must name the artist)."""
+    decide after the download, if the path names the artist as a name of its own ("HK", not "HK Gruber")
+    and, in a loosened search (`loosened`), the length is known. Without the artist (a loosened search),
+    only a name showing the title is worth a download (unknown: the tags must name the artist)."""
     parts = [p for p in re.split(r"[\\/]+", path) if p]
     name = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", parts[-1]) if parts else ""
     # the artist is often a few levels up: Music\\Artist\\Singles\\Song\\01. Song.flac
@@ -397,7 +399,21 @@ def prejudge(
         return ACCEPT, 0, "exact"
     if close:
         return ACCEPT, 1, "probable"
+    if not any(named(artist, t) for t in [name, *folders]):
+        return REJECT, 9, "the artist only as part of another name"
+    if loosened and not length:  # a desperate search brings anything by the artist, of unknown length
+        return REJECT, 9, "title not in the file name, length unknown"
     return UNKNOWN, 2, "title not in the file name"
+
+
+_NAME_SEP = re.compile(r"\s+(?:-|–|—|&|x|vs\.?|feat\.?|ft\.?|featuring|with|and|und)\s+|\s*[,;/+|()\[\]{}]\s*|_", re.I)
+
+
+def named(artist: str, text: str) -> bool:
+    """The artist as a name of its own in a file or folder name ("HK - Was", "01 HK", "GRiNGO, HK"), not
+    as the start of another name ("HK Gruber")."""
+    keys = artist_keys(artist) | {artist_key(re.sub(r"\s*\([^)]*\)\s*$", "", artist))}
+    return any(artist_key(_strip_track_no(piece)) in keys for piece in _NAME_SEP.split(text) if piece)
 
 
 # ---------------------------------------------------------------- search terms

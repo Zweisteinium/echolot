@@ -262,3 +262,24 @@ def test_prejudge_needs_artist_or_title() -> None:
     maybe = "Music\\Deutschrap 2021\\07 - Was!?!?.mp3"
     assert rules.prejudge("HK", title, maybe, 180, 180, strict_artist=False)[0] == "unknown"
     assert rules.prejudge("HK", title, maybe, 180, 180)[0] == "reject"  # the artist is required
+
+
+def test_prejudge_title_unseen_needs_the_artist_as_a_name_and_a_length() -> None:
+    """HK - Was!?!?: "HK" in "HK Gruber" is not the artist; a loosened search downloads a file that does not
+    show the title only when its length is known (the length rule decides then)."""
+    title = "Was!?!? (feat. OG Boobie Black & Sami Nasser)"
+    gruber = (
+        "Klassik\\Friedrich Cerha - HK Gruber\\Eine Art Chansons\\31 Eine Art Chansons - Was können sie dir tun.flac"
+    )
+    assert rules.prejudge("HK", title, gruber, 0, 269)[2] == "the artist only as part of another name"
+    compilation = "Music\\HK - World Series USA\\34 Sample Was Borrowed.mp3"
+    assert rules.prejudge("HK", title, compilation, 0, 269)[0] == "unknown"
+    assert rules.prejudge("HK", title, compilation, 0, 269, loosened=True)[0] == "reject"
+    assert rules.prejudge("HK", title, compilation, 270, 269, loosened=True)[0] == "unknown"
+    assert rules.prejudge("HK", title, "Rap\\GRiNGO, HK\\Was!!.mp3", 0, 269, loosened=True)[0] == "accept"
+
+
+def test_named() -> None:
+    assert rules.named("HK", "07 - HK - Was") and rules.named("HK", "GRiNGO, HK") and rules.named("HK", "01 HK")
+    assert not rules.named("HK", "HK Gruber, Kurt Prihoda") and not rules.named("Scooter", "Scooter Discography")
+    assert rules.named("Vegas (Brazil)", "Vegas - Mandala") and rules.named("Above & Beyond", "Above & Beyond - Sun")

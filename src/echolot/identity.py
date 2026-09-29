@@ -1,0 +1,107 @@
+"""Is a download the recording the list asks for? Spotify gives every song's ISRC (the recording's id); Deezer
+finds the release by ISRC (97 % of the library) and offers a 30 s preview (93 %). The preview's Chromaprint
+fingerprint, slid along the download's, tells the recording from another: on 37 library songs 0.90 to 0.96 of
+the bits agreed with the song's own file, at most 0.66 (median 0.55) with other songs. Another edit of the same
+recording (a longer intro) agrees as well, so the length still decides the edit. A download tagged with the
+song's ISRC needs no fingerprint. Without an ISRC, a Deezer entry or a preview nothing is known, and the name
+rules decide alone."""
+
+import json
+import logging
+import sqlite3
+import subprocess
+import time
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from echolot import audio
+
+log = logging.getLogger(__name__)
+
+SAME, OTHER = 0.8, 0.7  # share of equal fingerprint bits: from SAME on the recording, up to OTHER another one
+RETRY = 7 * 86400  # an ISRC Deezer did not know (or had no preview for) is asked again after a week
+_BITS = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
+
+
+@dataclass(frozen=True)
+class Evidence:
+    verdict: str  # same, other, or '' (not known)
+    detail: str = ""  # for the event and the review page
+
+
+UNKNOWN = Evidence("")
+
+
+def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False) -> Evidence:
+    """What the audio of `path` says about the recording `isrc`. any_length: a DJ-mix cut, whose transitions
+    may blur the audio: only a match counts."""
+    if not isrc:
+        return UNKNOWN
+    if (tag := audio.read_isrc(path)) and tag.replace("-", "").upper() == isrc.upper():
+        return Evidence("same", "ISRC tag of the release")
+    ref = reference(con, isrc)
+    cand = fingerprint(path) if ref is not None else None
+    if ref is None or cand is None or not len(cand):
+        return UNKNOWN
+    share = similarity(ref, cand)
+    if share >= SAME:
+        return Evidence("same", f"audio of the release ({share:.2f})")
+    if share <= OTHER and not any_length:
+        return Evidence("other", f"audio differs from the release ({share:.2f})")
+    return Evidence("", f"audio unclear ({share:.2f})")
+
+
+def reference(con: sqlite3.Connection, isrc: str) -> np.ndarray | None:
+    """The fingerprint of the release's preview (cached in refs); None if Deezer has none."""
+    row = con.execute("SELECT fingerprint, checked FROM refs WHERE isrc = ?", (isrc,)).fetchone()
+    if row and (row["fingerprint"] or time.time() - row["checked"] < RETRY):
+        return np.frombuffer(row["fingerprint"], dtype="<u4") if row["fingerprint"] else None
+    try:
+        track = _get(f"https://api.deezer.com/track/isrc:{isrc}")
+        if (track.get("error") or {}).get("code", 800) != 800:  # 800: no such ISRC; others (quota): ask again
+            raise OSError(track["error"].get("message"))
+        preview = _get(track["preview"], raw=True) if track.get("preview") else b""
+    except (OSError, ValueError) as e:  # not cached: asked again next time
+        log.info("deezer %s: %s", isrc, e)
+        return None
+    fp = fingerprint(preview) if preview else None
+    with con:
+        con.execute(
+            "INSERT OR REPLACE INTO refs (isrc, deezer_id, duration, fingerprint, checked) VALUES (?, ?, ?, ?, ?)",
+            (isrc, track.get("id"), track.get("duration"), fp.tobytes() if fp is not None and len(fp) else None,
+             int(time.time())),
+        )  # fmt: skip
+    return fp if fp is not None and len(fp) else None
+
+
+def fingerprint(source: Path | bytes) -> np.ndarray | None:
+    """Chromaprint of a file or of audio bytes (ffmpeg's muxer): one 32-bit value per 0.124 s; None if the
+    audio could not be read."""
+    data = source if isinstance(source, bytes) else None
+    cmd = ["ffmpeg", "-v", "error", "-i", "pipe:0" if data else str(source), "-ac", "1",
+           "-f", "chromaprint", "-fp_format", "raw", "-"]  # fmt: skip
+    try:
+        r = subprocess.run(cmd, input=data, capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return np.frombuffer(r.stdout, dtype="<u4") if r.returncode == 0 else None
+
+
+def similarity(ref: np.ndarray, cand: np.ndarray) -> float:
+    """Share of equal bits of `ref` at its best position inside `cand` (about 0.5: unrelated audio)."""
+    n = len(ref)
+    if not n or len(cand) < n:
+        return 0.0
+    windows = np.lib.stride_tricks.sliding_window_view(cand, n)
+    diff = _BITS[np.bitwise_xor(windows, ref).view(np.uint8)].reshape(len(windows), -1).sum(axis=1)
+    return 1 - float(diff.min()) / (32 * n)
+
+
+def _get(url: str, raw: bool = False) -> Any:
+    req = urllib.request.Request(url, headers={"User-Agent": "Echolot (self-hosted music library)"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return r.read() if raw else json.load(r)

@@ -38,6 +38,7 @@
     <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
     {% for i in items.filed %}
     <tr>{{ song(i) }}{{ buttons(i, [('ok', 'Right song', ''), ('wrong', 'Wrong', 'danger')]) }}</tr>
+    {% if i.event.audio %}<tr class="sub"><td colspan="4" class="muted small">{{ i.event.audio }}</td></tr>{% endif %}
     {% else %}
     <tr><td colspan="4" class="muted">Nothing to check.</td></tr>
     {% endfor %}
@@ -53,7 +54,7 @@
     <thead><tr><th>Wanted</th><th>Downloaded</th><th>Listen</th><th></th></tr></thead>
     {% for i in items.kept %}
     <tr>{{ song(i) }}{{ buttons(i, [('accept', 'Accept', ''), ('discard', 'Discard', 'danger')]) }}</tr>
-    <tr class="sub"><td colspan="4" class="muted small">{{ i.event.action }}: {{ i.event.reason or ('length ' ~ (i.event.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss)) }}</td></tr>
+    <tr class="sub"><td colspan="4" class="muted small">{{ i.event.action }}: {{ i.event.reason or ('length ' ~ (i.event.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss)) }}{% if i.event.audio and i.event.audio not in (i.event.reason or '') %} · {{ i.event.audio }}{% endif %}</td></tr>
     {% else %}
     <tr><td colspan="4" class="muted">Nothing kept.</td></tr>
     {% endfor %}

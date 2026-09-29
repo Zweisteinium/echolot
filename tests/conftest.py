@@ -36,6 +36,16 @@ def song(sid: str, artist: str, title: str, length: int) -> dict[str, object]:
     return {"id": sid, "uri": f"spotify:track:{sid}", "artist": artist, "title": title, "album": "", "length": length}
 
 
+@pytest.fixture(autouse=True)
+def offline_audio_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The audio check (identity.py) never asks Deezer in tests."""
+
+    def offline(url: str, raw: bool = False) -> None:
+        raise OSError("offline")
+
+    monkeypatch.setattr("echolot.identity._get", offline)
+
+
 @pytest.fixture
 def pipeline_dir(tmp_path: Path) -> Path:
     """A small copy of the music-sync pipeline's config directory."""

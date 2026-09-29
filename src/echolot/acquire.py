@@ -15,6 +15,7 @@ import collections
 import datetime
 import json
 import logging
+import re
 import shutil
 import sqlite3
 import threading
@@ -25,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot import audio, filing, library, options, rules, soulseek, spotify, ytdlp
+from echolot import audio, filing, identity, library, options, rules, soulseek, spotify, ytdlp
 from echolot.filing import Want
 
 if TYPE_CHECKING:
@@ -53,7 +54,8 @@ def stage(tries: int) -> int:
 def kind(why: str) -> str:
     """A prejudge reason as a short kind, counted in the search reports."""
     for start, name in (("length", "another length"), ("artist not", "artist missing"), ("neither", "another song"),
-                        ("the file name lacks", "lacks the version"), ("marked wrong", "marked wrong")):  # fmt: skip
+                        ("the file name lacks", "lacks the version"), ("marked wrong", "marked wrong"),
+                        ("the artist only", "artist in another name"), ("title not in", "title missing, no length")):  # fmt: skip
         if why.startswith(start):
             return name
     return "another version" if why.endswith("names another version") else why
@@ -125,7 +127,7 @@ class Fetcher:
         judged, rejected = [], collections.Counter()
         for c in found:
             verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, wanted,
-                                                opts.get("strict_artist", True), blocked)  # fmt: skip
+                                                opts.get("strict_artist", True), blocked, loosen)  # fmt: skip
             if verdict != rules.REJECT:
                 judged.append((rank, c.rank, c))
             else:
@@ -159,10 +161,11 @@ class Fetcher:
                 return Outcome("bad file", str(e))
             con = self.run.connect()
             try:
+                heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
                 action, dest = filing.file_into(
                     con, self.run.paths, prepared.path, want, "soulseek", strict=True,
                     file_name=c.name, folders=c.folders, probable=self.purpose == "search",
-                    tries=tries, fake=prepared.fake,
+                    tries=tries, fake=prepared.fake, heard=heard,
                 )  # fmt: skip
                 if dest and action in ("new", "upgrade"):
                     finish(self.run, con, dest, want)
@@ -467,12 +470,15 @@ def _fallback_song(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: 
     has its own edit) is downloaded and kept for review: only a listener can tell. One at a time; one
     discarded in review is not kept again. Returns the action and what the search saw, per site."""
     cut = rules.mix_cut(want.title)
-    query = f"{want.artist} - {rules.release_title(want.title)}"
+    query = " ".join(
+        re.findall(r"[\w']+", f"{want.artist} {rules.release_title(want.title)}")
+    )  # "Was!?!?" finds nothing
+    queries = {"youtube": [f'{query} "Provided to YouTube"', query], "soundcloud": [query]}  # releases' own audio first
     wanted = 0 if cut else want.length
     report: dict = {}
     near: tuple[str, dict] | None = None
     for site in ("youtube", "soundcloud"):
-        results = ydl.search(query, site, run.stop)
+        results = list({r["url"]: r for q in queries[site] for r in ydl.search(q, site, run.stop)}.values())
         judged, rejected = [], collections.Counter()
         for i, r in enumerate(results):
             path = f"{r['uploader']}/{r['title']}"
@@ -513,9 +519,10 @@ def _fallback_fetch(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want:
     except audio.Rejected as e:
         return "bad file", str(e)
     source = "youtube" if site == "youtube" else "soundcloud-search"
+    heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
     action, dest = filing.file_into(
         con, run.paths, prepared.path, want, source, strict=True, file_name=r["title"],
-        folders=(r["uploader"],), probable=strict_probable, tries=tries, fake=prepared.fake,
+        folders=(r["uploader"],), probable=strict_probable, tries=tries, fake=prepared.fake, heard=heard,
     )  # fmt: skip
     if dest and action in ("new", "upgrade"):
         finish(run, con, dest, want)
