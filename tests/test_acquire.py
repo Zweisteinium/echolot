@@ -209,7 +209,7 @@ def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:
     message = acquire.upgrade(run)
     assert "1 upgrade" in message
     _, _, _, settings = FakeDaemon.searches[-1]
-    assert settings["search"]["necessaryCond"]["formats"] == ["flac"]
+    assert settings["search"]["necessaryCond"]["formats"] == {"replace": ["flac"]}
     con = run.connect()
     paths = sorted(r[0] for r in con.execute("SELECT path FROM files WHERE path LIKE 'Artist A/%'"))
     con.close()
