@@ -4,8 +4,9 @@ import pytest
 from conftest import PASSWORD
 from fastapi.testclient import TestClient
 
-from echolot import auth, db, options
+from echolot import db
 from echolot.config import Settings
+from echolot.settings import auth, options
 from echolot.web import create_app
 
 HTML = {"accept": "text/html"}

@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from echolot.rules import clean_name, title_key
+from echolot.library.rules import clean_name, title_key
 
 log = logging.getLogger(__name__)
 

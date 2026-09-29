@@ -11,8 +11,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from echolot import options
-from echolot.sources import ConfigError
+from echolot.settings import options
+from echolot.settings.sources import ConfigError
 
 SECTION = "schedule"  # settings section: {job: minutes | ["HH:MM", ...] | null}
 DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]

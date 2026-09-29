@@ -22,8 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def load(ref: str):
-    text = subprocess.run(["git", "-C", str(ROOT), "show", f"{ref}:src/echolot/rules.py"],
-                          check=True, capture_output=True, text=True).stdout  # fmt: skip
+    for path in ("src/echolot/library/rules.py", "src/echolot/rules.py"):  # the second before the packages
+        shown = subprocess.run(["git", "-C", str(ROOT), "show", f"{ref}:{path}"], capture_output=True, text=True)
+        if shown.returncode == 0:
+            break
+    text = shown.stdout
     path = Path(tempfile.mkdtemp()) / "rules_old.py"
     path.write_text(text)
     spec = importlib.util.spec_from_file_location("rules_old", path)
@@ -36,7 +39,7 @@ def main() -> int:
     ref = sys.argv[1] if len(sys.argv) > 1 else "origin/main"
     dbfile = sys.argv[2] if len(sys.argv) > 2 else "/opt/echolot/data/echolot.db"
     sys.path.insert(0, str(ROOT / "src"))
-    from echolot import rules as new
+    from echolot.library import rules as new
 
     old = load(ref)
     con = sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True)

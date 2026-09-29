@@ -14,12 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot import audio, filing, library, rules
-from echolot.filing import MUSIC, Want
-from echolot.sources import ConfigError
+from echolot.library import audio, catalog, filing, rules
+from echolot.library.filing import MUSIC, Want
+from echolot.settings.sources import ConfigError
 
 if TYPE_CHECKING:
-    from echolot.worker import Run
+    from echolot.jobs.worker import Run
 
 KEPT = MUSIC + "inbox/review/"
 DECISIONS = {"filed": ("ok", "wrong"), "kept": ("accept", "discard")}
@@ -180,7 +180,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     if decision == "wrong":
         _block(con, key, d)
         with filing.LOCK:
-            cat = library.Catalog.from_db(con)
+            cat = catalog.Catalog.from_db(con)
             entry = next((e for e in cat.entries if e.path == d["path"]), None)
             result = "already gone"
             if entry and (paths.tracks / entry.path).is_file():
@@ -205,7 +205,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     tag_artists, _ = audio.read_tags(p)
     own = rules.artist_words(want.artist)
     dur, _ = audio.probe(p)
-    cat = library.Catalog.from_db(con)
+    cat = catalog.Catalog.from_db(con)
     for other in tag_artists:
         if any(f" {w} " in rules.words(other) for w in own):
             continue
@@ -221,7 +221,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     action, dest = filing.file_into(con, paths, p, want, d["source"] or "", match="review", fake=bool(d["fake"]))
     if dest and action in ("new", "upgrade"):
         audio.write_tags(dest, artist=want.artist, title=want.title)  # accepted as this song
-        from echolot.acquire import finish
+        from echolot.jobs.acquire import finish
 
         finish(run, con, dest, want)
     if key and action in ("new", "upgrade", "duplicate"):

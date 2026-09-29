@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from echolot import soulseek
+from echolot.services import soulseek
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sockseek" / "v3"
 

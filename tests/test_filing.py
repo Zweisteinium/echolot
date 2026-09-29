@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from echolot import db, filing, library, review, vault
-from echolot.filing import Paths, Want
-from echolot.identity import Evidence
+from echolot import db
+from echolot.library import catalog, filing, review
+from echolot.library.filing import Paths, Want
+from echolot.library.identity import Evidence
+from echolot.settings import vault
 
 CAPO = Want("CAPO", "Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix", 200, "spotify:capo")
 CAPO_FILE = "CAPO - RUN RUN RUN feat. YUNG KAFA & KÜCÜK EFENDI (prod. von Jurijgold & Falconi) [Official Remix]"
@@ -95,7 +97,7 @@ def test_lossless_replaces_lossy_copy(env) -> None:
     mp3 = paths.tracks / "A" / "A - Song.mp3"
     mp3.parent.mkdir()
     mp3.write_bytes(b"not really audio")
-    library.scan(con, paths.tracks)
+    catalog.scan(con, paths.tracks)
     with con:
         con.execute("UPDATE files SET duration = 200 WHERE path = 'A/A - Song.mp3'")
     action, dest = filing.file_into(con, paths, download(paths, "a.wav"), Want("A", "Song", 200), "soulseek")
@@ -131,7 +133,7 @@ def test_collaboration_listed_twice_is_one_song(env) -> None:
     other = Want("Catch Vibe", "Atlantis", 349, "", ["Catch Vibe", "Mabe"])
     action, dest = filing.file_into(con, paths, download(paths, "b.wav", 350), other, "x")
     assert action == "duplicate" and dest.parent.name == "Mabe"
-    cat = library.Catalog.from_db(con)
+    cat = catalog.Catalog.from_db(con)
     assert not cat.song("Catch Vibe", "Atlantis II", 349, ["Catch Vibe", "Mabe"])
     assert not cat.song("Catch Vibe", "Atlantis", 200, ["Catch Vibe", "Mabe"])
 
@@ -148,7 +150,7 @@ def test_mix_cut_found_at_any_length(env) -> None:
     con, paths, _ = env
     title = "The Twenty Five (Official Nature One Anthem 2019)"
     filing.file_into(con, paths, download(paths, "full.wav", 295), Want("Neelix", title, 295), "x")
-    cat = library.Catalog.from_db(con)
+    cat = catalog.Catalog.from_db(con)
     assert cat.find("Neelix", title + " - Mixed", 103)
     assert not cat.find("Neelix", title, 103)  # a real 1:43 version would be another song
 
@@ -227,7 +229,7 @@ def test_accept_links_the_same_recording_under_another_artist(env, monkeypatch) 
                      "youtube", strict=True, file_name="Chilln (Official Video)", probable=False)  # fmt: skip
     e = events(con)[-1]
     assert e["action"] == "wrong-song"  # the artist is only in the tags of the real file: here nowhere
-    monkeypatch.setattr("echolot.audio.read_tags", lambda p: (["Pbb Yea"], "Chilln"))
+    monkeypatch.setattr("echolot.library.audio.read_tags", lambda p: (["Pbb Yea"], "Chilln"))
     # a rejected download of the song, kept: accepted, it turns out to be Pbb Yea's file
     kept = paths.inbox("review") / "2026-09-27" / "TheDoDo - Chilln [youtube].wav"
     kept.parent.mkdir(parents=True, exist_ok=True)
@@ -259,7 +261,7 @@ def test_accepted_other_length_counts_and_a_discarded_one_is_blocked(env) -> Non
     assert search_hit(con, paths, download(paths, "a.wav", 219), want, video) == ("mismatch", None)
     assert filing.in_review(paths, "LAWTON", "Believe In")
     assert "new LAWTON/" in decide(con, run, events(con)[-1]["id"], "accept")
-    library.match_songs(con)
+    catalog.match_songs(con)
     file = con.execute("SELECT file FROM songs WHERE key = 'spotify:a'").fetchone()[0]
     assert file == "LAWTON/LAWTON - Believe In.wav"
     other = "LAWTON - Horizon (Official Video)"

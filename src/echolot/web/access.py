@@ -20,7 +20,8 @@ from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from echolot import auth, db, options
+from echolot import db
+from echolot.settings import auth, options
 from echolot.web.common import DB, page
 
 log = logging.getLogger(__name__)

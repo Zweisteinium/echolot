@@ -2,8 +2,8 @@
 
 import pytest
 
-from echolot import rules
-from echolot.rules import artist_key, artist_keys, same_length, title_key
+from echolot.library import rules
+from echolot.library.rules import artist_key, artist_keys, same_length, title_key
 
 
 def probable(artist: str, title: str, found: str, *, file_name: str = "", dur: float = 200, length: float = 200):
@@ -242,7 +242,7 @@ def test_prejudge_loosened_and_blocked() -> None:
 
 
 def test_catalog_song_other_artists_and_link() -> None:
-    from echolot.library import Catalog, Entry
+    from echolot.library.catalog import Catalog, Entry
 
     cat = Catalog(
         [Entry("Mabe/Mabe - Atlantis.opus", 350, 160, False), Entry("Pbb Yea/Pbb Yea - Chilln.opus", 227, 160, False)]

@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 
-from echolot.library import QUALITY
+from echolot.library.catalog import QUALITY
 
 SNAPSHOT_SECONDS = 3600
 KEEP_HOURLY_DAYS = 90

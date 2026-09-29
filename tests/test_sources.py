@@ -5,8 +5,10 @@ from datetime import datetime
 import pytest
 import yaml
 
-from echolot import db, lists, schedule, sources
+from echolot import db
 from echolot.config import Settings
+from echolot.jobs import lists, schedule
+from echolot.settings import options, sources
 
 
 @pytest.fixture
@@ -85,8 +87,9 @@ def test_remove_keeps_songs_and_history(con: sqlite3.Connection) -> None:
 def test_likes(con: sqlite3.Connection) -> None:
     sources.set_likes(con, "spotify", False)
     sources.set_likes(con, "soundcloud", True, "newuser")
-    assert sources.likes_state(con) == {"spotify": False, "soundcloud": True,
-                                        "soundcloud_user": "newuser", "removed_playlists": True}  # fmt: skip
+    likes = dict(con.execute("SELECT service, enabled FROM sources WHERE likes = 1").fetchall())
+    assert likes == {"spotify": 0, "soundcloud": 1}
+    assert options.get(con, options.SourceOptions).soundcloud_user == "newuser"
     assert "soundcloud:newuser/likes" in keys(con) and "spotify:likes" not in keys(con)
     with pytest.raises(sources.ConfigError):
         sources.set_likes(con, "soundcloud", True, "")

@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from echolot import audio
+from echolot.library import audio
 
 log = logging.getLogger(__name__)
 

@@ -3,8 +3,8 @@ job API, which v3 and v4 share: search jobs, their ranked results, downloads of 
 Polling only. Unknown fields are ignored; a job that is gone (the daemon restarted) raises Lost, so the
 caller retries later without counting a try.
 
-Echolot owns the search settings (SEARCH below: Sockseek's filters and preferences, as the pipeline's
-sockseek.conf had them) and sends them with every job.
+Echolot owns the search settings (SEARCH below: Sockseek's filters and preferences) and sends them with
+every job.
 """
 
 import contextlib
@@ -21,7 +21,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Sockseek's filters (necessary) and ranking preferences, as the pipeline used them
+# Sockseek's filters (necessary) and ranking preferences
 SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [...]}
     "necessaryCond": {"strictArtist": True, "lengthTolerance": 3},
     "preferredCond": {"formats": {"replace": ["flac"]}, "minBitrate": 200, "maxBitrate": 2500,

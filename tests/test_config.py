@@ -8,8 +8,10 @@ import yaml
 from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
-from echolot import configfile, db, options, schedule, sources, vault
+from echolot import db
 from echolot.config import Settings
+from echolot.jobs import schedule
+from echolot.settings import configfile, options, sources, vault
 from echolot.web import create_app
 
 

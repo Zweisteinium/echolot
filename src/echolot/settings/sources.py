@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-from echolot import options
+from echolot.settings import options
 
 TOP_LEVEL = {"spotify", "soundcloud", "removed_playlists"}
 ENTRY_KEYS = {"url", "title", "playlist"}
@@ -27,7 +27,7 @@ def slug(name: str) -> str:
 @dataclass(frozen=True)
 class Source:
     key: str  # the list key: spotify:likes, spotify:playlist:<id>, soundcloud:<path>
-    name: str  # its playlist file is named after this (the pipeline's list name)
+    name: str  # its playlist file is named after this
     service: str
     url: str
     title: str | None  # name override
@@ -243,20 +243,8 @@ def dump(data: Any) -> str:
 
 
 def lists(con: sqlite3.Connection) -> list[Source]:
-    """The lists in order, with the keys and names the pipeline uses."""
+    """The lists in order, with their keys and names."""
     return derive(as_config(con))
-
-
-def likes_state(con: sqlite3.Connection) -> dict[str, Any]:
-    """Current likes settings for the form."""
-    opts = options.get(con, options.SourceOptions)
-    on = {r["service"]: bool(r["enabled"]) for r in con.execute("SELECT service, enabled FROM sources WHERE likes = 1")}
-    return {
-        "spotify": on.get("spotify", False),
-        "soundcloud": on.get("soundcloud", False),
-        "soundcloud_user": opts.soundcloud_user,
-        "removed_playlists": opts.removed_playlists,
-    }
 
 
 def entries(con: sqlite3.Connection) -> list[dict[str, Any]]:

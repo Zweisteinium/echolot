@@ -14,8 +14,10 @@ import sqlite3
 import urllib.request
 from pathlib import Path
 
-from echolot import db, library, options, sources
-from echolot.rules import clean_name
+from echolot import db
+from echolot.library import catalog
+from echolot.library.rules import clean_name
+from echolot.settings import options, sources
 
 log = logging.getLogger(__name__)
 OURS = re.compile(
@@ -72,7 +74,7 @@ def _cover(
 def write(con: sqlite3.Connection, folder: Path) -> str:
     """Write every playlist that changed; delete the files of lists no longer shown."""
     folder.mkdir(parents=True, exist_ok=True)
-    cat = library.Catalog.from_db(con)
+    cat = catalog.Catalog.from_db(con)
     removed_lists = options.get(con, options.SourceOptions).removed_playlists
     lists = {r["key"]: r for r in con.execute("SELECT * FROM lists")}
     keep: set[str] = set()

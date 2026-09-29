@@ -1,4 +1,5 @@
-import json
+import datetime
+import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
@@ -6,34 +7,86 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from echolot import auth, db, history, library, migrate, vault
+from echolot import db
 from echolot.config import Settings
+from echolot.library import catalog, history
+from echolot.services import spotify
+from echolot.settings import auth, options
 
 PASSWORD = "correct horse battery"
 
-SOURCES = """\
-spotify:
-  likes: true
-  playlists:
-    - https://open.spotify.com/playlist/AAA111?si=x   # comment
-    - url: https://open.spotify.com/playlist/BBB222
-      title: Renamed
-      playlist: false
-soundcloud:
-  user: someone
-  likes: true
-  playlists:
-    - https://soundcloud.com/someone/sets/trance
-"""
+# a small collection: Spotify likes and two playlists, SoundCloud likes and a set
+LISTS = [  # key, service, likes, url, title override, title, playlist
+    ("spotify:likes", "spotify", 1, "https://open.spotify.com/collection/tracks", None, "Liked Songs", 1),
+    ("spotify:playlist:AAA111", "spotify", 0, "https://open.spotify.com/playlist/AAA111", None, "Playlist A", 1),
+    ("spotify:playlist:BBB222", "spotify", 0, "https://open.spotify.com/playlist/BBB222", "Renamed", "Renamed", 0),
+    ("soundcloud:someone/likes", "soundcloud", 1, "https://soundcloud.com/someone/likes", None, "SoundCloud Likes", 1),
+    (
+        "soundcloud:someone/sets/trance",
+        "soundcloud",
+        0,
+        "https://soundcloud.com/someone/sets/trance",
+        None,
+        "Trance",
+        1,
+    ),
+]
+SONGS = [  # key, service, artist, title, length, unavailable, stem, artists, archived
+    ("spotify:s1", "spotify", "Artist A", "First Song", 200, None, None, '["Artist A"]', 0),
+    ("spotify:s2", "spotify", "Artist B", "Second Song (Original Mix)", 300, None, None, '["Artist B"]', 0),
+    ("spotify:s3", "spotify", "Artist C", "Gone Song", 180, "greyed out on Spotify", None, '["Artist C"]', 0),
+    (
+        "soundcloud:1001",
+        "soundcloud",
+        "Uploader",
+        "Trance Tune",
+        400.1,
+        None,
+        "Uploader/Uploader - Trance Tune",
+        None,
+        1,
+    ),
+    ("soundcloud:1002", "soundcloud", "Label", "Locked", 250, "not downloadable on SoundCloud (DRM)", None, None, 0),
+]
+MEMBERS = {
+    "spotify:likes": ["spotify:s1", "spotify:s2", "spotify:s3"],
+    "spotify:playlist:AAA111": ["spotify:s1"],
+    "spotify:playlist:BBB222": ["spotify:s3"],
+    "soundcloud:someone/likes": ["soundcloud:1001", "soundcloud:1002"],
+    "soundcloud:someone/sets/trance": ["soundcloud:1001"],
+}
+NO_ARTIST = "artist 'Artist C' not in []"  # a rejection the review page does not show
+EVENTS = [  # ts, action, path, ext, bytes, kbps, seconds, source, artist, title, reason
+    ("2026-09-26T10:00:00", "new", "Artist A/Artist A - First Song.mp3", "mp3", 10, 320, 201, "soulseek", *[None] * 3),
+    ("2026-09-26T11:00:00", "wrong-song", "x.flac", *[None] * 4, "soulseek", "Artist C", "Gone Song", NO_ARTIST),
+]
 
 
-def write_json(path: Path, data: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data), encoding="utf-8")
+def insert(con: sqlite3.Connection, table: str, columns: str, rows: list[tuple]) -> None:
+    con.executemany(f"INSERT INTO {table} ({columns}) VALUES ({', '.join('?' * len(rows[0]))})", rows)
 
 
-def song(sid: str, artist: str, title: str, length: int) -> dict[str, object]:
-    return {"id": sid, "uri": f"spotify:track:{sid}", "artist": artist, "title": title, "album": "", "length": length}
+def seed(con: sqlite3.Connection) -> None:
+    """The small collection: lists, songs (s3 greyed out and searched three times, 1002 locked on
+    SoundCloud), two logged downloads, a FLAC made from a lossy file; the jobs paused."""
+    today, now = datetime.date.today().isoformat(), datetime.datetime.now().isoformat(timespec="seconds")
+    sources = [(*row[:5], row[6], n, now) for n, row in enumerate(LISTS)]  # without the fetched title
+    lists = [(k, s, title, url, n, playlist) for n, (k, s, _, url, _, title, playlist) in enumerate(LISTS)]
+    members = [(key, n, song) for key, songs in MEMBERS.items() for n, song in enumerate(songs)]
+    history = [(key, song, today, today) for key, _, song in members]
+    with con:
+        insert(con, "sources", "key, service, likes, url, title, playlist, position, added", sources)
+        insert(con, "lists", "key, service, title, url, position, playlist", lists)
+        con.execute("UPDATE lists SET cover_url = ? WHERE key = 'spotify:likes'", (spotify.LIKED_SONGS_IMAGE,))
+        insert(con, "songs", "key, service, artist, title, length, unavailable, stem, artists, archived", SONGS)
+        insert(con, "list_songs", "list_key, position, song_key", members)
+        insert(con, "list_history", "list_key, song_key, first_seen, last_seen", history)
+        insert(con, "attempts", "song_key, tries, last_try, last_fallback", [("spotify:s3", 3, 1790000000, 0)])
+        insert(con, "lossy_sourced", "stem, source", [("Artist B/Artist B - Second Song", "~128 kbps")])
+        insert(con, "events", "ts, action, path, ext, bytes, kbps, seconds, source, artist, title, reason", EVENTS)
+        db.set_meta(con, "playlist_files", "[]")
+        options.update(con, options.Jobs, paused=True)
+        options.update(con, options.SourceOptions, soundcloud_user="someone", removed_playlists=True)
 
 
 @pytest.fixture(autouse=True)
@@ -43,87 +96,12 @@ def offline_audio_check(monkeypatch: pytest.MonkeyPatch) -> None:
     def offline(url: str, raw: bool = False) -> None:
         raise OSError("offline")
 
-    monkeypatch.setattr("echolot.identity._get", offline)
-
-
-@pytest.fixture
-def pipeline_dir(tmp_path: Path) -> Path:
-    """A small copy of the music-sync pipeline's config directory."""
-    root = tmp_path / "pipeline"
-    state = root / "state"
-    (root / "logs").mkdir(parents=True)
-    (root / "sources.yml").write_text(SOURCES, encoding="utf-8")
-    write_json(
-        state / "spotify-spotify-liked-songs.json",
-        [
-            song("s1", "Artist A", "First Song", 200),
-            song("s2", "Artist B", "Second Song (Original Mix)", 300),
-            song("s3", "Artist C", "Gone Song", 180),
-        ],
-    )
-    write_json(state / "spotify-spotify-aaa111.json", [song("s1", "Artist A", "First Song", 200)])
-    write_json(state / "spotify-spotify-bbb222.json", [song("s3", "Artist C", "Gone Song", 180)])
-    write_json(state / "spotify-unplayable.json", ["s3"])
-    write_json(state / "soundcloud-order-soundcloud-likes.json", ["1001", "1002", "1003"])
-    write_json(state / "soundcloud-order-soundcloud-someone-trance.json", ["1001"])
-    write_json(
-        state / "soundcloud-tracks.json",
-        {
-            "1001": {
-                "artist": "Uploader",
-                "title": "Trance Tune",
-                "duration": "400.1",
-                "stem": "Uploader/Uploader - Trance Tune",
-            },
-            "1002": {
-                "artist": "Label",
-                "title": "Locked",
-                "duration": "250",
-                "stem": None,
-                "unavailable": "no downloadable format (DRM)",
-            },
-        },
-    )
-    write_json(
-        state / "playlist-meta.json",
-        {
-            "Spotify Liked Songs": {"title": "Liked Songs"},
-            "spotify-AAA111": {"title": "Playlist A"},
-            "SoundCloud Likes": {"title": "SoundCloud Likes"},
-            "soundcloud-someone-trance": {"title": "Trance"},
-        },
-    )
-    write_json(state / "attempts.json", {"spotify:s3": {"n": 3, "last": 1790000000, "fb": 0}})
-    write_json(state / "lossy-sourced.json", {"Artist B/Artist B - Second Song": {"source": "~128 kbps"}})
-    write_json(state / "library-cache.json", {"/music/tracks/Artist A/Artist A - First Song.mp3": [10, 0, 201.0, 320]})
-    events = [
-        {
-            "ts": "2026-09-26T10:00:00",
-            "action": "new",
-            "path": "Artist A/Artist A - First Song.mp3",
-            "ext": "mp3",
-            "bytes": 10,
-            "kbps": 320,
-            "seconds": 201,
-            "source": "soulseek",
-        },
-        {
-            "ts": "2026-09-26T11:00:00",
-            "action": "wrong-song",
-            "path": "x.flac",
-            "source": "soulseek",
-            "artist": "Artist C",
-            "title": "Gone Song",
-            "reason": "artist 'Artist C' not in []",
-        },
-    ]
-    (root / "logs" / "downloads.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
-    return root
+    monkeypatch.setattr("echolot.library.identity._get", offline)
 
 
 @pytest.fixture
 def library_dir(tmp_path: Path) -> Path:
-    """Library files (not real audio: durations come from the pipeline cache or are unknown)."""
+    """Library files (not real audio: their durations are unknown)."""
     root = tmp_path / "tracks"
     for rel in [
         "Artist A/Artist A - First Song.mp3",
@@ -147,14 +125,12 @@ def bare_settings(tmp_path: Path, library_dir: Path) -> Settings:
 
 
 @pytest.fixture
-def settings(bare_settings: Settings, pipeline_dir: Path) -> Settings:
-    """As after the takeover: the test pipeline's lists, songs and state in the database, the library
-    scanned and matched, the first snapshot stored."""
+def settings(bare_settings: Settings) -> Settings:
+    """The small collection in the database, the library scanned and matched, the first snapshot stored."""
     con = db.connect(bare_settings.db_path)
     try:
-        migrate.run(con, pipeline_dir, bare_settings.library_dir.parent, {},
-                    vault.Vault.from_env(bare_settings.data_dir, {}))  # fmt: skip
-        library.refresh(con, bare_settings.library_dir)
+        seed(con)
+        catalog.refresh(con, bare_settings.library_dir)
         history.snapshot(con)
     finally:
         con.close()

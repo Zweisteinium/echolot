@@ -3,8 +3,9 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from echolot import db, history
+from echolot import db
 from echolot.config import Settings
+from echolot.library import history
 from echolot.web import create_app
 
 
