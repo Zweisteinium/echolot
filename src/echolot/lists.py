@@ -57,12 +57,7 @@ def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover
            snapshot: str | None = None) -> None:  # fmt: skip
     """A list's current songs (keys in order; songs not yet known are left out) and its history."""
     today = datetime.date.today().isoformat()
-    known = {
-        r[0]
-        for r in con.execute(
-            f"SELECT key FROM songs WHERE key IN ({', '.join('?' * len(ids))})", ids
-        )
-    }
+    known = {r[0] for r in con.execute(f"SELECT key FROM songs WHERE key IN ({', '.join('?' * len(ids))})", ids)}
     with con:
         con.execute("DELETE FROM list_songs WHERE list_key = ?", (s.key,))
         con.executemany("INSERT INTO list_songs (list_key, position, song_key) VALUES (?, ?, ?)",
@@ -75,13 +70,7 @@ def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover
         con.execute(
             "UPDATE lists SET title = ?, cover_url = coalesce(?, cover_url), snapshot = coalesce(?, snapshot), "
             "fetched = 1, fetched_at = ? WHERE key = ?",
-            (
-                s.title or title,
-                cover,
-                snapshot,
-                datetime.datetime.now().isoformat(timespec="seconds"),
-                s.key,
-            ),
+            (s.title or title, cover, snapshot, datetime.datetime.now().isoformat(timespec="seconds"), s.key),
         )
 
 
@@ -146,10 +135,7 @@ def _fetch_spotify_list(con: sqlite3.Connection, sp: spotify.Spotify, s: Source)
                             (datetime.datetime.now().isoformat(timespec="seconds"), s.title or title, s.key))  # fmt: skip
             return
     items = sp.items(pid)
-    if (
-        not items
-        and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone()
-    ):
+    if not items and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone():
         raise spotify.SpotifyError("no songs listed although the list had some (Spotify hands apps only the "
                                    "songs of own and collaborative playlists)")  # fmt: skip
     with con:
@@ -215,13 +201,8 @@ def soundcloud(run: "Run") -> str:
             added += _file_sc(run, d, urls[d["id"]], work)
         con = run.connect()
         try:
-            for (
-                tid,
-                url,
-            ) in new:  # not downloaded: SoundCloud's protected releases, or a hiccup (next run)
-                if con.execute(
-                    "SELECT 1 FROM songs WHERE key = ? AND archived = 1", (f"soundcloud:{tid}",)
-                ).fetchone():
+            for tid, url in new:  # not downloaded: SoundCloud's protected releases, or a hiccup (next run)
+                if con.execute("SELECT 1 FROM songs WHERE key = ? AND archived = 1", (f"soundcloud:{tid}",)).fetchone():
                     continue
                 meta = ydl.meta(url, run.stop)
                 if meta and not meta.get("formats"):
@@ -239,9 +220,7 @@ def soundcloud(run: "Run") -> str:
         for s in srcs:
             if s.key in listed:
                 row = con.execute("SELECT title FROM lists WHERE key = ?", (s.key,)).fetchone()
-                _store(
-                    con, s, [f"soundcloud:{tid}" for tid, _ in listed[s.key]], row["title"], None
-                )
+                _store(con, s, [f"soundcloud:{tid}" for tid, _ in listed[s.key]], row["title"], None)
     finally:
         con.close()
     shutil.rmtree(work, ignore_errors=True)
@@ -264,17 +243,12 @@ def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
     try:
         with con:
             _song(con, key, "soundcloud", artist=artist, title=title, length=length, url=url)
-        action, dest = filing.file_into(
-            con, run.paths, prepared.path, want, "soundcloud", fake=prepared.fake
-        )
+        action, dest = filing.file_into(con, run.paths, prepared.path, want, "soundcloud", fake=prepared.fake)
         if dest is None:
             return 0
         stem = dest.relative_to(run.paths.tracks).with_suffix("").as_posix()
         with con:
-            con.execute(
-                "UPDATE songs SET stem = ?, archived = 1, unavailable = NULL WHERE key = ?",
-                (stem, key),
-            )
+            con.execute("UPDATE songs SET stem = ?, archived = 1, unavailable = NULL WHERE key = ?", (stem, key))
         if action == "duplicate":
             return 0
         audio.write_tags(dest, artist=artist, title=title, albumartist=artist)
@@ -291,9 +265,7 @@ def _sc_meta(s: Source, info: dict[str, Any]) -> tuple[str, str | None]:
         user = s.url.rstrip("/").rsplit("/", 2)[-2]
         title = "SoundCloud Likes" if s.name == "SoundCloud Likes" else f"{user} – SoundCloud Likes"
         try:
-            req = urllib.request.Request(
-                s.url.rsplit("/likes", 1)[0], headers={"User-Agent": "Mozilla/5.0"}
-            )
+            req = urllib.request.Request(s.url.rsplit("/likes", 1)[0], headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=30) as r:
                 page = r.read().decode("utf-8", "replace")
             m = re.search(r"https://i1\.sndcdn\.com/avatars-[^\"'\s]+?-t500x500\.(?:jpg|png)", page)

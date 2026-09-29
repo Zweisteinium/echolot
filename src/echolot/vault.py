@@ -30,9 +30,7 @@ class Vault:
         try:
             self._fernet = Fernet(key)
         except ValueError as err:
-            raise VaultError(
-                f"The secret key from {source} is not a Fernet key (32 bytes, URL-safe base64)."
-            ) from err
+            raise VaultError(f"The secret key from {source} is not a Fernet key (32 bytes, URL-safe base64).") from err
         self.source = source  # where the key came from, for the settings page
 
     @classmethod
@@ -54,11 +52,7 @@ class Vault:
         con.execute(
             "INSERT INTO secrets (name, value, updated) VALUES (?, ?, ?) ON CONFLICT (name) "
             "DO UPDATE SET value = excluded.value, updated = excluded.updated",
-            (
-                name,
-                self._fernet.encrypt(value.encode()),
-                datetime.now().isoformat(timespec="seconds"),
-            ),
+            (name, self._fernet.encrypt(value.encode()), datetime.now().isoformat(timespec="seconds")),
         )
 
     def get(self, con: sqlite3.Connection, name: str) -> str | None:

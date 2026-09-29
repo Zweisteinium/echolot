@@ -36,10 +36,7 @@ class FakeDaemon:
     ready = True
 
     def status(self) -> dict:
-        return {
-            "ready": FakeDaemon.ready,
-            "state": "Connected, LoggedIn" if FakeDaemon.ready else "Disconnected",
-        }
+        return {"ready": FakeDaemon.ready, "state": "Connected, LoggedIn" if FakeDaemon.ready else "Disconnected"}
 
     def search(self, artist: str, title: str, length: int, settings: dict) -> str:
         FakeDaemon.searches.append((artist, title, length, settings))
@@ -55,13 +52,9 @@ class FakeDaemon:
         return [soulseek.Candidate(u, p, 1, 320, 44100, s, p.rsplit(".", 1)[-1], True, 100, n)
                 for n, (u, p, s, _) in enumerate(found)]  # fmt: skip
 
-    def download(
-        self, search_job: str, c: soulseek.Candidate, parent_dir: str, settings: dict
-    ) -> str:
+    def download(self, search_job: str, c: soulseek.Candidate, parent_dir: str, settings: dict) -> str:
         FakeDaemon.downloads.append(c.path)
-        behaviour = next(
-            b for u, p, s, b in FakeDaemon.files[search_job.removeprefix("search:")] if p == c.path
-        )
+        behaviour = next(b for u, p, s, b in FakeDaemon.files[search_job.removeprefix("search:")] if p == c.path)
         self.jobs[c.path] = (behaviour, f"{parent_dir}/{c.parts[-1]}", c.length)
         return c.path
 
@@ -71,9 +64,7 @@ class FakeDaemon:
             return soulseek.Transfer("running", None, 0, 1000, "")
         if behaviour == "fail":
             return soulseek.Transfer("failed", None, 0, 1000, "AllDownloadsFailed")
-        wav(
-            Path(path), 300 if behaviour == "long" else seconds
-        )  # long: the peer's length was wrong
+        wav(Path(path), 300 if behaviour == "long" else seconds)  # long: the peer's length was wrong
         return soulseek.Transfer("done", path, 1000, 1000, "")
 
     def cancel(self, job: str) -> None:
@@ -85,15 +76,11 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     FakeDaemon.files, FakeDaemon.searches, FakeDaemon.downloads, FakeDaemon.lost = {}, [], [], False
     FakeDaemon.ready = True
     monkeypatch.setattr(soulseek, "Daemon", FakeDaemon)
-    monkeypatch.setattr(
-        audio, "prepare", lambda p: audio.Prepared(p, False, None)
-    )  # no ffmpeg here
+    monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))  # no ffmpeg here
     monkeypatch.setattr(acquire, "finish", lambda *a, **k: None)  # no Spotify pictures
     con = db.connect(settings.db_path)
     with con:
-        options.update(
-            con, options.Soulseek, daemon_music=str(settings.library_dir.parent), stall_minutes=2
-        )
+        options.update(con, options.Soulseek, daemon_music=str(settings.library_dir.parent), stall_minutes=2)
     con.close()
     r = Run(BY_NAME["sync"], settings, vault.Vault.from_env(settings.data_dir, {}), "manual")
     r.stop = threading.Event()
@@ -108,9 +95,7 @@ def missing(run: Run) -> list:
         con.close()
 
 
-def test_found_after_skipping_wrong_and_stuck_results(
-    run: Run, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_found_after_skipping_wrong_and_stuck_results(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """Gone Song (s3, 180 s, searched 3 times: loosened). A remix is never downloaded, a transfer queued
     at the peer is given up, a file whose real length is another version's is rejected, the next one is
     filed."""
@@ -125,9 +110,7 @@ def test_found_after_skipping_wrong_and_stuck_results(
     rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
     message = acquire._search(run, rows, "search")
     assert message == "1 of 1 songs: 1 new", message
-    assert "Club Remix" not in " ".join(
-        FakeDaemon.downloads
-    )  # judged by its name, never downloaded
+    assert "Club Remix" not in " ".join(FakeDaemon.downloads)  # judged by its name, never downloaded
     assert FakeDaemon.downloads == [
         "Music\\Artist C\\Artist C - Gone Song.flac",
         "Music\\Artist C\\Artist C - Gone Song.mp3",
@@ -135,18 +118,13 @@ def test_found_after_skipping_wrong_and_stuck_results(
     ]
     con = run.connect()
     files = [r[0] for r in con.execute("SELECT path FROM files WHERE path LIKE 'Artist C/%'")]
-    rejected = con.execute(
-        "SELECT action, wanted_seconds FROM events WHERE action = 'mismatch'"
-    ).fetchone()
+    rejected = con.execute("SELECT action, wanted_seconds FROM events WHERE action = 'mismatch'").fetchone()
     con.close()
     assert files == ["Artist C/Artist C - Gone Song.m4a"]
     assert tuple(rejected) == ("mismatch", 180)
     artist, title, length, settings = FakeDaemon.searches[-1]
     assert (artist, title, length) == ("Artist C", "Gone Song", 180)
-    assert (
-        settings["search"]["desperateSearch"]
-        and settings["search"]["necessaryCond"]["strictArtist"]
-    )
+    assert settings["search"]["desperateSearch"] and settings["search"]["necessaryCond"]["strictArtist"]
 
 
 def test_filed_and_attempts_cleared(run: Run) -> None:
@@ -159,9 +137,10 @@ def test_filed_and_attempts_cleared(run: Run) -> None:
         "Artist C/Artist C - Gone Song.flac"
     ]
     assert not con.execute("SELECT 1 FROM attempts WHERE song_key = 'spotify:s3'").fetchone()
-    assert con.execute("SELECT source, song FROM events ORDER BY id DESC LIMIT 1").fetchone()[
-        :
-    ] == ("soulseek", "spotify:s3")
+    assert con.execute("SELECT source, song FROM events ORDER BY id DESC LIMIT 1").fetchone()[:] == (
+        "soulseek",
+        "spotify:s3",
+    )
     con.close()
     assert not any((run.paths.inbox("soulseek")).iterdir())  # nothing left in the inbox
 
@@ -174,13 +153,9 @@ def test_nothing_found_counts_a_try_and_loosens(run: Run) -> None:
     rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
     assert "1 not found" in acquire._search(run, rows, "search")
     _, _, _, settings = FakeDaemon.searches[-1]
-    assert not settings["search"]["necessaryCond"][
-        "strictArtist"
-    ]  # 4+ tries: the artist may be missing
+    assert not settings["search"]["necessaryCond"]["strictArtist"]  # 4+ tries: the artist may be missing
     con = run.connect()
-    assert (
-        con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 5
-    )
+    assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 5
     con.close()
 
 
@@ -189,22 +164,16 @@ def test_daemon_restart_counts_no_try(run: Run) -> None:
     rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
     assert "1 interrupted" in acquire._search(run, rows, "search")
     con = run.connect()
-    assert (
-        con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
-    )
+    assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
     con.close()
 
 
 def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:
     """First Song is in the library as MP3: a FLAC search finds a genuine one, which takes over."""
-    FakeDaemon.files["First Song"] = [
-        ("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")
-    ]
+    FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
     con = run.connect()
     with con:
-        con.execute(
-            "UPDATE files SET duration = 201 WHERE path = 'Artist A/Artist A - First Song.mp3'"
-        )
+        con.execute("UPDATE files SET duration = 201 WHERE path = 'Artist A/Artist A - First Song.mp3'")
     con.close()
     message = acquire.upgrade(run)
     assert "1 upgrade" in message
@@ -233,8 +202,6 @@ def test_login_failure_counts_no_try(run: Run) -> None:
     rows = missing(run)
     assert "interrupted" in acquire._search(run, rows, "search")
     con = run.connect()
-    assert (
-        con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
-    )
+    assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
     con.close()
     assert run.stop.is_set()

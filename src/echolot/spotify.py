@@ -50,8 +50,7 @@ class Credentials:
 
     @classmethod
     def load(cls, con: sqlite3.Connection, vault: Vault) -> "Credentials":
-        return cls(options.get(con, options.Spotify).client_id, vault.get(con, SECRET),
-                   vault.get(con, REFRESH))  # fmt: skip
+        return cls(options.get(con, options.Spotify).client_id, vault.get(con, SECRET), vault.get(con, REFRESH))
 
     @property
     def app(self) -> bool:
@@ -67,10 +66,7 @@ def _post_token(creds: Credentials, form: dict[str, str]) -> dict[str, Any]:
     req = urllib.request.Request(
         f"{ACCOUNTS}/api/token",
         data=urllib.parse.urlencode(form).encode(),
-        headers={
-            "Authorization": f"Basic {auth}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
+        headers={"Authorization": f"Basic {auth}", "Content-Type": "application/x-www-form-urlencoded"},
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -93,9 +89,7 @@ def authorize_url(client_id: str, redirect_uri: str, state: str) -> str:
 def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str) -> None:
     """The code from the login redirect -> a refresh token, stored in the vault."""
     creds = Credentials.load(con, vault)
-    d = _post_token(
-        creds, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri}
-    )
+    d = _post_token(creds, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri})
     if not d.get("refresh_token"):
         raise SpotifyError("Spotify answered without a refresh token.")
     with con:
@@ -117,13 +111,8 @@ class Spotify:
             cached = _tokens.get(key)
             if cached and cached[1] > time.time() + 60:
                 return cached[0]
-        d = _post_token(
-            self.creds,
-            {"grant_type": "refresh_token", "refresh_token": self.creds.refresh_token or ""},
-        )
-        if (
-            new := d.get("refresh_token")
-        ) and new != self.creds.refresh_token:  # Spotify may rotate it
+        d = _post_token(self.creds, {"grant_type": "refresh_token", "refresh_token": self.creds.refresh_token or ""})
+        if (new := d.get("refresh_token")) and new != self.creds.refresh_token:  # Spotify may rotate it
             with self.con:
                 self.vault.set(self.con, REFRESH, new)
             self.creds.refresh_token = new
@@ -202,12 +191,7 @@ class Spotify:
         out = []
         for it in self.pages(url):
             t = it.get("item") or it.get("track")
-            if (
-                not t
-                or t.get("type") not in (None, "track")
-                or t.get("is_local")
-                or not t.get("id")
-            ):
+            if not t or t.get("type") not in (None, "track") or t.get("is_local") or not t.get("id"):
                 continue
             artists = [a.get("name", "") for a in t.get("artists") or []]
             out.append({
@@ -233,9 +217,7 @@ class Spotify:
 
     def find_track(self, artist: str, title: str) -> dict[str, Any] | None:
         q = urllib.parse.quote(f"track:{title} artist:{artist}")
-        items = (self.get(f"/search?q={q}&type=track&limit=1").get("tracks") or {}).get(
-            "items"
-        ) or []
+        items = (self.get(f"/search?q={q}&type=track&limit=1").get("tracks") or {}).get("items") or []
         return items[0] if items else None
 
     def artist_image(self, artist_id: str) -> str | None:

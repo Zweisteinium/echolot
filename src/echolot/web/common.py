@@ -30,9 +30,7 @@ def page(request: Request, template: str, status_code: int = 200, **context: Any
     csrf = getattr(request.state, "csrf", "")
     context.setdefault("user", getattr(request.state, "user", None))
     context["csrf_token"] = csrf
-    context["csrf_input"] = Markup(
-        f'<input type="hidden" name="csrf_token" value="{escape(csrf)}">'
-    )
+    context["csrf_input"] = Markup(f'<input type="hidden" name="csrf_token" value="{escape(csrf)}">')
     templates = request.app.state.templates
     return templates.TemplateResponse(request, template, context, status_code=status_code)
 

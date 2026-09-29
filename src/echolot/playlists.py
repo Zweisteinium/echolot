@@ -111,18 +111,12 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
             if files or (folder / f"{removed}.m3u").exists():
                 keep.add(f"{removed}.m3u")
                 written += _m3u(folder, removed, f"{row['title']} – removed", files)
-    if (
-        not keep
-    ):  # no list to show: nothing is deleted (a missing configuration must not empty the folder)
+    if not keep:  # no list to show: nothing is deleted (a missing configuration must not empty the folder)
         return f"{written} playlists written"
     ours = set(json.loads(db.get_meta(con, "playlist_files", "[]")))
-    stale = [
-        p for p in folder.iterdir() if p.name in ours and p.name not in keep and OURS.match(p.name)
-    ]
+    stale = [p for p in folder.iterdir() if p.name in ours and p.name not in keep and OURS.match(p.name)]
     for p in stale:
         p.unlink()
     with con:
-        db.set_meta(
-            con, "playlist_files", json.dumps(sorted(n for n in keep if (folder / n).exists()))
-        )
+        db.set_meta(con, "playlist_files", json.dumps(sorted(n for n in keep if (folder / n).exists())))
     return f"{written} playlists written" + (f", {len(stale)} old files removed" if stale else "")

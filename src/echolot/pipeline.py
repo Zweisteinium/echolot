@@ -43,11 +43,7 @@ def import_state(con: sqlite3.Connection, root: Path, lists_: list[Source]) -> s
 
     def link(key: str) -> str | None:
         v = links.get(key)
-        return (
-            json.dumps([v["artist"], v["title"]])
-            if isinstance(v, dict) and v.get("artist")
-            else None
-        )
+        return json.dumps([v["artist"], v["title"]]) if isinstance(v, dict) and v.get("artist") else None
 
     lists, songs, list_songs = [], {}, []
     for src in lists_:
@@ -104,19 +100,16 @@ def import_state(con: sqlite3.Connection, root: Path, lists_: list[Source]) -> s
         list_songs += [(src.key, n, key) for n, key in enumerate(keys)]
 
     attempts = [
-        (key, a.get("n", 0), a.get("last"), a.get("fb"))
-        for key, a in _read_json(state / "attempts.json", {}).items()
+        (key, a.get("n", 0), a.get("last"), a.get("fb")) for key, a in _read_json(state / "attempts.json", {}).items()
     ]
     lossy = [
-        (stem, v.get("source"), v.get("detected"))
-        for stem, v in _read_json(state / "lossy-sourced.json", {}).items()
+        (stem, v.get("source"), v.get("detected")) for stem, v in _read_json(state / "lossy-sourced.json", {}).items()
     ]
     with con:
         con.execute("DELETE FROM list_songs")
         con.execute("DELETE FROM lists")
         con.executemany(
-            "INSERT INTO lists (key, service, title, url, position, playlist, fetched) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO lists (key, service, title, url, position, playlist, fetched) VALUES (?, ?, ?, ?, ?, ?, ?)",
             lists,
         )
         con.executemany(
@@ -131,10 +124,7 @@ def import_state(con: sqlite3.Connection, root: Path, lists_: list[Source]) -> s
         con.executemany("DELETE FROM songs WHERE key = ?", [(k,) for k in old - songs.keys()])
         con.executemany("INSERT INTO list_songs VALUES (?, ?, ?)", list_songs)
         con.execute("DELETE FROM attempts")
-        con.executemany(
-            "INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES (?, ?, ?, ?)",
-            attempts,
-        )
+        con.executemany("INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES (?, ?, ?, ?)", attempts)
         con.execute("DELETE FROM lossy_sourced")
         con.executemany("INSERT INTO lossy_sourced VALUES (?, ?, ?)", lossy)
     events = import_events(con, root / "logs" / "downloads.jsonl")
@@ -196,10 +186,7 @@ def _import_jsonl(
             e = prepare(e)
             rows.append([e.get(k) for k in fields])
     with con:
-        con.executemany(
-            f"INSERT INTO {table} ({', '.join(fields)}) VALUES ({', '.join('?' * len(fields))})",
-            rows,
-        )
+        con.executemany(f"INSERT INTO {table} ({', '.join(fields)}) VALUES ({', '.join('?' * len(fields))})", rows)
         db.set_meta(con, meta_key, str(offset + len(data)))
     return len(rows)
 

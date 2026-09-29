@@ -50,20 +50,12 @@ def main() -> int:
         folder, name = r["path"].split("/", 1)
         stem = name.rsplit(".", 1)[0]
         for label, m in (("old", old), ("new", new)):
-            v = m.identify(
-                r["artist"], r["title"], [], "", stem, [folder], r["duration"], r["length"], 3
-            )[0]
-            p = m.prejudge(
-                r["artist"], r["title"], f"Music\\{folder}\\{name}", r["duration"], r["length"]
-            )[0]
+            v = m.identify(r["artist"], r["title"], [], "", stem, [folder], r["duration"], r["length"], 3)[0]
+            p = m.prejudge(r["artist"], r["title"], f"Music\\{folder}\\{name}", r["duration"], r["length"])[0]
             counts[(label, "identify", v)] += 1
             counts[(label, "prejudge", p)] += 1
-        a = old.identify(
-            r["artist"], r["title"], [], "", stem, [folder], r["duration"], r["length"], 3
-        )[0]
-        b = new.identify(
-            r["artist"], r["title"], [], "", stem, [folder], r["duration"], r["length"], 3
-        )[0]
+        a = old.identify(r["artist"], r["title"], [], "", stem, [folder], r["duration"], r["length"], 3)[0]
+        b = new.identify(r["artist"], r["title"], [], "", stem, [folder], r["duration"], r["length"], 3)[0]
         if a != b:
             diffs.append(f"A {r['artist']} - {r['title']} <- {r['path']}: {a} -> {b}")
     print(f"A  {len(own)} own files:", dict(sorted(counts.items(), key=str)))
@@ -79,9 +71,7 @@ def main() -> int:
             pairs += 1
             stem = b["path"].split("/", 1)[1].rsplit(".", 1)[0]
             if (
-                new.identify(
-                    a["artist"], a["title"], [], "", stem, [folder], b["duration"], a["length"], 3
-                )[0]
+                new.identify(a["artist"], a["title"], [], "", stem, [folder], b["duration"], a["length"], 3)[0]
                 == "exact"
             ):
                 wrong += 1

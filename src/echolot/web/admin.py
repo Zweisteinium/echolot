@@ -15,8 +15,7 @@ from echolot.web.common import DB, back, page
 router = APIRouter()
 
 
-def _settings_page(request: Request, con: sqlite3.Connection, status_code: int = 200,
-                   **extra: Any) -> HTMLResponse:  # fmt: skip
+def _settings_page(request: Request, con: sqlite3.Connection, status_code: int = 200, **extra: Any) -> HTMLResponse:
     rules = schedule.rules(con)
     return page(
         request,
@@ -43,11 +42,7 @@ def settings_page(request: Request, con: DB) -> HTMLResponse:
 async def settings_save(request: Request, con: DB) -> RedirectResponse:
     form = await request.form()  # one field per job
     try:
-        values = {
-            j.name: schedule.parse_when(str(form[j.name]), j)
-            for j in schedule.JOBS
-            if j.name in form
-        }
+        values = {j.name: schedule.parse_when(str(form[j.name]), j) for j in schedule.JOBS if j.name in form}
         soulseek = options.validate(options.Soulseek, {
             **options.get(con, options.Soulseek).model_dump(),
             **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},
@@ -62,9 +57,7 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
 
 @router.post("/settings/access", include_in_schema=False)
 def settings_access(
-    con: DB,
-    session_days: Annotated[int, Form()],
-    metrics_public: Annotated[bool, Form()] = False,
+    con: DB, session_days: Annotated[int, Form()], metrics_public: Annotated[bool, Form()] = False
 ) -> RedirectResponse:
     try:
         with con:
@@ -72,9 +65,7 @@ def settings_access(
             options.update(con, options.Metrics, public=metrics_public)
     except options.OptionsError:
         return back("/settings", error="A login lasts 1 to 365 days.")
-    return back(
-        "/settings", ok="Access settings saved (the login length counts from the next login)."
-    )
+    return back("/settings", ok="Access settings saved (the login length counts from the next login).")
 
 
 @router.post("/settings/password", include_in_schema=False)
@@ -135,10 +126,7 @@ def config_export(con: DB) -> PlainTextResponse:
 
 @router.post("/settings/config/import", response_class=HTMLResponse, include_in_schema=False)
 async def config_import_preview(
-    request: Request,
-    con: DB,
-    file: Annotated[UploadFile | None, File()] = None,
-    text: Annotated[str, Form()] = "",
+    request: Request, con: DB, file: Annotated[UploadFile | None, File()] = None, text: Annotated[str, Form()] = ""
 ) -> Response:
     if file is not None and file.filename:
         raw = await file.read()
@@ -158,9 +146,7 @@ async def config_import_preview(
 
 
 @router.post("/settings/config/import/apply", include_in_schema=False)
-def config_import_apply(
-    request: Request, con: DB, text: Annotated[str, Form()]
-) -> RedirectResponse:
+def config_import_apply(request: Request, con: DB, text: Annotated[str, Form()]) -> RedirectResponse:
     try:
         configfile.apply(con, text.replace("\r\n", "\n"))
     except ConfigError as err:
@@ -176,10 +162,7 @@ def api_config(con: DB) -> dict[str, Any]:
 
 @router.put("/api/config", tags=["config"])
 def api_config_put(
-    request: Request,
-    con: DB,
-    data: Annotated[dict[str, Any], Body()],
-    dry_run: bool = False,
+    request: Request, con: DB, data: Annotated[dict[str, Any], Body()], dry_run: bool = False
 ) -> dict[str, Any]:
     """Import a configuration (the structure of GET /api/config; parts left out stay as they are).
     Answers what changes as a unified diff; with dry_run nothing is stored."""

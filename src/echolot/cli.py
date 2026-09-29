@@ -25,9 +25,7 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.action == "list":
             for u in auth.users(con):
-                print(
-                    f"{u['name']}\tcreated {u['created']}\tlast login {u['last_login'] or 'never'}"
-                )
+                print(f"{u['name']}\tcreated {u['created']}\tlast login {u['last_login'] or 'never'}")
             return 0
         if args.action == "add":
             auth.add_user(con, args.name, _password(args))
@@ -80,18 +78,12 @@ def _secret(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.action == "list":
             for s in vault.listing(con):
-                print(
-                    f"{s['name']}\t{'set ' + s['updated'] if s['updated'] else 'not set'}\t{s['help']}"
-                )
+                print(f"{s['name']}\t{'set ' + s['updated'] if s['updated'] else 'not set'}\t{s['help']}")
             return 0
         v = vault.Vault.from_env(settings.data_dir)
         with con:
             if args.action == "set":
-                value = (
-                    sys.stdin.readline().rstrip("\n")
-                    if args.stdin
-                    else getpass.getpass(f"{args.name}: ")
-                )
+                value = sys.stdin.readline().rstrip("\n") if args.stdin else getpass.getpass(f"{args.name}: ")
                 if not value:
                     raise SystemExit("Empty value, nothing stored.")
                 v.set(con, args.name, value)
@@ -131,11 +123,7 @@ def _migrate(args: argparse.Namespace, settings: Settings) -> int:
         soulseek.write_conf(settings.daemon_dir, env["SLSK_USER"], env["SLSK_PASS"])
         report.append("the Sockseek daemon's login file written")
     print("\n".join(report))
-    print(
-        "(dry run: nothing stored)"
-        if args.dry_run
-        else "Done. The jobs are paused: `echolot jobs resume`."
-    )
+    print("(dry run: nothing stored)" if args.dry_run else "Done. The jobs are paused: `echolot jobs resume`.")
     return 0
 
 
@@ -185,13 +173,9 @@ def main(argv: list[str] | None = None) -> int:
     d = secret_actions.add_parser("delete", help="delete a secret")
     d.add_argument("name")
 
-    mig = commands.add_parser(
-        "migrate-pipeline", help="take over the music-sync pipeline's state (once)"
-    )
+    mig = commands.add_parser("migrate-pipeline", help="take over the music-sync pipeline's state (once)")
     mig.add_argument("pipeline", help="the pipeline's config directory (state/, logs/, review.yml)")
-    mig.add_argument(
-        "--env-stdin", action="store_true", help="read the pipeline's .env from stdin (secrets)"
-    )
+    mig.add_argument("--env-stdin", action="store_true", help="read the pipeline's .env from stdin (secrets)")
     mig.add_argument("--dry-run", action="store_true", help="import into a copy of the database")
 
     jobs = commands.add_parser("jobs", help="pause or resume the scheduled jobs")
@@ -219,9 +203,6 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
     uvicorn.run(
-        create_app(settings),
-        host=args.host or settings.host,
-        port=args.port or settings.port,
-        proxy_headers=True,
+        create_app(settings), host=args.host or settings.host, port=args.port or settings.port, proxy_headers=True
     )
     return 0

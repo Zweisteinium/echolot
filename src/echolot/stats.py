@@ -19,13 +19,11 @@ def overview(con: Connection) -> dict[str, Any]:
     day = {
         action: (n, b or 0)
         for action, n, b in con.execute(
-            "SELECT action, count(*), sum(bytes) FROM events WHERE ts >= ? GROUP BY action",
-            (since,),
+            "SELECT action, count(*), sum(bytes) FROM events WHERE ts >= ? GROUP BY action", (since,)
         )
     }
     not_found = con.execute(
-        "SELECT count(*) FROM wanted s JOIN attempts a ON a.song_key = s.key "
-        "WHERE s.file IS NULL AND a.tries >= 1"
+        "SELECT count(*) FROM wanted s JOIN attempts a ON a.song_key = s.key WHERE s.file IS NULL AND a.tries >= 1"
     ).fetchone()[0]
     songs = con.execute(
         f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM wanted s "
@@ -122,16 +120,12 @@ EVENT_FILTERS = {"added": ADDED, "rejected": REJECTED}
 def events(con: Connection, kind: str = "", limit: int = 300) -> list[Row]:
     actions = EVENT_FILTERS.get(kind)
     where = f"WHERE action IN ({', '.join('?' * len(actions))})" if actions else ""
-    return con.execute(
-        f"SELECT * FROM events {where} ORDER BY id DESC LIMIT ?", (*(actions or ()), limit)
-    ).fetchall()
+    return con.execute(f"SELECT * FROM events {where} ORDER BY id DESC LIMIT ?", (*(actions or ()), limit)).fetchall()
 
 
 def availability(con: Connection) -> dict[str, Any]:
     """Probe results: average users per song by hour of day (per kind), and per song."""
-    runs, first, last = con.execute(
-        "SELECT count(DISTINCT ts), min(ts), max(ts) FROM probes"
-    ).fetchone()
+    runs, first, last = con.execute("SELECT count(DISTINCT ts), min(ts), max(ts) FROM probes").fetchone()
     hours: dict[str, list[dict[str, Any]]] = {}
     for kind in ("rare", "common"):
         by_hour = {

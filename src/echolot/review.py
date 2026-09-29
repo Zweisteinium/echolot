@@ -102,10 +102,7 @@ def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
 
 
 def find(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item | None:
-    return next(
-        (i for group in items(con, music_dir).values() for i in group if i.event["id"] == event_id),
-        None,
-    )
+    return next((i for group in items(con, music_dir).values() for i in group if i.event["id"] == event_id), None)
 
 
 def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: str) -> Item:
@@ -126,9 +123,7 @@ def revert(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item:
     """Take back a decision that is not applied yet."""
     item = find(con, music_dir, event_id)
     if item is None or not item.decision:
-        raise ConfigError(
-            "There is no pending decision for this download (or it is applied already)."
-        )
+        raise ConfigError("There is no pending decision for this download (or it is applied already).")
     with con:
         con.execute("DELETE FROM review_decisions WHERE id = ? AND applied IS NULL", (item.id,))
     return item
@@ -139,9 +134,7 @@ def revert(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item:
 
 def apply_due(run: "Run", con: sqlite3.Connection) -> list[str]:
     """Apply the decisions older than UNDO_SECONDS; returns what happened."""
-    cutoff = (datetime.datetime.now() - datetime.timedelta(seconds=UNDO_SECONDS)).isoformat(
-        timespec="seconds"
-    )
+    cutoff = (datetime.datetime.now() - datetime.timedelta(seconds=UNDO_SECONDS)).isoformat(timespec="seconds")
     done = []
     for d in con.execute(
         "SELECT r.id AS decision_id, r.decision, e.* FROM review_decisions r JOIN events e ON e.id = r.event_id "
@@ -179,8 +172,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     if decision == "wrong":
         names = [n for n in (d["found"], d["file_name"]) if n]
         with con:
-            con.executemany("INSERT OR IGNORE INTO blocked (song_key, name) VALUES (?, ?)",
-                            [(key, n) for n in names])  # fmt: skip
+            con.executemany("INSERT OR IGNORE INTO blocked (song_key, name) VALUES (?, ?)", [(key, n) for n in names])
         with filing.LOCK:
             cat = library.Catalog.from_db(con)
             entry = next((e for e in cat.entries if e.path == d["path"]), None)
@@ -213,18 +205,13 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
         if hits := cat.find(other, want.title, dur):
             if key:
                 with con:
-                    con.execute(
-                        "UPDATE songs SET link = ? WHERE key = ?",
-                        (json.dumps([other, want.title]), key),
-                    )
+                    con.execute("UPDATE songs SET link = ? WHERE key = ?", (json.dumps([other, want.title]), key))
             p.unlink()
             filing.event(con, paths, "linked", paths.tracks / hits[0].path, song=key or None, artist=want.artist,
                          title=want.title, source=d["source"], matched="review",
                          reason=f"same recording as {hits[0].path} ({other})")  # fmt: skip
             return f"linked {hits[0].path}"
-    action, dest = filing.file_into(
-        con, paths, p, want, d["source"] or "", match="review", fake=bool(d["fake"])
-    )
+    action, dest = filing.file_into(con, paths, p, want, d["source"] or "", match="review", fake=bool(d["fake"]))
     if dest and action in ("new", "upgrade"):
         audio.write_tags(dest, artist=want.artist, title=want.title)  # accepted as this song
         from echolot.acquire import finish

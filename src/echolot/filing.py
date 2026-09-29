@@ -21,15 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from echolot import audio, library
-from echolot.rules import (
-    artist_key,
-    clean_name,
-    first_artist,
-    identify,
-    mix_cut,
-    norm_key,
-    same_length,
-)
+from echolot.rules import artist_key, clean_name, first_artist, identify, mix_cut, norm_key, same_length
 
 LOCK = threading.RLock()
 KEEP_DAYS = 30
@@ -66,8 +58,7 @@ class Want:
     def of(cls, row: sqlite3.Row) -> "Want":
         import json
 
-        return cls(row["artist"], row["title"], row["length"] or 0, row["key"],
-                   json.loads(row["artists"] or "[]"))  # fmt: skip
+        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], json.loads(row["artists"] or "[]"))
 
 
 def event_path(paths: Paths, p: Path) -> str:
@@ -93,10 +84,7 @@ def event(con: sqlite3.Connection, paths: Paths, action: str, p: Path, **info: o
         **{k: v for k, v in info.items() if v not in (None, "")},
     }
     with con:
-        con.execute(
-            f"INSERT INTO events ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
-            list(row.values()),
-        )
+        con.execute(f"INSERT INTO events ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", list(row.values()))
 
 
 def _place(src: Path, dest: Path) -> None:
@@ -167,9 +155,7 @@ def keep(paths: Paths, src: Path, artist: str, title: str, source: str) -> Path:
     folder = paths.inbox("review") / datetime.date.today().isoformat()
     base = f"{clean_name(artist)} - {clean_name(title)} [{clean_name(source or 'download')}]"
     for n in range(1, 1000):
-        dest = folder / (
-            f"{base}{src.suffix.lower()}" if n == 1 else f"{base} ({n}){src.suffix.lower()}"
-        )
+        dest = folder / (f"{base}{src.suffix.lower()}" if n == 1 else f"{base} ({n}){src.suffix.lower()}")
         if dest.exists():
             continue
         try:
@@ -193,9 +179,7 @@ def is_blocked(con: sqlite3.Connection, key: str, names: list[str]) -> bool:
         return False
     marks = ", ".join("?" * len(names))
     return bool(
-        con.execute(
-            f"SELECT 1 FROM blocked WHERE song_key = ? AND name IN ({marks})", (key, *names)
-        ).fetchone()
+        con.execute(f"SELECT 1 FROM blocked WHERE song_key = ? AND name IN ({marks})", (key, *names)).fetchone()
     )
 
 
@@ -243,25 +227,19 @@ def file_into(
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
     length = 0 if mix_cut(want.title) else float(want.length or 0)
-    info: dict[str, object] = {"source": source, "song": key or None, "artist": want.artist,
-                               "title": want.title}  # fmt: skip
+    info: dict[str, object] = {"source": source, "song": key or None, "artist": want.artist, "title": want.title}
     if strict:
         tag_artists, tag_title = audio.read_tags(src)
         info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries)
         tol = 3 if source == "soulseek" else 6  # videos have intros
-        match, why = identify(want.artist, want.title, tag_artists, tag_title, file_name, folders,
-                              dur, length, tol)  # fmt: skip
+        match, why = identify(want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol)
         ok = match == "exact" or (match == "probable" and probable)
         if match == "probable" and not probable:
             why = f"{why} (not filed: {source} probable matches need a review)"
         if ok and is_blocked(con, key, [tag_title, file_name]):
             ok, why = False, "this download was marked wrong in review"
         if not ok:
-            kept = (
-                drop(src)
-                if why.startswith("artist ")
-                else keep(paths, src, want.artist, want.title, source)
-            )
+            kept = drop(src) if why.startswith("artist ") else keep(paths, src, want.artist, want.title, source)
             event(con, paths, "wrong-song", kept, reason=why, **info)
             return "wrong-song", None
         if dur and length and not same_length(dur, length):

@@ -35,9 +35,7 @@ class Replay(soulseek.Daemon):
 
 
 def test_search_and_results() -> None:
-    d = Replay(
-        {("POST", "/api/jobs/search/tracks"): "search-submit", ("GET", "/api/jobs/"): "search-done"}
-    )
+    d = Replay({("POST", "/api/jobs/search/tracks"): "search-submit", ("GET", "/api/jobs/"): "search-done"})
     job = d.search("Scooter", "Aiii Shot The DJ", 5, soulseek.search_settings(desperate=True))
     body = d.sent[0][2]
     assert body["songQuery"] == {"artist": "Scooter", "title": "Aiii Shot The DJ", "length": 5}
@@ -56,9 +54,7 @@ def test_search_and_results() -> None:
 
 def test_download_states() -> None:
     d = Replay({("POST", "/api/jobs/"): "download-submit"})
-    c = soulseek.Candidate(
-        "local", "Scooter\\Scooter - Aiii Shot The DJ.flac", 1, 95, 44100, 5, "flac", True, 100, 0
-    )
+    c = soulseek.Candidate("local", "Scooter\\Scooter - Aiii Shot The DJ.flac", 1, 95, 44100, 5, "flac", True, 100, 0)
     job = d.download("search-1", c, "/music/inbox/soulseek/x", soulseek.search_settings())
     assert d.sent[0][2]["files"] == [{"username": "local", "filename": c.path}]
     assert d.sent[0][2]["options"]["outputParentDir"] == "/music/inbox/soulseek/x"
@@ -80,9 +76,7 @@ def test_unknown_job_is_lost() -> None:
 
 
 def test_status() -> None:
-    d = Replay(
-        {("GET", "/api/server/info"): "server-info", ("GET", "/api/server/status"): "server-status"}
-    )
+    d = Replay({("GET", "/api/server/info"): "server-info", ("GET", "/api/server/status"): "server-status"})
     s = d.status()
     assert s["version"] == "3.0.6.0" and s["ready"] is False  # the mock daemon logs in nowhere
 
@@ -107,10 +101,5 @@ def test_real_result_shape() -> None:
     d = Replay({})
     d._call = lambda method, path, body=None: {"items": [item, {**item, "attributes": []}]}
     first, second = d.results("job")
-    assert (first.ext, first.length, first.name, first.folders[-1]) == (
-        "flac",
-        221,
-        "07 - Hyper Hyper",
-        "Scooter",
-    )
+    assert (first.ext, first.length, first.name, first.folders[-1]) == ("flac", 221, "07 - Hyper Hyper", "Scooter")
     assert (second.length, second.bitrate) == (0, 0)

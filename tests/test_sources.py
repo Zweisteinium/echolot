@@ -68,10 +68,7 @@ def test_add_playlist_flag_remove(con: sqlite3.Connection) -> None:
     assert con.execute("SELECT fetched FROM lists WHERE key = ?", (key,)).fetchone()[0] == 0
     sources.remove_list(con, key)
     lists.sync_table(con)
-    assert (
-        key not in keys(con)
-        and not con.execute("SELECT 1 FROM lists WHERE key = ?", (key,)).fetchone()
-    )
+    assert key not in keys(con) and not con.execute("SELECT 1 FROM lists WHERE key = ?", (key,)).fetchone()
     with pytest.raises(sources.ConfigError, match="not in the sources"):
         sources.remove_list(con, key)
 
@@ -81,12 +78,8 @@ def test_remove_keeps_songs_and_history(con: sqlite3.Connection) -> None:
     sources.remove_list(con, "spotify:playlist:AAA111")
     lists.sync_table(con)
     assert con.execute("SELECT count(*) FROM songs").fetchone()[0] == songs
-    assert con.execute(
-        "SELECT count(*) FROM list_history WHERE list_key = 'spotify:playlist:AAA111'"
-    ).fetchone()[0]
-    assert not con.execute(
-        "SELECT 1 FROM list_songs WHERE list_key = 'spotify:playlist:AAA111'"
-    ).fetchone()
+    assert con.execute("SELECT count(*) FROM list_history WHERE list_key = 'spotify:playlist:AAA111'").fetchone()[0]
+    assert not con.execute("SELECT 1 FROM list_songs WHERE list_key = 'spotify:playlist:AAA111'").fetchone()
 
 
 def test_likes(con: sqlite3.Connection) -> None:
@@ -123,18 +116,13 @@ def test_schedule(con: sqlite3.Connection) -> None:
         schedule.save(con, {"soundcloud": 5})
     schedule.save(con, {"sync": 45, "sweep": ["sat,sun 15:00", "20:00"]})
     rules = schedule.rules(con)
-    assert (rules["sync"], rules["sweep"], rules["fallback"]) == (
-        45,
-        ["sat,sun 15:00", "20:00"],
-        120,
-    )
+    assert (rules["sync"], rules["sweep"], rules["fallback"]) == (45, ["sat,sun 15:00", "20:00"], 120)
 
 
 @pytest.mark.parametrize(
     ("text", "expected"),
-    [("30", 30), ("off", None), ("", None), ("20:00", ["20:00"]),
-     ("20:00; Sat,Sun 9:30", ["20:00", "sat,sun 09:30"])],
-)  # fmt: skip
+    [("30", 30), ("off", None), ("", None), ("20:00", ["20:00"]), ("20:00; Sat,Sun 9:30", ["20:00", "sat,sun 09:30"])],
+)
 def test_parse_when(text: str, expected: object) -> None:
     job = schedule.BY_NAME["upgrade"] if not text.isdigit() else schedule.BY_NAME["sync"]
     assert schedule.parse_when(text, job) == expected

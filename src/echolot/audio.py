@@ -165,13 +165,7 @@ def spectrum(path: Path) -> dict:
             best_cut, best_drop = cut, drop
     res = {"sr": sr, "cutoff_hz": best_cut, "drop_db": round(best_drop, 1), "verdict": "ok"}
     if best_drop >= DROP_DB and best_cut < MAX_LOSSY_CUT:
-        source = (
-            "~128 kbps"
-            if best_cut < 16800
-            else "~160-192 kbps"
-            if best_cut < 19300
-            else "~256 kbps / V0"
-        )
+        source = "~128 kbps" if best_cut < 16800 else "~160-192 kbps" if best_cut < 19300 else "~256 kbps / V0"
         res.update(verdict="lossy", source=source)
     return res
 

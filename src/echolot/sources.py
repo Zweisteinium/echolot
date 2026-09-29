@@ -113,9 +113,7 @@ def _now() -> str:
 def parse_url(url: str) -> tuple[str, str]:
     """(service, canonical URL) of a list URL, or ConfigError."""
     url = url.strip()
-    if m := re.search(
-        r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?playlist/|spotify:playlist:)(\w+)", url
-    ):
+    if m := re.search(r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?playlist/|spotify:playlist:)(\w+)", url):
         return "spotify", f"https://open.spotify.com/playlist/{m.group(1)}"
     if re.search(r"open\.spotify\.com/collection/tracks", url):
         raise ConfigError("That is your Liked Songs: switch on Spotify likes instead.")
@@ -124,13 +122,9 @@ def parse_url(url: str) -> tuple[str, str]:
         parts = [p for p in parsed.path.split("/") if p]
         if (len(parts) >= 3 and parts[1] == "sets") or (len(parts) == 2 and parts[1] == "likes"):
             return "soundcloud", "https://soundcloud.com/" + "/".join(parts[:3])
-        raise ConfigError(
-            "SoundCloud: use a set (…/<user>/sets/<name>) or a likes page (…/<user>/likes)."
-        )
+        raise ConfigError("SoundCloud: use a set (…/<user>/sets/<name>) or a likes page (…/<user>/likes).")
     if parsed.hostname == "on.soundcloud.com":
-        raise ConfigError(
-            "Short on.soundcloud.com links can't be resolved: open it and copy the full URL."
-        )
+        raise ConfigError("Short on.soundcloud.com links can't be resolved: open it and copy the full URL.")
     raise ConfigError("Not a Spotify playlist or SoundCloud set/likes URL.")
 
 
@@ -160,11 +154,7 @@ def check(data: Any) -> list[Source]:
         if likes is not None and not isinstance(likes, bool | dict):
             problems.append(f"{service}.likes must be true, false or {{title, playlist}}.")
         if isinstance(likes, dict):
-            problems += [
-                f"{service}.likes: unknown option '{k}'."
-                for k in likes
-                if k not in ("title", "playlist")
-            ]
+            problems += [f"{service}.likes: unknown option '{k}'." for k in likes if k not in ("title", "playlist")]
         if service == "soundcloud" and likes and not section.get("user"):
             problems.append("soundcloud.likes needs soundcloud.user (whose likes).")
         entries = section.get("playlists") or []
@@ -260,10 +250,7 @@ def lists(con: sqlite3.Connection) -> list[Source]:
 def likes_state(con: sqlite3.Connection) -> dict[str, Any]:
     """Current likes settings for the form."""
     opts = options.get(con, options.SourceOptions)
-    on = {
-        r["service"]: bool(r["enabled"])
-        for r in con.execute("SELECT service, enabled FROM sources WHERE likes = 1")
-    }
+    on = {r["service"]: bool(r["enabled"]) for r in con.execute("SELECT service, enabled FROM sources WHERE likes = 1")}
     return {
         "spotify": on.get("spotify", False),
         "soundcloud": on.get("soundcloud", False),
@@ -370,10 +357,7 @@ def set_playlist(con: sqlite3.Connection, key: str, playlist: bool) -> None:
     """Also show the list as a playlist in the music server, or not."""
     if not con.execute("SELECT 1 FROM sources WHERE key = ?", (key,)).fetchone():
         raise ConfigError("That list is not followed (any more).")
-    _change(
-        con,
-        lambda: con.execute("UPDATE sources SET playlist = ? WHERE key = ?", (int(playlist), key)),
-    )
+    _change(con, lambda: con.execute("UPDATE sources SET playlist = ? WHERE key = ?", (int(playlist), key)))
 
 
 def remove_list(con: sqlite3.Connection, key: str) -> None:
@@ -381,9 +365,7 @@ def remove_list(con: sqlite3.Connection, key: str) -> None:
     _change(con, lambda: con.execute("DELETE FROM sources WHERE key = ?", (key,)))
 
 
-def set_likes(
-    con: sqlite3.Connection, service: str, enabled: bool, user: str | None = None
-) -> None:
+def set_likes(con: sqlite3.Connection, service: str, enabled: bool, user: str | None = None) -> None:
     """Switch the account's likes on or off; SoundCloud: `user` whose likes (kept when empty)."""
     opts = options.get(con, options.SourceOptions)
     if service == "soundcloud" and user is not None:
@@ -397,9 +379,7 @@ def set_likes(
     def change() -> None:
         if service == "soundcloud" and user:
             options.update(con, options.SourceOptions, soundcloud_user=user)
-        row = con.execute(
-            "SELECT key FROM sources WHERE service = ? AND likes = 1", (service,)
-        ).fetchone()
+        row = con.execute("SELECT key FROM sources WHERE service = ? AND likes = 1", (service,)).fetchone()
         key, url = _likes_key(service, name)
         if row is None:
             if enabled:
@@ -419,10 +399,7 @@ def set_likes(
 
 
 def set_removed_playlists(con: sqlite3.Connection, enabled: bool) -> None:
-    _change(
-        con,
-        lambda: options.update(con, options.SourceOptions, removed_playlists=enabled),
-    )
+    _change(con, lambda: options.update(con, options.SourceOptions, removed_playlists=enabled))
 
 
 # ---------------------------------------------------------------- versions

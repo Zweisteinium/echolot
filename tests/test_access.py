@@ -45,8 +45,7 @@ def test_login_and_logout(app) -> None:
     client = TestClient(app)
     r = client.post("/login", data={"name": "anna", "password": "wrong password"})
     assert r.status_code == 400 and "Wrong user name or password" in r.text
-    r = client.post("/login", data={"name": "Anna", "password": PASSWORD, "next": "/review"},
-                    follow_redirects=False)  # fmt: skip
+    r = client.post("/login", data={"name": "Anna", "password": PASSWORD, "next": "/review"}, follow_redirects=False)
     assert (r.status_code, r.headers["location"]) == (303, "/review")
     cookie = r.headers["set-cookie"]
     assert "HttpOnly" in cookie and "SameSite=lax" in cookie
@@ -56,9 +55,7 @@ def test_login_and_logout(app) -> None:
     assert r.headers["location"] == "/"  # no redirect to another site
     page = client.get("/settings").text
     csrf = page.split('name="csrf_token" value="')[1].split('"')[0]
-    assert (
-        client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
-    )
+    assert client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
     assert client.get("/api/stats").status_code == 401
 
 
@@ -77,11 +74,9 @@ def test_csrf(app, login: Callable[..., TestClient]) -> None:
     assert r.status_code == 403 and "CSRF" in r.text
     r = client.post("/sources/options", data={"version": "x", "csrf_token": "wrong"})
     assert r.status_code == 403
-    r = client.post("/sources/options", data={"version": "x", "csrf_token": token},
-                    follow_redirects=False)  # fmt: skip
+    r = client.post("/sources/options", data={"version": "x", "csrf_token": token}, follow_redirects=False)
     assert r.status_code == 303  # passed the check (the stale version is the page's problem)
-    r = client.post("/sources/options", data={"version": "x"}, headers={"X-CSRF-Token": token},
-                    follow_redirects=False)  # fmt: skip
+    r = client.post("/sources/options", data={"version": "x"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
     assert r.status_code == 303
 
 
@@ -104,10 +99,7 @@ def test_api_tokens(app, login: Callable[..., TestClient]) -> None:
     assert bearer.get("/api/stats").status_code == 200
     # no CSRF for token requests (no cookie that a foreign page could make the browser send)
     assert bearer.put("/api/config", params={"dry_run": True}, json={}).json()["changed"] is False
-    assert (
-        TestClient(app, headers={"Authorization": "Bearer nope"}).get("/api/stats").status_code
-        == 401
-    )
+    assert TestClient(app, headers={"Authorization": "Bearer nope"}).get("/api/stats").status_code == 401
     con = db.connect(app.state.settings.db_path)
     (tid,) = con.execute("SELECT id FROM api_tokens").fetchone()
     assert con.execute("SELECT last_used FROM api_tokens").fetchone()[0]
@@ -135,8 +127,7 @@ def test_password_change(app, login: Callable[..., TestClient]) -> None:
     r = client.post("/settings/password",
                     data={"current": "wrong", "password": "new password 1", "repeat": "new password 1"})  # fmt: skip
     assert "current password is wrong" in r.text
-    r = client.post("/settings/password",
-                    data={"current": PASSWORD, "password": "short", "repeat": "short"})  # fmt: skip
+    r = client.post("/settings/password", data={"current": PASSWORD, "password": "short", "repeat": "short"})
     assert "at least 10" in r.text
     r = client.post("/settings/password",
                     data={"current": PASSWORD, "password": "new password 1", "repeat": "new password 1"})  # fmt: skip

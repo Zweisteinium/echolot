@@ -84,8 +84,7 @@ def add_user(con: sqlite3.Connection, name: str, password: str) -> User:
     try:
         with con:
             cur = con.execute(
-                "INSERT INTO users (name, password, created) VALUES (?, ?, ?)",
-                (name, hash_password(password), _now()),
+                "INSERT INTO users (name, password, created) VALUES (?, ?, ?)", (name, hash_password(password), _now())
             )
     except sqlite3.IntegrityError as err:
         raise AuthError(f"There is a user '{name}' already.") from err
@@ -105,16 +104,12 @@ def set_password(con: sqlite3.Connection, user: User, password: str) -> None:
     """New password; every session of the user ends (API tokens stay)."""
     check_new_password(password)
     with con:
-        con.execute(
-            "UPDATE users SET password = ? WHERE id = ?", (hash_password(password), user.id)
-        )
+        con.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), user.id))
         con.execute("DELETE FROM sessions WHERE user_id = ?", (user.id,))
 
 
 def verify(con: sqlite3.Connection, name: str, password: str) -> User | None:
-    row = con.execute(
-        "SELECT id, name, password FROM users WHERE name = ?", (name.strip(),)
-    ).fetchone()
+    row = con.execute("SELECT id, name, password FROM users WHERE name = ?", (name.strip(),)).fetchone()
     if row is None:
         hash_password(password)  # same time as a wrong password: no hint which names exist
         return None
@@ -169,9 +164,7 @@ def end_session(con: sqlite3.Connection, token: str) -> None:
 
 def end_other_sessions(con: sqlite3.Connection, user: User, keep: str) -> int:
     with con:
-        return con.execute(
-            "DELETE FROM sessions WHERE user_id = ? AND id != ?", (user.id, _sha(keep))
-        ).rowcount
+        return con.execute("DELETE FROM sessions WHERE user_id = ? AND id != ?", (user.id, _sha(keep))).rowcount
 
 
 # ---------------------------------------------------------------- API tokens
@@ -207,19 +200,13 @@ def token_user(con: sqlite3.Connection, token: str) -> User | None:
 
 def tokens(con: sqlite3.Connection, user: User) -> list[sqlite3.Row]:
     return con.execute(
-        "SELECT id, name, created, last_used FROM api_tokens WHERE user_id = ? ORDER BY id",
-        (user.id,),
+        "SELECT id, name, created, last_used FROM api_tokens WHERE user_id = ? ORDER BY id", (user.id,)
     ).fetchall()
 
 
 def revoke_token(con: sqlite3.Connection, user: User, token_id: int) -> bool:
     with con:
-        return (
-            con.execute(
-                "DELETE FROM api_tokens WHERE id = ? AND user_id = ?", (token_id, user.id)
-            ).rowcount
-            > 0
-        )
+        return con.execute("DELETE FROM api_tokens WHERE id = ? AND user_id = ?", (token_id, user.id)).rowcount > 0
 
 
 # ---------------------------------------------------------------- login attempts

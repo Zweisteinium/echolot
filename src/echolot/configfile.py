@@ -30,9 +30,7 @@ def export_data(con: sqlite3.Connection) -> dict[str, Any]:
         "sources": sources.as_config(con),
         "schedule": schedule.file_form(schedule.rules(con)),
         "settings": {
-            s.SECTION: options.get(con, s).model_dump()
-            for s in options.SECTIONS
-            if s.SECTION not in IN_SOURCES
+            s.SECTION: options.get(con, s).model_dump() for s in options.SECTIONS if s.SECTION not in IN_SOURCES
         },
     }
 
@@ -44,8 +42,7 @@ def dump(data: dict[str, Any]) -> str:
 def export_text(con: sqlite3.Connection) -> str:
     return (
         f"# Echolot configuration, exported {datetime.now().isoformat(timespec='seconds')}.\n"
-        "# No secrets, no users. Import: Settings page, or `echolot config import <file>`.\n"
-        + dump(export_data(con))
+        "# No secrets, no users. Import: Settings page, or `echolot config import <file>`.\n" + dump(export_data(con))
     )
 
 
@@ -107,9 +104,7 @@ def preview(con: sqlite3.Connection, text: str) -> str:
             con.execute("ROLLBACK TO preview")
             con.execute("RELEASE preview")
     return "".join(
-        difflib.unified_diff(
-            before.splitlines(keepends=True), after.splitlines(keepends=True), "current", "import"
-        )
+        difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True), "current", "import")
     )
 
 

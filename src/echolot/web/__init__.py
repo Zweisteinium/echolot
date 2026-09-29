@@ -9,13 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import (
-    FileResponse,
-    HTMLResponse,
-    PlainTextResponse,
-    RedirectResponse,
-    Response,
-)
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -54,9 +48,7 @@ def _span(s: float) -> str:
 
 
 def _parse(value: str | int) -> datetime:
-    return (
-        datetime.fromtimestamp(value) if isinstance(value, int) else datetime.fromisoformat(value)
-    )
+    return datetime.fromtimestamp(value) if isinstance(value, int) else datetime.fromisoformat(value)
 
 
 def ago(value: str | int | None) -> str:
@@ -121,12 +113,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(access.authenticate)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.filters.update(
-        num=num, size=size, ago=ago, until=until, mmss=mmss, minutes=minutes
-    )
-    templates.env.globals.update(
-        pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__
-    )
+    templates.env.filters.update(num=num, size=size, ago=ago, until=until, mmss=mmss, minutes=minutes)
+    templates.env.globals.update(pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__)
     app.state.templates = templates
     for router in (access.router, admin.router, accounts.router, lists.router):
         app.include_router(router)
@@ -151,8 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             nav="overview",
             o=o,
             donut=charts.donut(o["song_tiers"]),
-            connected=secret_store.has(con, "spotify.refresh_token")
-            or secret_store.has(con, "soundcloud.token"),
+            connected=secret_store.has(con, "spotify.refresh_token") or secret_store.has(con, "soundcloud.token"),
             **job_status(con),
         )
 
@@ -172,11 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "next": nxt.isoformat(timespec="seconds") if nxt else None,
                 "waiting": busy.get(j.resource) if not run and nxt and nxt <= now else None,
             })  # fmt: skip
-        return {
-            "jobs": rows,
-            "paused": options.get(con, options.Jobs).paused,
-            "running": bool(runs),
-        }
+        return {"jobs": rows, "paused": options.get(con, options.Jobs).paused, "running": bool(runs)}
 
     @app.get("/jobs", response_class=HTMLResponse)
     def jobs_fragment(request: Request, con: DB) -> HTMLResponse:
@@ -227,9 +210,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return jobs_answer(request, con, "Jobs paused." if paused else "Jobs resumed.")
 
     @app.get("/missing", response_class=HTMLResponse)
-    def missing(
-        request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = ""
-    ) -> HTMLResponse:
+    def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "") -> HTMLResponse:
         return page(
             request,
             "missing.html",
@@ -245,15 +226,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if lst is None:
             raise HTTPException(404, "no such list")
         songs = stats.list_songs(con, key)
-        return page(
-            request, "list.html", nav="overview", lst=lst, songs=songs, tiers=stats.tiers_of(songs)
-        )
+        return page(request, "list.html", nav="overview", lst=lst, songs=songs, tiers=stats.tiers_of(songs))
 
     @app.get("/activity", response_class=HTMLResponse)
     def activity(request: Request, con: DB, kind: str = "") -> HTMLResponse:
-        return page(
-            request, "activity.html", nav="activity", events=stats.events(con, kind), kind=kind
-        )
+        return page(request, "activity.html", nav="activity", events=stats.events(con, kind), kind=kind)
 
     @app.get("/availability", response_class=HTMLResponse)
     def availability(request: Request, con: DB) -> HTMLResponse:
@@ -278,9 +255,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except ConfigError as e:
             return back("/review", error=str(e))
         song = f"{item.event['artist']} – {item.event['title']}"
-        return back(
-            "/review", ok=f"{song}: {decision}. Applied within a few minutes (Revert until then)."
-        )
+        return back("/review", ok=f"{song}: {decision}. Applied within a few minutes (Revert until then).")
 
     @app.post("/review/{event_id}/revert")
     def review_revert(con: DB, event_id: int) -> RedirectResponse:
@@ -313,11 +288,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/stats/history", tags=["stats"])
     def api_stats_history(
-        con: DB,
-        metric: str,
-        key: str | None = None,
-        since: str | None = None,
-        until: str | None = None,
+        con: DB, metric: str, key: str | None = None, since: str | None = None, until: str | None = None
     ) -> list[dict[str, Any]]:
         """One metric over time, oldest first: [{ts, time (unix), key, value}]. since/until: ISO local
         time or date. Hourly for the last 90 days, daily before."""

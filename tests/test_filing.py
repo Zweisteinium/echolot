@@ -65,12 +65,7 @@ def test_strict_rejection_is_kept_for_review(env) -> None:
     con, paths, _ = env
     assert file_capo(con, paths, probable=False) == ("wrong-song", None)
     e = events(con)[-1]
-    assert (
-        e["action"] == "wrong-song"
-        and e["found"] == CAPO_FILE
-        and e["tries"] == 2
-        and e["seconds"] == 200
-    )
+    assert e["action"] == "wrong-song" and e["found"] == CAPO_FILE and e["tries"] == 2 and e["seconds"] == 200
     assert e["path"].startswith("/music/inbox/review/")
     assert review.local_file(e["path"], paths.music).is_file()
 
@@ -78,28 +73,17 @@ def test_strict_rejection_is_kept_for_review(env) -> None:
 def test_probable_match_filed_with_review_mark(env) -> None:
     con, paths, _ = env
     action, dest = file_capo(con, paths, probable=True)
-    assert (
-        action == "new"
-        and dest.name == "CAPO - Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix.wav"
-    )
+    assert action == "new" and dest.name == "CAPO - Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix.wav"
     e = events(con)[-1]
-    assert (
-        e["matched"] == "probable"
-        and e["reason"].startswith("probable")
-        and e["song"] == "spotify:capo"
-    )
-    assert (
-        con.execute("SELECT count(*) FROM files").fetchone()[0] == 1
-    )  # the index knows it at once
+    assert e["matched"] == "probable" and e["reason"].startswith("probable") and e["song"] == "spotify:capo"
+    assert con.execute("SELECT count(*) FROM files").fetchone()[0] == 1  # the index knows it at once
 
 
 def test_same_song_twice_is_a_duplicate(env) -> None:
     con, paths, _ = env
     want = Want("A", "Song", 200, "spotify:a")
     assert filing.file_into(con, paths, download(paths, "a.wav"), want, "soulseek")[0] == "new"
-    action, dest = filing.file_into(
-        con, paths, download(paths, "b.wav"), Want("A", "Song (Original Mix)", 201), "x"
-    )
+    action, dest = filing.file_into(con, paths, download(paths, "b.wav"), Want("A", "Song (Original Mix)", 201), "x")
     assert action == "duplicate" and dest.name == "A - Song.wav"
     assert not (paths.inbox("soulseek") / "b.wav").exists()
     assert [p.name for p in (paths.tracks / "A").iterdir()] == ["A - Song.wav"]
@@ -113,9 +97,7 @@ def test_lossless_replaces_lossy_copy(env) -> None:
     library.scan(con, paths.tracks)
     with con:
         con.execute("UPDATE files SET duration = 200 WHERE path = 'A/A - Song.mp3'")
-    action, dest = filing.file_into(
-        con, paths, download(paths, "a.wav"), Want("A", "Song", 200), "soulseek"
-    )
+    action, dest = filing.file_into(con, paths, download(paths, "a.wav"), Want("A", "Song", 200), "soulseek")
     assert action == "upgrade" and dest.name == "A - Song.wav"
     assert not mp3.exists()
     replaced = list(paths.inbox("replaced").rglob("*.mp3"))
@@ -143,11 +125,7 @@ def test_collaboration_listed_twice_is_one_song(env) -> None:
     """Spotify: "Mabe, Catch Vibe - Atlantis" and "Catch Vibe, Mabe - Atlantis" (single and EP)."""
     con, paths, _ = env
     filing.file_into(
-        con,
-        paths,
-        download(paths, "a.wav", 350),
-        Want("Mabe", "Atlantis", 350, "", ["Mabe", "Catch Vibe"]),
-        "x",
+        con, paths, download(paths, "a.wav", 350), Want("Mabe", "Atlantis", 350, "", ["Mabe", "Catch Vibe"]), "x"
     )
     other = Want("Catch Vibe", "Atlantis", 349, "", ["Catch Vibe", "Mabe"])
     action, dest = filing.file_into(con, paths, download(paths, "b.wav", 350), other, "x")
@@ -160,9 +138,7 @@ def test_collaboration_listed_twice_is_one_song(env) -> None:
 def test_one_folder_per_artist(env) -> None:
     con, paths, _ = env
     filing.file_into(con, paths, download(paths, "a.wav"), Want("Røyksopp", "Eple", 200), "x")
-    _, dest = filing.file_into(
-        con, paths, download(paths, "b.wav", 300), Want("ROYKSOPP", "Remind Me", 300), "x"
-    )
+    _, dest = filing.file_into(con, paths, download(paths, "b.wav", 300), Want("ROYKSOPP", "Remind Me", 300), "x")
     assert dest.parent.name == "Røyksopp"
 
 
@@ -205,11 +181,10 @@ def test_wrong_retires_blocks_and_searches_again(env) -> None:
     e = events(con)[-1]
     assert decide(con, run, e["id"], "wrong").endswith("retired")
     assert not dest.exists()
-    assert tuple(
-        con.execute(
-            "SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:capo'"
-        ).fetchone()
-    ) == (2, 0)
+    assert tuple(con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:capo'").fetchone()) == (
+        2,
+        0,
+    )
     # the same download is never taken again, though it is a probable match
     assert file_capo(con, paths, probable=True) == ("wrong-song", None)
     assert events(con)[-1]["reason"] == "this download was marked wrong in review"
@@ -243,41 +218,23 @@ def test_revert_until_applied(env) -> None:
 def test_accept_links_the_same_recording_under_another_artist(env, monkeypatch) -> None:
     """Spotify: "Pbb Yea - Chilln" and "TheDoDo - Chilln"; YouTube has one video, tagged Pbb Yea."""
     con, paths, run = env
-    filing.file_into(
-        con,
-        paths,
-        download(paths, "a.wav", 227),
-        Want("Pbb Yea", "Chilln", 227, "spotify:pbb"),
-        "x",
-    )
+    filing.file_into(con, paths, download(paths, "a.wav", 227), Want("Pbb Yea", "Chilln", 227, "spotify:pbb"), "x")
     with con:
         con.execute("INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:dodo', 'spotify', "
                     "'TheDoDo', 'Chilln', 227)")  # fmt: skip
     filing.file_into(con, paths, download(paths, "b.wav", 227), Want("TheDoDo", "Chilln", 227, "spotify:dodo"),
                      "youtube", strict=True, file_name="Chilln (Official Video)", probable=False)  # fmt: skip
     e = events(con)[-1]
-    assert (
-        e["action"] == "wrong-song"
-    )  # the artist is only in the tags of the real file: here nowhere
+    assert e["action"] == "wrong-song"  # the artist is only in the tags of the real file: here nowhere
     monkeypatch.setattr("echolot.audio.read_tags", lambda p: (["Pbb Yea"], "Chilln"))
     # a rejected download of the song, kept: accepted, it turns out to be Pbb Yea's file
     kept = paths.inbox("review") / "2026-09-27" / "TheDoDo - Chilln [youtube].wav"
     kept.parent.mkdir(parents=True, exist_ok=True)
     download(paths, "c.wav", 227).rename(kept)
     filing.event(
-        con,
-        paths,
-        "wrong-song",
-        kept,
-        song="spotify:dodo",
-        artist="TheDoDo",
-        title="Chilln",
-        source="youtube",
+        con, paths, "wrong-song", kept, song="spotify:dodo", artist="TheDoDo", title="Chilln", source="youtube"
     )
     result = decide(con, run, events(con)[-1]["id"], "accept")
     assert result.endswith("linked Pbb Yea/Pbb Yea - Chilln.wav")
     assert not kept.exists() and not (paths.tracks / "TheDoDo").exists()
-    assert (
-        con.execute("SELECT link FROM songs WHERE key = 'spotify:dodo'").fetchone()[0]
-        == '["Pbb Yea", "Chilln"]'
-    )
+    assert con.execute("SELECT link FROM songs WHERE key = 'spotify:dodo'").fetchone()[0] == '["Pbb Yea", "Chilln"]'

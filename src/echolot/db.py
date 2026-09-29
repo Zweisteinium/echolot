@@ -250,7 +250,6 @@ def get_meta(con: sqlite3.Connection, key: str, default: str = "") -> str:
 
 def set_meta(con: sqlite3.Connection, key: str, value: str) -> None:
     con.execute(
-        "INSERT INTO meta (key, value) VALUES (?, ?) "
-        "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (key, value),
     )

@@ -33,14 +33,7 @@ def write_json(path: Path, data: object) -> None:
 
 
 def song(sid: str, artist: str, title: str, length: int) -> dict[str, object]:
-    return {
-        "id": sid,
-        "uri": f"spotify:track:{sid}",
-        "artist": artist,
-        "title": title,
-        "album": "",
-        "length": length,
-    }
+    return {"id": sid, "uri": f"spotify:track:{sid}", "artist": artist, "title": title, "album": "", "length": length}
 
 
 @pytest.fixture
@@ -91,15 +84,8 @@ def pipeline_dir(tmp_path: Path) -> Path:
         },
     )
     write_json(state / "attempts.json", {"spotify:s3": {"n": 3, "last": 1790000000, "fb": 0}})
-    write_json(
-        state / "lossy-sourced.json", {"Artist B/Artist B - Second Song": {"source": "~128 kbps"}}
-    )
-    write_json(
-        state / "library-cache.json",
-        {
-            "/music/tracks/Artist A/Artist A - First Song.mp3": [10, 0, 201.0, 320],
-        },
-    )
+    write_json(state / "lossy-sourced.json", {"Artist B/Artist B - Second Song": {"source": "~128 kbps"}})
+    write_json(state / "library-cache.json", {"/music/tracks/Artist A/Artist A - First Song.mp3": [10, 0, 201.0, 320]})
     events = [
         {
             "ts": "2026-09-26T10:00:00",

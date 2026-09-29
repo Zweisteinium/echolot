@@ -64,9 +64,7 @@ def columns(values: list[float | None], labels: list[str], tooltips: list[str]) 
         )
         bars.append(Bar(x, y, width, h, path, sx, slot, labels[i], tooltips[i]))
     ticks = [(base - plot_h * f, f"{top * f:g}") for f in (0, 0.5, 1)]
-    return Chart(
-        WIDTH, HEIGHT, bars, ticks, base, LEFT, WIDTH - RIGHT, all(v is None for v in values)
-    )
+    return Chart(WIDTH, HEIGHT, bars, ticks, base, LEFT, WIDTH - RIGHT, all(v is None for v in values))
 
 
 def hours(rows: list[dict], key: str, unit: str) -> Chart:
@@ -74,11 +72,7 @@ def hours(rows: list[dict], key: str, unit: str) -> Chart:
     values = [r[key] for r in rows]
     tips = [
         f"{r['hour']:02d}:00–{r['hour']:02d}:59 · "
-        + (
-            f"{r[key]:.1f} {unit} on average · {r['runs']} probe runs"
-            if r[key] is not None
-            else "no probes yet"
-        )
+        + (f"{r[key]:.1f} {unit} on average · {r['runs']} probe runs" if r[key] is not None else "no probes yet")
         for r in rows
     ]
     labels = [f"{r['hour']:02d}" if r["hour"] % 3 == 0 else "" for r in rows]
