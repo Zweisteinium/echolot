@@ -53,13 +53,13 @@ def _spotify_cards(request: Request, con: sqlite3.Connection) -> list[dict[str, 
     if cached and time.time() - cached[0] < 300:
         return cached[1]
     sp = spotify.Spotify(con, request.app.state.vault)
-    cards = [{"key": "spotify:likes", "service": "spotify", "url": "likes", "name": "Liked Songs",
-              "owner": "you", "songs": sp.liked_count(), "image": spotify.LIKED_SONGS_IMAGE, "kind": "own"}]  # fmt: skip
+    likes = {"key": "spotify:likes", "service": "spotify", "url": "likes", "name": "Liked Songs", "owner": "you"}
+    cards = [likes | {"songs": sp.liked_count(), "image": spotify.LIKED_SONGS_IMAGE, "kind": "own"}]
     for p in sp.playlists():
-        cards.append({"key": f"spotify:playlist:{p['id']}", "service": "spotify", "url": p["url"],
-                      "name": p["name"], "owner": "you" if p["own"] else p["owner"], "songs": p["songs"],
-                      "image": p["image"], "note": "" if p["readable"] else NOT_READABLE,
-                      "kind": "own" if p["own"] else "collab" if p["collaborative"] else "other"})  # fmt: skip
+        kind = "own" if p["own"] else "collab" if p["collaborative"] else "other"
+        card = {"key": f"spotify:playlist:{p['id']}", "service": "spotify", "url": p["url"], "name": p["name"]}
+        about = {"owner": "you" if p["own"] else p["owner"], "songs": p["songs"], "image": p["image"], "kind": kind}
+        cards.append(card | about | {"note": "" if p["readable"] else NOT_READABLE})
     _found["spotify"] = (time.time(), cards)
     return cards
 
@@ -72,16 +72,17 @@ def _soundcloud_cards(request: Request, con: sqlite3.Connection) -> list[dict[st
     if not token:
         raise soundcloud.SoundCloudError("SoundCloud is not connected.")
     me = soundcloud.me(token)
-    cards = [{"key": f"soundcloud:{me['user']}/likes", "service": "soundcloud", "url": "likes",
-              "name": "SoundCloud Likes", "owner": "you", "songs": me["likes"], "image": me["avatar"], "kind": "own"}]  # fmt: skip
+    user = me["user"]
+    likes = {"key": f"soundcloud:{user}/likes", "service": "soundcloud", "url": "likes", "name": "SoundCloud Likes"}
+    cards = [likes | {"owner": "you", "songs": me["likes"], "image": me["avatar"], "kind": "own"}]
     for p in soundcloud.sets(token):
         try:
             _, url = sources.parse_url(p["url"])
         except ConfigError:
             continue
-        cards.append({"key": f"soundcloud:{urllib.parse.urlparse(url).path.strip('/')}", "service": "soundcloud",
-                      "url": url, "name": p["name"], "owner": "you" if p["own"] else p["owner"],
-                      "songs": p["songs"], "image": p["image"], "kind": "own" if p["own"] else "other"})  # fmt: skip
+        card = {"key": f"soundcloud:{urllib.parse.urlparse(url).path.strip('/')}", "service": "soundcloud", "url": url}
+        owner, kind = ("you", "own") if p["own"] else (p["owner"], "other")
+        cards.append(card | {"name": p["name"], "owner": owner, "songs": p["songs"], "image": p["image"], "kind": kind})
     _found["soundcloud"] = (time.time(), cards)
     return cards
 
@@ -105,8 +106,8 @@ def found(request: Request, con: DB, service: str) -> HTMLResponse:
     except (spotify.SpotifyError, soundcloud.SoundCloudError) as e:
         cards, error = [], str(e)
     kinds = collections.Counter(c["kind"] for c in cards)
-    return page(request, "_cards.html", cards=[_card(c, state) for c in cards], error=error, service=service,
-                kinds=[(k, label, kinds[k]) for k, label in KINDS if kinds[k]])  # fmt: skip
+    shown, cards = [(k, label, kinds[k]) for k, label in KINDS if kinds[k]], [_card(c, state) for c in cards]
+    return page(request, "_cards.html", cards=cards, error=error, service=service, kinds=shown)
 
 
 @router.get("/sources/other", response_class=HTMLResponse)
@@ -149,9 +150,8 @@ def follow(
     kind: Annotated[str, Form()] = "",
 ) -> Response:
     """Follow a list (mode songs or playlist) or stop following it (off: nothing is deleted)."""
-    card = {"key": key, "service": service, "url": url, "name": name, "owner": owner,
-            "songs": int(songs) if songs.isdigit() else None, "image": image or None, "note": note,
-            "kind": kind}  # fmt: skip
+    card = {"key": key, "service": service, "url": url, "name": name, "owner": owner, "kind": kind, "note": note}
+    card |= {"songs": int(songs) if songs.isdigit() else None, "image": image or None}
     if mode not in MODES:
         return _card_answer(request, con, card, "Unknown choice.")
     try:

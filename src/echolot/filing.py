@@ -62,8 +62,8 @@ class Want:
         import json
 
         isrc = row["isrc"] if "isrc" in row.keys() else ""  # noqa: SIM118 (on a Row, "in" tests the values)
-        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], json.loads(row["artists"] or "[]"),
-                   isrc or "")  # fmt: skip
+        artists = json.loads(row["artists"] or "[]")
+        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], artists, isrc or "")
 
 
 def event_path(paths: Paths, p: Path) -> str:

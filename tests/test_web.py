@@ -87,10 +87,9 @@ def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
 
         def playlists(self) -> list[dict]:
             p = {"url": "https://open.spotify.com/playlist/x", "songs": 3, "image": None, "readable": True}
-            return [p | {"id": "O1", "name": "Mine", "owner": "me", "own": True, "collaborative": False},
-                    p | {"id": "C1", "name": "Shared", "owner": "Ann", "own": False, "collaborative": True},
-                    p | {"id": "X1", "name": "Hers", "owner": "Ann", "own": False, "collaborative": False,
-                         "readable": False}]  # fmt: skip
+            own = p | {"id": "O1", "name": "Mine", "owner": "me", "own": True, "collaborative": False}
+            shared = p | {"id": "C1", "name": "Shared", "owner": "Ann", "own": False, "collaborative": True}
+            return [own, shared, shared | {"id": "X1", "name": "Hers", "collaborative": False, "readable": False}]
 
     monkeypatch.setattr(spotify, "Spotify", FakeSpotify)
     lists_web._found.clear()
@@ -111,12 +110,13 @@ def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) ->
         "rejected": {"another length": 7, "another version": 4},
         "tried": [["Song (Original Mix).mp3", "failed", "no progress (queued at the peer)"]],
     }
-    fallback = {"youtube": {"results": 5, "fits": 0, "rejected": {"another length": 5}, "tried": []},
-                "soundcloud": {"results": 1, "fits": 1, "rejected": {}, "tried": [["Song", "download failed", "DRM-protected"]]},
-                "near": ["youtube", "Song (Official Visualizer)", 219, "mismatch", ""]}  # fmt: skip
+    youtube = {"results": 5, "fits": 0, "rejected": {"another length": 5}, "tried": []}
+    drm = {"results": 1, "fits": 1, "rejected": {}, "tried": [["Song", "download failed", "DRM-protected"]]}
+    near = ["youtube", "Song (Official Visualizer)", 219, "mismatch", ""]
+    fallback = {"youtube": youtube, "soundcloud": drm, "near": near}
     with con:
-        con.execute("INSERT OR REPLACE INTO attempts (song_key, tries, last_try, last_fallback, result, fallback_result) "
-                    "VALUES (?, 3, 1, 1, ?, ?)", (key, json.dumps(soulseek), json.dumps(fallback)))  # fmt: skip
+        row = (key, json.dumps(soulseek), json.dumps(fallback))  # song_key, tries, last_try, last_fallback, results
+        con.execute("INSERT OR REPLACE INTO attempts VALUES (?, 3, 1, 1, ?, ?)", row)
     con.close()
     html = client.get("/missing").text
     assert "DRM on SoundCloud" in html and "stalls at peers" in html

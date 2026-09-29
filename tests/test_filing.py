@@ -241,26 +241,29 @@ def test_accept_links_the_same_recording_under_another_artist(env, monkeypatch) 
     assert con.execute("SELECT link FROM songs WHERE key = 'spotify:dodo'").fetchone()[0] == '["Pbb Yea", "Chilln"]'
 
 
+def search_hit(con, paths: Paths, src: Path, want: Want, name: str, source: str = "youtube", **kw) -> tuple:
+    """File a search result: the download must be the song."""
+    return filing.file_into(con, paths, src, want, source, strict=True, file_name=name, **kw)
+
+
 def test_accepted_other_length_counts_and_a_discarded_one_is_blocked(env) -> None:
     """Downloads of another length, kept for review: accepted, the song has it whatever its length; one
     discarded is never taken again (the search fallback would bring it back every week)."""
     con, paths, run = env
+    rows = [("spotify:a", "LAWTON", "Believe In"), ("spotify:b", "LAWTON", "Horizon")]
+    sql = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', ?, ?, 200)"
     with con:
-        con.execute("INSERT INTO songs (key, service, artist, title, length) VALUES "
-                    "('spotify:a', 'spotify', 'LAWTON', 'Believe In', 200), ('spotify:b', 'spotify', 'LAWTON', 'Horizon', 200)")  # fmt: skip
+        con.executemany(sql, rows)
     video = "LAWTON - Believe In (Official Visualizer)"
     want = Want("LAWTON", "Believe In", 200, "spotify:a")
-    assert filing.file_into(
-        con, paths, download(paths, "a.wav", 219), want, "youtube", strict=True, file_name=video
-    ) == ("mismatch", None)
+    assert search_hit(con, paths, download(paths, "a.wav", 219), want, video) == ("mismatch", None)
     assert filing.in_review(paths, "LAWTON", "Believe In")
     assert "new LAWTON/" in decide(con, run, events(con)[-1]["id"], "accept")
     library.match_songs(con)
     file = con.execute("SELECT file FROM songs WHERE key = 'spotify:a'").fetchone()[0]
     assert file == "LAWTON/LAWTON - Believe In.wav"
     other = "LAWTON - Horizon (Official Video)"
-    filing.file_into(con, paths, download(paths, "b.wav", 240), Want("LAWTON", "Horizon", 200, "spotify:b"), "youtube",
-                     strict=True, file_name=other)  # fmt: skip
+    search_hit(con, paths, download(paths, "b.wav", 240), Want("LAWTON", "Horizon", 200, "spotify:b"), other)
     assert decide(con, run, events(con)[-1]["id"], "discard").endswith("deleted")
     assert filing.is_blocked(con, "spotify:b", [other])
 
@@ -268,22 +271,20 @@ def test_accepted_other_length_counts_and_a_discarded_one_is_blocked(env) -> Non
 def test_the_audio_confirms_or_overrules_the_name(env) -> None:
     con, paths, _ = env
     same = Evidence("same", "audio of the release (0.95)")
-    action, _ = filing.file_into(con, paths, download(paths, "1.wav"), CAPO, "soulseek", strict=True,
-                                 file_name=CAPO_FILE, probable=False, heard=same)  # fmt: skip
+    src = download(paths, "1.wav")
+    action, _ = search_hit(con, paths, src, CAPO, CAPO_FILE, "soulseek", probable=False, heard=same)
     assert action == "new" and events(con)[-1]["matched"] == "exact"  # probable, confirmed: no review
     assert events(con)[-1]["audio"] == "audio of the release (0.95)"
     other = Evidence("other", "audio differs from the release (0.58)")
     song = Want("A", "Song", 200, "spotify:a")
-    assert filing.file_into(con, paths, download(paths, "2.wav"), song, "soulseek", strict=True,
-                            file_name="A - Song", heard=other) == ("wrong-song", None)  # fmt: skip
+    result = search_hit(con, paths, download(paths, "2.wav"), song, "A - Song", heard=other)
+    assert result == ("wrong-song", None)
     assert "audio differs" in events(con)[-1]["reason"] and filing.in_review(paths, "A", "Song")
 
 
 def test_a_wrong_download_far_off_the_length_is_deleted(env) -> None:
     con, paths, _ = env
-    src = download(paths, "3.wav", 78)
-    filing.file_into(con, paths, src, Want("HK", "Was!?!?", 269, "spotify:hk"), "soulseek", strict=True,
-                     file_name="31 Eine Art Chansons - Was können sie dir tun")  # fmt: skip
-    assert (
-        events(con)[-1]["action"] == "wrong-song" and not src.exists() and not filing.in_review(paths, "HK", "Was!?!?")
-    )
+    src, want = download(paths, "3.wav", 78), Want("HK", "Was!?!?", 269, "spotify:hk")
+    search_hit(con, paths, src, want, "31 Eine Art Chansons - Was können sie dir tun", "soulseek")
+    assert events(con)[-1]["action"] == "wrong-song"
+    assert not src.exists() and not filing.in_review(paths, "HK", "Was!?!?")

@@ -53,9 +53,15 @@ def stage(tries: int) -> int:
 
 def kind(why: str) -> str:
     """A prejudge reason as a short kind, counted in the search reports."""
-    for start, name in (("length", "another length"), ("artist not", "artist missing"), ("neither", "another song"),
-                        ("the file name lacks", "lacks the version"), ("marked wrong", "marked wrong"),
-                        ("the artist only", "artist in another name"), ("title not in", "title missing, no length")):  # fmt: skip
+    for start, name in (
+        ("length", "another length"),
+        ("artist not", "artist missing"),
+        ("neither", "another song"),
+        ("the file name lacks", "lacks the version"),
+        ("marked wrong", "marked wrong"),
+        ("the artist only", "artist in another name"),
+        ("title not in", "title missing, no length"),
+    ):
         if why.startswith(start):
             return name
     return "another version" if why.endswith("names another version") else why
@@ -124,16 +130,15 @@ class Fetcher:
         finally:
             con.close()
         wanted = 0 if rules.mix_cut(want.title) else want.length
-        judged, rejected = [], collections.Counter()
+        judged, rejected, terms = [], collections.Counter(), (wanted, opts.get("strict_artist", True), blocked, loosen)
         for c in found:
-            verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, wanted,
-                                                opts.get("strict_artist", True), blocked, loosen)  # fmt: skip
+            verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms)
             if verdict != rules.REJECT:
                 judged.append((rank, c.rank, c))
             else:
                 rejected[kind(why)] += 1
-        report = {"stage": stage(tries) if self.purpose == "search" else 0, "results": len(found),
-                  "fits": len(judged), "rejected": dict(rejected), "tried": []}  # fmt: skip
+        depth = stage(tries) if self.purpose == "search" else 0
+        report = {"stage": depth, "results": len(found), "fits": len(judged), "rejected": dict(rejected), "tried": []}
         if not judged:
             return Outcome("not found", f"{len(found)} results, none fits" if found else "no results", report)
         tried = []
@@ -463,20 +468,38 @@ def fallback(run: "Run") -> str:
     )
 
 
-def _fallback_song(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: Want, tries: int,
-                   strict_probable: bool) -> tuple[str, dict]:  # fmt: skip
+def _fallback_song(
+    run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: Want, tries: int, strict_probable: bool
+) -> tuple[str, dict]:
     """Search YouTube, then SoundCloud, and file the first result that passes the checks. Failing that, the
     result closest in length that names exactly this song but is another length (an official video often
     has its own edit) is downloaded and kept for review: only a listener can tell. One at a time; one
     discarded in review is not kept again. Returns the action and what the search saw, per site."""
-    cut = rules.mix_cut(want.title)
+
+    def fetch(site: str, r: dict) -> tuple[str, str]:
+        got, error = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
+        if not got:
+            return "download failed", error
+        try:
+            prepared = audio.prepare(got)
+        except audio.Rejected as e:
+            return "bad file", str(e)
+        source = "youtube" if site == "youtube" else "soundcloud-search"
+        heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
+        found = {"file_name": r["title"], "folders": (r["uploader"],), "fake": prepared.fake, "heard": heard}
+        checks = {"strict": True, "probable": strict_probable, "tries": tries}
+        action, dest = filing.file_into(con, run.paths, prepared.path, want, source, **found, **checks)
+        if dest and action in ("new", "upgrade"):
+            finish(run, con, dest, want)
+        return action, ""
+
     query = " ".join(
         re.findall(r"[\w']+", f"{want.artist} {rules.release_title(want.title)}")
     )  # "Was!?!?" finds nothing
     queries = {"youtube": [f'{query} "Provided to YouTube"', query], "soundcloud": [query]}  # releases' own audio first
-    wanted = 0 if cut else want.length
+    wanted = 0 if rules.mix_cut(want.title) else want.length
     report: dict = {}
-    near: tuple[str, dict] | None = None
+    others = []  # (how far off, site, result): the song by name, another length
     for site in ("youtube", "soundcloud"):
         results = list({r["url"]: r for q in queries[site] for r in ydl.search(q, site, run.stop)}.values())
         judged, rejected = [], collections.Counter()
@@ -487,43 +510,26 @@ def _fallback_song(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: 
                 judged.append((rank, i, r))
                 continue
             rejected[kind(why)] += 1
-            if (wanted and r["duration"] and 2 / 3 <= r["duration"] / wanted <= 1.5
-                    and rules.prejudge(want.artist, want.title, path, r["duration"], 0)[:2] == (rules.ACCEPT, 0)
-                    and (near is None or abs(r["duration"] - wanted) < abs(near[1]["duration"] - wanted))):  # fmt: skip
-                near = (site, r)
+            if _other_length(want, path, r["duration"], wanted):
+                others.append((abs(r["duration"] - wanted), site, r))
         seen = report[site] = {"results": len(results), "fits": len(judged), "rejected": dict(rejected), "tried": []}
         for _, _, r in sorted(judged, key=lambda j: j[:2])[:3]:
-            action, detail = _fallback_fetch(run, con, ydl, want, site, r, tries, strict_probable)
+            action, detail = fetch(site, r)
             seen["tried"].append([r["title"], action, detail])
             if action in FOUND:
                 return action, report
-    if (
-        near
-        and not filing.in_review(run.paths, want.artist, want.title)
-        and not filing.is_blocked(con, want.key, [near[1]["title"]])
-    ):
-        site, r = near
-        action, detail = _fallback_fetch(run, con, ydl, want, site, r, tries, strict_probable)
-        report["near"] = [site, r["title"], round(r["duration"]), action, detail]  # 'mismatch': kept for review
-        return action, report
+    near = min(others, key=lambda o: o[0], default=None)
+    if near and not filing.in_review(run.paths, want.artist, want.title):
+        _, site, r = near
+        if not filing.is_blocked(con, want.key, [r["title"]]):
+            action, detail = fetch(site, r)
+            report["near"] = [site, r["title"], round(r["duration"]), action, detail]  # 'mismatch': kept for review
+            return action, report
     return "not found", report
 
 
-def _fallback_fetch(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: Want, site: str, r: dict,
-                    tries: int, strict_probable: bool) -> tuple[str, str]:  # fmt: skip
-    got, error = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
-    if not got:
-        return "download failed", error
-    try:
-        prepared = audio.prepare(got)
-    except audio.Rejected as e:
-        return "bad file", str(e)
-    source = "youtube" if site == "youtube" else "soundcloud-search"
-    heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
-    action, dest = filing.file_into(
-        con, run.paths, prepared.path, want, source, strict=True, file_name=r["title"],
-        folders=(r["uploader"],), probable=strict_probable, tries=tries, fake=prepared.fake, heard=heard,
-    )  # fmt: skip
-    if dest and action in ("new", "upgrade"):
-        finish(run, con, dest, want)
-    return action, ""
+def _other_length(want: Want, path: str, seconds: float | None, wanted: float) -> bool:
+    """A result that names exactly the song but is another length (from 2/3 to 1.5 times as long)."""
+    if not (wanted and seconds and 2 / 3 <= seconds / wanted <= 1.5):
+        return False
+    return rules.prejudge(want.artist, want.title, path, seconds, 0)[:2] == (rules.ACCEPT, 0)

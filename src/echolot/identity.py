@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 SAME, OTHER = 0.8, 0.7  # share of equal fingerprint bits: from SAME on the recording, up to OTHER another one
 RETRY = 7 * 86400  # an ISRC Deezer did not know (or had no preview for) is asked again after a week
+_TO_FINGERPRINT = ["-ac", "1", "-f", "chromaprint", "-fp_format", "raw", "-"]  # ffmpeg output options
 _BITS = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
 
@@ -69,21 +70,18 @@ def reference(con: sqlite3.Connection, isrc: str) -> np.ndarray | None:
         log.info("deezer %s: %s", isrc, e)
         return None
     fp = fingerprint(preview) if preview else None
-    with con:
-        con.execute(
-            "INSERT OR REPLACE INTO refs (isrc, deezer_id, duration, fingerprint, checked) VALUES (?, ?, ?, ?, ?)",
-            (isrc, track.get("id"), track.get("duration"), fp.tobytes() if fp is not None and len(fp) else None,
-             int(time.time())),
-        )  # fmt: skip
-    return fp if fp is not None and len(fp) else None
+    fp = fp if fp is not None and len(fp) else None
+    entry = (isrc, track.get("id"), track.get("duration"), fp.tobytes() if fp is not None else None, int(time.time()))
+    with con:  # the columns in their order: isrc, deezer_id, duration, fingerprint, checked
+        con.execute("INSERT OR REPLACE INTO refs VALUES (?, ?, ?, ?, ?)", entry)
+    return fp
 
 
 def fingerprint(source: Path | bytes) -> np.ndarray | None:
     """Chromaprint of a file or of audio bytes (ffmpeg's muxer): one 32-bit value per 0.124 s; None if the
     audio could not be read."""
     data = source if isinstance(source, bytes) else None
-    cmd = ["ffmpeg", "-v", "error", "-i", "pipe:0" if data else str(source), "-ac", "1",
-           "-f", "chromaprint", "-fp_format", "raw", "-"]  # fmt: skip
+    cmd = ["ffmpeg", "-v", "error", "-i", "pipe:0" if data else str(source), *_TO_FINGERPRINT]
     try:
         r = subprocess.run(cmd, input=data, capture_output=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired):

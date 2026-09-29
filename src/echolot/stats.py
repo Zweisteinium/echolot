@@ -107,6 +107,12 @@ UNAVAILABLE = {
 }
 
 
+NOTES = {  # (text, style, explanation)
+    "drm": ("DRM on SoundCloud", "bad", "It fits, but SoundCloud serves it encrypted only (a label release)."),
+    "stalled": ("stalls at peers", "warn", "Soulseek users have it, but none started the transfer. It is tried again."),
+}
+
+
 def missing(con: Connection, list_key: str | None = None, paths: Paths | None = None) -> list[dict[str, Any]]:
     """Songs of the followed lists that are not in the library: their lists, what the searches saw (Soulseek,
     then YouTube and SoundCloud), the downloads rejected for them, and notes worth a glance."""
@@ -117,9 +123,9 @@ def missing(con: Connection, list_key: str | None = None, paths: Paths | None = 
     rows = con.execute(
         "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
         "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
-        "(SELECT group_concat(title, ' · ') FROM (SELECT DISTINCT l.title FROM list_songs ls "
-        " JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key ORDER BY l.position)) "
-        "AS in_lists "
+        "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
+        " FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key "
+        " ORDER BY l.position, ls.position)) AS in_lists "
         f"FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key WHERE {where} "
         "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
@@ -145,12 +151,10 @@ def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:
         notes.append((r["unavailable"], "bad", UNAVAILABLE.get(r["unavailable"], "")))
     fetched = [t for site in ("youtube", "soundcloud") for t in ((fallback or {}).get(site) or {}).get("tried", [])]
     if any(t[2] == "DRM-protected" for t in fetched):
-        notes.append(("DRM on SoundCloud", "bad", "The track fits, but SoundCloud serves it encrypted only (a label "
-                      "release). Echolot does not break copy protection."))  # fmt: skip
+        notes.append(NOTES["drm"])
     stalled = [t for t in (result or {}).get("tried", []) if t[1] == "failed" and "no progress" in (t[2] or "")]
     if stalled and len(stalled) == len(result["tried"]):
-        notes.append(("stalls at peers", "warn", "Soulseek users have it, but none started the transfer (queued at "
-                      "the peer). It is tried again."))  # fmt: skip
+        notes.append(NOTES["stalled"])
     return {
         **dict(r),
         "result": result,
