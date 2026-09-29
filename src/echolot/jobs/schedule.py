@@ -38,8 +38,6 @@ JOBS = [
             "search every missing Spotify song again, at the hours most users are online"),
     JobInfo("upgrade", "FLAC upgrade", "soulseek", ["14:00", "20:30"], 360,
             "FLAC-only search for songs that are not genuine lossless (each: 12 h, 1 d, 2 d, then every 3 d)"),
-    JobInfo("probe", "Availability probe", "soulseek", 60, 30,
-            "how many Soulseek users have the probe songs (search only)"),
     JobInfo("soundcloud", "SoundCloud", "web", 30, 15,
             "read the SoundCloud lists and download new songs (SoundCloud rate-limits bursts)"),
     JobInfo("fallback", "YouTube fallback", "web", 120, 60,

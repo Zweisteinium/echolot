@@ -46,7 +46,7 @@ class Spotify(Section):
 
 class Soulseek(Section):
     SECTION = "soulseek"
-    url: str = Field("http://gluetun:5031", description="the Sockseek daemon's API")
+    url: str = Field("http://sockseek:5031", description="the Sockseek daemon's API")
     user: str = Field("", description="the Soulseek account the daemon logs in with")
     daemon_music: str = Field("/music", description="the music directory as the daemon sees it")
     parallel: int = Field(4, ge=1, le=8, description="songs searched and downloaded at a time")

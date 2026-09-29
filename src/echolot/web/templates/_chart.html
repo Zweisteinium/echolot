@@ -1,25 +1,3 @@
-{% macro column_chart(c, title) -%}
-<figure class="chart">
-  <figcaption>{{ title }}</figcaption>
-  {% if c.empty %}<p class="muted small">No probes yet.</p>{% else %}
-  <svg viewBox="0 0 {{ c.width }} {{ c.height }}" role="img" aria-label="{{ title }}">
-    {% for y, label in c.ticks %}
-    <line class="grid" x1="{{ c.left }}" x2="{{ c.right }}" y1="{{ y }}" y2="{{ y }}"></line>
-    <text class="tick" x="{{ c.left - 6 }}" y="{{ y + 4 }}" text-anchor="end">{{ label }}</text>
-    {% endfor %}
-    {% for b in c.bars %}
-    <g class="col">
-      <title>{{ b.tooltip }}</title>
-      <rect class="hit" x="{{ b.slot_x }}" y="0" width="{{ b.slot_width }}" height="{{ c.baseline }}"></rect>
-      {% if b.path %}<path class="mark" d="{{ b.path }}"></path>{% endif %}
-      {% if b.label %}<text class="tick" x="{{ b.x + b.width / 2 }}" y="{{ c.height - 6 }}" text-anchor="middle">{{ b.label }}</text>{% endif %}
-    </g>
-    {% endfor %}
-  </svg>
-  {% endif %}
-</figure>
-{%- endmacro %}
-
 {# part-to-whole ring (charts.donut) with a figure in the middle; fake FLACs striped #}
 {% macro donut_chart(d, figure, caption) -%}
 <svg class="donut" viewBox="0 0 {{ d.size }} {{ d.size }}" width="{{ d.size }}" height="{{ d.size }}" role="img" aria-label="{{ caption }}">
