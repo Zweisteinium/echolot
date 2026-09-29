@@ -61,6 +61,8 @@ def test_jobs(client: TestClient) -> None:
 
 def test_static_stylesheet(client: TestClient) -> None:
     assert client.get("/static/style.css").status_code == 200
+    # root-relative: no http:// link on an https page behind a proxy
+    assert 'href="/static/style.css"' in client.get("/login").text
 
 
 def test_sources_page(client: TestClient) -> None:
