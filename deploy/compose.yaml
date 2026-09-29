@@ -2,7 +2,7 @@
 #
 #   cp .env.example .env                  # set MUSIC to your music folder
 #   mkdir -p data/echolot data/sockseek data/navidrome "<MUSIC>/inbox/soulseek"
-#   docker compose up -d                  # the first start builds Echolot and Sockseek (a few minutes)
+#   docker compose up -d                  # the first start builds Sockseek (a few minutes)
 #
 # Then open http://<this host>:8490 and set the admin password. Soulseek through a VPN: vpn.yaml.
 name: echolot
@@ -11,8 +11,7 @@ x-user: &user "${PUID:-1000}:${PGID:-1000}"
 
 services:
   echolot:
-    build: ..                             # this repository
-    image: echolot:local
+    image: lordlayer/echolot:0.6.9        # or build it from this repository: build: ..
     user: *user
     ports:
       - "${ECHOLOT_PORT:-8490}:8490"

@@ -11,6 +11,10 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
 FROM python:3.13-slim
+LABEL org.opencontainers.image.title="Echolot" \
+      org.opencontainers.image.description="Spotify and SoundCloud lists as a local music library, in the best quality there is" \
+      org.opencontainers.image.source="https://github.com/Zweisteinium/echolot" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 # ffmpeg: checking, converting and analysing downloads; nodejs: yt-dlp's JavaScript runtime (YouTube)
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs ca-certificates \
     && rm -rf /var/lib/apt/lists/*
