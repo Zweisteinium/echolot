@@ -1,5 +1,6 @@
 # WHAT the library downloads, and which playlists the music server shows. Copy to sources.yml.
-# Echolot's Sources page edits this file; editing it by hand works too (read at every run).
+# With Echolot, it takes this file over on its first start and writes it from then on (edit the
+# lists on its Sources page); without Echolot, edit it by hand (read at every run).
 #
 # A list entry is just a URL. Options, only when needed:
 #   - url: <link>

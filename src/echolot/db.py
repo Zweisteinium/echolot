@@ -125,6 +125,57 @@ MIGRATIONS = [
     -- Soulseek downloads logged the song as its URI (spotify:track:<id>); song keys are spotify:<id>
     UPDATE events SET song = 'spotify:' || substr(song, 15) WHERE song LIKE 'spotify:track:%';
     """,
+    """
+    CREATE TABLE users (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password TEXT NOT NULL,         -- scrypt$<n>$<r>$<p>$<salt>$<hash> (auth.hash_password)
+        created TEXT NOT NULL,
+        last_login TEXT
+    );
+    CREATE TABLE sessions (             -- browser logins
+        id TEXT PRIMARY KEY,            -- SHA-256 of the cookie value
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        csrf TEXT NOT NULL,             -- token every form and htmx request of the session sends back
+        created TEXT NOT NULL,
+        expires TEXT NOT NULL,
+        last_seen TEXT NOT NULL
+    );
+    CREATE TABLE api_tokens (           -- bearer tokens for scripts
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,     -- SHA-256 of the token
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created TEXT NOT NULL,
+        last_used TEXT
+    );
+    CREATE TABLE settings (             -- configuration by section (options.py), JSON
+        section TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated TEXT NOT NULL
+    );
+    CREATE TABLE secrets (              -- credentials, encrypted (vault.py)
+        name TEXT PRIMARY KEY,
+        value BLOB NOT NULL,
+        updated TEXT NOT NULL
+    );
+    CREATE TABLE sources (              -- the lists the library follows, as configured (lists: as fetched)
+        key TEXT PRIMARY KEY,           -- the list key: spotify:likes, spotify:playlist:<id>, soundcloud:<path>
+        service TEXT NOT NULL,          -- spotify, soundcloud
+        likes INTEGER NOT NULL DEFAULT 0,     -- 1: the account's own likes
+        url TEXT NOT NULL,
+        title TEXT,                     -- name override; NULL: the list's own name
+        playlist INTEGER NOT NULL DEFAULT 1,  -- also a playlist in the music server
+        enabled INTEGER NOT NULL DEFAULT 1,   -- 0: likes switched off (the row keeps their options)
+        position INTEGER NOT NULL,
+        added TEXT NOT NULL
+    );
+    INSERT INTO settings (section, value, updated)
+        SELECT 'echolot', json_object('refresh_minutes', CAST(value AS INTEGER)),
+               strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')
+        FROM meta WHERE key = 'refresh_minutes';
+    DELETE FROM meta WHERE key = 'refresh_minutes';
+    """,
 ]
 
 
