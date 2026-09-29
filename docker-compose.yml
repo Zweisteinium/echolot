@@ -1,7 +1,6 @@
 # Development instance on debian-server, next to production (/opt/echolot, port 8490; PLAN.md).
-# It works on its own database in ./data (a copy of production's) and reads the pipeline's config
-# directory and the music library read-only, so trying things here never changes what production
-# or the pipeline use.
+# It works on its own database in ./data and runs no jobs (ECHOLOT_WORKER=off); the music library is
+# read-only, so trying things here never changes what production uses.
 name: echolot-dev
 services:
   echolot:
@@ -13,11 +12,9 @@ services:
       - "192.168.178.42:8491:8490" # home network only
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
-      ECHOLOT_PIPELINE_DIR: /pipeline
-      ECHOLOT_PIPELINE_OUT_DIR: /data/pipeline # its sources.yml etc., never the pipeline's
+      ECHOLOT_WORKER: "off"
     volumes:
       - ./data:/data
       - /media/hdd/medialib/audio/music:/music:ro
-      - /opt/sockseek/config:/pipeline:ro
-      - /etc/localtime:/etc/localtime:ro # timestamps in the pipeline's logs are local time
+      - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped

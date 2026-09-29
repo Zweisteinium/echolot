@@ -18,6 +18,7 @@ COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     ECHOLOT_DATA_DIR=/data \
+    XDG_CACHE_HOME=/data/.cache \
     ECHOLOT_HOST=0.0.0.0 \
     ECHOLOT_PORT=8490
 EXPOSE 8490

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from echolot import db, options, soulseek, soundcloud, spotify
+from echolot.vault import VaultError
 from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
@@ -30,29 +31,23 @@ def default_redirect(request: Request) -> str:
 def status(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
     """What is connected, for this page, the Sources page and the overview."""
     vault = request.app.state.vault
-    creds = spotify.Credentials.load(con, vault)
-    sp: dict[str, Any] = {
-        "app": creds.app,
-        "connected": creds.connected,
-        "client_id": creds.client_id,
-    }
-    if creds.connected:
-        try:
+    sp: dict[str, Any] = {"app": False, "connected": False, "client_id": ""}
+    try:  # a secret stored with another key can't be read: shown as the account's error
+        creds = spotify.Credentials.load(con, vault)
+        sp.update(app=creds.app, connected=creds.connected, client_id=creds.client_id)
+        if creds.connected:
             me = spotify.Spotify(con, vault).me()
             sp.update(name=me.get("display_name") or me.get("id"), error=None)
-        except spotify.SpotifyError as e:
-            sp["error"] = str(e)
+    except (spotify.SpotifyError, VaultError) as e:
+        sp["error"] = str(e)
     sc: dict[str, Any] = {"connected": False}
-    if token := vault.get(con, soundcloud.TOKEN):
-        try:
+    try:
+        if token := vault.get(con, soundcloud.TOKEN):
             sc.update(connected=True, **soundcloud.me(token))
-        except soundcloud.SoundCloudError as e:
-            sc["error"] = str(e)
+    except (soundcloud.SoundCloudError, VaultError) as e:
+        sc.update(connected=False, error=str(e))
     opts = options.get(con, options.Soulseek)
-    slsk: dict[str, Any] = {
-        "user": opts.user,
-        "password": bool(vault.get(con, "soulseek.password")),
-    }
+    slsk: dict[str, Any] = {"user": opts.user, "password": vault.has(con, "soulseek.password")}
     try:
         slsk.update(soulseek.Daemon(opts.url, timeout=5).status(), reachable=True)
     except soulseek.DaemonError as e:
