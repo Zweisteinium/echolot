@@ -1,6 +1,6 @@
 """The only code that puts files into the library (<music>/tracks/<Artist>/<Artist> - <Title>.<ext>)
 or takes them out. Everything happens under one lock, against the files table, which every change here
-keeps current (library.scan picks up changes made by others):
+keeps current (catalog.scan picks up changes made by others):
   - nothing in the library is ever overwritten: files are linked into place with an exclusive create
   - a download that is the same song as a library file is discarded, unless it is a genuine lossless
     copy of a lossy or fake one: then it takes over and the old file moves to inbox/replaced/<date>/
@@ -21,9 +21,9 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot import audio, library
-from echolot.identity import UNKNOWN, Evidence
-from echolot.rules import artist_key, clean_name, first_artist, identify, mix_cut, norm_key, same_length
+from echolot.library import audio, catalog
+from echolot.library.identity import UNKNOWN, Evidence
+from echolot.library.rules import artist_key, clean_name, first_artist, identify, mix_cut, norm_key, same_length
 
 LOCK = threading.RLock()
 KEEP_DAYS = 30
@@ -126,7 +126,7 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool) -> Non
     st = p.stat()
     dur, kbps = audio.probe(p)
     rel = p.relative_to(paths.tracks).as_posix()
-    entry = library.Entry(rel, dur, kbps, fake)
+    entry = catalog.Entry(rel, dur, kbps, fake)
     with con:
         con.execute(
             "INSERT OR REPLACE INTO files (path, size, mtime, duration, kbps, quality) VALUES (?, ?, ?, ?, ?, ?)",
@@ -139,7 +139,7 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool) -> Non
             )
 
 
-def retire(con: sqlite3.Connection, paths: Paths, entry: library.Entry, reason: str) -> Path:
+def retire(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, reason: str) -> Path:
     """Take a library file out into inbox/replaced/<date>/ (kept KEEP_DAYS days)."""
     src = paths.tracks / entry.path
     dest = paths.inbox("replaced") / datetime.date.today().isoformat() / entry.path
@@ -194,7 +194,7 @@ def is_blocked(con: sqlite3.Connection, key: str, names: list[str]) -> bool:
     )
 
 
-def artist_dir(paths: Paths, cat: library.Catalog, artist: str) -> Path:
+def artist_dir(paths: Paths, cat: catalog.Catalog, artist: str) -> Path:
     """The artist's existing folder (any spelling; the fuller one), else a new one."""
     keys = [k for k in (artist_key(artist), artist_key(first_artist(artist))) if k]
     for k in keys:
@@ -272,7 +272,7 @@ def file_into(
     length = dur or length
     genuine = ext in audio.LOSSLESS and not fake
     with LOCK:
-        cat = library.Catalog.from_db(con)
+        cat = catalog.Catalog.from_db(con)
         same = cat.song(want.artist, want.title, length, want.artists, song_link(con, key))
         if same:
             best = same[0]

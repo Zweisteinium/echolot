@@ -5,7 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from echolot import db, identity
+from echolot import db
+from echolot.library import identity
 
 
 def noisy(fp: np.ndarray, share: float, rng: np.random.Generator) -> np.ndarray:

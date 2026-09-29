@@ -1,6 +1,6 @@
-# Development instance on debian-server, next to production (/opt/echolot, port 8490; PLAN.md).
-# It works on its own database in ./data and runs no jobs (ECHOLOT_WORKER=off); the music library is
-# read-only, so trying things here never changes what production uses.
+# Development instance next to production: its own database in ./data, no jobs (ECHOLOT_WORKER=off),
+# the music library read-only, so trying things here never changes what production uses.
+# Machine-specific values come from .env (not in git): ECHOLOT_BIND (address:port), MUSIC_DIR.
 name: echolot-dev
 services:
   echolot:
@@ -9,12 +9,12 @@ services:
     container_name: echolot-dev
     user: "1000:1000"
     ports:
-      - "192.168.178.42:8491:8490" # home network only
+      - "${ECHOLOT_BIND:-127.0.0.1:8491}:8490"
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_WORKER: "off"
     volumes:
       - ./data:/data
-      - /media/hdd/medialib/audio/music:/music:ro
+      - ${MUSIC_DIR:?set MUSIC_DIR in .env}:/music:ro
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped

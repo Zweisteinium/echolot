@@ -12,9 +12,12 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from echolot import acquire, db, filing, history, library, lists, options, playlists, review, schedule
+from echolot import db
 from echolot.config import Settings
-from echolot.vault import Vault
+from echolot.jobs import acquire, lists, schedule
+from echolot.library import catalog, filing, history, playlists, review
+from echolot.settings import options
+from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
 TICK = 20  # seconds between looks at the schedule
@@ -59,7 +62,7 @@ def upkeep(run: Run) -> str:
         parts = []
         if applied := review.apply_due(run, con):
             parts.append(f"review: {'; '.join(applied)}")
-        parts.append(library.refresh(con, run.paths.tracks))
+        parts.append(catalog.refresh(con, run.paths.tracks))
         parts.append(playlists.write(con, run.paths.playlists))
         if history.snapshot(con):
             parts.append("snapshot stored")

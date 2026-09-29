@@ -7,11 +7,13 @@ from typing import ClassVar
 
 import pytest
 
-from echolot import audio, lists, playlists, spotify, ytdlp
 from echolot.config import Settings
-from echolot.schedule import BY_NAME
-from echolot.vault import Vault
-from echolot.worker import Run
+from echolot.jobs import lists
+from echolot.jobs.schedule import BY_NAME
+from echolot.jobs.worker import Run
+from echolot.library import audio, playlists
+from echolot.services import spotify, ytdlp
+from echolot.settings.vault import Vault
 
 
 def song(sid: str, artist: str, title: str, length: int = 200) -> dict:
@@ -94,7 +96,7 @@ def test_playlists(run: Run) -> None:
     assert removed == ["#EXTM3U", "#PLAYLIST:Liked Songs – removed", "../tracks/Artist B/Artist B - Second Song.flac"]
     assert not (folder / "spotify-BBB222.m3u").exists()  # playlist: false
     # a list that is no longer followed loses its playlist file; a file Echolot did not write stays
-    from echolot import sources
+    from echolot.settings import sources
 
     sources.remove_list(con, "spotify:playlist:AAA111")
     lists.sync_table(con)
@@ -139,7 +141,7 @@ class FakeYtDlp:
 def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
     monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))
-    monkeypatch.setattr("echolot.lists.finish", lambda *a, **k: None)
+    monkeypatch.setattr("echolot.jobs.lists.finish", lambda *a, **k: None)
     message = lists.soundcloud(run)
     assert message == "SoundCloud: 2 of 2 lists read, 1 new files"
     con = run.connect()

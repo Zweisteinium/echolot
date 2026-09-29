@@ -2,7 +2,7 @@
 
 Every section is a pydantic model with defaults: a section never saved reads as its defaults, and a
 value that no longer validates (an older version wrote it) falls back to them field by field.
-The pipeline's schedule is a section too (schedule.py); the lists are in the sources table.
+The schedule is a section too (jobs/schedule.py); the lists are in the sources table.
 """
 
 import json

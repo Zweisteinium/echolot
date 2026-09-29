@@ -15,13 +15,15 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from echolot import audio, filing, sources, spotify, ytdlp
-from echolot.acquire import finish
-from echolot.filing import Want
-from echolot.sources import Source
+from echolot.jobs.acquire import finish
+from echolot.library import audio, filing
+from echolot.library.filing import Want
+from echolot.services import spotify, ytdlp
+from echolot.settings import sources
+from echolot.settings.sources import Source
 
 if TYPE_CHECKING:
-    from echolot.worker import Run
+    from echolot.jobs.worker import Run
 
 log = logging.getLogger(__name__)
 GREYED_OUT = "greyed out on Spotify"

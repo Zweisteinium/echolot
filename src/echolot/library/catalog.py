@@ -10,8 +10,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.audio import AUDIO, LOSSLESS, probe
-from echolot.rules import artist_keys, mix_cut, same_feat, same_length, title_key
+from echolot.library.audio import AUDIO, LOSSLESS, probe
+from echolot.library.rules import artist_keys, mix_cut, same_feat, same_length, title_key
 
 # quality tiers, best first: (key, label)
 QUALITY = [
@@ -22,7 +22,7 @@ QUALITY = [
     ("lossy-low", "Lossy < 160 kbps"),
 ]
 
-# "(3m43s)" the pipeline appends to tell two versions with the same title apart
+# "(3m43s)": what filing appends to a second file with the same name (another version of the title)
 LENGTH_SUFFIX = re.compile(r"\s\(\d+m\d{2}s\)(?:\s\(\d+\))?$")
 
 
@@ -102,8 +102,8 @@ class Catalog:
         artists: list[str] | None = None,
         link: list[str] | None = None,
     ) -> list[Entry]:
-        """Library files for a wanted song, as the pipeline's Catalog.song: a review link wins, then the
-        song's artist, then its other artists (a collaboration listed twice with the artists swapped)."""
+        """Library files for a wanted song: a review link wins, then the song's artist, then its other artists
+        (a collaboration listed twice with the artists swapped)."""
         if link and (hits := self.find(link[0], link[1])):
             return hits
         for a in dict.fromkeys([artist, *(artists or [])]):

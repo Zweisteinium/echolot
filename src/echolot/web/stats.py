@@ -5,10 +5,11 @@ from datetime import datetime, timedelta
 from sqlite3 import Connection, Row
 from typing import Any
 
-from echolot import acquire, filing
-from echolot.filing import Paths
-from echolot.library import QUALITY
-from echolot.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
+from echolot.jobs import acquire
+from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
+from echolot.library import filing
+from echolot.library.catalog import QUALITY
+from echolot.library.filing import Paths
 
 TIERS = [*QUALITY, ("missing", "Missing")]  # the quality scale of songs, best first
 ADDED = ("new", "upgrade")

@@ -353,5 +353,19 @@ uv sync
 uv run pytest                  # tests (the audio checks need ffmpeg: they run in the image)
 uv run ruff check && uv run ruff format
 uv run echolot serve           # http://127.0.0.1:8490
-docker compose up -d --build   # dev instance, see docker-compose.yml (runs no jobs)
+docker compose up -d --build   # dev instance (runs no jobs): MUSIC_DIR and ECHOLOT_BIND in .env
 ```
+
+Code layout (`src/echolot/`):
+
+| Package | What it holds |
+|---|---|
+| `cli.py`, `config.py`, `db.py` | the command line, settings from the environment, the SQLite schema and its migrations |
+| `settings/` | what you configure: settings sections, encrypted secrets, logins and API tokens, the followed lists, `echolot.yml` |
+| `services/` | Spotify, SoundCloud, the Sockseek daemon (Soulseek) and yt-dlp |
+| `library/` | the files: matching rules, the audio check, ffmpeg and tags, the catalog, filing, review, playlists, snapshots |
+| `jobs/` | the worker and its schedule, getting songs (Soulseek, YouTube, SoundCloud) and reading the lists |
+| `web/` | the pages and the API, one router per module; templates and static files |
+
+`tools/` holds checks to run by hand: `rules_check.py` (see Operation), `daemon_check.py` (the
+Sockseek daemon's API against a mock) and `icons.py` (draws the icon files from one geometry).
