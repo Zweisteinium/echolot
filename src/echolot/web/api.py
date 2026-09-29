@@ -1,6 +1,6 @@
 """Numbers for dashboards: the hourly snapshots as JSON and in the Prometheus format."""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -41,14 +41,6 @@ def api_stats_history(
 def api_stats_downloads(con: DB, days: int = 30) -> list[dict[str, Any]]:
     """Library events per day, action (new, upgrade, wrong-song, ...), source and format."""
     return [dict(r) for r in history.daily_events(con, days)]
-
-
-@router.get("/api/stats/availability")
-def api_stats_availability(con: DB, days: int = 30) -> list[dict[str, Any]]:
-    """Availability probes: Soulseek users (and with lossless) per probed song and run."""
-    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
-    sql = "SELECT ts, artist, title, kind, users, lossless_users, files FROM probes WHERE ts >= ? ORDER BY ts, artist, title"
-    return [dict(r) for r in con.execute(sql, (since,))]
 
 
 @router.get("/metrics", response_class=PlainTextResponse)

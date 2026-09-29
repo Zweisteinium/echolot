@@ -216,24 +216,6 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
     assert "at least 10" in bad.text
 
 
-def test_availability_page(client: TestClient) -> None:
-    html = client.get("/availability").text
-    assert "No probes yet" in html and "By hour as a table" in html
-
-
-def test_chart_geometry() -> None:
-    from echolot.web import charts
-
-    rows = [{"hour": h, "users": (3.0 if h == 20 else None), "runs": 1} for h in range(24)]
-    c = charts.hours(rows, "users", "users")
-    assert not c.empty and len(c.bars) == 24
-    bar = c.bars[20]
-    assert bar.path and bar.width <= charts.BAR and bar.y < c.baseline
-    assert "20:00–20:59 · 3.0 users" in bar.tooltip
-    assert [t[1] for t in c.ticks] == ["0", "2.5", "5"]
-    assert charts.nice_max(0) == 1 and charts.nice_max(7) == 10 and charts.nice_max(120) == 200
-
-
 def test_review(client: TestClient, settings: Settings) -> None:
     from echolot.library import filing
 

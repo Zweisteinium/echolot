@@ -3,6 +3,8 @@ name = "echolot"
 version = "0.5.0"
 description = "Self-hosted music library sync: playlists and likes in, only the right songs in the best available quality out."
 readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
     { name = "Zweisteinium", email = "lordlayer@pm.me" }
 ]

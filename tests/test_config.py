@@ -32,20 +32,16 @@ def test_options(con: sqlite3.Connection) -> None:
     assert options.get(con, options.Auth).session_days == 30
 
 
-def test_migration_moves_refresh_minutes(tmp_path) -> None:
-    path = tmp_path / "old.db"
-    c = sqlite3.connect(path)
-    for script in db.MIGRATIONS[:7]:  # a database from before v8
-        c.executescript(script)
-    c.execute("PRAGMA user_version = 7")
-    c.execute("INSERT INTO meta VALUES ('refresh_minutes', '9')")
-    c.commit()
-    c.close()
+def test_database_schema(tmp_path) -> None:
+    path = tmp_path / "e.db"
     db.init(path)
+    db.init(path)  # opening it again changes nothing
     c = db.connect(path)
-    assert options.raw(c, "echolot") == {"refresh_minutes": 9}
-    assert db.get_meta(c, "refresh_minutes") == ""
+    assert c.execute("PRAGMA user_version").fetchone()[0] == db.VERSION
+    c.execute("PRAGMA user_version = 11")
     c.close()
+    with pytest.raises(RuntimeError, match="schema 11"):
+        db.init(path)
 
 
 def test_vault(settings: Settings, con: sqlite3.Connection) -> None:
@@ -90,8 +86,8 @@ def test_export_import_round_trip(con: sqlite3.Connection) -> None:
 
 def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
     before = sources.as_config(con)
-    configfile.apply(con, "schedule:\n  probe: off\n")
-    assert sources.as_config(con) == before and schedule.rules(con)["probe"] is None
+    configfile.apply(con, "schedule:\n  fallback: off\n")
+    assert sources.as_config(con) == before and schedule.rules(con)["fallback"] is None
     assert schedule.rules(con)["sync"] == 30
 
 
@@ -121,23 +117,23 @@ def test_config_pages(settings: Settings, login: Callable[..., TestClient]) -> N
     r = client.get("/settings/config/export")
     assert "attachment" in r.headers["content-disposition"]
     data = yaml.safe_load(r.text)
-    data["schedule"]["probe"] = "off"
+    data["schedule"]["fallback"] = "off"
     upload = {"file": ("echolot.yml", io.BytesIO(configfile.dump(data).encode()), "text/yaml")}
     html = client.post("/settings/config/import", files=upload).text
-    assert "-  probe: 60" in html and "+  probe: &#39;off&#39;" in html
+    assert "-  fallback: 120" in html and "+  fallback: &#39;off&#39;" in html
     r = client.post("/settings/config/import/apply", data={"text": configfile.dump(data)})
     assert "Configuration imported" in r.text
     con = db.connect(settings.db_path)
-    assert schedule.rules(con)["probe"] is None
+    assert schedule.rules(con)["fallback"] is None
     con.close()
     html = client.post("/settings/config/import", files={
         "file": ("x.yml", io.BytesIO(b"sourcez: 1"), "text/yaml")}).text  # fmt: skip
     assert "Not imported: Unknown part" in html
     api = client.get("/api/config").json()
-    assert api["schedule"]["probe"] == "off"
-    r = client.put("/api/config", json={"schedule": {"probe": 30}}, params={"dry_run": True})
+    assert api["schedule"]["fallback"] == "off"
+    r = client.put("/api/config", json={"schedule": {"fallback": 90}}, params={"dry_run": True})
     assert r.json()["changed"] and not r.json()["applied"]
-    assert client.put("/api/config", json={"schedule": {"probe": 1}}).status_code == 422
+    assert client.put("/api/config", json={"schedule": {"fallback": 1}}).status_code == 422
 
 
 def test_cli_config_and_secrets(settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path) -> None:

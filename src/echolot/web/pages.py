@@ -1,4 +1,4 @@
-"""The pages that show the library: overview, missing songs, a list, activity and availability."""
+"""The pages that show the library: overview, missing songs, a list and the activity."""
 
 from typing import Annotated
 
@@ -39,10 +39,3 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
 @router.get("/activity", response_class=HTMLResponse)
 def activity(request: Request, con: DB, kind: str = "") -> HTMLResponse:
     return page(request, "activity.html", nav="activity", events=stats.events(con, kind), kind=kind)
-
-
-@router.get("/availability", response_class=HTMLResponse)
-def availability(request: Request, con: DB) -> HTMLResponse:
-    a = stats.availability(con)
-    rare, common = (charts.hours(a["hours"][kind], "users", "users") for kind in ("rare", "common"))
-    return page(request, "availability.html", nav="availability", a=a, rare=rare, common=common)

@@ -81,7 +81,6 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "sync": acquire.sync,
     "sweep": acquire.sweep,
     "upgrade": acquire.upgrade,
-    "probe": acquire.probe,
     "soundcloud": lists.soundcloud,
     "fallback": acquire.fallback,
     "library": upkeep,

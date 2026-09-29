@@ -59,7 +59,6 @@ def test_api(con, settings: Settings, login) -> None:
     assert client.get("/api/stats/history", params={"metric": "nope"}).status_code == 404
     downloads = client.get("/api/stats/downloads", params={"days": 3650}).json()
     assert {"day", "action", "source", "format", "count", "bytes"} <= downloads[0].keys()
-    assert client.get("/api/stats/availability").status_code == 200
 
 
 def test_prometheus(con, settings: Settings) -> None:
