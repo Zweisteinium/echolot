@@ -1,240 +1,185 @@
-"""SQLite database in the data directory. The schema is versioned with PRAGMA user_version."""
+"""SQLite database in the data directory. The schema is below; its version is PRAGMA user_version.
+A change to it gets a numbered migration step then (version 13 onwards)."""
 
 import sqlite3
 from pathlib import Path
 
-# One entry per schema version; a database is brought up to date by running the missing ones.
-MIGRATIONS = [
-    """
-    CREATE TABLE files (                -- audio files in the library
-        path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
-        size INTEGER NOT NULL,
-        mtime INTEGER NOT NULL,
-        duration REAL NOT NULL,         -- seconds, 0 = unknown
-        kbps INTEGER NOT NULL,
-        quality TEXT                    -- see library.QUALITY
-    );
-    CREATE TABLE lossy_sourced (        -- FLACs the spectrum check found to be made from lossy files
-        stem TEXT PRIMARY KEY,          -- files.path without extension
-        source TEXT,                    -- estimated original, e.g. "~128 kbps"
-        detected TEXT
-    );
-    CREATE TABLE lists (                -- playlists and likes the library follows
-        key TEXT PRIMARY KEY,           -- spotify:likes, spotify:playlist:<id>, soundcloud:<path>
-        service TEXT NOT NULL,
-        title TEXT NOT NULL,
-        url TEXT,
-        position INTEGER NOT NULL,
-        playlist INTEGER NOT NULL DEFAULT 1  -- shown as a playlist in the music server
-    );
-    CREATE TABLE songs (                -- every song of every list, once
-        key TEXT PRIMARY KEY,           -- spotify:<track id>, soundcloud:<track id>
-        service TEXT NOT NULL,
-        artist TEXT NOT NULL,
-        title TEXT NOT NULL,
-        album TEXT NOT NULL DEFAULT '',
-        length REAL NOT NULL DEFAULT 0,
-        unavailable TEXT,               -- why the source cannot deliver it (greyed out, DRM)
-        stem TEXT,                      -- SoundCloud: the library file it was downloaded as
-        file TEXT                       -- best library copy (files.path), NULL = missing
-    );
-    CREATE TABLE list_songs (
-        list_key TEXT NOT NULL REFERENCES lists(key) ON DELETE CASCADE,
-        position INTEGER NOT NULL,
-        song_key TEXT NOT NULL REFERENCES songs(key),
-        PRIMARY KEY (list_key, position)
-    );
-    CREATE INDEX list_songs_song ON list_songs(song_key);
-    CREATE TABLE attempts (             -- download attempts for songs that were not found
-        song_key TEXT PRIMARY KEY,
-        tries INTEGER NOT NULL,
-        last_try INTEGER,               -- unix time
-        last_fallback INTEGER           -- unix time of the last YouTube/SoundCloud search
-    );
-    CREATE TABLE events (               -- everything that was filed into or taken out of the library
-        id INTEGER PRIMARY KEY,
-        ts TEXT NOT NULL,               -- local time, ISO 8601
-        action TEXT NOT NULL,           -- new, upgrade, duplicate, wrong-song, mismatch, retired, ...
-        path TEXT,
-        ext TEXT,
-        bytes INTEGER,
-        kbps INTEGER,
-        seconds INTEGER,
-        source TEXT,
-        artist TEXT,
-        title TEXT,
-        reason TEXT
-    );
-    CREATE INDEX events_ts ON events(ts);
-    CREATE TABLE jobs (                 -- last run of each scheduled job
-        name TEXT PRIMARY KEY,
-        started TEXT,
-        finished TEXT,                  -- NULL while running
-        ok INTEGER,
-        message TEXT
-    );
-    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
-    """,
-    """
-    ALTER TABLE lists ADD COLUMN fetched INTEGER NOT NULL DEFAULT 1;  -- 0: not fetched by the pipeline yet
-    CREATE TABLE config_versions (      -- earlier contents of the pipeline config files Echolot edits
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,             -- sources.yml, schedule.yml
-        ts TEXT NOT NULL,               -- when it was replaced
-        text TEXT NOT NULL,
-        note TEXT
-    );
-    """,
-    """
-    CREATE TABLE probes (               -- availability probes: how many Soulseek users have a song, when
-        id INTEGER PRIMARY KEY,
-        ts TEXT NOT NULL,               -- local time the probe started
-        artist TEXT NOT NULL,
-        title TEXT NOT NULL,
-        kind TEXT NOT NULL,             -- rare, common (from probe.csv)
-        users INTEGER NOT NULL,         -- users with a matching file
-        lossless_users INTEGER NOT NULL,
-        files INTEGER NOT NULL
-    );
-    CREATE INDEX probes_ts ON probes(ts);
-    """,
-    """
-    ALTER TABLE events ADD COLUMN song TEXT;            -- songs.key the download was for
-    ALTER TABLE events ADD COLUMN matched TEXT;         -- exact, probable (loosened search), review (accepted)
-    ALTER TABLE events ADD COLUMN found TEXT;           -- tag title or source file name of the download
-    ALTER TABLE events ADD COLUMN file_name TEXT;       -- source file name (Soulseek) or video title
-    ALTER TABLE events ADD COLUMN fake INTEGER;         -- FLAC made from a lossy file
-    ALTER TABLE events ADD COLUMN tries INTEGER;        -- searches that had not found the song before
-    ALTER TABLE events ADD COLUMN wanted_seconds INTEGER;
-    """,
-    """
-    CREATE TABLE snapshots (            -- metrics over time (history.py), hourly
-        ts TEXT NOT NULL,               -- local time, ISO 8601; all rows of one snapshot share it
-        metric TEXT NOT NULL,           -- see history.METRICS
-        key TEXT NOT NULL DEFAULT '',   -- label value: quality tier, format, service, list key, ...
-        value REAL NOT NULL,
-        PRIMARY KEY (ts, metric, key)
-    );
-    CREATE INDEX snapshots_metric ON snapshots(metric, ts);
-    """,
-    """
-    ALTER TABLE songs ADD COLUMN artists TEXT;  -- JSON list of all the song's artists (Spotify)
-    ALTER TABLE songs ADD COLUMN link TEXT;     -- JSON [artist, title]: the library song it is (review accept)
-    """,
-    """
-    -- Soulseek downloads logged the song as its URI (spotify:track:<id>); song keys are spotify:<id>
-    UPDATE events SET song = 'spotify:' || substr(song, 15) WHERE song LIKE 'spotify:track:%';
-    """,
-    """
-    CREATE TABLE users (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        password TEXT NOT NULL,         -- scrypt$<n>$<r>$<p>$<salt>$<hash> (auth.hash_password)
-        created TEXT NOT NULL,
-        last_login TEXT
-    );
-    CREATE TABLE sessions (             -- browser logins
-        id TEXT PRIMARY KEY,            -- SHA-256 of the cookie value
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        csrf TEXT NOT NULL,             -- token every form and htmx request of the session sends back
-        created TEXT NOT NULL,
-        expires TEXT NOT NULL,
-        last_seen TEXT NOT NULL
-    );
-    CREATE TABLE api_tokens (           -- bearer tokens for scripts
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,     -- SHA-256 of the token
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        created TEXT NOT NULL,
-        last_used TEXT
-    );
-    CREATE TABLE settings (             -- configuration by section (options.py), JSON
-        section TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated TEXT NOT NULL
-    );
-    CREATE TABLE secrets (              -- credentials, encrypted (vault.py)
-        name TEXT PRIMARY KEY,
-        value BLOB NOT NULL,
-        updated TEXT NOT NULL
-    );
-    CREATE TABLE sources (              -- the lists the library follows, as configured (lists: as fetched)
-        key TEXT PRIMARY KEY,           -- the list key: spotify:likes, spotify:playlist:<id>, soundcloud:<path>
-        service TEXT NOT NULL,          -- spotify, soundcloud
-        likes INTEGER NOT NULL DEFAULT 0,     -- 1: the account's own likes
-        url TEXT NOT NULL,
-        title TEXT,                     -- name override; NULL: the list's own name
-        playlist INTEGER NOT NULL DEFAULT 1,  -- also a playlist in the music server
-        enabled INTEGER NOT NULL DEFAULT 1,   -- 0: likes switched off (the row keeps their options)
-        position INTEGER NOT NULL,
-        added TEXT NOT NULL
-    );
-    INSERT INTO settings (section, value, updated)
-        SELECT 'echolot', json_object('refresh_minutes', CAST(value AS INTEGER)),
-               strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')
-        FROM meta WHERE key = 'refresh_minutes';
-    DELETE FROM meta WHERE key = 'refresh_minutes';
-    """,
-    """
-    -- Echolot runs the pipeline itself (PLAN.md phase 3). Songs stay known when they leave every list
-    -- (links, attempts and SoundCloud downloads are kept); the wanted ones are those in a list.
-    ALTER TABLE songs ADD COLUMN url TEXT;          -- SoundCloud: the track page it is downloaded from
-    ALTER TABLE songs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;  -- SoundCloud: downloaded once
-    ALTER TABLE songs ADD COLUMN isrc TEXT;         -- Spotify: the recording's ISRC
-    ALTER TABLE lists ADD COLUMN cover_url TEXT;    -- the list's picture at its source
-    ALTER TABLE lists ADD COLUMN cover_file TEXT;   -- the cover_url saved next to its playlist file
-    ALTER TABLE lists ADD COLUMN snapshot TEXT;     -- Spotify: snapshot_id of the last listing
-    ALTER TABLE lists ADD COLUMN fetched_at TEXT;   -- last successful listing
-    CREATE VIEW wanted AS SELECT * FROM songs WHERE key IN (SELECT song_key FROM list_songs);
-    CREATE TABLE list_history (         -- every song a list ever had, for its "– removed" playlist
-        list_key TEXT NOT NULL,
-        song_key TEXT NOT NULL,
-        first_seen TEXT NOT NULL,       -- date
-        last_seen TEXT NOT NULL,
-        PRIMARY KEY (list_key, song_key)
-    );
-    CREATE TABLE upgrades (             -- FLAC searches that found nothing better yet
-        song_key TEXT PRIMARY KEY,
-        tries INTEGER NOT NULL,
-        last_try INTEGER NOT NULL       -- unix time
-    );
-    CREATE TABLE blocked (              -- downloads marked wrong in review: never taken for the song again
-        song_key TEXT NOT NULL,
-        name TEXT NOT NULL,             -- tag title or source file name
-        PRIMARY KEY (song_key, name)
-    );
-    CREATE TABLE review_decisions (
-        id TEXT PRIMARY KEY,            -- review.decision_id: '<event ts> <path>'
-        event_id INTEGER,
-        decision TEXT NOT NULL,         -- ok, wrong, accept, discard
-        decided TEXT NOT NULL,
-        applied TEXT,                   -- NULL: not yet (can be reverted)
-        result TEXT
-    );
-    CREATE TABLE probe_songs (          -- songs the availability probe searches
-        artist TEXT NOT NULL,
-        title TEXT NOT NULL,
-        kind TEXT NOT NULL,             -- rare, common
-        PRIMARY KEY (artist, title)
-    );
-    """,  # v10: what the searches saw, for the missing songs page (JSON, see acquire.Fetcher.song and fallback)
-    """
-    ALTER TABLE attempts ADD COLUMN result TEXT;
-    ALTER TABLE attempts ADD COLUMN fallback_result TEXT;
-    """,
-    # v11: the releases behind ISRCs, for the audio check (identity.py), and what that check found
-    """
-    CREATE TABLE refs (
-        isrc TEXT PRIMARY KEY,
-        deezer_id INTEGER,              -- NULL: Deezer does not know it
-        duration INTEGER,
-        fingerprint BLOB,               -- Chromaprint of the 30 s preview; NULL: none
-        checked INTEGER NOT NULL        -- unix time
-    );
-    ALTER TABLE events ADD COLUMN audio TEXT;
-    """,
-]
+VERSION = 12
+SCHEMA = """
+CREATE TABLE files (                -- audio files in the library
+    path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
+    size INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,
+    duration REAL NOT NULL,         -- seconds, 0 = unknown
+    kbps INTEGER NOT NULL,
+    quality TEXT                    -- see catalog.QUALITY
+);
+CREATE TABLE lossy_sourced (        -- FLACs the spectrum check found to be made from lossy files
+    stem TEXT PRIMARY KEY,          -- files.path without extension
+    source TEXT,                    -- estimated original, e.g. "~128 kbps"
+    detected TEXT
+);
+CREATE TABLE lists (                -- the followed lists as last fetched
+    key TEXT PRIMARY KEY,           -- spotify:likes, spotify:playlist:<id>, soundcloud:<path>
+    service TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    position INTEGER NOT NULL,
+    playlist INTEGER NOT NULL DEFAULT 1,  -- shown as a playlist in the music server
+    fetched INTEGER NOT NULL DEFAULT 1,   -- 0: not fetched yet
+    cover_url TEXT,                 -- the list's picture at its source
+    cover_file TEXT,                -- the cover_url saved next to its playlist file
+    snapshot TEXT,                  -- Spotify: snapshot_id of the last listing
+    fetched_at TEXT                 -- last successful listing
+);
+CREATE TABLE songs (                -- every song of every list, once; kept when it leaves every list
+    key TEXT PRIMARY KEY,           -- spotify:<track id>, soundcloud:<track id>
+    service TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    title TEXT NOT NULL,
+    album TEXT NOT NULL DEFAULT '',
+    length REAL NOT NULL DEFAULT 0,
+    unavailable TEXT,               -- why the source cannot deliver it (greyed out, DRM)
+    stem TEXT,                      -- SoundCloud: the library file it was downloaded as
+    file TEXT,                      -- best library copy (files.path), NULL = missing
+    artists TEXT,                   -- JSON list of all the song's artists (Spotify)
+    link TEXT,                      -- JSON [artist, title]: the library song it is (review accept)
+    url TEXT,                       -- SoundCloud: the track page it is downloaded from
+    archived INTEGER NOT NULL DEFAULT 0,  -- SoundCloud: downloaded once
+    isrc TEXT                       -- Spotify: the recording's ISRC
+);
+CREATE TABLE list_songs (
+    list_key TEXT NOT NULL REFERENCES lists(key) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    song_key TEXT NOT NULL REFERENCES songs(key),
+    PRIMARY KEY (list_key, position)
+);
+CREATE INDEX list_songs_song ON list_songs(song_key);
+CREATE VIEW wanted AS SELECT * FROM songs WHERE key IN (SELECT song_key FROM list_songs);
+CREATE TABLE list_history (         -- every song a list ever had, for its "– removed" playlist
+    list_key TEXT NOT NULL,
+    song_key TEXT NOT NULL,
+    first_seen TEXT NOT NULL,       -- date
+    last_seen TEXT NOT NULL,
+    PRIMARY KEY (list_key, song_key)
+);
+CREATE TABLE attempts (             -- searches for songs that were not found
+    song_key TEXT PRIMARY KEY,
+    tries INTEGER NOT NULL,
+    last_try INTEGER,               -- unix time
+    last_fallback INTEGER,          -- unix time of the last YouTube/SoundCloud search
+    result TEXT,                    -- JSON: what the last Soulseek search saw (acquire.Fetcher.song)
+    fallback_result TEXT            -- JSON: what the last YouTube/SoundCloud search saw (acquire.fallback)
+);
+CREATE TABLE upgrades (             -- FLAC searches that found nothing better yet
+    song_key TEXT PRIMARY KEY,
+    tries INTEGER NOT NULL,
+    last_try INTEGER NOT NULL       -- unix time
+);
+CREATE TABLE refs (                 -- the releases behind ISRCs, for the audio check (identity.py)
+    isrc TEXT PRIMARY KEY,
+    deezer_id INTEGER,              -- NULL: Deezer does not know it
+    duration INTEGER,
+    fingerprint BLOB,               -- Chromaprint of the 30 s preview; NULL: none
+    checked INTEGER NOT NULL        -- unix time
+);
+CREATE TABLE events (               -- everything that was filed into or taken out of the library
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,               -- local time, ISO 8601
+    action TEXT NOT NULL,           -- new, upgrade, duplicate, wrong-song, mismatch, retired, ...
+    path TEXT,
+    ext TEXT,
+    bytes INTEGER,
+    kbps INTEGER,
+    seconds INTEGER,
+    source TEXT,
+    artist TEXT,
+    title TEXT,
+    reason TEXT,
+    song TEXT,                      -- songs.key the download was for
+    matched TEXT,                   -- exact, probable (loosened search), review (accepted)
+    found TEXT,                     -- tag title or source file name of the download
+    file_name TEXT,                 -- source file name (Soulseek) or video title
+    fake INTEGER,                   -- FLAC made from a lossy file
+    tries INTEGER,                  -- searches that had not found the song before
+    wanted_seconds INTEGER,
+    audio TEXT                      -- what the audio check found
+);
+CREATE INDEX events_ts ON events(ts);
+CREATE TABLE blocked (              -- downloads marked wrong in review: never taken for the song again
+    song_key TEXT NOT NULL,
+    name TEXT NOT NULL,             -- tag title or source file name
+    PRIMARY KEY (song_key, name)
+);
+CREATE TABLE review_decisions (
+    id TEXT PRIMARY KEY,            -- review.decision_id: '<event ts> <path>'
+    event_id INTEGER,
+    decision TEXT NOT NULL,         -- ok, wrong, accept, discard
+    decided TEXT NOT NULL,
+    applied TEXT,                   -- NULL: not yet (can be reverted)
+    result TEXT
+);
+CREATE TABLE snapshots (            -- metrics over time (history.py), hourly
+    ts TEXT NOT NULL,               -- local time, ISO 8601; all rows of one snapshot share it
+    metric TEXT NOT NULL,           -- see history.METRICS
+    key TEXT NOT NULL DEFAULT '',   -- label value: quality tier, format, service, list key, ...
+    value REAL NOT NULL,
+    PRIMARY KEY (ts, metric, key)
+);
+CREATE INDEX snapshots_metric ON snapshots(metric, ts);
+CREATE TABLE jobs (                 -- last run of each scheduled job
+    name TEXT PRIMARY KEY,
+    started TEXT,
+    finished TEXT,                  -- NULL while running
+    ok INTEGER,
+    message TEXT
+);
+CREATE TABLE sources (              -- the lists the library follows, as configured (lists: as fetched)
+    key TEXT PRIMARY KEY,           -- the list key: spotify:likes, spotify:playlist:<id>, soundcloud:<path>
+    service TEXT NOT NULL,          -- spotify, soundcloud
+    likes INTEGER NOT NULL DEFAULT 0,     -- 1: the account's own likes
+    url TEXT NOT NULL,
+    title TEXT,                     -- name override; NULL: the list's own name
+    playlist INTEGER NOT NULL DEFAULT 1,  -- also a playlist in the music server
+    enabled INTEGER NOT NULL DEFAULT 1,   -- 0: likes switched off (the row keeps their options)
+    position INTEGER NOT NULL,
+    added TEXT NOT NULL
+);
+CREATE TABLE settings (             -- configuration by section (options.py), JSON
+    section TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated TEXT NOT NULL
+);
+CREATE TABLE secrets (              -- credentials, encrypted (vault.py)
+    name TEXT PRIMARY KEY,
+    value BLOB NOT NULL,
+    updated TEXT NOT NULL
+);
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password TEXT NOT NULL,         -- scrypt$<n>$<r>$<p>$<salt>$<hash> (auth.hash_password)
+    created TEXT NOT NULL,
+    last_login TEXT
+);
+CREATE TABLE sessions (             -- browser logins
+    id TEXT PRIMARY KEY,            -- SHA-256 of the cookie value
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    csrf TEXT NOT NULL,             -- token every form and htmx request of the session sends back
+    created TEXT NOT NULL,
+    expires TEXT NOT NULL,
+    last_seen TEXT NOT NULL
+);
+CREATE TABLE api_tokens (           -- bearer tokens for scripts
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,     -- SHA-256 of the token
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created TEXT NOT NULL,
+    last_used TEXT
+);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+"""
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -246,14 +191,16 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def init(path: Path) -> None:
-    """Create or upgrade the database."""
+    """Create the database, or check that it has this schema."""
     path.parent.mkdir(parents=True, exist_ok=True)
     con = connect(path)
     try:
         con.execute("PRAGMA journal_mode = WAL")  # readers don't wait for the jobs' writes
         version = con.execute("PRAGMA user_version").fetchone()[0]
-        for number, script in enumerate(MIGRATIONS[version:], start=version + 1):
-            con.executescript(f"BEGIN; {script}; PRAGMA user_version = {number}; COMMIT;")
+        if version == 0 and not con.execute("SELECT 1 FROM sqlite_master").fetchone():
+            con.executescript(f"BEGIN; {SCHEMA}; PRAGMA user_version = {VERSION}; COMMIT;")
+        elif version != VERSION:
+            raise RuntimeError(f"{path} has database schema {version}; this Echolot needs {VERSION}")
     finally:
         con.close()
 

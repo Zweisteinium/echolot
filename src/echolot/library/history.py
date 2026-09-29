@@ -3,7 +3,7 @@
 The refresh job stores a snapshot of every metric at most once per SNAPSHOT_SECONDS in the `snapshots`
 table: one row per (ts, metric, key), where key is the label value (a quality tier, a format, a list,
 ...; '' for none). Snapshots older than KEEP_HOURLY_DAYS are thinned to the first one of each day.
-Downloads and availability probes are time series already (the events and probes tables).
+Downloads are a time series already (the events table).
 """
 
 import sqlite3
@@ -181,17 +181,7 @@ def prometheus(con: sqlite3.Connection) -> str:
         "SELECT action, coalesce(source, ''), count(*) FROM events GROUP BY action, source ORDER BY 1, 2"
     ):
         lines.append(f'echolot_events_total{{action="{_escape(action)}",source="{_escape(source)}"}} {n}')
-    lines += [
-        "# HELP echolot_probe_users Soulseek users with the song at the last availability probe",
-        "# TYPE echolot_probe_users gauge",
-    ]
-    for artist, title, kind, users, lossless in con.execute(
-        "SELECT artist, title, kind, users, lossless_users FROM probes "
-        "WHERE ts = (SELECT max(ts) FROM probes) ORDER BY artist, title"
-    ):
-        song = _escape(f"{artist} - {title}")
-        lines.append(f'echolot_probe_users{{song="{song}",kind="{_escape(kind)}",lossless="false"}} {users}')
-        lines.append(f'echolot_probe_users{{song="{song}",kind="{_escape(kind)}",lossless="true"}} {lossless}')
+    lines += []
     refreshed = con.execute("SELECT finished FROM jobs WHERE name = 'library'").fetchone()
     if refreshed and refreshed[0]:
         lines += [

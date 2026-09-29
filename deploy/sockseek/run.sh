@@ -1,7 +1,7 @@
 #!/bin/sh
-# The Sockseek daemon for Echolot, in the VPN's network namespace. It is restarted when its login
-# (daemon.conf, written by Echolot's Accounts page) or its listen port (listen-port: the VPN's forwarded
-# port, written by host/sync-listen-port.sh) changes; the daemon reads both only at its start.
+# Runs the Sockseek daemon for Echolot and restarts it when its login (daemon.conf, written by Echolot's
+# Accounts page) or its listen port (listen-port: a VPN's forwarded port, written by gluetun in vpn.yaml)
+# changes; the daemon reads both only at its start. Without a login it waits.
 conf=/daemon/daemon.conf
 portfile=/daemon/listen-port
 pid=""

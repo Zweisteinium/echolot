@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 import pytest
-from conftest import insert
 
 from echolot import db
 from echolot.config import Settings
@@ -92,21 +91,3 @@ def test_scan_uses_known_durations(con, settings: Settings) -> None:
     catalog.scan(con, settings.library_dir, known)
     row = con.execute("SELECT duration, kbps FROM files WHERE path LIKE 'Uploader/%'").fetchone()
     assert tuple(row) == (400.0, 256)
-
-
-def test_probes_summarised(con) -> None:
-    rare, hit, evening, night = (
-        ("A", "Rare", "rare"),
-        ("B", "Hit", "common"),
-        "2026-09-27T20:05:00",
-        "2026-09-28T03:05:00",
-    )
-    rows = [(evening, *rare, 2, 1, 3), (evening, *hit, 200, 80, 400), (night, *rare, 0, 0, 0)]
-    with con:
-        insert(con, "probes", "ts, artist, title, kind, users, lossless_users, files", rows)
-    a = stats.availability(con)
-    assert a["runs"] == 2
-    rare = {r["hour"]: r for r in a["hours"]["rare"]}
-    assert (rare[20]["users"], rare[3]["users"], rare[12]["users"]) == (2, 0, None)
-    song = {s["title"]: s for s in a["songs"]}["Rare"]
-    assert (song["probes"], song["found"], song["max_users"]) == (2, 0.5, 2)

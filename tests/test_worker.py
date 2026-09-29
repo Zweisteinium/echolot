@@ -83,9 +83,9 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
         ran = [(n, now, now) for n in ("sweep", "upgrade")]
         con.executemany("INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", ran)
     con.close()
-    wk._start_due()  # probe and fallback are next in line
-    wait_for(lambda: len(started) == 2)
-    assert set(started) == {"probe", "fallback"}
+    wk._start_due()  # the fallback is next in line
+    wait_for(lambda: len(started) == 1)
+    assert started == ["fallback"]
     release.set()
     wait_for(lambda: not wk.runs)
     fallback = last(settings, "fallback")

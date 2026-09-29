@@ -1,0 +1,58 @@
+# Echolot with everything it needs: the Sockseek daemon (Soulseek) and Navidrome (plays the library).
+#
+#   cp .env.example .env                  # set MUSIC to your music folder
+#   mkdir -p data/echolot data/sockseek data/navidrome "<MUSIC>/inbox/soulseek"
+#   docker compose up -d                  # the first start builds Echolot and Sockseek (a few minutes)
+#
+# Then open http://<this host>:8490 and set the admin password. Soulseek through a VPN: vpn.yaml.
+name: echolot
+
+x-user: &user "${PUID:-1000}:${PGID:-1000}"
+
+services:
+  echolot:
+    build: ..                             # this repository
+    image: echolot:local
+    user: *user
+    ports:
+      - "${ECHOLOT_PORT:-8490}:8490"
+    environment:
+      ECHOLOT_LIBRARY_DIR: /music/tracks
+      ECHOLOT_DAEMON_DIR: /daemon
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data/echolot:/data              # database, settings, encrypted secrets
+      - ${MUSIC:?set MUSIC in .env}:/music
+      - ./data/sockseek:/daemon           # Echolot writes the daemon's Soulseek login here
+    restart: unless-stopped
+
+  sockseek:                               # searches and downloads on Soulseek for Echolot (port 5031, not published)
+    build: https://github.com/fiso64/sockseek.git
+    image: sockseek:local
+    user: *user
+    init: true
+    entrypoint: ["/bin/sh", "/run.sh"]
+    environment:
+      HOME: /tmp
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./sockseek/run.sh:/run.sh:ro
+      - ./data/sockseek:/daemon
+      - ${MUSIC}/inbox/soulseek:/music/inbox/soulseek   # the only place it writes
+    restart: unless-stopped
+
+  navidrome:                              # plays the library in the browser and in any Subsonic app
+    image: deluan/navidrome:0.64.1
+    user: *user
+    ports:
+      - "${NAVIDROME_PORT:-4533}:4533"
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_SCANSCHEDULE: "@every 15m"
+      ND_AUTOIMPORTPLAYLISTS: "true"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data/navidrome:/data
+      - ${MUSIC}/tracks:/music/tracks:ro
+      - ${MUSIC}/playlists:/music/playlists:ro
+    restart: unless-stopped

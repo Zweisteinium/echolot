@@ -19,7 +19,6 @@
   --ok: #1a7f37;
   --warn: #9a6700;
   --bad: #c9302d;
-  --chart: #2a78d6;          /* validated series blue (light) */
 
   --q-lossless: #006129;     /* FLAC */
   --q-fake: #3b7b1f;         /* FLAC made from lossy (striped) */
@@ -47,7 +46,6 @@
     --ok: #3fb950;
     --warn: #d29922;
     --bad: #ec5b57;
-    --chart: #3987e5;        /* validated series blue (dark) */
 
     --q-lossless: #218a45;
     --q-fake: #579e3c;
@@ -307,17 +305,6 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .legend-table td { padding: 0.3rem 0.5rem; border-top: 1px solid var(--border); }
 .legend-table td.sw { width: 1.5rem; padding-right: 0; }
 .legend-table tr.dim td { color: var(--muted); }
-
-/* ------------------------------------------------------------------ charts */
-.charts { display: grid; gap: 1.25rem; }
-figure.chart { margin: 0; }
-figure.chart figcaption { font-weight: 600; margin-bottom: 0.4rem; }
-figure.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
-.chart .grid { stroke: var(--border); stroke-width: 1; }
-.chart .tick { fill: var(--muted); font-size: 11px; }
-.chart .mark { fill: var(--chart); }
-.chart .hit { fill: transparent; }
-.chart .col:hover .hit { fill: color-mix(in srgb, var(--chart) 8%, transparent); }
 
 /* ------------------------------------------------------------------ pages */
 /* overview */

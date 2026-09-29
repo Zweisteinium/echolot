@@ -1,4 +1,4 @@
-"""Getting songs: Soulseek through the Sockseek daemon (sync, sweep, upgrade, probe) and the search
+"""Getting songs: Soulseek through the Sockseek daemon (sync, sweep, upgrade) and the search
 fallback on YouTube and SoundCloud. Only Spotify songs are searched on Soulseek; SoundCloud songs come from
 SoundCloud itself (their artist names are too unreliable for search results).
 
@@ -12,7 +12,6 @@ One song, one attempt:
 """
 
 import collections
-import datetime
 import json
 import logging
 import re
@@ -374,47 +373,6 @@ def upgrade(run: "Run") -> str:
             songs.append(r)
     run.say(f"{len(rows)} songs not genuine lossless, {len(songs[:batch])} searched now")
     return _search(run, songs[:batch], "upgrade")
-
-
-def probe(run: "Run") -> str:
-    """Availability statistics: search (never download) the probe songs and store how many users have
-    each, after the same filters as real downloads."""
-    con = run.connect()
-    try:
-        songs = con.execute("SELECT artist, title, kind FROM probe_songs").fetchall()
-        url = options.get(con, options.Soulseek).url
-    finally:
-        con.close()
-    if not songs:
-        return "no probe songs"
-    daemon = soulseek.Daemon(url)
-    daemon.status()  # reachable (it logs in with the first search)
-    started = datetime.datetime.now().isoformat(timespec="seconds")
-    settings = soulseek.search_settings()
-
-    def one(s: sqlite3.Row) -> tuple:
-        job = daemon.search(s["artist"], s["title"], 0, settings)
-        daemon.wait(job, run.stop, time.monotonic() + SEARCH_SECONDS)
-        found = daemon.results(job)
-        users = {c.user for c in found}
-        lossless = {c.user for c in found if c.ext in audio.LOSSLESS}
-        return started, s["artist"], s["title"], s["kind"], len(users), len(lossless), len(found)
-
-    with ThreadPoolExecutor(4) as pool:
-        rows = list(pool.map(one, songs))
-    if not _logged_in(daemon):  # zero users because nobody was asked: not stored
-        raise RuntimeError("Soulseek not logged in (check the account on the Accounts page)")
-    con = run.connect()
-    try:
-        with con:
-            con.executemany(
-                "INSERT INTO probes (ts, artist, title, kind, users, lossless_users, files) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
-    finally:
-        con.close()
-    return f"{len(rows)} songs probed, " + ", ".join(f"{r[2]}: {r[4]}" for r in rows)
 
 
 # ---------------------------------------------------------------- search fallback (home IP)

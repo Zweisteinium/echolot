@@ -1,0 +1,31 @@
+# Optional: Soulseek through a VPN. Peer-to-peer clients show their IP address to their peers; this puts
+# the Sockseek daemon into gluetun's network (github.com/qdm12/gluetun-wiki: settings per provider).
+# Echolot stays on the normal network and still reaches the daemon as sockseek:5031.
+#
+#   docker compose -f compose.yaml -f vpn.yaml up -d
+#
+# With a provider that forwards a port (ProtonVPN, PIA, ...), gluetun hands it to the daemon, so peers
+# behind a firewall can connect too.
+services:
+  gluetun:
+    image: qmcgaw/gluetun:v3
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    environment:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:?set the VPN settings in .env}
+      VPN_TYPE: ${VPN_TYPE:-wireguard}
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:-}
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
+      VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING:-off}
+      VPN_PORT_FORWARDING_UP_COMMAND: /bin/sh -c "echo {{PORT}} > /daemon/listen-port"
+      TZ: ${TZ:-UTC}
+    volumes:
+      - ./data/sockseek:/daemon           # the forwarded port for the daemon (run.sh restarts it)
+    networks:
+      default:
+        aliases: [sockseek]
+    restart: unless-stopped
+
+  sockseek:
+    network_mode: service:gluetun
+    depends_on: [gluetun]
