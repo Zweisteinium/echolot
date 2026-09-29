@@ -287,3 +287,14 @@ def test_catalog_song_other_artists_and_link() -> None:
     assert not cat.song("Catch Vibe", "Atlantis", 349)
     assert cat.song("TheDoDo", "Chilln", 227, ["TheDoDo"], ["Pbb Yea", "Chilln"])
     assert not cat.song("TheDoDo", "Chilln", 227, ["TheDoDo"])
+
+
+def test_prejudge_needs_artist_or_title() -> None:
+    """A loosened search for "HK - Was!?!?" finds anything with "was" in it: with neither the artist nor
+    the title in the path nothing is downloaded; with the title alone the tags decide."""
+    title = "Was!?!? (feat. OG Boobie Black)"
+    other = "Music\\The Decemberists\\438 - The Decemberists - Here I Dreamt I Was An Architect.mp3"
+    assert rules.prejudge("HK", title, other, 0, 180, strict_artist=False)[0] == "reject"
+    maybe = "Music\\Deutschrap 2021\\07 - Was!?!?.mp3"
+    assert rules.prejudge("HK", title, maybe, 180, 180, strict_artist=False)[0] == "unknown"
+    assert rules.prejudge("HK", title, maybe, 180, 180)[0] == "reject"  # the artist is required
