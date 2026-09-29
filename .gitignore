@@ -20,9 +20,3 @@ wheels/
 # Local notes for Claude, not published
 CLAUDE.md
 
-# Sockseek source for the pipeline image (git clone https://github.com/fiso64/sockseek pipeline/src)
-/pipeline/src/
-/pipeline/.env
-/pipeline/config/sources.yml
-/pipeline/config/state/
-/pipeline/config/logs/

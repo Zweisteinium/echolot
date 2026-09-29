@@ -26,6 +26,7 @@
     <div class="sub">{{ o.not_found|num }} searched, not found yet</div>
   </a>
 </section>
+<div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
 
 <section class="card quality-card">
   <h2>Quality of your songs <span class="count">{{ donut.total|num }}</span></h2>

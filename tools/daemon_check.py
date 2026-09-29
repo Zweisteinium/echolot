@@ -6,7 +6,7 @@ Runs inside a throwaway container of the pipeline image, without network, agains
 
   S=<scratch dir>; mkdir -p $S/out $S/fixtures
   docker run --rm --network none --user 1000:1000 -e HOME=/tmp --entrypoint sh \\
-    -v $S/out:/out -v $S/fixtures:/fixtures -v $PWD/pipeline/tools/daemon_check.py:/check.py:ro \\
+    -v $S/out:/out -v $S/fixtures:/fixtures -v $PWD/tools/daemon_check.py:/check.py:ro \\
     sockseek:local -c 'python3 /check.py --mock /tmp/mock --record /fixtures'
 
 --mock DIR creates a few short test files in DIR (ffmpeg) and starts three mock daemons itself: normal (5031),
@@ -25,8 +25,10 @@ from pathlib import Path
 
 QUERY = {"artist": "Scooter", "title": "Aiii Shot The DJ", "length": 5}
 MOCK_FILES = [  # (path, ffmpeg args)
-    ("Scooter/Scooter - Aiii Shot The DJ.flac",
-     ["-metadata", "artist=Scooter", "-metadata", "title=Aiii Shot The DJ"]),
+    (
+        "Scooter/Scooter - Aiii Shot The DJ.flac",
+        ["-metadata", "artist=Scooter", "-metadata", "title=Aiii Shot The DJ"],
+    ),
     ("Scooter/Scooter - Aiii Shot The DJ (Club Mix).mp3", ["-b:a", "320k"]),
     ("Other/Someone - Something.flac", []),
 ]
@@ -36,10 +38,15 @@ class Daemon:
     def __init__(self, url: str, record: Path | None) -> None:
         self.url, self.record = url.rstrip("/"), record
 
-    def call(self, method: str, path: str, body: object = None, name: str = "") -> tuple[int, object]:
-        req = urllib.request.Request(self.url + path, method=method,
-                                     data=None if body is None else json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
+    def call(
+        self, method: str, path: str, body: object = None, name: str = ""
+    ) -> tuple[int, object]:
+        req = urllib.request.Request(
+            self.url + path,
+            method=method,
+            data=None if body is None else json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+        )
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 status, raw = r.status, r.read()
@@ -50,13 +57,22 @@ class Daemon:
         except ValueError:
             data = raw.decode("utf-8", "replace")
         if name and self.record:
-            fixture = {"request": {"method": method, "path": path, "body": body},
-                       "status": status, "response": data}
-            (self.record / f"{name}.json").write_text(json.dumps(fixture, indent=2, ensure_ascii=False) + "\n")
+            fixture = {
+                "request": {"method": method, "path": path, "body": body},
+                "status": status,
+                "response": data,
+            }
+            (self.record / f"{name}.json").write_text(
+                json.dumps(fixture, indent=2, ensure_ascii=False) + "\n"
+            )
         return status, data
 
-    def wait(self, job: str, states: tuple[str, ...] = ("Terminal", "AwaitingSelection"),
-             timeout: float = 60) -> dict:
+    def wait(
+        self,
+        job: str,
+        states: tuple[str, ...] = ("Terminal", "AwaitingSelection"),
+        timeout: float = 60,
+    ) -> dict:
         end = time.monotonic() + timeout
         while True:
             status, d = self.call("GET", f"/api/jobs/{job}")
@@ -71,14 +87,40 @@ def make_mock(root: Path) -> None:
     for rel, args in MOCK_FILES:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=5",
-                        *args, str(p)], check=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=f=440:d=5",
+                *args,
+                str(p),
+            ],
+            check=True,
+        )
 
 
 def start_mock(mock: Path, port: int, out: str, *flags: str) -> None:
-    subprocess.Popen(["sockseek", "daemon", "--mock-files-dir", str(mock), "--server-port", str(port),
-                      "-o", f"{out}/default", *flags],
-                     stdout=open(f"/tmp/daemon-{port}.log", "w"), stderr=subprocess.STDOUT)
+    with open(f"/tmp/daemon-{port}.log", "w") as log:  # the child keeps its own copy of the handle
+        subprocess.Popen(
+            [
+                "sockseek",
+                "daemon",
+                "--mock-files-dir",
+                str(mock),
+                "--server-port",
+                str(port),
+                "-o",
+                f"{out}/default",
+                *flags,
+            ],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
 
 
 def reachable(d: Daemon) -> bool:
@@ -92,12 +134,20 @@ def reachable(d: Daemon) -> bool:
 
 
 def search(d: Daemon, prefix: str = "") -> tuple[str, list[dict]]:
-    _, job = d.call("POST", "/api/jobs/search/tracks",
-                    {"songQuery": QUERY, "includeFullResults": True,
-                     "options": {"downloadSettings": {"search": {"desperateSearch": False}}}},
-                    name=prefix and f"{prefix}search-submit")
+    _, job = d.call(
+        "POST",
+        "/api/jobs/search/tracks",
+        {
+            "songQuery": QUERY,
+            "includeFullResults": True,
+            "options": {"downloadSettings": {"search": {"desperateSearch": False}}},
+        },
+        name=prefix and f"{prefix}search-submit",
+    )
     d.wait(job["jobId"])
-    _, results = d.call("GET", f"/api/jobs/{job['jobId']}/results/files", name=prefix and f"{prefix}search-results")
+    _, results = d.call(
+        "GET", f"/api/jobs/{job['jobId']}/results/files", name=prefix and f"{prefix}search-results"
+    )
     return job["jobId"], results.get("items", [])
 
 
@@ -107,10 +157,16 @@ def basic(d: Daemon, check, out: str, download: bool) -> None:
     status, info = d.call("GET", "/api/server/info", name="server-info")
     check(status == 200, f"server info: {json.dumps(info)[:200]}")
 
-    status, job = d.call("POST", "/api/jobs/search/tracks",
-                         {"songQuery": QUERY, "includeFullResults": True,
-                          "options": {"downloadSettings": {"search": {"desperateSearch": False}}}},
-                         name="search-submit")
+    status, job = d.call(
+        "POST",
+        "/api/jobs/search/tracks",
+        {
+            "songQuery": QUERY,
+            "includeFullResults": True,
+            "options": {"downloadSettings": {"search": {"desperateSearch": False}}},
+        },
+        name="search-submit",
+    )
     check(status == 202 and job.get("kind") == "search", "search submitted")
     search_job = job["jobId"]
     detail = d.wait(search_job)
@@ -120,17 +176,24 @@ def basic(d: Daemon, check, out: str, download: bool) -> None:
     items = results.get("items", [])
     check(status == 200 and results.get("isComplete") and items, f"{len(items)} candidates")
     for it in items:
-        print(f"      {it['ref']['username']}  {it['ref']['filename']}  {it.get('length')} s  "
-              f"{it.get('bitRate')} kbps  {it.get('extension')}")
+        print(
+            f"      {it['ref']['username']}  {it['ref']['filename']}  {it.get('length')} s  "
+            f"{it.get('bitRate')} kbps  {it.get('extension')}"
+        )
 
-    _, none = d.call("POST", "/api/jobs/search/tracks",
-                     {"songQuery": {"artist": "Nobody", "title": "Nothing At All", "length": 100}},
-                     name="search-empty-submit")
+    _, none = d.call(
+        "POST",
+        "/api/jobs/search/tracks",
+        {"songQuery": {"artist": "Nobody", "title": "Nothing At All", "length": 100}},
+        name="search-empty-submit",
+    )
     empty = d.wait(none["jobId"])
     d.call("GET", f"/api/jobs/{none['jobId']}", name="search-empty-done")
     s = empty["summary"]
-    check(s["lifecycleState"] == "Terminal" and s.get("discoveryRawResultCount") == 0,
-          f"empty search: {s['terminalOutcome']}, {s.get('discoveryRawResultCount')} results")
+    check(
+        s["lifecycleState"] == "Terminal" and s.get("discoveryRawResultCount") == 0,
+        f"empty search: {s['terminalOutcome']}, {s.get('discoveryRawResultCount')} results",
+    )
 
     status, _ = d.call("GET", "/api/jobs/00000000-0000-0000-0000-000000000000", name="job-unknown")
     check(status == 404, f"unknown job: {status}")
@@ -138,9 +201,12 @@ def basic(d: Daemon, check, out: str, download: bool) -> None:
     if not (download and items):
         return
     pick = [it["ref"] for it in items if "Club" not in it["ref"]["filename"]][:1]
-    status, started = d.call("POST", f"/api/jobs/{search_job}/downloads/files",
-                             {"files": pick, "options": {"outputParentDir": f"{out}/picked"}},
-                             name="download-submit")
+    status, started = d.call(
+        "POST",
+        f"/api/jobs/{search_job}/downloads/files",
+        {"files": pick, "options": {"outputParentDir": f"{out}/picked"}},
+        name="download-submit",
+    )
     check(status == 202 and isinstance(started, list) and started, "download submitted")
     song = started[0]["jobId"]
     done = d.wait(song, ("Terminal",))
@@ -148,13 +214,22 @@ def basic(d: Daemon, check, out: str, download: bool) -> None:
     path = done["payload"].get("downloadPath")
     check(done["summary"]["terminalOutcome"] == "Succeeded" and bool(path), f"downloaded to {path}")
 
-    _, manual = d.call("POST", "/api/jobs/downloads/song",
-                       {"songQuery": QUERY, "options": {"outputParentDir": f"{out}/manual"},
-                        "downloadBehavior": {"default": "Manual"}},
-                       name="song-manual-submit")
+    _, manual = d.call(
+        "POST",
+        "/api/jobs/downloads/song",
+        {
+            "songQuery": QUERY,
+            "options": {"outputParentDir": f"{out}/manual"},
+            "downloadBehavior": {"default": "Manual"},
+        },
+        name="song-manual-submit",
+    )
     waiting = d.wait(manual["jobId"])
     d.call("GET", f"/api/jobs/{manual['jobId']}", name="song-manual-awaiting")
-    check(waiting["summary"]["lifecycleState"] == "AwaitingSelection", "manual song job awaits selection")
+    check(
+        waiting["summary"]["lifecycleState"] == "AwaitingSelection",
+        "manual song job awaits selection",
+    )
     status, _ = d.call("POST", f"/api/jobs/{manual['jobId']}/cancel", name="song-manual-cancel")
     try:
         d.wait(manual["jobId"], ("Terminal",), timeout=10)
@@ -166,36 +241,55 @@ def basic(d: Daemon, check, out: str, download: bool) -> None:
 def slow(d: Daemon, check, out: str) -> None:
     """--mock-files-slow: a download that is still running gets cancelled."""
     search_job, items = search(d)
-    status, started = d.call("POST", f"/api/jobs/{search_job}/downloads/files",
-                             {"files": [items[0]["ref"]], "options": {"outputParentDir": f"{out}/slow"}})
+    status, started = d.call(
+        "POST",
+        f"/api/jobs/{search_job}/downloads/files",
+        {"files": [items[0]["ref"]], "options": {"outputParentDir": f"{out}/slow"}},
+    )
     song = started[0]["jobId"]
     running = d.wait(song, ("Running",), timeout=20)
     d.call("GET", f"/api/jobs/{song}", name="download-running")
-    print(f"      running: phase {running['summary']['activityPhase']}, "
-          f"{running['payload'].get('bytesTransferred')} of {running['payload'].get('totalBytes')} bytes")
+    print(
+        f"      running: phase {running['summary']['activityPhase']}, "
+        f"{running['payload'].get('bytesTransferred')} of {running['payload'].get('totalBytes')} bytes"
+    )
     status, _ = d.call("POST", f"/api/jobs/{song}/cancel", name="download-cancel")
     done = d.wait(song, ("Terminal",), timeout=30)
     d.call("GET", f"/api/jobs/{song}", name="download-cancelled")
-    check(done["summary"]["terminalOutcome"] == "Cancelled", f"running download cancelled ({status})")
+    check(
+        done["summary"]["terminalOutcome"] == "Cancelled", f"running download cancelled ({status})"
+    )
 
 
 def fail(d: Daemon, check, out: str) -> None:
     """--mock-files-fail-downloads: every transfer fails."""
     search_job, items = search(d)
-    _, started = d.call("POST", f"/api/jobs/{search_job}/downloads/files",
-                        {"files": [items[0]["ref"]], "options": {"outputParentDir": f"{out}/fail"}})
+    _, started = d.call(
+        "POST",
+        f"/api/jobs/{search_job}/downloads/files",
+        {"files": [items[0]["ref"]], "options": {"outputParentDir": f"{out}/fail"}},
+    )
     song = started[0]["jobId"]
     done = d.wait(song, ("Terminal",), timeout=60)
     d.call("GET", f"/api/jobs/{song}", name="download-failed")
     s = done["summary"]
-    check(s["terminalOutcome"] == "Failed", f"failed download: {s['terminalOutcome']} / {s.get('failureReason')}")
+    check(
+        s["terminalOutcome"] == "Failed",
+        f"failed download: {s['terminalOutcome']} / {s.get('failureReason')}",
+    )
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--url", default="http://127.0.0.1:5031")
-    ap.add_argument("--mock", type=Path, help="create mock files here and start mock daemons (5031-5033)")
-    ap.add_argument("--record", type=Path, help="write each answer as <name>.json into this directory")
+    ap.add_argument(
+        "--mock", type=Path, help="create mock files here and start mock daemons (5031-5033)"
+    )
+    ap.add_argument(
+        "--record", type=Path, help="write each answer as <name>.json into this directory"
+    )
     ap.add_argument("--download", action="store_true", help="also download (always on with --mock)")
     ap.add_argument("--out", default="/out", help="download directory as the daemon sees it")
     args = ap.parse_args()
@@ -212,10 +306,14 @@ def main() -> int:
         make_mock(args.mock)
         start_mock(args.mock, 5031, args.out)
         start_mock(args.mock, 5032, args.out, "--mock-files-slow")
-        start_mock(args.mock, 5033, args.out, "--mock-files-fail-downloads", "100")  # the first 100 fail
-        runs = [("http://127.0.0.1:5031", lambda d: basic(d, check, args.out, True)),
-                ("http://127.0.0.1:5032", lambda d: slow(d, check, args.out)),
-                ("http://127.0.0.1:5033", lambda d: fail(d, check, args.out))]
+        start_mock(
+            args.mock, 5033, args.out, "--mock-files-fail-downloads", "100"
+        )  # the first 100 fail
+        runs = [
+            ("http://127.0.0.1:5031", lambda d: basic(d, check, args.out, True)),
+            ("http://127.0.0.1:5032", lambda d: slow(d, check, args.out)),
+            ("http://127.0.0.1:5033", lambda d: fail(d, check, args.out)),
+        ]
     else:
         runs = [(args.url, lambda d: basic(d, check, args.out, args.download))]
     for url, run in runs:
