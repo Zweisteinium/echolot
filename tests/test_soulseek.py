@@ -97,3 +97,20 @@ def test_login_file(tmp_path: Path) -> None:
     f = tmp_path / "d" / "daemon.conf"
     assert "user = me\npass = pw with spaces\n" in f.read_text()
     assert oct(f.stat().st_mode & 0o777) == "0o600"
+
+
+def test_real_result_shape() -> None:
+    """Real peers: an empty extension, length and bitrate only as attributes (or not at all)."""
+    item = {"username": "u", "filename": "d:\\music\\Scooter\\07 - Hyper Hyper.flac", "size": 36072568,
+            "peer": {"hasFreeUploadSlot": True, "uploadSpeed": 2570908}, "extension": "",
+            "attributes": [{"type": "Length", "value": 221}, {"type": "BitRate", "value": 0}]}  # fmt: skip
+    d = Replay({})
+    d._call = lambda method, path, body=None: {"items": [item, {**item, "attributes": []}]}
+    first, second = d.results("job")
+    assert (first.ext, first.length, first.name, first.folders[-1]) == (
+        "flac",
+        221,
+        "07 - Hyper Hyper",
+        "Scooter",
+    )
+    assert (second.length, second.bitrate) == (0, 0)
