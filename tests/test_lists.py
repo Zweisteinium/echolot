@@ -82,6 +82,18 @@ def test_fetch_spotify(run: Run) -> None:
     assert FakeSpotify.calls == ["items None"]
 
 
+def test_empty_listing_keeps_the_last(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    lists.fetch_spotify(run)
+    monkeypatch.setattr(FakeSpotify, "liked", [])  # e.g. a playlist Spotify no longer hands out
+    assert "failed: spotify:likes: no songs listed" in lists.fetch_spotify(run)
+    con = run.connect()
+    n = con.execute("SELECT count(*) FROM list_songs WHERE list_key = 'spotify:likes'").fetchone()[
+        0
+    ]
+    assert n == 3
+    con.close()
+
+
 def test_playlists(run: Run) -> None:
     lists.fetch_spotify(run)
     folder = run.paths.playlists

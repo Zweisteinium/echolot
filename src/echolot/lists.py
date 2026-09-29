@@ -146,6 +146,12 @@ def _fetch_spotify_list(con: sqlite3.Connection, sp: spotify.Spotify, s: Source)
                             (datetime.datetime.now().isoformat(timespec="seconds"), s.title or title, s.key))  # fmt: skip
             return
     items = sp.items(pid)
+    if (
+        not items
+        and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone()
+    ):
+        raise spotify.SpotifyError("no songs listed although the list had some (Spotify hands apps only the "
+                                   "songs of own and collaborative playlists)")  # fmt: skip
     with con:
         for it in items:
             _song(con, f"spotify:{it['id']}", "spotify", artist=it["artist"], title=it["title"],

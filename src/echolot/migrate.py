@@ -204,8 +204,7 @@ def run(
                 vault.set(con, name, env[var])
                 stored.append(name)
         if env.get("SPOTIFY_ID"):
-            options.update(con, options.Spotify, client_id=env["SPOTIFY_ID"],
-                           redirect_uri="http://127.0.0.1:48721/callback")  # fmt: skip
+            options.update(con, options.Spotify, client_id=env["SPOTIFY_ID"])
         if env.get("SLSK_USER"):
             options.update(con, options.Soulseek, user=env["SLSK_USER"])
         report.append(f"secrets stored: {', '.join(stored) or 'none'}")

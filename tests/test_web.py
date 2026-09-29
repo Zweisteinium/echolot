@@ -1,9 +1,10 @@
+import urllib.parse
 from collections.abc import Callable
 
 import pytest
 from fastapi.testclient import TestClient
 
-from echolot import __version__, db, schedule
+from echolot import __version__, db, schedule, spotify
 from echolot.config import Settings
 from echolot.filing import Paths
 from echolot.web import create_app
@@ -149,6 +150,27 @@ def test_accounts_page(client: TestClient, settings: Settings) -> None:
     r = client.post("/accounts/spotify/paste", data={"url": "http://127.0.0.1:48721/callback?code=x&state=y"},
                     follow_redirects=False)  # fmt: skip
     assert "not+the+address+of+the+last" in r.headers["location"]
+
+
+def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
+    """Behind an https proxy the login returns to Echolot; the exchange uses the address the login used."""
+    callback = "https://testserver/accounts/spotify/callback"
+    html = client.get("https://testserver/accounts").text
+    assert callback in html and "Spotify Premium required" in html and "?code=" not in html
+    r = client.post("/accounts/spotify/app", data={"client_id": "x" * 32, "client_secret": "s"},
+                    follow_redirects=False)  # fmt: skip
+    assert "ok=" in r.headers["location"]
+    r = client.post("https://testserver/accounts/spotify/login", follow_redirects=False)
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)
+    assert query["redirect_uri"] == [callback]
+    used = []
+    monkeypatch.setattr(
+        spotify, "exchange", lambda con, vault, code, redirect: used.append(redirect)
+    )
+    r = client.get(
+        f"/accounts/spotify/callback?code=c&state={query['state'][0]}", follow_redirects=False
+    )
+    assert "Spotify+connected" in r.headers["location"] and used == [callback]
 
 
 def test_connection_line(client: TestClient) -> None:
