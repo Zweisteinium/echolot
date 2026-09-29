@@ -78,8 +78,8 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
     con = db.connect(settings.db_path)
     with con:  # sweep and upgrade run at fixed times: one may be due at this hour, so they just ran
         now = datetime.now().isoformat(timespec="seconds")
-        con.executemany("INSERT OR REPLACE INTO jobs (name, started, finished, ok, message) VALUES (?, ?, ?, 1, '')",
-                        [(n, now, now) for n in ("sweep", "upgrade")])  # fmt: skip
+        ran = [(n, now, now) for n in ("sweep", "upgrade")]
+        con.executemany("INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", ran)
     con.close()
     wk._start_due()  # probe and fallback are next in line
     wait_for(lambda: len(started) == 2)

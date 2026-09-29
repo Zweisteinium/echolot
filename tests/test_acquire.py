@@ -228,16 +228,19 @@ class FakeYtDlp:
         return dest.with_suffix(".wav"), ""
 
 
+def hit(url: str, uploader: str, title: str, seconds: int) -> dict:
+    return {"url": url, "uploader": uploader, "title": title, "duration": seconds}
+
+
 def test_fallback_keeps_another_length_for_review(run: Run) -> None:
     """LAWTON - Believe In (200 s): SoundCloud has it, DRM-protected; YouTube only an official video of another
     edit (219 s) and the extended mix. The video is kept for review, once; the report says why."""
     want = Want("LAWTON", "Believe In", 200, "spotify:lawton")
     video = "LAWTON, Trancemaster Krause & Caroline Roxy - Believe In (Official Visualizer)"
-    ydl = FakeYtDlp({"youtube": [{"url": "yt1", "uploader": "Armada Music TV", "title": video, "duration": 219},
-                                 {"url": "yt2", "uploader": "Trance Paradise", "title": "LAWTON - Believe In (Extended Mix)",
-                                  "duration": 245}],
-                     "soundcloud": [{"url": "sc1", "uploader": "LAWTON", "title": "Believe In", "duration": 200}]},
-                    {"sc1": "DRM-protected"})  # fmt: skip
+    extended = hit("yt2", "Trance Paradise", "LAWTON - Believe In (Extended Mix)", 245)
+    youtube = [hit("yt1", "Armada Music TV", video, 219), extended]
+    soundcloud = [hit("sc1", "LAWTON", "Believe In", 200)]
+    ydl = FakeYtDlp({"youtube": youtube, "soundcloud": soundcloud}, {"sc1": "DRM-protected"})
     con = run.connect()
     action, report = acquire._fallback_song(run, con, ydl, want, 2, strict_probable=True)
     assert action == "mismatch" and ydl.fetched == ["sc1", "yt1"]
