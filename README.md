@@ -322,8 +322,9 @@ Forgotten password: `docker exec -it echolot echolot user passwd admin`.
   rejection, `docker logs sockseek-daemon` for Soulseek.
 - **Limits:** Soulseek limits searches (about 34 per 220 s), so a large search takes a while;
   SoundCloud answers 429 after bursts (keep its job at 15 minutes or more); Spotify
-  development-mode apps serve 5 accounts and get the songs of own and collaborative playlists
-  only (not other people's playlists or Spotify's editorial ones).
+  development-mode apps serve 5 accounts and can't read Spotify's editorial playlists. Spotify's
+  rules also let it withhold other people's playlists (in September 2026 they were still
+  readable); the Sources page marks any it withholds.
 - **Rule changes:** `uv run python tools/rules_check.py` compares the working copy's rules with
   the deployed version on the real library and history; `tools/daemon_check.py` checks the
   daemon's API against a mock.

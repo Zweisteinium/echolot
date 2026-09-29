@@ -45,6 +45,28 @@
       b.textContent = done ? "Copied" : "Select and copy";
       setTimeout(() => (b.textContent = "Copy"), 2000);
     });
+    // Sources: show one kind of list (yours, collaborative, by others), remembered per service
+    const showKind = (filter, value) => {
+      const input = filter.querySelector(`input[value="${value}"]`);
+      const cards = filter.nextElementSibling;
+      if (!input || !cards) return;
+      input.checked = true;
+      cards.dataset.show = value;
+    };
+    document.addEventListener("change", (e) => {
+      const filter = e.target.closest(".kind-filter");
+      if (!filter) return;
+      showKind(filter, e.target.value);
+      try { localStorage.setItem("echolot:show-" + filter.dataset.filter, e.target.value); } catch (err) {}
+    });
+    document.addEventListener("htmx:load", (e) => {  // the card fragments arrive after the page
+      const elt = e.detail.elt;
+      for (const filter of elt.matches(".kind-filter") ? [elt] : elt.querySelectorAll(".kind-filter")) {
+        let value = null;
+        try { value = localStorage.getItem("echolot:show-" + filter.dataset.filter); } catch (err) {}
+        if (value) showKind(filter, value);
+      }
+    });
     // remember which collapsible sections are closed (per browser; the page works without it)
     for (const d of document.querySelectorAll("details[data-remember]")) {
       const key = "echolot:" + d.dataset.remember;

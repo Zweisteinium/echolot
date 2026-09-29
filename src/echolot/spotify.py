@@ -158,19 +158,20 @@ class Spotify:
         return self.get("/me")
 
     def playlists(self) -> list[dict[str, Any]]:
-        """The account's playlists (own and followed): id, name, owner, own, readable, songs, image, url.
-        Development-mode apps get the songs only of playlists the account owns or collaborates on."""
+        """The account's playlists (own and followed): id, name, owner, own, collaborative, readable, songs,
+        image, url. Spotify's rules let development-mode apps read only own and collaborative playlists; where
+        it enforces that, the listing lacks the songs' count (readable False)."""
         me = self.me().get("id")
         out = []
         for p in self.pages("/me/playlists?limit=50"):
             if not p or not p.get("id"):
                 continue
-            own = (p.get("owner") or {}).get("id") == me
+            listing = p.get("items") or p.get("tracks")
             out.append({
                 "id": p["id"], "name": p.get("name") or "", "url": f"https://open.spotify.com/playlist/{p['id']}",
-                "owner": (p.get("owner") or {}).get("display_name") or "", "own": own,
-                "readable": own or bool(p.get("collaborative")),
-                "songs": ((p.get("tracks") or p.get("items") or {}).get("total")) or 0,
+                "owner": (p.get("owner") or {}).get("display_name") or "", "own": (p.get("owner") or {}).get("id") == me,
+                "collaborative": bool(p.get("collaborative")), "readable": listing is not None,
+                "songs": (listing or {}).get("total") or 0,
                 "image": ((p.get("images") or [{}])[0] or {}).get("url"),
             })  # fmt: skip
         return out
