@@ -4,12 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Echolot{% endblock %}</title>
+  <link rel="icon" href="{{ url_for('static', path='echolot.svg').path }}" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="{{ url_for('static', path='apple-touch-icon.png').path }}">
   <link rel="stylesheet" href="{{ url_for('static', path='style.css').path }}">
   <script src="{{ url_for('static', path='htmx.min.js').path }}" defer></script>
 </head>
 <body{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
   <header>
-    <a class="logo" href="/">Echolot</a>
+    <a class="logo" href="/"><img src="{{ url_for('static', path='echolot.svg').path }}" alt="" width="24" height="24">Echolot</a>
     {% if user %}
     <nav>
       <a href="/" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>

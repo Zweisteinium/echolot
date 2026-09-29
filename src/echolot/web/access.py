@@ -25,7 +25,7 @@ from echolot.web.common import DB, page
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
-PUBLIC = {"/healthz", "/login", "/setup"}
+PUBLIC = {"/healthz", "/login", "/setup", "/favicon.ico"}
 ADMIN = "admin"  # the account the setup creates
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 

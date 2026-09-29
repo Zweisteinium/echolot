@@ -25,6 +25,16 @@
     <div class="value{{ ' bad-text' if missing }}">{{ missing|num }}</div>
     <div class="sub">{{ o.not_found|num }} searched, not found yet</div>
   </a>
+  <a class="tile" href="/activity?kind=added">
+    <div class="label">Added in 24 h</div>
+    <div class="value">{{ o.added_24h|num }}</div>
+    <div class="sub">songs · {{ o.added_bytes_24h|size }}</div>
+  </a>
+  <a class="tile" href="/activity?kind=rejected">
+    <div class="label">Rejected in 24 h</div>
+    <div class="value">{{ o.rejected_24h|num }}</div>
+    <div class="sub">downloads that were not the song</div>
+  </a>
 </section>
 <div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
 
@@ -81,11 +91,6 @@
 </section>
 
 <section class="card">
-  <h2>Last 24 hours</h2>
-  <div class="stats">
-    <a class="stat" href="/activity?kind=added"><span class="stat-value">{{ o.added_24h|num }}</span><span class="stat-label">songs added · {{ o.added_bytes_24h|size }}</span></a>
-    <a class="stat" href="/activity?kind=rejected"><span class="stat-value">{{ o.rejected_24h|num }}</span><span class="stat-label">downloads rejected</span></a>
-  </div>
   {% include "_jobs.html" %}
 </section>
 {% endblock %}

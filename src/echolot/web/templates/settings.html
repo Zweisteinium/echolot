@@ -32,6 +32,7 @@
 </section>
 </form>
 
+<div class="grid-2">
 <section class="card">
   <h2>Configuration file</h2>
   <p class="muted small">All lists, the schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install. It holds no secrets and no account. An import shows what it changes before anything is stored.</p>
@@ -98,4 +99,5 @@
   <h2>Secrets</h2>
   <p class="muted small">The credentials of your <a href="/accounts">accounts</a> are stored encrypted with the key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}, a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing{% endif %}. They are never shown again.</p>
 </section>
+</div>
 {% endblock %}
