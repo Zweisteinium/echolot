@@ -14,6 +14,7 @@ class Settings:
     port: int
     # where the Sockseek daemon's login file is written (daemon.conf)
     daemon_dir: Path | None = None
+    worker: bool = True  # run the jobs (a development copy runs none: ECHOLOT_WORKER=off)
 
     @property
     def db_path(self) -> Path:
@@ -32,4 +33,5 @@ class Settings:
             host=env.get("ECHOLOT_HOST", "127.0.0.1"),
             port=int(env.get("ECHOLOT_PORT", "8490")),
             daemon_dir=path("ECHOLOT_DAEMON_DIR"),
+            worker=env.get("ECHOLOT_WORKER", "on").lower() not in ("off", "0", "false", "no"),
         )

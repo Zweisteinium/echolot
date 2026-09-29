@@ -72,6 +72,10 @@ class Vault:
                 f"Secret '{name}' can't be decrypted: it was stored with another key than {self.source}."
             ) from err
 
+    def has(self, con: sqlite3.Connection, name: str) -> bool:
+        """Whether the secret is stored (without decrypting it)."""
+        return con.execute("SELECT 1 FROM secrets WHERE name = ?", (name,)).fetchone() is not None
+
     def delete(self, con: sqlite3.Connection, name: str) -> bool:
         return con.execute("DELETE FROM secrets WHERE name = ?", (name,)).rowcount > 0
 

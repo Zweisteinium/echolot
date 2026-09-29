@@ -96,7 +96,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        worker.start()
+        if settings.worker:
+            worker.start()
         yield
         worker.stop()
 
@@ -150,10 +151,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             nav="overview",
             o=o,
             donut=charts.donut(o["song_tiers"]),
-            connected=bool(
-                secret_store.get(con, "spotify.refresh_token")
-                or secret_store.get(con, "soundcloud.token")
-            ),
+            connected=secret_store.has(con, "spotify.refresh_token")
+            or secret_store.has(con, "soundcloud.token"),
             **job_status(con),
         )
 
