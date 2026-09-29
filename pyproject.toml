@@ -34,7 +34,10 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true  # collapse whatever fits into one line
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]

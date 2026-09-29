@@ -12,18 +12,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from echolot import (
-    acquire,
-    db,
-    filing,
-    history,
-    library,
-    lists,
-    options,
-    playlists,
-    review,
-    schedule,
-)
+from echolot import acquire, db, filing, history, library, lists, options, playlists, review, schedule
 from echolot.config import Settings
 from echolot.vault import Vault
 
@@ -38,9 +27,7 @@ def _now() -> str:
 class Run:
     """One run of a job: what the job functions get."""
 
-    def __init__(
-        self, job: schedule.JobInfo, settings: Settings, vault: Vault, trigger: str
-    ) -> None:
+    def __init__(self, job: schedule.JobInfo, settings: Settings, vault: Vault, trigger: str) -> None:
         self.job, self.settings, self.vault, self.trigger = job, settings, vault, trigger
         self.stop = threading.Event()
         self.progress = ""
@@ -168,17 +155,13 @@ class Worker:
                 if job.resource in busy or job.name in self.runs:
                     continue
                 requested = job.name in self.requested
-                started = (
-                    datetime.datetime.fromisoformat(last[job.name]) if last.get(job.name) else None
-                )
+                started = datetime.datetime.fromisoformat(last[job.name]) if last.get(job.name) else None
                 if requested or (not paused and schedule.due(rules[job.name], started, now)):
                     self.requested.discard(job.name)
                     run = Run(job, self.settings, self.vault, "manual" if requested else "schedule")
                     self.runs[job.name] = run
                     busy.add(job.resource)
-                    threading.Thread(
-                        target=self._run, args=(run,), name=job.name, daemon=True
-                    ).start()
+                    threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
 
     def _run(self, run: Run) -> None:
         name = run.job.name

@@ -97,17 +97,11 @@ def found(request: Request, con: DB, service: str) -> HTMLResponse:
     """The lists of a connected account as cards (the page loads them with htmx)."""
     state = _state(con)
     try:
-        cards = (
-            _spotify_cards(request, con)
-            if service == "spotify"
-            else _soundcloud_cards(request, con)
-        )
+        cards = _spotify_cards(request, con) if service == "spotify" else _soundcloud_cards(request, con)
         error = None
     except (spotify.SpotifyError, soundcloud.SoundCloudError) as e:
         cards, error = [], str(e)
-    return page(
-        request, "_cards.html", cards=[_card(c, state) for c in cards], error=error, service=service
-    )
+    return page(request, "_cards.html", cards=[_card(c, state) for c in cards], error=error, service=service)
 
 
 @router.get("/sources/other", response_class=HTMLResponse)
@@ -128,9 +122,7 @@ def other(request: Request, con: DB) -> HTMLResponse:
     return page(request, "_cards.html", cards=cards, error=None, service="other")
 
 
-def _card_answer(
-    request: Request, con: sqlite3.Connection, card: dict[str, Any], error: str = ""
-) -> Response:
+def _card_answer(request: Request, con: sqlite3.Connection, card: dict[str, Any], error: str = "") -> Response:
     if request.headers.get("hx-request"):
         return page(request, "_card.html", c=_card(card, _state(con)), error=error)
     return back("/sources", **({"error": error} if error else {"ok": "Saved."}))
@@ -157,16 +149,10 @@ def follow(
         return _card_answer(request, con, card, "Unknown choice.")
     try:
         if url == "likes":
-            user = (
-                options.get(con, options.SourceOptions).soundcloud_user
-                if service == "soundcloud"
-                else None
-            )
+            user = options.get(con, options.SourceOptions).soundcloud_user if service == "soundcloud" else None
             sources.set_likes(con, service, mode != "off", user)
             if mode != "off":
-                row = con.execute(
-                    "SELECT key FROM sources WHERE service = ? AND likes = 1", (service,)
-                ).fetchone()
+                row = con.execute("SELECT key FROM sources WHERE service = ? AND likes = 1", (service,)).fetchone()
                 if row:
                     sources.set_playlist(con, row["key"], mode == "playlist")
         elif mode == "off":
@@ -188,15 +174,11 @@ def follow(
     return _card_answer(request, con, card)
 
 
-def _preview(
-    con: sqlite3.Connection, request: Request, service: str, url: str
-) -> tuple[str, str | None]:
+def _preview(con: sqlite3.Connection, request: Request, service: str, url: str) -> tuple[str, str | None]:
     """Name and cover of a list before it is read: Spotify's API when connected, else oEmbed."""
     if service == "spotify":
         try:
-            meta = spotify.Spotify(con, request.app.state.vault).playlist(
-                spotify.playlist_id(url) or ""
-            )
+            meta = spotify.Spotify(con, request.app.state.vault).playlist(spotify.playlist_id(url) or "")
             return meta["name"], meta["image"]
         except spotify.SpotifyError:
             pass
@@ -206,9 +188,7 @@ def _preview(
         else "https://soundcloud.com/oembed?format=json&url="
     )
     try:
-        req = urllib.request.Request(
-            endpoint + urllib.parse.quote(url, safe=""), headers={"User-Agent": "Mozilla/5.0"}
-        )
+        req = urllib.request.Request(endpoint + urllib.parse.quote(url, safe=""), headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:
             d = json.load(r)
         return d.get("title") or url, d.get("thumbnail_url")
@@ -218,10 +198,7 @@ def _preview(
 
 @router.post("/sources/add")
 def add(
-    request: Request,
-    con: DB,
-    url: Annotated[str, Form()],
-    mode: Annotated[str, Form()] = "playlist",
+    request: Request, con: DB, url: Annotated[str, Form()], mode: Annotated[str, Form()] = "playlist"
 ) -> RedirectResponse:
     """Follow a list by its link (another user's playlist, a public set)."""
     try:
@@ -232,10 +209,7 @@ def add(
         return back("/sources", error=str(e))
     lists.sync_table(con)
     with con:
-        con.execute(
-            "UPDATE lists SET title = ?, cover_url = ? WHERE key = ? AND NOT fetched",
-            (name, image, key),
-        )
+        con.execute("UPDATE lists SET title = ?, cover_url = ? WHERE key = ? AND NOT fetched", (name, image, key))
     request.app.state.worker.trigger("sync" if service == "spotify" else "soundcloud")
     return back("/sources", ok=f"Following {name}. Its songs are fetched now.")
 

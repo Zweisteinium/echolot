@@ -6,18 +6,8 @@ from echolot import rules
 from echolot.rules import artist_key, artist_keys, same_length, title_key
 
 
-def probable(
-    artist: str,
-    title: str,
-    found: str,
-    *,
-    file_name: str = "",
-    dur: float = 200,
-    length: float = 200,
-):
-    return (
-        rules.identify(artist, title, [artist], found, file_name, (), dur, length, 3)[0] is not None
-    )
+def probable(artist: str, title: str, found: str, *, file_name: str = "", dur: float = 200, length: float = 200):
+    return rules.identify(artist, title, [artist], found, file_name, (), dur, length, 3)[0] is not None
 
 
 @pytest.mark.parametrize(
@@ -96,7 +86,7 @@ WRONG = [
     ("Liquid Soul", "Levitate", "Levitate (OxiDaksi Remix)"),
     ("Some Artist", "Fire", "Fire II"),
     ("Some Artist", "Tale", "Tale Pt. 2"),
-]  # fmt: skip
+]
 
 
 @pytest.mark.parametrize(("artist", "title", "found"), RIGHT)
@@ -113,9 +103,7 @@ def test_probable_needs_length_and_artist() -> None:
     capo = RIGHT[0]
     assert not probable(*capo, dur=210)  # 10 s off
     assert not probable(*capo, dur=0)  # unknown
-    assert (
-        rules.identify("Other", capo[1], ["Other Artist"], capo[2], "", (), 200, 200, 3)[0] is None
-    )
+    assert rules.identify("Other", capo[1], ["Other Artist"], capo[2], "", (), 200, 200, 3)[0] is None
 
 
 def test_probable_from_file_name() -> None:
@@ -152,12 +140,7 @@ def test_mix_cut(title: str, cut: bool, release: str) -> None:
         ("Hells Bells", "AC/DC - Hells Bells (Official 4K Video)", 0, "exact"),  # noise only
         ("Tale Part 2", "Tale Pt. 2", 0, "exact"),
         ("Tale Part 2 (Club Mix)", "Tale Pt. 2 (Club Mix) [HAK003]", 0, "exact"),
-        (
-            "Tale Part 2 - Remix",
-            "Tale Pt. 2 (Official Remix)",
-            200,
-            "probable",
-        ),  # part == pt in version words
+        ("Tale Part 2 - Remix", "Tale Pt. 2 (Official Remix)", 200, "probable"),  # part == pt in version words
         ("Song - Edit", "Song (Radio Edit)", 200, "probable"),  # the old 'loose' case
         ("Song - Edit", "Song (Radio Edit)", 210, None),  # ... needs the length
         ("Song", "Song (Hard Trance Mix)", 200, None),  # a named variant
@@ -179,16 +162,11 @@ def test_file_name_version_overrules_tags() -> None:
     assert rules.identify(*args, "Guru Josh Project - Infinity 2008 - Klaas Vocal Edit")[0] is None
     assert rules.identify(*args, "03 - Infinity 2008 (Original Mix)")[0] == "exact"
     assert rules.identify(*args, "Guru Josh Project - Infinity 2008 (Live)")[0] is None
-    assert (
-        rules.identify(*args, "Guru Josh Project - Club Hits 2009 - 03 - Something Else")[0]
-        == "exact"
-    )
+    assert rules.identify(*args, "Guru Josh Project - Club Hits 2009 - 03 - Something Else")[0] == "exact"
 
 
 def test_small_gaps() -> None:
-    assert rules.identify(
-        "NTO", "Trauma - Worakls Remix", ["N'to"], "Trauma (Worakls Remix)", "", (), 0, 0
-    )[0]
+    assert rules.identify("NTO", "Trauma - Worakls Remix", ["N'to"], "Trauma (Worakls Remix)", "", (), 0, 0)[0]
     assert rules.title_key("10 out 10 [ARONAVA08]") == rules.title_key("10 out 10")
     assert rules.title_key("Liebeslied (Official Lyric Video)") == rules.title_key("Liebeslied")
     assert rules.title_key("Liebeslied (Lyric Video)") == rules.title_key("Liebeslied")
@@ -233,11 +211,7 @@ def test_search_terms() -> None:
         "The Twenty Five",
         0,
     )
-    assert rules.search_terms("A", "Song (feat. B) - Radio Edit", 200, loosen=True) == (
-        "A",
-        "Song",
-        200,
-    )
+    assert rules.search_terms("A", "Song (feat. B) - Radio Edit", 200, loosen=True) == ("A", "Song", 200)
 
 
 @pytest.mark.parametrize(
@@ -250,27 +224,20 @@ def test_search_terms() -> None:
         ("Music\\Someone Else\\Paradies - Abrissgebeat Remix.flac", 200, "reject"),  # artist
         ("Stefan Stürmer\\Paradies - Abrissgebeat Remix.flac", 0, "accept"),  # length unknown
     ],
-)  # fmt: skip
+)
 def test_prejudge(path: str, length: int, verdict: str) -> None:
-    got, _, why = rules.prejudge(
-        "Stefan Stürmer", "Paradies - Abrissgebeat Remix", path, length, 200
-    )
+    got, _, why = rules.prejudge("Stefan Stürmer", "Paradies - Abrissgebeat Remix", path, length, 200)
     assert got == verdict, why
 
 
 def test_prejudge_loosened_and_blocked() -> None:
     path = "Music\\Various\\Paradies - Abrissgebeat Remix.flac"
-    assert (
-        rules.prejudge("Stefan Stürmer", "Paradies - Abrissgebeat Remix", path, 200, 200)[0]
-        == "reject"
-    )
+    assert rules.prejudge("Stefan Stürmer", "Paradies - Abrissgebeat Remix", path, 200, 200)[0] == "reject"
     assert rules.prejudge("Stefan Stürmer", "Paradies - Abrissgebeat Remix", path, 200, 200,
                           strict_artist=False)[0] == "unknown"  # fmt: skip
     blocked = rules.prejudge("A", "Song", "A\\A - Song.flac", 0, 0, blocked=["A - Song"])
     assert blocked[0] == "reject"
-    cut = rules.prejudge(
-        "Neelix", "The Twenty Five - Mixed", "Neelix\\Neelix - The Twenty Five.flac", 295, 103
-    )
+    cut = rules.prejudge("Neelix", "The Twenty Five - Mixed", "Neelix\\Neelix - The Twenty Five.flac", 295, 103)
     assert cut[0] == "accept"  # a DJ-mix cut: any length
 
 
@@ -278,10 +245,7 @@ def test_catalog_song_other_artists_and_link() -> None:
     from echolot.library import Catalog, Entry
 
     cat = Catalog(
-        [
-            Entry("Mabe/Mabe - Atlantis.opus", 350, 160, False),
-            Entry("Pbb Yea/Pbb Yea - Chilln.opus", 227, 160, False),
-        ]
+        [Entry("Mabe/Mabe - Atlantis.opus", 350, 160, False), Entry("Pbb Yea/Pbb Yea - Chilln.opus", 227, 160, False)]
     )
     assert cat.song("Catch Vibe", "Atlantis", 349, ["Catch Vibe", "Mabe"])
     assert not cat.song("Catch Vibe", "Atlantis", 349)

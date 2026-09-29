@@ -30,13 +30,7 @@ def test_lists_in_config_order(con) -> None:
 
 def test_songs_matched_to_library_files(con) -> None:
     songs = {r["key"]: r for r in con.execute("SELECT * FROM songs")}
-    assert set(songs) == {
-        "spotify:s1",
-        "spotify:s2",
-        "spotify:s3",
-        "soundcloud:1001",
-        "soundcloud:1002",
-    }
+    assert set(songs) == {"spotify:s1", "spotify:s2", "spotify:s3", "soundcloud:1001", "soundcloud:1002"}
     assert songs["spotify:s1"]["file"] == "Artist A/Artist A - First Song.mp3"
     assert songs["spotify:s2"]["file"] == "Artist B/Artist B - Second Song.flac"  # (Original Mix)
     assert songs["soundcloud:1001"]["file"] == "Uploader/Uploader - Trance Tune.m4a"
@@ -57,9 +51,7 @@ def test_files_and_quality(con) -> None:
 def test_missing_and_overview(con) -> None:
     assert {r["key"] for r in stats.missing(con)} == {"spotify:s3", "soundcloud:1002"}
     only = stats.missing(con, "spotify:playlist:BBB222")
-    assert [(r["key"], r["tries"], r["in_lists"]) for r in only] == [
-        ("spotify:s3", 3, "Liked Songs · Renamed")
-    ]
+    assert [(r["key"], r["tries"], r["in_lists"]) for r in only] == [("spotify:s3", 3, "Liked Songs · Renamed")]
     o = stats.overview(con)
     assert (o["files"], o["wanted"], o["have"], o["not_found"]) == (3, 5, 3, 1)
     assert [(r["key"], r["songs"], r["have"]) for r in o["lists"]][:2] == [
@@ -140,12 +132,11 @@ def test_takeover_details(con, pipeline_dir: Path, settings: Settings) -> None:
 
     history = con.execute("SELECT count(*) FROM list_history").fetchone()[0]
     assert history == con.execute("SELECT count(*) FROM list_songs").fetchone()[0] == 8
-    assert tuple(
-        con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:s3'").fetchone()
-    ) == (3, 1790000000)
-    assert (
-        con.execute("SELECT archived FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0] == 1
+    assert tuple(con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:s3'").fetchone()) == (
+        3,
+        1790000000,
     )
+    assert con.execute("SELECT archived FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0] == 1
     assert options.get(con, options.Jobs).paused
     assert schedule.rules(con)["sync"] == 30
     before = con.execute("SELECT count(*) FROM songs").fetchone()[0]

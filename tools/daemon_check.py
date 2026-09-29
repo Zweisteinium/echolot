@@ -25,10 +25,7 @@ from pathlib import Path
 
 QUERY = {"artist": "Scooter", "title": "Aiii Shot The DJ", "length": 5}
 MOCK_FILES = [  # (path, ffmpeg args)
-    (
-        "Scooter/Scooter - Aiii Shot The DJ.flac",
-        ["-metadata", "artist=Scooter", "-metadata", "title=Aiii Shot The DJ"],
-    ),
+    ("Scooter/Scooter - Aiii Shot The DJ.flac", ["-metadata", "artist=Scooter", "-metadata", "title=Aiii Shot The DJ"]),
     ("Scooter/Scooter - Aiii Shot The DJ (Club Mix).mp3", ["-b:a", "320k"]),
     ("Other/Someone - Something.flac", []),
 ]
@@ -38,9 +35,7 @@ class Daemon:
     def __init__(self, url: str, record: Path | None) -> None:
         self.url, self.record = url.rstrip("/"), record
 
-    def call(
-        self, method: str, path: str, body: object = None, name: str = ""
-    ) -> tuple[int, object]:
+    def call(self, method: str, path: str, body: object = None, name: str = "") -> tuple[int, object]:
         req = urllib.request.Request(
             self.url + path,
             method=method,
@@ -57,22 +52,11 @@ class Daemon:
         except ValueError:
             data = raw.decode("utf-8", "replace")
         if name and self.record:
-            fixture = {
-                "request": {"method": method, "path": path, "body": body},
-                "status": status,
-                "response": data,
-            }
-            (self.record / f"{name}.json").write_text(
-                json.dumps(fixture, indent=2, ensure_ascii=False) + "\n"
-            )
+            fixture = {"request": {"method": method, "path": path, "body": body}, "status": status, "response": data}
+            (self.record / f"{name}.json").write_text(json.dumps(fixture, indent=2, ensure_ascii=False) + "\n")
         return status, data
 
-    def wait(
-        self,
-        job: str,
-        states: tuple[str, ...] = ("Terminal", "AwaitingSelection"),
-        timeout: float = 60,
-    ) -> dict:
+    def wait(self, job: str, states: tuple[str, ...] = ("Terminal", "AwaitingSelection"), timeout: float = 60) -> dict:
         end = time.monotonic() + timeout
         while True:
             status, d = self.call("GET", f"/api/jobs/{job}")
@@ -88,19 +72,7 @@ def make_mock(root: Path) -> None:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            [
-                "ffmpeg",
-                "-loglevel",
-                "error",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "sine=f=440:d=5",
-                *args,
-                str(p),
-            ],
-            check=True,
+            ["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=f=440:d=5", *args, str(p)], check=True
         )
 
 
@@ -145,9 +117,7 @@ def search(d: Daemon, prefix: str = "") -> tuple[str, list[dict]]:
         name=prefix and f"{prefix}search-submit",
     )
     d.wait(job["jobId"])
-    _, results = d.call(
-        "GET", f"/api/jobs/{job['jobId']}/results/files", name=prefix and f"{prefix}search-results"
-    )
+    _, results = d.call("GET", f"/api/jobs/{job['jobId']}/results/files", name=prefix and f"{prefix}search-results")
     return job["jobId"], results.get("items", [])
 
 
@@ -226,10 +196,7 @@ def basic(d: Daemon, check, out: str, download: bool) -> None:
     )
     waiting = d.wait(manual["jobId"])
     d.call("GET", f"/api/jobs/{manual['jobId']}", name="song-manual-awaiting")
-    check(
-        waiting["summary"]["lifecycleState"] == "AwaitingSelection",
-        "manual song job awaits selection",
-    )
+    check(waiting["summary"]["lifecycleState"] == "AwaitingSelection", "manual song job awaits selection")
     status, _ = d.call("POST", f"/api/jobs/{manual['jobId']}/cancel", name="song-manual-cancel")
     try:
         d.wait(manual["jobId"], ("Terminal",), timeout=10)
@@ -256,9 +223,7 @@ def slow(d: Daemon, check, out: str) -> None:
     status, _ = d.call("POST", f"/api/jobs/{song}/cancel", name="download-cancel")
     done = d.wait(song, ("Terminal",), timeout=30)
     d.call("GET", f"/api/jobs/{song}", name="download-cancelled")
-    check(
-        done["summary"]["terminalOutcome"] == "Cancelled", f"running download cancelled ({status})"
-    )
+    check(done["summary"]["terminalOutcome"] == "Cancelled", f"running download cancelled ({status})")
 
 
 def fail(d: Daemon, check, out: str) -> None:
@@ -273,23 +238,14 @@ def fail(d: Daemon, check, out: str) -> None:
     done = d.wait(song, ("Terminal",), timeout=60)
     d.call("GET", f"/api/jobs/{song}", name="download-failed")
     s = done["summary"]
-    check(
-        s["terminalOutcome"] == "Failed",
-        f"failed download: {s['terminalOutcome']} / {s.get('failureReason')}",
-    )
+    check(s["terminalOutcome"] == "Failed", f"failed download: {s['terminalOutcome']} / {s.get('failureReason')}")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default="http://127.0.0.1:5031")
-    ap.add_argument(
-        "--mock", type=Path, help="create mock files here and start mock daemons (5031-5033)"
-    )
-    ap.add_argument(
-        "--record", type=Path, help="write each answer as <name>.json into this directory"
-    )
+    ap.add_argument("--mock", type=Path, help="create mock files here and start mock daemons (5031-5033)")
+    ap.add_argument("--record", type=Path, help="write each answer as <name>.json into this directory")
     ap.add_argument("--download", action="store_true", help="also download (always on with --mock)")
     ap.add_argument("--out", default="/out", help="download directory as the daemon sees it")
     args = ap.parse_args()
@@ -306,9 +262,7 @@ def main() -> int:
         make_mock(args.mock)
         start_mock(args.mock, 5031, args.out)
         start_mock(args.mock, 5032, args.out, "--mock-files-slow")
-        start_mock(
-            args.mock, 5033, args.out, "--mock-files-fail-downloads", "100"
-        )  # the first 100 fail
+        start_mock(args.mock, 5033, args.out, "--mock-files-fail-downloads", "100")  # the first 100 fail
         runs = [
             ("http://127.0.0.1:5031", lambda d: basic(d, check, args.out, True)),
             ("http://127.0.0.1:5032", lambda d: slow(d, check, args.out)),

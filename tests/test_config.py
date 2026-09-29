@@ -55,18 +55,14 @@ def test_vault(settings: Settings, con: sqlite3.Connection) -> None:
     stored = con.execute("SELECT value FROM secrets").fetchone()[0]
     assert b"s3cret-value" not in stored
     assert v.get(con, "soundcloud.token") == "s3cret-value"
-    assert (
-        vault.Vault.from_env(settings.data_dir, {}).get(con, "soundcloud.token") == "s3cret-value"
-    )
+    assert vault.Vault.from_env(settings.data_dir, {}).get(con, "soundcloud.token") == "s3cret-value"
     other = vault.Vault(Fernet.generate_key(), "test")
     with pytest.raises(vault.VaultError, match="another key"):
         other.get(con, "soundcloud.token")
     with pytest.raises(vault.VaultError, match="not a Fernet key"):
         vault.Vault.from_env(settings.data_dir, {"ECHOLOT_SECRET_KEY": "short"})
     listing = {s["name"]: s for s in vault.listing(con)}
-    assert (
-        listing["soundcloud.token"]["updated"] and not listing["spotify.refresh_token"]["updated"]
-    )
+    assert listing["soundcloud.token"]["updated"] and not listing["spotify.refresh_token"]["updated"]
     with con:
         assert v.delete(con, "soundcloud.token") and not v.delete(con, "soundcloud.token")
 
@@ -142,9 +138,7 @@ def test_config_pages(settings: Settings, login: Callable[..., TestClient]) -> N
     assert client.put("/api/config", json={"schedule": {"probe": 1}}).status_code == 422
 
 
-def test_cli_config_and_secrets(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path
-) -> None:
+def test_cli_config_and_secrets(settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys, tmp_path) -> None:
     from echolot.cli import main
 
     monkeypatch.setenv("ECHOLOT_DATA_DIR", str(settings.data_dir))

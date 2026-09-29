@@ -17,9 +17,7 @@ from echolot.rules import clean_name, title_key
 log = logging.getLogger(__name__)
 
 # originals first (kept lossless), then the best streams
-SC_FORMATS = (
-    "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
-)
+SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 
 
 class YtDlp:
@@ -43,9 +41,7 @@ class YtDlp:
             cmd += ["--netrc", "--netrc-location", str(self.netrc)]
         p = subprocess.Popen(cmd + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
-            out, err = (
-                p.communicate(timeout=timeout) if stop is None else _communicate(p, stop, timeout)
-            )
+            out, err = p.communicate(timeout=timeout) if stop is None else _communicate(p, stop, timeout)
         except subprocess.TimeoutExpired:
             p.kill()
             out, err = p.communicate()
@@ -54,9 +50,7 @@ class YtDlp:
 
     # ------------------------------------------------------------ SoundCloud lists
 
-    def listing(
-        self, url: str, stop: threading.Event
-    ) -> tuple[list[tuple[str, str]] | None, dict[str, Any]]:
+    def listing(self, url: str, stop: threading.Event) -> tuple[list[tuple[str, str]] | None, dict[str, Any]]:
         """Ordered (id, url) of the tracks of a SoundCloud list, and the list's info; None if listing
         failed. Liked sets are left out (likes mean liked songs; add a set as its own list). SoundCloud
         answers 429 or an empty page after bursts: back off and retry."""
@@ -67,9 +61,7 @@ class YtDlp:
                 entries = [e for e in info.get("entries") or [] if e and e.get("id")]
                 if entries:
                     tracks = [
-                        (str(e["id"]), e.get("url") or "")
-                        for e in entries
-                        if "/sets/" not in (e.get("url") or "")
+                        (str(e["id"]), e.get("url") or "") for e in entries if "/sets/" not in (e.get("url") or "")
                     ]
                     return tracks, info
             elif "429" not in r.stderr:
@@ -80,9 +72,7 @@ class YtDlp:
                 break
         return None, {}
 
-    def download(
-        self, tracks: list[tuple[str, str]], folder: Path, stop: threading.Event
-    ) -> list[dict[str, str]]:
+    def download(self, tracks: list[tuple[str, str]], folder: Path, stop: threading.Event) -> list[dict[str, str]]:
         """Download SoundCloud tracks ((id, url)) into folder: [{id, uploader, artist, title, duration,
         path}] of the finished ones, each with its thumbnail as <id>.jpg. Tracks that got a 429 are tried
         again after a pause."""
@@ -101,11 +91,7 @@ class YtDlp:
                           "--print-to-file", "after_move:%(id)s\t%(uploader)s\t%(artist)s\t%(title)s\t"
                           "%(duration)s\t%(filepath)s", str(done_file), "-a", str(batch)],
                          stop)  # fmt: skip
-            lines = (
-                done_file.read_text(encoding="utf-8", errors="replace").splitlines()
-                if done_file.exists()
-                else []
-            )
+            lines = done_file.read_text(encoding="utf-8", errors="replace").splitlines() if done_file.exists() else []
             for line in lines:
                 parts = line.split("\t")
                 if len(parts) >= 6 and Path(parts[5]).is_file():
@@ -113,9 +99,7 @@ class YtDlp:
                     done[parts[0]] = dict(zip(keys, parts[:6], strict=True))
             if "429" not in r.stderr or stop.is_set():
                 break
-            log.info(
-                "soundcloud: rate limited while downloading, waiting 3 min (%d/4)", attempt + 1
-            )
+            log.info("soundcloud: rate limited while downloading, waiting 3 min (%d/4)", attempt + 1)
             if stop.wait(180):
                 break
         batch.unlink(missing_ok=True)
@@ -187,7 +171,5 @@ def artist_title(uploader: str, artist: str, title: str) -> tuple[str, str]:
     else:
         a = artist if artist and artist != "NA" else uploader
         t = title
-    a = re.split(r"\s*[,，;/]\s*|\s+[xX&]\s+|\s+feat\.?\s+|\s+ft\.?\s+", a or "")[0] or (
-        uploader or "Unknown"
-    )
+    a = re.split(r"\s*[,，;/]\s*|\s+[xX&]\s+|\s+feat\.?\s+|\s+ft\.?\s+", a or "")[0] or (uploader or "Unknown")
     return clean_name(a), clean_name(t)

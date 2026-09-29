@@ -80,8 +80,7 @@ def connection_line(request: Request, con: DB) -> HTMLResponse:
     """The connections and the free disk space on the overview (loaded after the page)."""
     folder = request.app.state.settings.library_dir
     free = shutil.disk_usage(folder).free if folder and folder.is_dir() else None
-    return page(request, "_connections.html", s=status(request, con, cached=True), free=free,
-                low_disk=LOW_DISK)  # fmt: skip
+    return page(request, "_connections.html", s=status(request, con, cached=True), free=free, low_disk=LOW_DISK)
 
 
 @router.get("/accounts/soulseek", response_class=HTMLResponse)
@@ -96,20 +95,14 @@ def soulseek_fragment(request: Request, con: DB) -> HTMLResponse:
 
 @router.post("/accounts/spotify/app")
 def spotify_app(
-    request: Request,
-    con: DB,
-    client_id: Annotated[str, Form()],
-    client_secret: Annotated[str, Form()] = "",
+    request: Request, con: DB, client_id: Annotated[str, Form()], client_secret: Annotated[str, Form()] = ""
 ) -> RedirectResponse:
     client_id, client_secret = client_id.strip(), client_secret.strip()
     if len(client_id) != 32:
         return back("/accounts", error="The client ID is the 32 characters under the app's name.")
     vault = request.app.state.vault
     if not client_secret and not vault.get(con, spotify.SECRET):
-        return back(
-            "/accounts",
-            error="Paste the client secret too (the app's Settings, 'View client secret').",
-        )
+        return back("/accounts", error="Paste the client secret too (the app's Settings, 'View client secret').")
     with con:
         options.update(con, options.Spotify, client_id=client_id)
         if client_secret:
@@ -130,20 +123,12 @@ def spotify_login(request: Request, con: DB) -> Response:
     return RedirectResponse(url, status_code=303)
 
 
-def _finish_login(
-    request: Request, con: sqlite3.Connection, query: dict[str, list[str]]
-) -> RedirectResponse:
+def _finish_login(request: Request, con: sqlite3.Connection, query: dict[str, list[str]]) -> RedirectResponse:
     if error := (query.get("error") or [""])[0]:
         return back("/accounts", error=f"Spotify: {error.replace('_', ' ')}.")
     code, state = (query.get("code") or [""])[0], (query.get("state") or [""])[0]
     expected, started, redirect = ([*db.get_meta(con, STATE).split(" "), "", ""])[:3]
-    if (
-        not code
-        or not state
-        or state != expected
-        or not redirect
-        or time.time() - int(started or 0) > 1800
-    ):
+    if not code or not state or state != expected or not redirect or time.time() - int(started or 0) > 1800:
         return back("/accounts", error="That is not the address of the last Spotify login (or it is older "
                                        "than 30 min). Click 'Connect Spotify' again.")  # fmt: skip
     try:
@@ -165,10 +150,7 @@ def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> Red
     """The address the browser showed after the login (it could not open 127.0.0.1)."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url.strip()).query)
     if not query.get("code") and not query.get("error"):
-        return back(
-            "/accounts",
-            error="Paste the whole address from the address bar (it contains ?code=...).",
-        )
+        return back("/accounts", error="Paste the whole address from the address bar (it contains ?code=...).")
     return _finish_login(request, con, query)
 
 

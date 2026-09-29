@@ -166,11 +166,7 @@ def last_point(times: list[str], now: datetime) -> datetime | None:
     parsed = [parse_time(t) for t in times]
     for back in range(8):
         day = (now - timedelta(days=back)).replace(second=0, microsecond=0)
-        hits = [
-            day.replace(hour=h, minute=m)
-            for days, h, m in parsed
-            if days is None or day.weekday() in days
-        ]
+        hits = [day.replace(hour=h, minute=m) for days, h, m in parsed if days is None or day.weekday() in days]
         hits = [t for t in hits if t <= now]
         if hits:
             return max(hits)
@@ -182,11 +178,7 @@ def next_time(times: list[str], after: datetime) -> datetime | None:
     parsed = [parse_time(t) for t in times]
     for ahead in range(8):
         day = (after + timedelta(days=ahead)).replace(second=0, microsecond=0)
-        hits = [
-            day.replace(hour=h, minute=m)
-            for days, h, m in parsed
-            if days is None or day.weekday() in days
-        ]
+        hits = [day.replace(hour=h, minute=m) for days, h, m in parsed if days is None or day.weekday() in days]
         hits = [t for t in hits if t > after]
         if hits:
             return min(hits)

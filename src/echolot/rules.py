@@ -40,9 +40,9 @@ def clean_name(s: str | None) -> str:
 
 
 def first_artist(a: str | None) -> str:
-    return re.split(
-        r"\s*[,;/]\s*|\s+(?:&|x|feat\.?|ft\.?|featuring|vs\.?)\s+", (a or "").strip(), flags=re.I
-    )[0].strip()
+    return re.split(r"\s*[,;/]\s*|\s+(?:&|x|feat\.?|ft\.?|featuring|vs\.?)\s+", (a or "").strip(), flags=re.I)[
+        0
+    ].strip()
 
 
 def artist_key(a: str | None) -> str:
@@ -93,20 +93,14 @@ def release_title(title: str | None) -> str:
 
 
 _FEAT = re.compile(
-    r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s([^\)\]]*)[\)\]]|\s(?:feat|ft|featuring)\.?\s([^\-\(\[]*)$",
-    re.I,
+    r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s([^\)\]]*)[\)\]]|\s(?:feat|ft|featuring)\.?\s([^\-\(\[]*)$", re.I
 )
 
 
 def feat_keys(t: str | None) -> set[str]:
     """Artist keys of the featured artists in a title ("Swervin (feat. 6ix9ine)" -> {"6ix9ine"})."""
     names = [n for m in _FEAT.finditer(t or "") for n in m.groups() if n]
-    return {
-        k
-        for n in names
-        for a in re.split(r"\s*(?:,|&|\band\b|\bx\b)\s*", n, flags=re.I)
-        if (k := artist_key(a))
-    }
+    return {k for n in names for a in re.split(r"\s*(?:,|&|\band\b|\bx\b)\s*", n, flags=re.I) if (k := artist_key(a))}
 
 
 def same_feat(a: str | None, b: str | None) -> bool:
@@ -146,10 +140,7 @@ def words(s: str | None) -> str:
 def _strip_track_no(s: str) -> str:
     """Without a leading track number: "07 ", "A2. ", disc-track "1-04 ", "CD-01 - ", "Disc 2 - "."""
     return re.sub(
-        r"^\s*(?:(?:cd|disc|disk)[\s\-_]?\d{1,2}|\d{1,2}-\d{1,3}|[a-z]?\d{1,4})[\s.\-_)]+(?=\S)",
-        "",
-        s,
-        flags=re.I,
+        r"^\s*(?:(?:cd|disc|disk)[\s\-_]?\d{1,2}|\d{1,2}-\d{1,3}|[a-z]?\d{1,4})[\s.\-_)]+(?=\S)", "", s, flags=re.I
     )
 
 
@@ -211,10 +202,7 @@ def identify(
             f"wanted {float(length or 0):.0f} s)"
         )
     if c := probable(title, readings["tags"] + readings["file name"], known):
-        return (
-            "probable",
-            f"probable: '{c}' has the core title, the same version words, length within {tol:.0f} s",
-        )
+        return ("probable", f"probable: '{c}' has the core title, the same version words, length within {tol:.0f} s")
     return None, (
         f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' "
         "has the same core title and version"
@@ -284,9 +272,7 @@ PLAIN_WORDS = {
     "for", "to", "de", "der", "die", "das",
 }  # fmt: skip
 _MARKERS = VERSION_WORDS | {"mix", "edit", "version"}  # a segment with one of these names a variant
-_SEGMENT = re.compile(
-    r"[\(\)\[\]\{\}|•]|\s+-\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I
-)
+_SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+-\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
 
 
 def segments(title: str | None) -> tuple[str, list[str]]:
@@ -402,9 +388,7 @@ def prejudge(
         return REJECT, 9, f"the file name lacks '{' '.join(sorted(versions))}' (another recording)"
     tk = title_key(title)
     exact = bool(tk) and any(title_key(c) == tk and same_feat(c, title) for c in names)
-    close = exact or bool(
-        length and wanted and abs(length - wanted) <= 3 and probable(title, names, known)
-    )
+    close = exact or bool(length and wanted and abs(length - wanted) <= 3 and probable(title, names, known))
     if not artist_seen:  # a loosened search: the tags must name the artist
         if close:
             return UNKNOWN, 2, "title in the file name, artist unseen"
@@ -422,9 +406,7 @@ def prejudge(
 def search_title(title: str) -> str:
     """Title for a loosened search: without feat. credits, 'From "Film"' and a trailing ' - Radio Edit',
     ' - Unmixed Version', ' - 2011 Remaster' (plain words only; ' - X Remix' stays)."""
-    t = re.sub(
-        r"\s*[\(\[]\s*(?:feat|ft|featuring|with|from)\.?\s[^\)\]]*[\)\]]", "", title, flags=re.I
-    )
+    t = re.sub(r"\s*[\(\[]\s*(?:feat|ft|featuring|with|from)\.?\s[^\)\]]*[\)\]]", "", title, flags=re.I)
     t = re.sub(r"\s+-\s+from\s.*$", "", t, flags=re.I)
     m = re.match(r"^(.+?)\s+-\s+([^-]+)$", t)
     if m and all(w in PLAIN_WORDS or w.isdigit() for w in words(m.group(2)).split()):
@@ -432,9 +414,7 @@ def search_title(title: str) -> str:
     return t.strip() or title
 
 
-def search_terms(
-    artist: str, title: str, length: float = 0, loosen: bool = False
-) -> tuple[str, str, int]:
+def search_terms(artist: str, title: str, length: float = 0, loosen: bool = False) -> tuple[str, str, int]:
     """(artist, title, length) to search for. loosen: first artist, search_title. A DJ-mix cut is
     searched as the release at any length. "/" and "\\" cannot occur in a Soulseek path, so they
     become spaces ("AC/DC" finds AC_DC, AC DC)."""

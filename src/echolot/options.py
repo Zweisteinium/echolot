@@ -21,9 +21,7 @@ class Section(BaseModel):
 class SourceOptions(Section):
     SECTION = "sources"
     soundcloud_user: str = Field("", description="whose SoundCloud likes 'likes' means")
-    removed_playlists: bool = Field(
-        True, description="songs that leave a list go to '<list> – removed'"
-    )
+    removed_playlists: bool = Field(True, description="songs that leave a list go to '<list> – removed'")
 
 
 class Metrics(Section):
@@ -53,9 +51,7 @@ class Soulseek(Section):
     daemon_music: str = Field("/music", description="the music directory as the daemon sees it")
     parallel: int = Field(4, ge=1, le=8, description="songs searched and downloaded at a time")
     upgrade_batch: int = Field(150, ge=1, le=2000, description="FLAC searches per upgrade run")
-    stall_minutes: int = Field(
-        10, ge=2, le=120, description="a download without progress this long is given up"
-    )
+    stall_minutes: int = Field(10, ge=2, le=120, description="a download without progress this long is given up")
 
 
 SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Jobs, Spotify, Soulseek]
@@ -101,9 +97,7 @@ def validate[S: Section](model: type[S], value: Any) -> S:
     try:
         return model.model_validate(value if value is not None else {})
     except ValidationError as err:
-        problems = [
-            f"{model.SECTION}.{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in err.errors()
-        ]
+        problems = [f"{model.SECTION}.{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in err.errors()]
         raise OptionsError(" ".join(problems)) from err
 
 

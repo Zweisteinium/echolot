@@ -95,10 +95,7 @@ class Fetcher:
         found = self.daemon.results(job)
         con = self.run.connect()
         try:
-            blocked = [
-                r[0]
-                for r in con.execute("SELECT name FROM blocked WHERE song_key = ?", (want.key,))
-            ]
+            blocked = [r[0] for r in con.execute("SELECT name FROM blocked WHERE song_key = ?", (want.key,))]
         finally:
             con.close()
         wanted = 0 if rules.mix_cut(want.title) else want.length
@@ -109,24 +106,18 @@ class Fetcher:
             if verdict != rules.REJECT:
                 judged.append((rank, c.rank, c))
         if not judged:
-            return Outcome(
-                "not found", f"{len(found)} results, none fits" if found else "no results"
-            )
+            return Outcome("not found", f"{len(found)} results, none fits" if found else "no results")
         tried = []
         for _, _, c in sorted(judged, key=lambda j: j[:2])[:MAX_RESULTS]:
             if self.run.stop.is_set():
                 break
             outcome = self.attempt(job, c, want, tries, settings)
-            if outcome.action == "upgrade" or (
-                outcome.action in FOUND and self.purpose == "search"
-            ):
+            if outcome.action == "upgrade" or (outcome.action in FOUND and self.purpose == "search"):
                 return outcome
             tried.append(f"{c.name}: {outcome.detail or outcome.action}")
         return Outcome("not found", f"{len(found)} results; tried " + "; ".join(tried))
 
-    def attempt(
-        self, search_job: str, c: soulseek.Candidate, want: Want, tries: int, settings: dict
-    ) -> Outcome:
+    def attempt(self, search_job: str, c: soulseek.Candidate, want: Want, tries: int, settings: dict) -> Outcome:
         name = uuid.uuid4().hex[:12]
         local_dir = self.local_inbox / name
         try:
@@ -173,9 +164,7 @@ class Fetcher:
             self.run.stop.wait(2)
 
 
-def finish(
-    run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None
-) -> None:
+def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None) -> None:
     """A song just filed: an empty album tag gets the list's album, and the cover and artist picture
     come from Spotify (or the given cover file). Failures only cost the pictures."""
     row = con.execute("SELECT album FROM songs WHERE key = ?", (want.key,)).fetchone()
@@ -256,23 +245,16 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
             _count(con, purpose, want.key, outcome.action)
         finally:
             con.close()
-        log.info(
-            "%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail
-        )
+        log.info("%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail)
         with lock:
             done += 1
             counts[outcome.action] = counts.get(outcome.action, 0) + 1
-            run.say(
-                f"{done} of {len(songs)} songs: "
-                + ", ".join(f"{n} {a}" for a, n in sorted(counts.items()))
-            )
+            run.say(f"{done} of {len(songs)} songs: " + ", ".join(f"{n} {a}" for a, n in sorted(counts.items())))
 
     with ThreadPoolExecutor(fetcher.opts.parallel, thread_name_prefix=purpose) as pool:
         list(pool.map(one, songs))
     run.after.add("library")
-    return f"{done} of {len(songs)} songs: " + (
-        ", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none"
-    )
+    return f"{done} of {len(songs)} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
 
 
 def _logged_in(daemon: soulseek.Daemon) -> bool:
@@ -307,9 +289,7 @@ def sync(run: "Run") -> str:
     try:
         library.refresh(con, run.paths.tracks)
         now = time.time()
-        songs = [
-            r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], 3 * 3600, 86400, now)
-        ]
+        songs = [r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], 3 * 3600, 86400, now)]
     finally:
         con.close()
     parts.append(_search(run, songs, "search"))
@@ -433,9 +413,7 @@ def fallback(run: "Run") -> str:
                     "(song_key) DO UPDATE SET last_fallback = excluded.last_fallback",
                     (want.key, int(time.time())),
                 )
-            action = _fallback_song(
-                run, con, ydl, want, row["tries"], strict_probable=row["service"] == "spotify"
-            )
+            action = _fallback_song(run, con, ydl, want, row["tries"], strict_probable=row["service"] == "spotify")
         finally:
             con.close()
         added += action in ("new", "upgrade")
@@ -458,9 +436,7 @@ def _fallback_song(run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: 
             if verdict != rules.REJECT:
                 judged.append((rank, i, r))
         for _, _, r in sorted(judged, key=lambda j: j[:2])[:3]:
-            got = ydl.fetch(
-                r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop
-            )
+            got = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
             if not got:
                 continue
             try:

@@ -77,40 +77,17 @@ def test_sources_page(client: TestClient) -> None:
 def test_follow_and_stop_following(client: TestClient, settings: Settings) -> None:
     card = {"key": "spotify:playlist:NEW1", "service": "spotify", "url": "https://open.spotify.com/playlist/NEW1",
             "name": "New list", "owner": "you", "songs": "12", "image": ""}  # fmt: skip
-    html = client.post(
-        "/sources/follow", data=card | {"mode": "songs"}, headers={"HX-Request": "true"}
-    ).text
+    html = client.post("/sources/follow", data=card | {"mode": "songs"}, headers={"HX-Request": "true"}).text
     assert 'class="src-card on"' in html and 'value="songs" checked' in html
     con = db.connect(settings.db_path)
-    assert (
-        con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[
-            0
-        ]
-        == 0
-    )
-    assert (
-        con.execute("SELECT title FROM lists WHERE key = 'spotify:playlist:NEW1'").fetchone()[0]
-        == "New list"
-    )
+    assert con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[0] == 0
+    assert con.execute("SELECT title FROM lists WHERE key = 'spotify:playlist:NEW1'").fetchone()[0] == "New list"
     client.post("/sources/follow", data=card | {"mode": "playlist"}, headers={"HX-Request": "true"})
-    assert (
-        con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[
-            0
-        ]
-        == 1
-    )
-    html = client.post(
-        "/sources/follow", data=card | {"mode": "off"}, headers={"HX-Request": "true"}
-    ).text
+    assert con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[0] == 1
+    html = client.post("/sources/follow", data=card | {"mode": "off"}, headers={"HX-Request": "true"}).text
     assert 'class="src-card"' in html and 'value="off" checked' in html
     assert not con.execute("SELECT 1 FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()
-    likes = {
-        "key": "spotify:likes",
-        "service": "spotify",
-        "url": "likes",
-        "name": "Liked Songs",
-        "mode": "off",
-    }
+    likes = {"key": "spotify:likes", "service": "spotify", "url": "likes", "name": "Liked Songs", "mode": "off"}
     client.post("/sources/follow", data=likes, headers={"HX-Request": "true"})
     assert con.execute("SELECT enabled FROM sources WHERE key = 'spotify:likes'").fetchone()[0] == 0
     con.close()
@@ -118,9 +95,7 @@ def test_follow_and_stop_following(client: TestClient, settings: Settings) -> No
 
 
 def test_add_by_link(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "echolot.web.lists._preview", lambda con, request, service, url: ("Their list", None)
-    )
+    monkeypatch.setattr("echolot.web.lists._preview", lambda con, request, service, url: ("Their list", None))
     r = client.post("/sources/add", data={"url": "https://soundcloud.com/other/sets/techno", "mode": "songs"},
                     follow_redirects=False)  # fmt: skip
     assert "Following+Their+list" in r.headers["location"]
@@ -131,15 +106,10 @@ def test_add_by_link(client: TestClient, monkeypatch) -> None:
 
 def test_accounts_page(client: TestClient, settings: Settings) -> None:
     html = client.get("/accounts").text
-    assert (
-        "developer.spotify.com/dashboard" in html
-        and "http://127.0.0.1:0/accounts/spotify/callback" in html
-    )
+    assert "developer.spotify.com/dashboard" in html and "http://127.0.0.1:0/accounts/spotify/callback" in html
     r = client.post("/accounts/spotify/app", data={"client_id": "short"}, follow_redirects=False)
     assert "32+characters" in r.headers["location"]
-    r = client.post(
-        "/accounts/soulseek", data={"user": "me", "password": "secret pw"}, follow_redirects=False
-    )
+    r = client.post("/accounts/soulseek", data={"user": "me", "password": "secret pw"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     conf = (settings.daemon_dir / "daemon.conf").read_text()
     assert (
@@ -157,19 +127,14 @@ def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
     callback = "https://testserver/accounts/spotify/callback"
     html = client.get("https://testserver/accounts").text
     assert callback in html and "Spotify Premium required" in html and "?code=" not in html
-    r = client.post("/accounts/spotify/app", data={"client_id": "x" * 32, "client_secret": "s"},
-                    follow_redirects=False)  # fmt: skip
+    r = client.post("/accounts/spotify/app", data={"client_id": "x" * 32, "client_secret": "s"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     r = client.post("https://testserver/accounts/spotify/login", follow_redirects=False)
     query = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)
     assert query["redirect_uri"] == [callback]
     used = []
-    monkeypatch.setattr(
-        spotify, "exchange", lambda con, vault, code, redirect: used.append(redirect)
-    )
-    r = client.get(
-        f"/accounts/spotify/callback?code=c&state={query['state'][0]}", follow_redirects=False
-    )
+    monkeypatch.setattr(spotify, "exchange", lambda con, vault, code, redirect: used.append(redirect))
+    r = client.get(f"/accounts/spotify/callback?code=c&state={query['state'][0]}", follow_redirects=False)
     assert "Spotify+connected" in r.headers["location"] and used == [callback]
 
 
@@ -193,11 +158,7 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
     con = db.connect(settings.db_path)
     rules = schedule.rules(con)
     con.close()
-    assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (
-        20,
-        None,
-        ["13:00", "sat 10:00"],
-    )
+    assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (20, None, ["13:00", "sat 10:00"])
     assert 'value="3"' in client.get("/settings").text
     bad = client.post("/settings", data=form | {"sync": "2"})
     assert "at least 10" in bad.text
@@ -242,12 +203,7 @@ def test_review(client: TestClient, settings: Settings) -> None:
     with con:
         con.execute("INSERT INTO events (ts, action, path, song, artist, title) VALUES "
                     "('2026-09-27T12:00:00', 'wrong-song', '/etc/passwd', 'spotify:s3', 'Artist C', 'Gone Song')")  # fmt: skip
-    ids = [
-        r[0]
-        for r in con.execute(
-            "SELECT id FROM events WHERE song IS NOT NULL ORDER BY id DESC LIMIT 4"
-        )
-    ][::-1]
+    ids = [r[0] for r in con.execute("SELECT id FROM events WHERE song IS NOT NULL ORDER BY id DESC LIMIT 4")][::-1]
     html = client.get("/review").text
     assert "First Song (Official Video)" in html
     assert "Gone Song (Club Mix)" in html and "title differs" in html
