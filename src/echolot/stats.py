@@ -1,10 +1,14 @@
 """Queries behind the dashboard pages."""
 
+import json
 from datetime import datetime, timedelta
 from sqlite3 import Connection, Row
 from typing import Any
 
+from echolot import acquire, filing
+from echolot.filing import Paths
 from echolot.library import QUALITY
+from echolot.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
 
 TIERS = [*QUALITY, ("missing", "Missing")]  # the quality scale of songs, best first
 ADDED = ("new", "upgrade")
@@ -96,15 +100,23 @@ def list_songs(con: Connection, key: str) -> list[Row]:
     ).fetchall()
 
 
-def missing(con: Connection, list_key: str | None = None) -> list[Row]:
-    """Songs of the followed lists that are not in the library, with the lists they are in."""
+UNAVAILABLE = {
+    GREYED_OUT: "Spotify no longer plays it (withdrawn or not in your country); it is searched first.",
+    NOT_ON_SOUNDCLOUD: "SoundCloud hands this upload out to nobody (a label release); YouTube and SoundCloud "
+    "search for other uploads.",
+}
+
+
+def missing(con: Connection, list_key: str | None = None, paths: Paths | None = None) -> list[dict[str, Any]]:
+    """Songs of the followed lists that are not in the library: their lists, what the searches saw (Soulseek,
+    then YouTube and SoundCloud), the downloads rejected for them, and notes worth a glance."""
     where, args = "s.file IS NULL", []
     if list_key:
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
-    return con.execute(
+    rows = con.execute(
         "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
-        "a.tries, a.last_try, a.last_fallback, "
+        "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
         "(SELECT group_concat(title, ' · ') FROM (SELECT DISTINCT l.title FROM list_songs ls "
         " JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key ORDER BY l.position)) "
         "AS in_lists "
@@ -112,6 +124,45 @@ def missing(con: Connection, list_key: str | None = None) -> list[Row]:
         "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
     ).fetchall()
+    rejected: dict[str, list[Row]] = {}
+    if keys := [r["key"] for r in rows]:
+        for e in con.execute(
+            "SELECT song, ts, action, source, found, file_name, reason, seconds, wanted_seconds FROM events "
+            f"WHERE action IN ('wrong-song', 'mismatch') AND song IN ({', '.join('?' * len(keys))}) ORDER BY id DESC",
+            keys,
+        ):
+            if len(rejected.setdefault(e["song"], [])) < 3:
+                rejected[e["song"]].append(e)
+    return [_tried(r, rejected.get(r["key"], []), paths) for r in rows]
+
+
+def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:
+    tries = r["tries"] or 0
+    result = json.loads(r["result"]) if r["result"] else None
+    fallback = json.loads(r["fallback_result"]) if r["fallback_result"] else None
+    notes = []  # (text, style, explanation)
+    if r["unavailable"]:
+        notes.append((r["unavailable"], "bad", UNAVAILABLE.get(r["unavailable"], "")))
+    fetched = [t for site in ("youtube", "soundcloud") for t in ((fallback or {}).get(site) or {}).get("tried", [])]
+    if any(t[2] == "DRM-protected" for t in fetched):
+        notes.append(("DRM on SoundCloud", "bad", "The track fits, but SoundCloud serves it encrypted only (a label "
+                      "release). Echolot does not break copy protection."))  # fmt: skip
+    stalled = [t for t in (result or {}).get("tried", []) if t[1] == "failed" and "no progress" in (t[2] or "")]
+    if stalled and len(stalled) == len(result["tried"]):
+        notes.append(("stalls at peers", "warn", "Soulseek users have it, but none started the transfer (queued at "
+                      "the peer). It is tried again."))  # fmt: skip
+    return {
+        **dict(r),
+        "result": result,
+        "fallback": fallback,
+        "stage": acquire.stage(tries),
+        "next_try": acquire.retry_at(tries, r["last_try"], *acquire.MISSING_RETRY)
+        if tries and r["service"] == "spotify"
+        else None,
+        "rejected": rejected,
+        "in_review": paths is not None and filing.in_review(paths, r["artist"], r["title"]),
+        "notes": notes,
+    }
 
 
 EVENT_FILTERS = {"added": ADDED, "rejected": REJECTED}

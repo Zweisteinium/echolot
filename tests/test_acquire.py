@@ -7,8 +7,9 @@ from typing import ClassVar
 
 import pytest
 
-from echolot import acquire, audio, db, options, soulseek, vault
+from echolot import acquire, audio, db, filing, options, soulseek, vault
 from echolot.config import Settings
+from echolot.filing import Want
 from echolot.schedule import BY_NAME
 from echolot.worker import Run
 
@@ -205,3 +206,44 @@ def test_login_failure_counts_no_try(run: Run) -> None:
     assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
     con.close()
     assert run.stop.is_set()
+
+
+class FakeYtDlp:
+    """Search results per site; fetch writes a WAV of the result's length, or fails with errors[url]."""
+
+    def __init__(self, results: dict[str, list[dict]], errors: dict[str, str]) -> None:
+        self.results, self.errors, self.fetched = results, errors, []
+
+    def search(self, query: str, site: str, stop: threading.Event) -> list[dict]:
+        return self.results.get(site, [])
+
+    def fetch(self, url: str, dest: Path, stop: threading.Event) -> tuple[Path | None, str]:
+        self.fetched.append(url)
+        if url in self.errors:
+            return None, self.errors[url]
+        wav(
+            dest.with_suffix(".wav"), next(r["duration"] for rs in self.results.values() for r in rs if r["url"] == url)
+        )
+        return dest.with_suffix(".wav"), ""
+
+
+def test_fallback_keeps_another_length_for_review(run: Run) -> None:
+    """LAWTON - Believe In (200 s): SoundCloud has it, DRM-protected; YouTube only an official video of another
+    edit (219 s) and the extended mix. The video is kept for review, once; the report says why."""
+    want = Want("LAWTON", "Believe In", 200, "spotify:lawton")
+    video = "LAWTON, Trancemaster Krause & Caroline Roxy - Believe In (Official Visualizer)"
+    ydl = FakeYtDlp({"youtube": [{"url": "yt1", "uploader": "Armada Music TV", "title": video, "duration": 219},
+                                 {"url": "yt2", "uploader": "Trance Paradise", "title": "LAWTON - Believe In (Extended Mix)",
+                                  "duration": 245}],
+                     "soundcloud": [{"url": "sc1", "uploader": "LAWTON", "title": "Believe In", "duration": 200}]},
+                    {"sc1": "DRM-protected"})  # fmt: skip
+    con = run.connect()
+    action, report = acquire._fallback_song(run, con, ydl, want, 2, strict_probable=True)
+    assert action == "mismatch" and ydl.fetched == ["sc1", "yt1"]
+    assert report["youtube"] == {"results": 2, "fits": 0, "rejected": {"another length": 2}, "tried": []}
+    assert report["soundcloud"]["tried"] == [["Believe In", "download failed", "DRM-protected"]]
+    assert report["near"] == ["youtube", video, 219, "mismatch", ""]
+    assert filing.in_review(run.paths, "LAWTON", "Believe In")
+    assert acquire._fallback_song(run, con, ydl, want, 2, strict_probable=True)[0] == "not found"
+    assert ydl.fetched.count("yt1") == 1  # one waits for review already
+    con.close()
