@@ -62,7 +62,7 @@ you live. Echolot does not circumvent copy protection.
      best one; if it fails, is rejected or makes no progress (queued at the peer), the next one.
      A song that is not found is retried after 3 h, 6 h, 12 h, then daily; a sweep searches all
      missing songs at fixed times. After two misses the search is loosened (see below), and a
-     YouTube/SoundCloud search may try too.
+     YouTube/SoundCloud search may try too (on YouTube the releases' own "Topic" uploads first).
    - *SoundCloud songs* are downloaded from SoundCloud with yt-dlp, as the original file where the
      uploader offers it, otherwise the stream. Tracks SoundCloud does not provide are marked as
      unavailable and left to the search.
@@ -100,7 +100,9 @@ recording can be linked on the review page.
 **Before the download** a search result is judged by its path and length: it is skipped when the
 artist is missing (unless the search is loosened), the file name names another version or lacks
 the one asked for ("Paradies" for "Paradies - X Remix"), the length is another song's, or the
-file was marked wrong in review. Results naming the title come first.
+file was marked wrong in review. A result whose name does not show the title is downloaded (its
+tags decide) only when the path names the artist as a name of its own ("HK", not "HK Gruber")
+and, in a loosened search, its length is known. Results naming the title come first.
 
 **After the download** `identify` decides. The artist must appear in the tags or the source path,
 always. Then:
@@ -109,11 +111,22 @@ always. Then:
 |---|---|---|
 | **exact** | the title tag or file name gives exactly the title (noise removed) | filed |
 | **probable** | same core title (the part before any bracket, " - ", "\|" or "feat."), same version words, no named variant the request lacks ("(Hard Trance Mix)"), no other featured artist, length within 3 s (6 s for videos) | filed and listed on the review page; FLAC upgrades keep it for review instead |
-| **none** | anything else | rejected; near misses (right artist, similar length) are kept in `inbox/review/<date>/` for 30 days |
+| **none** | anything else | rejected; near misses (right artist, similar length) are kept in `inbox/review/<date>/` for 30 days, downloads far off the length are deleted |
 
 File names are read with and without track numbers ("07 ", "1-04 ", "CD-01 - "), artist
 prefixes, "Album - 07 - Title" and scene-style names (`02-artist-title-grp`). A file name that
 names another version overrules plain tags.
+
+**The audio** has a say as well. Spotify gives every song's ISRC (the recording's id); Echolot
+asks Deezer's public API for the release by ISRC and compares the download's audio fingerprint
+(Chromaprint) with the release's 30-second preview, or takes a download tagged with the ISRC as
+the recording. In tests on the library, 0.90 to 0.96 of the fingerprint bits agreed for the
+recording and at most 0.66 for other songs; from 0.8 the download is the recording, up to 0.7
+another one. The recording turns a probable match into an exact one (no review needed); other
+audio keeps even an exact name match for review. Another edit of the recording (a longer intro)
+matches as well, so its length still sends it to review, with the note that it is the recording.
+Without an ISRC, a Deezer entry or a preview (SoundCloud songs, a few releases) the names decide
+alone.
 
 **Loosened search** (the checks stay the same): a song not found twice is searched without
 feat. credits, 'From "Film"' and plain suffixes (" - Radio Edit"), with the first artist only,

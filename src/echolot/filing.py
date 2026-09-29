@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from echolot import audio, library
+from echolot.identity import UNKNOWN, Evidence
 from echolot.rules import artist_key, clean_name, first_artist, identify, mix_cut, norm_key, same_length
 
 LOCK = threading.RLock()
@@ -54,12 +55,15 @@ class Want:
     length: float = 0
     key: str = ""
     artists: list[str] = field(default_factory=list)
+    isrc: str = ""  # the recording (Spotify), for the audio check
 
     @classmethod
     def of(cls, row: sqlite3.Row) -> "Want":
         import json
 
-        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], json.loads(row["artists"] or "[]"))
+        isrc = row["isrc"] if "isrc" in row.keys() else ""  # noqa: SIM118 (on a Row, "in" tests the values)
+        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], json.loads(row["artists"] or "[]"),
+                   isrc or "")  # fmt: skip
 
 
 def event_path(paths: Paths, p: Path) -> str:
@@ -223,13 +227,16 @@ def file_into(
     tries: int = 0,
     match: str | None = None,
     fake: bool = False,
+    heard: Evidence = UNKNOWN,
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
     'mismatch' (strict: the length is another version's) or 'wrong-song' (strict: tags and source names
     are not the song). strict is for search results: the download must be the song (identify with
     file_name/folders, where it came from). An exact match is filed; a probable one is filed marked for
-    review, or with probable=False (upgrades, SoundCloud uploader names) kept for review."""
+    review, or with probable=False (upgrades, SoundCloud uploader names) kept for review. `heard` is what
+    the audio says (identity.check): the release's audio makes a probable match exact, other audio keeps
+    even an exact one for review. A rejected download far off the length is deleted, not kept."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
@@ -237,16 +244,21 @@ def file_into(
     info: dict[str, object] = {"source": source, "song": key or None, "artist": want.artist, "title": want.title}
     if strict:
         tag_artists, tag_title = audio.read_tags(src)
-        info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries)
+        info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries, audio=heard.detail)
         tol = 3 if source == "soulseek" else 6  # videos have intros
         match, why = identify(want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol)
+        if match == "probable" and heard.verdict == "same":
+            match = "exact"  # confirmed by the audio: no review needed
         ok = match == "exact" or (match == "probable" and probable)
         if match == "probable" and not probable:
             why = f"{why} (not filed: {source} probable matches need a review)"
         if ok and is_blocked(con, key, [tag_title, file_name]):
             ok, why = False, "this download was marked wrong in review"
+        if ok and heard.verdict == "other":
+            ok, why = False, f"{why}, but the {heard.detail}"
         if not ok:
-            kept = drop(src) if why.startswith("artist ") else keep(paths, src, want.artist, want.title, source)
+            far = bool(dur and length) and not 2 / 3 <= dur / length <= 1.5  # another song: nothing to review
+            kept = drop(src) if why.startswith("artist ") or far else keep(paths, src, want.artist, want.title, source)
             event(con, paths, "wrong-song", kept, reason=why, **info)
             return "wrong-song", None
         if dur and length and not same_length(dur, length):

@@ -212,9 +212,10 @@ class FakeYtDlp:
     """Search results per site; fetch writes a WAV of the result's length, or fails with errors[url]."""
 
     def __init__(self, results: dict[str, list[dict]], errors: dict[str, str]) -> None:
-        self.results, self.errors, self.fetched = results, errors, []
+        self.results, self.errors, self.fetched, self.queries = results, errors, [], []
 
     def search(self, query: str, site: str, stop: threading.Event) -> list[dict]:
+        self.queries.append(query)
         return self.results.get(site, [])
 
     def fetch(self, url: str, dest: Path, stop: threading.Event) -> tuple[Path | None, str]:
@@ -240,6 +241,7 @@ def test_fallback_keeps_another_length_for_review(run: Run) -> None:
     con = run.connect()
     action, report = acquire._fallback_song(run, con, ydl, want, 2, strict_probable=True)
     assert action == "mismatch" and ydl.fetched == ["sc1", "yt1"]
+    assert ydl.queries == ['LAWTON Believe In "Provided to YouTube"', "LAWTON Believe In", "LAWTON Believe In"]
     assert report["youtube"] == {"results": 2, "fits": 0, "rejected": {"another length": 2}, "tried": []}
     assert report["soundcloud"]["tried"] == [["Believe In", "download failed", "DRM-protected"]]
     assert report["near"] == ["youtube", video, 219, "mismatch", ""]

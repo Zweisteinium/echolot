@@ -10,6 +10,7 @@ import pytest
 
 from echolot import db, filing, library, review, vault
 from echolot.filing import Paths, Want
+from echolot.identity import Evidence
 
 CAPO = Want("CAPO", "Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix", 200, "spotify:capo")
 CAPO_FILE = "CAPO - RUN RUN RUN feat. YUNG KAFA & KÜCÜK EFENDI (prod. von Jurijgold & Falconi) [Official Remix]"
@@ -262,3 +263,27 @@ def test_accepted_other_length_counts_and_a_discarded_one_is_blocked(env) -> Non
                      strict=True, file_name=other)  # fmt: skip
     assert decide(con, run, events(con)[-1]["id"], "discard").endswith("deleted")
     assert filing.is_blocked(con, "spotify:b", [other])
+
+
+def test_the_audio_confirms_or_overrules_the_name(env) -> None:
+    con, paths, _ = env
+    same = Evidence("same", "audio of the release (0.95)")
+    action, _ = filing.file_into(con, paths, download(paths, "1.wav"), CAPO, "soulseek", strict=True,
+                                 file_name=CAPO_FILE, probable=False, heard=same)  # fmt: skip
+    assert action == "new" and events(con)[-1]["matched"] == "exact"  # probable, confirmed: no review
+    assert events(con)[-1]["audio"] == "audio of the release (0.95)"
+    other = Evidence("other", "audio differs from the release (0.58)")
+    song = Want("A", "Song", 200, "spotify:a")
+    assert filing.file_into(con, paths, download(paths, "2.wav"), song, "soulseek", strict=True,
+                            file_name="A - Song", heard=other) == ("wrong-song", None)  # fmt: skip
+    assert "audio differs" in events(con)[-1]["reason"] and filing.in_review(paths, "A", "Song")
+
+
+def test_a_wrong_download_far_off_the_length_is_deleted(env) -> None:
+    con, paths, _ = env
+    src = download(paths, "3.wav", 78)
+    filing.file_into(con, paths, src, Want("HK", "Was!?!?", 269, "spotify:hk"), "soulseek", strict=True,
+                     file_name="31 Eine Art Chansons - Was können sie dir tun")  # fmt: skip
+    assert (
+        events(con)[-1]["action"] == "wrong-song" and not src.exists() and not filing.in_review(paths, "HK", "Was!?!?")
+    )

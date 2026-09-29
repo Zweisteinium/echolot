@@ -223,6 +223,17 @@ MIGRATIONS = [
     ALTER TABLE attempts ADD COLUMN result TEXT;
     ALTER TABLE attempts ADD COLUMN fallback_result TEXT;
     """,
+    # v11: the releases behind ISRCs, for the audio check (identity.py), and what that check found
+    """
+    CREATE TABLE refs (
+        isrc TEXT PRIMARY KEY,
+        deezer_id INTEGER,              -- NULL: Deezer does not know it
+        duration INTEGER,
+        fingerprint BLOB,               -- Chromaprint of the 30 s preview; NULL: none
+        checked INTEGER NOT NULL        -- unix time
+    );
+    ALTER TABLE events ADD COLUMN audio TEXT;
+    """,
 ]
 
 
