@@ -160,12 +160,19 @@ class Daemon:
         out = []
         for rank, it in enumerate(items):
             ref, peer = it.get("ref") or {}, it.get("peer") or {}
+            path = ref.get("filename") or it.get("filename") or ""
+            # peers send length and bitrate as attributes, if at all; the extension is often empty
+            attrs = {
+                a.get("type"): a.get("value")
+                for a in it.get("attributes") or []
+                if isinstance(a, dict)
+            }
+            ext = (it.get("extension") or "").lower().lstrip(".") or path.rsplit(".", 1)[-1].lower()
             out.append(Candidate(
-                user=ref.get("username") or it.get("username") or "",
-                path=ref.get("filename") or it.get("filename") or "",
-                size=int(it.get("size") or 0), bitrate=int(it.get("bitRate") or 0),
-                samplerate=int(it.get("sampleRate") or 0), length=int(it.get("length") or 0),
-                ext=(it.get("extension") or "").lower().lstrip("."),
+                user=ref.get("username") or it.get("username") or "", path=path, size=int(it.get("size") or 0),
+                bitrate=int(it.get("bitRate") or attrs.get("BitRate") or 0),
+                samplerate=int(it.get("sampleRate") or attrs.get("SampleRate") or 0),
+                length=int(it.get("length") or attrs.get("Length") or 0), ext=ext,
                 free_slot=bool(peer.get("hasFreeUploadSlot")), speed=int(peer.get("uploadSpeed") or 0),
                 rank=rank,
             ))  # fmt: skip
