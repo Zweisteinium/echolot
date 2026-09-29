@@ -3,9 +3,8 @@
 {% block content %}
 <section class="card narrow">
   <h1>Welcome to Echolot</h1>
-  <p class="muted small">Set the password of the <strong>{{ admin }}</strong> account, which you log in with.</p>
+  <p class="muted small">Set the password of the <strong>{{ admin }}</strong> account, which you log in with. Next you connect your Spotify and SoundCloud accounts.</p>
   <form method="post" action="/setup" class="stack">{{ csrf_input }}
-    <input type="hidden" name="token" value="{{ token }}">
     <input type="text" name="name" value="{{ admin }}" autocomplete="username" hidden>
     <label>Password <span class="muted small">at least 10 characters</span><input type="password" name="password" autocomplete="new-password" minlength="10" required autofocus></label>
     <label>Password again <input type="password" name="repeat" autocomplete="new-password" minlength="10" required></label>
