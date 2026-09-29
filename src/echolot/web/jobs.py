@@ -21,17 +21,21 @@ def status(request: Request, con: sqlite3.Connection) -> dict:
     now = datetime.now()
     rules = schedule.rules(con)
     last = {r["name"]: r for r in con.execute("SELECT * FROM jobs")}
-    runs = dict(request.app.state.worker.runs)
+    runs, requested = request.app.state.worker.state()
     busy = {r.job.resource: r.job.label for r in runs.values()}
     rows = []
     for j in schedule.JOBS:
         r, run = last.get(j.name), runs.get(j.name)
         started = datetime.fromisoformat(r["started"]) if r and r["started"] else None
         nxt = schedule.next_run(rules[j.name], started, now)
-        waiting = busy.get(j.resource) if not run and nxt and nxt <= now else None
+        starting, stopping = j.name in requested and not run, bool(run and run.stop.is_set())
+        waiting = busy.get(j.resource) if not run and (starting or (nxt and nxt <= now)) else None
         next_start = nxt.isoformat(timespec="seconds") if nxt else None
-        rows.append({"job": j, "rule": rules[j.name], "last": r, "run": run, "next": next_start, "waiting": waiting})
-    return {"jobs": rows, "paused": options.get(con, options.Jobs).paused, "running": bool(runs)}
+        state = {"next": next_start, "waiting": waiting, "starting": starting, "stopping": stopping}
+        rows.append({"job": j, "rule": rules[j.name], "last": r, "run": run} | state)
+    changing = any(r["starting"] or r["stopping"] for r in rows)  # the table asks again every second then
+    paused = options.get(con, options.Jobs).paused
+    return {"jobs": rows, "paused": paused, "running": bool(runs), "changing": changing}
 
 
 def answer(request: Request, con: sqlite3.Connection, ok: str) -> Response:

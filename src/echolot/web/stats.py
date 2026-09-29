@@ -19,7 +19,7 @@ REJECTED = ("wrong-song", "mismatch")
 def overview(con: Connection) -> dict[str, Any]:
     files, size = con.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
     by_tier = dict(con.execute("SELECT quality, count(*) FROM files GROUP BY quality").fetchall())
-    wanted, have = con.execute("SELECT count(*), count(file) FROM wanted").fetchone()
+    wanted, have, in_lists = con.execute("SELECT count(*), count(file), count(DISTINCT file) FROM wanted").fetchone()
     since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
     day = {
         action: (n, b or 0)
@@ -46,6 +46,7 @@ def overview(con: Connection) -> dict[str, Any]:
         "services": services,  # distinct songs (and missing ones) per service
         "song_tiers": tier_counts(songs),
         "files": files,
+        "in_lists": in_lists,  # files the wanted songs have (a file can be several songs of the lists)
         "size": size,
         "tiers": [(key, label, by_tier.get(key, 0)) for key, label in QUALITY],
         "lossless": by_tier.get("lossless", 0),

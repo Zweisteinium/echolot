@@ -8,8 +8,10 @@ from sqlite3 import Connection
 from typing import Annotated, Any
 
 from fastapi import Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from markupsafe import Markup, escape
+from starlette.types import Scope
 
 from echolot import db
 
@@ -42,6 +44,17 @@ def asset_urls(folder: Path) -> Callable[[str], str]:
     proxy) serves the old one after an update."""
     versions = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()[:10] for p in folder.iterdir() if p.is_file()}
     return lambda name: f"/static/{name}?v={versions[name]}"
+
+
+class Assets(StaticFiles):
+    """The static files; one asked for at its content-hashed address (asset_urls) never changes there, so
+    browsers keep it for a year without asking again."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if b"v=" in scope.get("query_string", b"") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def back(path: str, **message: str) -> RedirectResponse:

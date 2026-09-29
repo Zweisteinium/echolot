@@ -1,33 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import quality %}
 {% block title %}Review · Echolot{% endblock %}
-{% macro item(i, choices, note) -%}
-{% set e = i.event %}
-<article class="review-item{{ ' decided' if i.decision }}">
-  <div class="review-head">
-    <dl>
-      <dt>Wanted</dt>
-      <dd>{% if e.song and e.song.startswith('spotify:') %}<a href="https://open.spotify.com/track/{{ e.song.split(':')[1] }}" target="_blank" rel="noopener">{{ e.artist }} – {{ e.title }}</a>{% else %}{{ e.artist }} – {{ e.title }}{% endif %}
-        <span class="muted small">{{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</span></dd>
-      <dt>Downloaded</dt>
-      <dd>{{ e.found or e.file_name or '–' }}
-        <span class="muted small">{{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %} · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.fake %} · made from a lossy file{% endif %}</span>
-        {% if i.kind == 'kept' and e.song_file %}<div class="small">replaces {{ quality(e.song_quality, e.song_kbps) }} in the library</div>{% endif %}</dd>
-    </dl>
-    <div class="review-actions">
-      {% if i.decision %}<span class="muted small">{{ i.decision }}: applied soon</span>
-      <form method="post" action="/review/{{ e.id }}/revert">{{ csrf_input }}<button>Revert</button></form>
-      {% else %}
-      {% for value, label, cls in choices %}
-      <form method="post" action="/review/{{ e.id }}">{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ cls }}">{{ label }}</button></form>
-      {% endfor %}
-      {% endif %}
-    </div>
-  </div>
-  <audio controls preload="none" src="/review/{{ e.id }}/audio"></audio>
-  {% if note %}<p class="muted small">{{ note }}</p>{% endif %}
-</article>
-{%- endmacro %}
 {% block content %}
 <section class="card">
   <div class="card-head">
@@ -35,7 +7,7 @@
   </div>
   <p class="lead small">A download that is probably the song (the same core title and version words, no other featured artist, the length within a few seconds) is filed and listed here until you confirm it. <em>Wrong</em> takes it out again, never takes that download for the song again and searches anew.</p>
   <div class="review-list">
-    {% for i in items.filed %}{{ item(i, [('ok', 'Right song', ''), ('wrong', 'Wrong', 'danger')], i.event.audio) }}
+    {% for i in items.filed %}{% include "_review_item.html" %}
     {% else %}<p class="muted">Nothing to check.</p>{% endfor %}
   </div>
 </section>
@@ -46,10 +18,7 @@
   </div>
   <p class="lead small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within a few minutes; until then <em>Revert</em> takes it back.</p>
   <div class="review-list">
-    {% for i in items.kept %}
-    {% set e = i.event %}
-    {% set why = e.action ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) %}
-    {{ item(i, [('accept', 'Accept', ''), ('discard', 'Discard', 'danger')], why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '')) }}
+    {% for i in items.kept %}{% include "_review_item.html" %}
     {% else %}<p class="muted">Nothing kept.</p>{% endfor %}
   </div>
 </section>

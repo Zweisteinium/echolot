@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, Request
@@ -37,37 +38,67 @@ def redirect_uri(request: Request) -> str:
 
 
 def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> dict[str, Any]:
-    """What is connected, for this page, the Sources page and the overview (asks all three services;
-    `cached`: a result of the last CACHE_SECONDS will do)."""
+    """What is connected, for this page and the overview: asks the three services at once (`cached`: a
+    result of the last CACHE_SECONDS will do)."""
     state = request.app.state
     last = getattr(state, "account_status", None)
     if cached and last and time.monotonic() - last[0] < CACHE_SECONDS:
         return last[1]
-    vault = state.vault
-    sp: dict[str, Any] = {"app": False, "connected": False, "client_id": ""}
+    opts = options.get(con, options.Soulseek)
+    slsk: dict[str, Any] = {"user": opts.user, "password": state.vault.has(con, "soulseek.password")}
     try:  # a secret stored with another key can't be read: shown as the account's error
-        creds = spotify.Credentials.load(con, vault)
+        token, token_error = state.vault.get(con, soundcloud.TOKEN), None
+    except VaultError as e:
+        token, token_error = None, str(e)
+    with ThreadPoolExecutor(3) as pool:
+        sp = pool.submit(_spotify_status, state)
+        sc = pool.submit(_soundcloud_status, token, token_error)
+        daemon = pool.submit(_daemon_status, opts.url)
+        result = {"spotify": sp.result(), "soundcloud": sc.result(), "soulseek": slsk | daemon.result()}
+    state.account_status = (time.monotonic(), result)
+    return result
+
+
+def known(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
+    """What is connected, without asking the services (for pages that must not wait): the stored
+    credentials, and the account names of the last status check."""
+    last = getattr(request.app.state, "account_status", (0, {}))[1]
+    vault = request.app.state.vault
+    sp = options.get(con, options.Spotify).client_id and vault.has(con, spotify.REFRESH)
+    connected = {"spotify": bool(sp), "soundcloud": vault.has(con, soundcloud.TOKEN)}
+    return {s: {"connected": on, "name": (last.get(s) or {}).get("name")} for s, on in connected.items()}
+
+
+def _spotify_status(state: Any) -> dict[str, Any]:
+    sp: dict[str, Any] = {"app": False, "connected": False, "client_id": ""}
+    con = db.connect(state.settings.db_path)  # its own: the login may store a new refresh token
+    try:
+        creds = spotify.Credentials.load(con, state.vault)
         sp.update(app=creds.app, connected=creds.connected, client_id=creds.client_id)
         if creds.connected:
-            me = spotify.Spotify(con, vault).me()
+            me = spotify.Spotify(con, state.vault).me()
             sp.update(name=me.get("display_name") or me.get("id"), error=None)
     except (spotify.SpotifyError, VaultError) as e:
         sp["error"] = str(e)
-    sc: dict[str, Any] = {"connected": False}
+    finally:
+        con.close()
+    return sp
+
+
+def _soundcloud_status(token: str | None, token_error: str | None) -> dict[str, Any]:
+    if token_error or not token:
+        return {"connected": False} | ({"error": token_error} if token_error else {})
     try:
-        if token := vault.get(con, soundcloud.TOKEN):
-            sc.update(connected=True, **soundcloud.me(token))
-    except (soundcloud.SoundCloudError, VaultError) as e:
-        sc.update(connected=False, error=str(e))
-    opts = options.get(con, options.Soulseek)
-    slsk: dict[str, Any] = {"user": opts.user, "password": vault.has(con, "soulseek.password")}
+        return {"connected": True, **soundcloud.me(token)}
+    except soundcloud.SoundCloudError as e:
+        return {"connected": False, "error": str(e)}
+
+
+def _daemon_status(url: str) -> dict[str, Any]:
     try:
-        slsk.update(soulseek.Daemon(opts.url, timeout=5).status(), reachable=True)
+        return soulseek.Daemon(url, timeout=5).status() | {"reachable": True}
     except soulseek.DaemonError as e:
-        slsk.update(reachable=False, ready=False, error=str(e))
-    result = {"spotify": sp, "soundcloud": sc, "soulseek": slsk}
-    state.account_status = (time.monotonic(), result)
-    return result
+        return {"reachable": False, "ready": False, "error": str(e)}
 
 
 @router.get("/accounts", response_class=HTMLResponse)
