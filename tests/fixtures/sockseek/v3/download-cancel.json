@@ -1,0 +1,9 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/jobs/9853fdc3-96a8-4d9a-bcce-03cb600dd84a/cancel",
+    "body": null
+  },
+  "status": 202,
+  "response": null
+}

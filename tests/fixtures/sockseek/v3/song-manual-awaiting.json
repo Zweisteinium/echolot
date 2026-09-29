@@ -1,0 +1,60 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/jobs/5d17e10b-b6ce-485a-9f3c-61e6b5aa3905",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "summary": {
+      "jobId": "5d17e10b-b6ce-485a-9f3c-61e6b5aa3905",
+      "displayId": 4,
+      "workflowId": "718f3ab1-bdd8-40c5-b505-4b06ce5015d9",
+      "kind": "song",
+      "lifecycleState": "AwaitingSelection",
+      "activityPhase": "None",
+      "terminalOutcome": "None",
+      "skipReason": "None",
+      "queryText": "Scooter - Aiii Shot The DJ",
+      "discoveryRawResultCount": 2,
+      "discoveryLockedFileCount": 0,
+      "appliedAutoProfiles": [],
+      "availableActions": [
+        {
+          "kind": "cancel",
+          "method": "POST",
+          "href": "/api/jobs/5d17e10b-b6ce-485a-9f3c-61e6b5aa3905/cancel"
+        }
+      ],
+      "cancellationSource": "None",
+      "printOption": 0
+    },
+    "payload": {
+      "kind": "song",
+      "query": {
+        "artist": "Scooter",
+        "title": "Aiii Shot The DJ",
+        "length": 5,
+        "artistMaybeWrong": false
+      },
+      "candidateCount": 2,
+      "jobId": "5d17e10b-b6ce-485a-9f3c-61e6b5aa3905",
+      "displayId": 4,
+      "lifecycleState": "AwaitingSelection",
+      "activityPhase": "None",
+      "terminalOutcome": "None",
+      "skipReason": "None",
+      "bytesTransferred": 0,
+      "availableActions": [
+        {
+          "kind": "cancel",
+          "method": "POST",
+          "href": "/api/jobs/5d17e10b-b6ce-485a-9f3c-61e6b5aa3905/cancel"
+        }
+      ],
+      "cancellationSource": "None",
+      "downloadSource": "None"
+    },
+    "children": []
+  }
+}

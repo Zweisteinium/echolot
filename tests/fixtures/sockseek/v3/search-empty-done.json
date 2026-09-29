@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/jobs/4e862738-a413-4c1f-80a0-8da60a13e5ea",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "summary": {
+      "jobId": "4e862738-a413-4c1f-80a0-8da60a13e5ea",
+      "displayId": 2,
+      "workflowId": "7b8df0c0-5613-4b75-813f-247209ef0f3f",
+      "kind": "search",
+      "lifecycleState": "Terminal",
+      "activityPhase": "None",
+      "terminalOutcome": "Succeeded",
+      "skipReason": "None",
+      "queryText": "Nobody - Nothing At All",
+      "discoveryRawResultCount": 0,
+      "discoveryLockedFileCount": 0,
+      "appliedAutoProfiles": [],
+      "availableActions": [],
+      "cancellationSource": "None",
+      "printOption": 0
+    },
+    "payload": {
+      "kind": "search",
+      "queryText": "Nobody - Nothing At All",
+      "defaultFileProjection": {
+        "songQuery": {
+          "artist": "Nobody",
+          "title": "Nothing At All",
+          "length": 100,
+          "artistMaybeWrong": false
+        },
+        "includeFullResults": false
+      },
+      "resultCount": 0,
+      "revision": 0,
+      "isComplete": true
+    },
+    "children": []
+  }
+}
