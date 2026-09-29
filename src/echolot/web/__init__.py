@@ -1,7 +1,7 @@
 """Web dashboard and HTTP API."""
 
-import urllib.parse
-from collections.abc import AsyncIterator, Callable, Iterator
+import logging
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -13,10 +13,26 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Red
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from echolot import __version__, db, history, jobs, pipeline, review, schedule, sources, stats
+from echolot import (
+    __version__,
+    auth,
+    db,
+    history,
+    jobs,
+    pipeline,
+    pipeline_config,
+    review,
+    schedule,
+    sources,
+    stats,
+    vault,
+)
 from echolot.config import Settings
 from echolot.scheduler import Scheduler
-from echolot.web import charts
+from echolot.web import access, admin, charts
+from echolot.web.common import DB, back, page
+
+log = logging.getLogger(__name__)
 
 HERE = Path(__file__).parent
 
@@ -81,8 +97,10 @@ def mmss(seconds: float | None) -> str:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
+    secret_store = vault.Vault.from_env(settings.data_dir)  # a wrong key stops Echolot here
     con = db.connect(settings.db_path)
     try:
+        pipeline_config.start(con, settings)
         scheduler = Scheduler(settings.db_path, jobs.all_jobs(settings, jobs.refresh_minutes(con)))
     finally:
         con.close()
@@ -99,9 +117,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/api/docs",
         redoc_url=None,
         lifespan=lifespan,
+        dependencies=[Depends(access.csrf_protect)],
     )
     app.state.settings = settings
     app.state.scheduler = scheduler
+    app.state.vault = secret_store
+    app.state.throttle = auth.Throttle()
+    con = db.connect(settings.db_path)
+    try:
+        access.first_user(app, con)
+    finally:
+        con.close()
+    app.middleware("http")(access.authenticate)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(
@@ -110,29 +137,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.globals.update(
         pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__
     )
-
-    def get_db() -> Iterator[Connection]:
-        con = db.connect(settings.db_path)
-        try:
-            yield con
-        finally:
-            con.close()
-
-    DB = Annotated[Connection, Depends(get_db)]
-
-    def page(request: Request, name: str, status_code: int = 200, **context: Any) -> HTMLResponse:
-        context.setdefault("ok", request.query_params.get("ok", ""))
-        context.setdefault("error", request.query_params.get("error", ""))
-        return templates.TemplateResponse(request, name, context, status_code=status_code)
-
-    def back(path: str, **message: str) -> RedirectResponse:
-        query = urllib.parse.urlencode(message)
-        return RedirectResponse(f"{path}?{query}" if query else path, status_code=303)
+    app.state.templates = templates
+    app.include_router(access.router)
+    app.include_router(admin.router)
 
     def pipeline_root() -> Path:
         if not settings.pipeline_dir:
             raise HTTPException(404, "no pipeline configured (ECHOLOT_PIPELINE_DIR)")
         return settings.pipeline_dir
+
+    def out_dir() -> Path:
+        pipeline_root()
+        assert settings.out_dir is not None
+        return settings.out_dir
 
     # ------------------------------------------------------------ pages
 
@@ -152,7 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             donut=charts.donut(o["song_tiers"]),
             refresh_minutes=jobs.refresh_minutes(con),
             refresh_in=scheduler.next_run_in("refresh"),
-            pipeline_jobs=schedule.status(root) if root else [],
+            pipeline_jobs=schedule.status(root, schedule.rules(con)) if root else [],
             paused=bool(root and pipeline.paused(root)),
         )
 
@@ -208,13 +225,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request,
             "review.html",
             nav="review",
-            items=review.items(con, pipeline_root(), music_dir()),
+            items=review.items(con, pipeline_root(), music_dir(), out_dir()),
         )
 
     @app.post("/review/{event_id}")
     def review_decide(con: DB, event_id: int, decision: Annotated[str, Form()]) -> RedirectResponse:
         try:
-            item = review.decide(con, pipeline_root(), music_dir(), event_id, decision)
+            item = review.decide(con, pipeline_root(), music_dir(), event_id, decision, out_dir())
         except sources.ConfigError as e:
             return back("/review", error=str(e))
         song = f"{item.event['artist']} – {item.event['title']}"
@@ -226,7 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/review/{event_id}/revert")
     def review_revert(con: DB, event_id: int) -> RedirectResponse:
         try:
-            item = review.revert(con, pipeline_root(), music_dir(), event_id)
+            item = review.revert(con, pipeline_root(), music_dir(), event_id, out_dir())
         except sources.ConfigError as e:
             return back("/review", error=str(e))
         song = f"{item.event['artist']} – {item.event['title']}"
@@ -234,7 +251,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/review/{event_id}/audio")
     def review_audio(con: DB, event_id: int) -> FileResponse:
-        item = review.find(con, pipeline_root(), music_dir(), event_id)
+        item = review.find(con, pipeline_root(), music_dir(), event_id, out_dir())
         if item is None:
             raise HTTPException(404, "not up for review")
         return FileResponse(item.file)
@@ -301,33 +318,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(404, "no such job")
         return RedirectResponse("/", status_code=303)
 
-    # ------------------------------------------------------------ sources.yml
+    # ------------------------------------------------------------ sources
 
     def edit_sources(
-        con: Connection, expected: str, note: str, change: Callable[[str], str], ok: str
+        con: Connection, expected: str, change: Callable[[], object], ok: str
     ) -> RedirectResponse:
-        root = pipeline_root()
+        """Apply a change to the lists unless they changed since the page was loaded; then write the
+        pipeline's sources.yml and refresh."""
         try:
-            text = sources.read(root)
-            sources.save(con, root, change(text), expected, note)
+            if sources.current_version(con) != expected:
+                raise sources.Conflict(
+                    "The lists were changed elsewhere in the meantime. Reload and try again."
+                )
+            change()
         except sources.ConfigError as err:
             return back("/sources", error=str(err))
+        pipeline_config.write(con, settings)
         scheduler.trigger("refresh")
         return back("/sources", ok=ok)
 
     @app.get("/sources", response_class=HTMLResponse)
     def sources_page(request: Request, con: DB) -> HTMLResponse:
-        root = pipeline_root()
-        text = sources.read(root)
         known = {r["key"]: r for r in stats.lists(con)}
         return page(
             request,
             "sources.html",
             nav="sources",
-            entries=sources.entries(text),
+            entries=sources.entries(con),
             known=known,
-            likes=sources.likes_state(text),
-            file_version=sources.version(text),
+            likes=sources.likes_state(con),
+            file_version=sources.current_version(con),
         )
 
     @app.post("/sources/add")
@@ -341,8 +361,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return edit_sources(
             con,
             version,
-            f"added {url.strip()}",
-            lambda text: sources.add_list(text, url, title, playlist),
+            lambda: sources.add_list(con, url, title, playlist),
             "List added. The pipeline fetches it on its next run.",
         )
 
@@ -355,11 +374,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         playlist: Annotated[bool, Form()] = False,
     ) -> RedirectResponse:
         return edit_sources(
-            con,
-            version,
-            f"changed {key}",
-            lambda text: sources.update_list(text, key, title, playlist),
-            "List saved.",
+            con, version, lambda: sources.update_list(con, key, title, playlist), "List saved."
         )
 
     @app.post("/sources/remove")
@@ -369,8 +384,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return edit_sources(
             con,
             version,
-            f"removed {key}",
-            lambda text: sources.remove_list(text, key),
+            lambda: sources.remove_list(con, key),
             "List removed. Its songs stay in the library; delete its playlist in the music "
             "server if you no longer want it.",
         )
@@ -384,16 +398,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         soundcloud_user: Annotated[str, Form()] = "",
         removed_playlists: Annotated[bool, Form()] = False,
     ) -> RedirectResponse:
-        def change(text: str) -> str:
-            text = sources.set_likes(text, "spotify", spotify_likes)
-            text = sources.set_likes(text, "soundcloud", soundcloud_likes, soundcloud_user)
-            return sources.set_removed_playlists(text, removed_playlists)
+        def change() -> None:
+            sources.set_likes(con, "spotify", spotify_likes)
+            sources.set_likes(con, "soundcloud", soundcloud_likes, soundcloud_user)
+            sources.set_removed_playlists(con, removed_playlists)
 
-        return edit_sources(con, version, "likes/options changed", change, "Options saved.")
+        return edit_sources(con, version, change, "Options saved.")
 
     @app.get("/sources/yaml", response_class=HTMLResponse)
     def sources_yaml(request: Request, con: DB) -> HTMLResponse:
-        text = sources.read(pipeline_root())
+        text = sources.render(con)
         return page(
             request,
             "sources_yaml.html",
@@ -412,7 +426,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> HTMLResponse | RedirectResponse:
         text = text.replace("\r\n", "\n")
         try:
-            sources.save(con, pipeline_root(), text, version, "edited as YAML")
+            sources.save_text(con, text, version, "edited as YAML")
         except sources.ConfigError as err:  # keep the user's edit on the page
             return page(
                 request,
@@ -424,8 +438,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 versions=sources.versions(con),
                 error=str(err),
             )
+        pipeline_config.write(con, settings)
         scheduler.trigger("refresh")
-        return back("/sources/yaml", ok="sources.yml saved.")
+        return back("/sources/yaml", ok="Lists saved.")
 
     @app.get("/sources/versions/{vid}", response_class=PlainTextResponse)
     def sources_version(con: DB, vid: int) -> str:
@@ -440,53 +455,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if text is None:
             raise HTTPException(404, "no such version")
         try:
-            sources.save(con, pipeline_root(), text, version, f"restored version {vid}")
+            sources.save_text(con, text, version, f"restored version {vid}")
         except sources.ConfigError as err:
             return back("/sources/yaml", error=str(err))
+        pipeline_config.write(con, settings)
         scheduler.trigger("refresh")
         return back("/sources/yaml", ok=f"Version {vid} restored.")
-
-    # ------------------------------------------------------------ settings
-
-    @app.get("/settings", response_class=HTMLResponse)
-    def settings_page(request: Request, con: DB) -> HTMLResponse:
-        root = settings.pipeline_dir
-        return page(
-            request,
-            "settings.html",
-            nav="settings",
-            jobs=schedule.status(root) if root else [],
-            refresh=jobs.refresh_minutes(con),
-            settings=settings,
-        )
-
-    @app.post("/settings")
-    async def settings_save(request: Request) -> RedirectResponse:
-        form = await request.form()
-        try:
-            refresh = int(str(form.get("refresh", jobs.REFRESH_MINUTES)))
-        except ValueError:
-            return back("/settings", error="Echolot refresh: whole minutes.")
-        if refresh < 1:
-            return back("/settings", error="Echolot refresh: at least 1 minute.")
-        con = db.connect(settings.db_path)
-        try:
-            if settings.pipeline_dir:
-                current = schedule.read(settings.pipeline_dir)
-                values = {
-                    j.name: schedule.parse_when(str(form[j.name]), j)
-                    if j.name in form
-                    else current[j.name]
-                    for j in schedule.JOBS
-                }
-                schedule.save(con, settings.pipeline_dir, values)
-            with con:
-                db.set_meta(con, "refresh_minutes", str(refresh))
-        except sources.ConfigError as err:
-            return back("/settings", error=str(err))
-        finally:
-            con.close()
-        scheduler.set_interval("refresh", refresh * 60)
-        return back("/settings", ok="Settings saved. The pipeline applies them within a minute.")
 
     return app

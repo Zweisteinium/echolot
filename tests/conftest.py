@@ -1,10 +1,15 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from echolot import db
+from echolot import auth, db, pipeline_config
 from echolot.config import Settings
+
+PASSWORD = "correct horse battery"
 
 SOURCES = """\
 spotify:
@@ -137,7 +142,8 @@ def library_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def settings(tmp_path: Path, pipeline_dir: Path, library_dir: Path) -> Settings:
+def bare_settings(tmp_path: Path, pipeline_dir: Path, library_dir: Path) -> Settings:
+    """Settings with an empty database (the pipeline's config files not taken over yet)."""
     s = Settings(
         data_dir=tmp_path / "data",
         library_dir=library_dir,
@@ -147,3 +153,44 @@ def settings(tmp_path: Path, pipeline_dir: Path, library_dir: Path) -> Settings:
     )
     db.init(s.db_path)
     return s
+
+
+@pytest.fixture
+def settings(bare_settings: Settings) -> Settings:
+    """As after a start: the pipeline's sources.yml and schedule.yml taken over and written."""
+    con = db.connect(bare_settings.db_path)
+    pipeline_config.start(con, bare_settings)
+    con.close()
+    return bare_settings
+
+
+@pytest.fixture(autouse=True)
+def fast_passwords(monkeypatch: pytest.MonkeyPatch) -> None:
+    """scrypt at a test cost (the real one takes a good part of a second per hash)."""
+    monkeypatch.setattr(auth, "SCRYPT_N", 2**8)
+
+
+def logged_in(app: FastAPI, name: str = "tester") -> TestClient:
+    """A client (no `with`: the scheduler thread stays off) logged in as a new user, sending the
+    session's CSRF token with every request."""
+    client = TestClient(app)
+    con = db.connect(app.state.settings.db_path)
+    try:
+        if auth.get_user(con, name) is None:
+            auth.add_user(con, name, PASSWORD)
+    finally:
+        con.close()
+    r = client.post("/login", data={"name": name, "password": PASSWORD}, follow_redirects=False)
+    assert r.status_code == 303, r.text
+    con = db.connect(app.state.settings.db_path)
+    try:
+        csrf = con.execute("SELECT csrf FROM sessions ORDER BY rowid DESC LIMIT 1").fetchone()[0]
+    finally:
+        con.close()
+    client.headers["X-CSRF-Token"] = csrf
+    return client
+
+
+@pytest.fixture
+def login() -> Callable[..., TestClient]:
+    return logged_in

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Log in · Echolot{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Log in</h1>
+  {% if first_run %}
+  <p class="muted small">There is no user yet. Open the <code>/setup</code> link from Echolot's log (<code>docker logs echolot</code>) to create the first one, or run <code>echolot user add &lt;name&gt;</code>.</p>
+  {% endif %}
+  <form method="post" action="/login" class="stack">{{ csrf_input }}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>User <input type="text" name="name" value="{{ name or '' }}" autocomplete="username" required autofocus></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+    <p><button class="primary">Log in</button></p>
+  </form>
+</section>
+{% endblock %}

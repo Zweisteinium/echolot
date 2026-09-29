@@ -1,13 +1,13 @@
 {% extends "base.html" %}
-{% block title %}sources.yml · Echolot{% endblock %}
+{% block title %}Lists as YAML · Echolot{% endblock %}
 {% block content %}
 <section class="card">
   <div class="card-head">
-    <h1>sources.yml</h1>
+    <h1>Lists as YAML</h1>
     <a href="/sources">Back to Sources</a>
   </div>
-  <p class="muted small">The whole file, comments included. It is checked before saving; the current version is kept and can be restored below.</p>
-  <form method="post" action="/sources/yaml">
+  <p class="muted small">All lists in the format of the pipeline's <code>sources.yml</code>, as Echolot writes it. Saving checks the text and replaces the lists (comments are not kept); the version before is kept and can be restored below.</p>
+  <form method="post" action="/sources/yaml">{{ csrf_input }}
     <input type="hidden" name="version" value="{{ file_version }}">
     <textarea name="text" rows="30" spellcheck="false" aria-label="sources.yml">{{ text }}</textarea>
     <p><button class="primary">Save</button></p>
@@ -24,7 +24,7 @@
       <td class="num muted small">{{ v.size|num }} bytes</td>
       <td><a href="/sources/versions/{{ v.id }}" target="_blank">view</a></td>
       <td>
-        <form method="post" action="/sources/versions/{{ v.id }}/restore" onsubmit="return confirm('Restore this version?')">
+        <form method="post" action="/sources/versions/{{ v.id }}/restore" onsubmit="return confirm('Restore this version?')">{{ csrf_input }}
           <input type="hidden" name="version" value="{{ file_version }}">
           <button>Restore</button>
         </form>
