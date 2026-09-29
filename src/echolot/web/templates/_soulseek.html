@@ -1,10 +1,11 @@
 {# the Soulseek card; reloaded every few seconds while the daemon is not ready #}
-<section class="card account" id="soulseek" {% if not s.soulseek.ready %}hx-get="/accounts/soulseek" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+<section class="card account" id="soulseek" {% if not s.soulseek.ready %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
   <div class="card-head">
     <h2 class="group-name">Soulseek</h2>
     {% if s.soulseek.ready %}<span class="pill ok-pill">logged in as {{ s.soulseek.user }}</span>
     {% elif not s.soulseek.reachable %}<span class="pill bad-pill">daemon not reachable</span>
-    {% elif s.soulseek.user %}<span class="pill warn-pill">logging in …</span>{% else %}<span class="pill">no account</span>{% endif %}
+    {% elif s.soulseek.user and s.soulseek.state in ('', 'None') %}<span class="pill">logs in with the next search</span>
+    {% elif s.soulseek.user %}<span class="pill warn-pill">{{ s.soulseek.state }}</span>{% else %}<span class="pill">no account</span>{% endif %}
   </div>
   <p class="muted">The songs come from Soulseek, a file sharing network, through the Sockseek daemon (in the VPN's network{% if s.soulseek.version %}, version {{ s.soulseek.version }}{% endif %}). It needs a Soulseek account of its own: a new name is registered on the first login. Use one no other client logs in with (an account can only be online once).</p>
   {% if not s.soulseek.reachable %}<p class="flash error">{{ s.soulseek.error }}</p>{% endif %}

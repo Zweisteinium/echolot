@@ -227,9 +227,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     if not songs:
         return "nothing to search"
     fetcher = Fetcher(run, purpose)
-    status = fetcher.daemon.status()
-    if not status["ready"]:
-        raise RuntimeError(f"Soulseek not connected (daemon: {status['state'] or 'not logged in'})")
+    fetcher.daemon.status()  # reachable (it logs in to Soulseek with the first search)
     deadline = time.monotonic() + 20 * 60 + 15 * len(songs)  # a run shares Soulseek with the others
     counts: dict[str, int] = {}
     done = 0
@@ -249,6 +247,10 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         except Exception as e:  # one song's trouble never stops the others
             log.exception("%s: %s - %s", purpose, want.artist, want.title)
             outcome = Outcome("failed", str(e))
+        if outcome.action not in FOUND and not _logged_in(fetcher.daemon):
+            # not the song's fault: no try counted, and the rest waits for the next run
+            outcome = Outcome("interrupted", "Soulseek not logged in")
+            run.stop.set()
         con = run.connect()
         try:
             _count(con, purpose, want.key, outcome.action)
@@ -271,6 +273,13 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     return f"{done} of {len(songs)} songs: " + (
         ", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none"
     )
+
+
+def _logged_in(daemon: soulseek.Daemon) -> bool:
+    try:
+        return daemon.status()["ready"]
+    except soulseek.DaemonError:
+        return False
 
 
 def _count(con: sqlite3.Connection, purpose: str, key: str, action: str) -> None:
@@ -359,8 +368,7 @@ def probe(run: "Run") -> str:
     if not songs:
         return "no probe songs"
     daemon = soulseek.Daemon(url)
-    if not daemon.status()["ready"]:
-        raise RuntimeError("Soulseek not connected")
+    daemon.status()  # reachable (it logs in with the first search)
     started = datetime.datetime.now().isoformat(timespec="seconds")
     settings = soulseek.search_settings()
 
@@ -374,6 +382,8 @@ def probe(run: "Run") -> str:
 
     with ThreadPoolExecutor(4) as pool:
         rows = list(pool.map(one, songs))
+    if not _logged_in(daemon):  # zero users because nobody was asked: not stored
+        raise RuntimeError("Soulseek not logged in (check the account on the Accounts page)")
     con = run.connect()
     try:
         with con:
