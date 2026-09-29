@@ -44,7 +44,6 @@ class Jobs(Section):
 class Spotify(Section):
     SECTION = "spotify"
     client_id: str = Field("", description="of your Spotify developer app")
-    redirect_uri: str = Field("", description="the one registered in the app and used to connect")
 
 
 class Soulseek(Section):

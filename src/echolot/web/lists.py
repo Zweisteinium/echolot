@@ -20,6 +20,10 @@ from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
 MODES = ("off", "songs", "playlist")
+NOT_READABLE = (
+    "Spotify hands apps only the songs of your own and collaborative playlists, so Echolot "
+    "can't read this one. Copy its songs into a playlist of yours (select all, Add to playlist)."
+)
 _found: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # service -> (when, cards): 5 min cache
 
 
@@ -51,7 +55,8 @@ def _spotify_cards(request: Request, con: sqlite3.Connection) -> list[dict[str, 
               "owner": "you", "songs": sp.liked_count(), "image": spotify.LIKED_SONGS_IMAGE}]  # fmt: skip
     for p in sp.playlists():
         cards.append({"key": f"spotify:playlist:{p['id']}", "service": "spotify", "url": p["url"],
-                      "name": p["name"], "owner": p["owner"], "songs": p["songs"], "image": p["image"]})  # fmt: skip
+                      "name": p["name"], "owner": "you" if p["own"] else p["owner"], "songs": p["songs"],
+                      "image": p["image"], "note": "" if p["readable"] else NOT_READABLE})  # fmt: skip
     _found["spotify"] = (time.time(), cards)
     return cards
 
@@ -143,10 +148,11 @@ def follow(
     owner: Annotated[str, Form()] = "",
     songs: Annotated[str, Form()] = "",
     image: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
 ) -> Response:
     """Follow a list (mode songs or playlist) or stop following it (off: nothing is deleted)."""
     card = {"key": key, "service": service, "url": url, "name": name, "owner": owner,
-            "songs": int(songs) if songs.isdigit() else None, "image": image or None}  # fmt: skip
+            "songs": int(songs) if songs.isdigit() else None, "image": image or None, "note": note}  # fmt: skip
     if mode not in MODES:
         return _card_answer(request, con, card, "Unknown choice.")
     try:

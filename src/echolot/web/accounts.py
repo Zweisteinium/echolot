@@ -19,13 +19,16 @@ from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
 CALLBACK = "/accounts/spotify/callback"
-STATE = "spotify_login_state"  # meta: '<state> <unix time>' of the login started last
+STATE = "spotify_login_state"  # meta: '<state> <unix time> <redirect address>' of the last login
 CACHE_SECONDS = 120  # the overview's connection line reuses a status this young
 LOW_DISK = 20 * 2**30
 
 
-def default_redirect(request: Request) -> str:
-    """Spotify only accepts https addresses or the loopback address 127.0.0.1 (http) as redirect."""
+def redirect_uri(request: Request) -> str:
+    """Where Spotify sends the browser after the login. Spotify accepts https addresses and, over http,
+    only the loopback address: reached over https (a reverse proxy whose headers Echolot trusts), the
+    login returns to Echolot itself; else to 127.0.0.1, which the browser can't open and the user
+    pastes back."""
     if request.url.scheme == "https":
         return f"https://{request.url.netloc}{CALLBACK}"
     return f"http://127.0.0.1:{request.app.state.settings.port}{CALLBACK}"
@@ -67,10 +70,8 @@ def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> d
 
 @router.get("/accounts", response_class=HTMLResponse)
 def accounts_page(request: Request, con: DB) -> HTMLResponse:
-    sp = options.get(con, options.Spotify)
     return page(request, "accounts.html", nav="accounts", s=status(request, con),
-                redirect_uri=sp.redirect_uri or default_redirect(request),
-                automatic=request.url.scheme == "https",
+                redirect_uri=redirect_uri(request), automatic=request.url.scheme == "https",
                 has_daemon_dir=request.app.state.settings.daemon_dir is not None)  # fmt: skip
 
 
@@ -99,7 +100,6 @@ def spotify_app(
     con: DB,
     client_id: Annotated[str, Form()],
     client_secret: Annotated[str, Form()] = "",
-    redirect_uri: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
     client_id, client_secret = client_id.strip(), client_secret.strip()
     if len(client_id) != 32:
@@ -111,8 +111,7 @@ def spotify_app(
             error="Paste the client secret too (the app's Settings, 'View client secret').",
         )
     with con:
-        options.update(con, options.Spotify, client_id=client_id,
-                       redirect_uri=redirect_uri.strip() or default_redirect(request))  # fmt: skip
+        options.update(con, options.Spotify, client_id=client_id)
         if client_secret:
             vault.set(con, spotify.SECRET, client_secret)
     return back("/accounts", ok="Spotify app saved. Now connect your account.")
@@ -124,10 +123,10 @@ def spotify_login(request: Request, con: DB) -> Response:
     sp = options.get(con, options.Spotify)
     if not sp.client_id:
         return back("/accounts", error="Save your Spotify app's client ID and secret first.")
-    state = secrets.token_urlsafe(16)
+    state, redirect = secrets.token_urlsafe(16), redirect_uri(request)
     with con:
-        db.set_meta(con, STATE, f"{state} {int(time.time())}")
-    url = spotify.authorize_url(sp.client_id, sp.redirect_uri or default_redirect(request), state)
+        db.set_meta(con, STATE, f"{state} {int(time.time())} {redirect}")
+    url = spotify.authorize_url(sp.client_id, redirect, state)
     return RedirectResponse(url, status_code=303)
 
 
@@ -137,15 +136,18 @@ def _finish_login(
     if error := (query.get("error") or [""])[0]:
         return back("/accounts", error=f"Spotify: {error.replace('_', ' ')}.")
     code, state = (query.get("code") or [""])[0], (query.get("state") or [""])[0]
-    expected, _, started = db.get_meta(con, STATE).partition(" ")
-    if not code or not state or state != expected or time.time() - int(started or 0) > 1800:
+    expected, started, redirect = ([*db.get_meta(con, STATE).split(" "), "", ""])[:3]
+    if (
+        not code
+        or not state
+        or state != expected
+        or not redirect
+        or time.time() - int(started or 0) > 1800
+    ):
         return back("/accounts", error="That is not the address of the last Spotify login (or it is older "
                                        "than 30 min). Click 'Connect Spotify' again.")  # fmt: skip
-    sp = options.get(con, options.Spotify)
     try:
-        spotify.exchange(
-            con, request.app.state.vault, code, sp.redirect_uri or default_redirect(request)
-        )
+        spotify.exchange(con, request.app.state.vault, code, redirect)  # the address the login used
     except spotify.SpotifyError as e:
         return back("/accounts", error=str(e))
     with con:

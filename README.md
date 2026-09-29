@@ -186,7 +186,8 @@ ORDER BY ts`), or use the Infinity data source on the JSON endpoints.
 
 - a Docker host with Docker Compose;
 - one filesystem for the music: files are hard-linked from `inbox/` into `tracks/`;
-- for Spotify: a developer app of your own (development-mode apps need a Premium account);
+- for Spotify: a developer app of your own; its owner needs Premium (Spotify's rule since March 2026),
+  the connected account does not (list it under the app's User Management if it is not the owner);
   for SoundCloud: your account;
 - for Soulseek: an account for the Sockseek daemon (a second one if you also run slskd: an
   account can be logged in only once).
@@ -319,9 +320,10 @@ Forgotten password: `docker exec -it echolot echolot user passwd admin`.
   Settings.
 - **Logs:** `docker logs echolot` (every job and song), the Activity page for every filing and
   rejection, `docker logs sockseek-daemon` for Soulseek.
-- **Rate limits:** Soulseek limits searches (about 34 per 220 s), so a large search takes a
-  while; SoundCloud answers 429 after bursts (keep its job at 15 minutes or more); Spotify
-  development-mode apps allow 5 users and cannot read Spotify's own editorial playlists.
+- **Limits:** Soulseek limits searches (about 34 per 220 s), so a large search takes a while;
+  SoundCloud answers 429 after bursts (keep its job at 15 minutes or more); Spotify
+  development-mode apps serve 5 accounts and get the songs of own and collaborative playlists
+  only (not other people's playlists or Spotify's editorial ones).
 - **Rule changes:** `uv run python tools/rules_check.py` compares the working copy's rules with
   the deployed version on the real library and history; `tools/daemon_check.py` checks the
   daemon's API against a mock.
