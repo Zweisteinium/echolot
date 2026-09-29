@@ -102,6 +102,7 @@ class Transfer:
 class Daemon:
     def __init__(self, url: str, timeout: float = 30) -> None:
         self.url, self.timeout = url.rstrip("/"), timeout
+        self._submitted: dict[str, float] = {}  # job id -> when it was started here
 
     def _call(self, method: str, path: str, body: object = None) -> Any:
         data = None if body is None else json.dumps(body).encode()
@@ -131,10 +132,17 @@ class Daemon:
         job = self._call("POST", "/api/jobs/search/tracks",
                          {"songQuery": query, "includeFullResults": False,
                           "options": {"downloadSettings": settings}})  # fmt: skip
+        self._submitted[job["jobId"]] = time.monotonic()
         return job["jobId"]
 
     def job(self, job_id: str) -> dict[str, Any]:
-        return self._call("GET", f"/api/jobs/{job_id}")
+        try:
+            return self._call("GET", f"/api/jobs/{job_id}")
+        except Lost:
+            # a job is queryable only a moment after it was accepted; unknown later: the daemon restarted
+            if time.monotonic() - self._submitted.get(job_id, float("-inf")) < 30:
+                return {"summary": {"lifecycleState": "Pending"}, "payload": {}}
+            raise
 
     def wait(self, job_id: str, stop: threading.Event, deadline: float, every: float = 1.0) -> dict:
         """The job's detail once it has ended (lifecycleState Terminal)."""
@@ -169,6 +177,7 @@ class Daemon:
                              {"files": [{"username": c.user, "filename": c.path}],
                               "options": {"outputParentDir": parent_dir, "downloadSettings": settings}})  # fmt: skip
         jobs = started if isinstance(started, list) else [started]
+        self._submitted[jobs[0]["jobId"]] = time.monotonic()
         return jobs[0]["jobId"]
 
     def transfer(self, job_id: str) -> Transfer:

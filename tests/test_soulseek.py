@@ -75,6 +75,8 @@ def test_unknown_job_is_lost() -> None:
     d = Replay({("GET", "/api/jobs/"): "job-unknown"})
     with pytest.raises(soulseek.Lost):
         d.transfer("gone")
+    d._submitted["new"] = time.monotonic()  # just started: not registered yet, not lost
+    assert d.transfer("new").state == "running"
 
 
 def test_status() -> None:
