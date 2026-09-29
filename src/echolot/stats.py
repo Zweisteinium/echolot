@@ -14,7 +14,7 @@ REJECTED = ("wrong-song", "mismatch")
 def overview(con: Connection) -> dict[str, Any]:
     files, size = con.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
     by_tier = dict(con.execute("SELECT quality, count(*) FROM files GROUP BY quality").fetchall())
-    wanted, have = con.execute("SELECT count(*), count(file) FROM songs").fetchone()
+    wanted, have = con.execute("SELECT count(*), count(file) FROM wanted").fetchone()
     since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
     day = {
         action: (n, b or 0)
@@ -24,11 +24,11 @@ def overview(con: Connection) -> dict[str, Any]:
         )
     }
     not_found = con.execute(
-        "SELECT count(*) FROM songs s JOIN attempts a ON a.song_key = s.key "
+        "SELECT count(*) FROM wanted s JOIN attempts a ON a.song_key = s.key "
         "WHERE s.file IS NULL AND a.tries >= 1"
     ).fetchone()[0]
     songs = con.execute(
-        f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM songs s "
+        f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM wanted s "
         "LEFT JOIN files f ON f.path = s.file"
     ).fetchone()
     services = {
@@ -53,7 +53,6 @@ def overview(con: Connection) -> dict[str, Any]:
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
         "rejected_24h": sum(day.get(a, (0, 0))[0] for a in REJECTED),
         "lists": lists(con),
-        "jobs": {r["name"]: r for r in con.execute("SELECT * FROM jobs")},
     }
 
 
@@ -111,7 +110,7 @@ def missing(con: Connection, list_key: str | None = None) -> list[Row]:
         "(SELECT group_concat(title, ' · ') FROM (SELECT DISTINCT l.title FROM list_songs ls "
         " JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key ORDER BY l.position)) "
         "AS in_lists "
-        f"FROM songs s LEFT JOIN attempts a ON a.song_key = s.key WHERE {where} "
+        f"FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key WHERE {where} "
         "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
     ).fetchall()

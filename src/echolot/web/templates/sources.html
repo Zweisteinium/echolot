@@ -1,68 +1,46 @@
 {% extends "base.html" %}
-{% from "_macros.html" import service %}
+{% from "_icons.html" import icon %}
 {% block title %}Sources · Echolot{% endblock %}
 {% block content %}
-<section class="card">
+<section class="card intro">
   <div class="card-head">
     <h1>Sources</h1>
-    <a href="/sources/yaml">Edit as YAML</a>
+    <a href="/accounts">Accounts</a>
   </div>
-  <p class="muted small">What the library follows. Echolot writes the pipeline's <code>sources.yml</code> from these lists after every change; the pipeline picks them up on its next run. Earlier versions can be restored under "Edit as YAML".</p>
+  <p class="lead">The lists Echolot follows. For each one choose <b>Songs</b> (they are downloaded into the library) or <b>Songs + playlist</b> (the list also appears as a playlist in your music server). <b>Off</b> stops following it; nothing is deleted.</p>
   <form method="post" action="/sources/options" class="options">{{ csrf_input }}
-    <input type="hidden" name="version" value="{{ file_version }}">
-    <label><input type="checkbox" name="spotify_likes" value="1" {% if likes.spotify %}checked{% endif %}> Spotify Liked Songs</label>
-    <label><input type="checkbox" name="soundcloud_likes" value="1" {% if likes.soundcloud %}checked{% endif %}> SoundCloud likes of</label>
-    <input type="text" name="soundcloud_user" value="{{ likes.soundcloud_user }}" placeholder="user name" aria-label="SoundCloud user name" size="16">
-    <label title="Songs that leave a list keep their files and move to a '&lt;list&gt; – removed' playlist"><input type="checkbox" name="removed_playlists" value="1" {% if likes.removed_playlists %}checked{% endif %}> "– removed" playlists</label>
-    <button class="primary">Save</button>
+    <label title="Songs that leave a list keep their files and go to a '&lt;list&gt; – removed' playlist"><input type="checkbox" name="removed_playlists" value="1" {% if removed_playlists %}checked{% endif %} onchange="this.form.requestSubmit()"> "– removed" playlists for songs that leave a list</label>
+    <noscript><button>Save</button></noscript>
   </form>
 </section>
 
 <section class="card">
-  <h2>Add a list</h2>
+  <div class="card-head"><h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
+    {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">{{ s.spotify.name }}</span>{% endif %}</div>
+  {% if s.spotify.connected and not s.spotify.error %}
+  <div hx-get="/sources/found/spotify" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your Spotify playlists …</p></div>
+  {% else %}<p class="muted"><a href="/accounts#spotify">Connect Spotify</a> to see your playlists here.</p>{% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
+    {% if s.soundcloud.connected %}<span class="pill ok-pill">{{ s.soundcloud.name }}</span>{% endif %}</div>
+  {% if s.soundcloud.connected %}
+  <div hx-get="/sources/found/soundcloud" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your SoundCloud likes and sets …</p></div>
+  {% else %}<p class="muted"><a href="/accounts#soundcloud">Connect SoundCloud</a> to see your likes and sets here.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Other lists</h2>
+  <p class="muted small">Anyone's public Spotify playlist, SoundCloud set or SoundCloud likes page, by its link.</p>
   <form method="post" action="/sources/add" class="add">{{ csrf_input }}
-    <input type="hidden" name="version" value="{{ file_version }}">
-    <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/user/sets/…" aria-label="URL" class="grow">
-    <input type="text" name="title" placeholder="Name (optional)" aria-label="Name">
-    <label title="Show as a playlist in the music server"><input type="checkbox" name="playlist" value="1" checked> playlist</label>
-    <button class="primary">Add</button>
+    <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/…/sets/…" aria-label="Link" class="grow">
+    <span class="seg" role="radiogroup" aria-label="Follow as">
+      <label><input type="radio" name="mode" value="songs"> Songs</label>
+      <label><input type="radio" name="mode" value="playlist" checked> Songs + playlist</label>
+    </span>
+    <button class="primary">Follow</button>
   </form>
-  <p class="muted small">Spotify: your own and other users' public playlists (Spotify's editorial playlists can't be read). SoundCloud: any public set or a user's likes page.</p>
-</section>
-
-<section class="card">
-  <h2>Lists <span class="count">{{ entries|length }}</span></h2>
-  <table class="rows">
-    <thead><tr><th></th><th>List</th><th class="num">Songs</th><th>Name override</th><th>Playlist</th><th></th></tr></thead>
-    {% for e in entries %}
-    {% set k = known.get(e.key) %}
-    <tr>
-      <td>{{ service(e.service) }}</td>
-      <td>
-        {% if k and k.fetched %}<a href="/lists/{{ e.key }}">{{ k.title }}</a>{% else %}<span class="muted">waiting for the first sync</span>{% endif %}
-        <div class="small"><a class="muted" href="{{ e.url }}" target="_blank" rel="noopener">{{ e.url.split('://')[1] }}</a></div>
-      </td>
-      <td class="num">{% if k and k.fetched %}{{ k.have|num }} / {{ k.songs|num }}{% else %}–{% endif %}</td>
-      <td colspan="2">
-        <form method="post" action="/sources/update" class="row-form">{{ csrf_input }}
-          <input type="hidden" name="version" value="{{ file_version }}">
-          <input type="hidden" name="key" value="{{ e.key }}">
-          <input type="text" name="title" value="{{ e.title or '' }}" placeholder="source name" aria-label="Name override" size="18">
-          <label><input type="checkbox" name="playlist" value="1" {% if e.playlist %}checked{% endif %}> show</label>
-          <button>Save</button>
-        </form>
-      </td>
-      <td>
-        <form method="post" action="/sources/remove" onsubmit="return confirm('Remove this list? Its songs stay in the library.')">{{ csrf_input }}
-          <input type="hidden" name="version" value="{{ file_version }}">
-          <input type="hidden" name="key" value="{{ e.key }}">
-          <button class="danger">Remove</button>
-        </form>
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="6" class="muted">No lists yet.</td></tr>
-    {% endfor %}
-  </table>
+  <div hx-get="/sources/other" hx-trigger="load delay:300ms" hx-swap="outerHTML"></div>
 </section>
 {% endblock %}

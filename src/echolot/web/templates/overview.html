@@ -75,41 +75,16 @@
     </table>
   </details>
   {% else %}
-  <p class="muted">No lists yet. They appear after the first refresh.</p>
+  <p class="muted">No lists yet. <a href="/sources">Choose the lists to follow</a>{% if not connected %} after <a href="/accounts">connecting your accounts</a>{% endif %}.</p>
   {% endfor %}
 </section>
 
 <section class="card">
-  <div class="card-head">
-    <h2>Activity</h2>
-    <form method="post" action="/jobs/refresh/run">{{ csrf_input }}<button>Refresh now</button></form>
-  </div>
+  <h2>Last 24 hours</h2>
   <div class="stats">
-    <a class="stat" href="/activity?kind=added"><span class="stat-value">{{ o.added_24h|num }}</span><span class="stat-label">songs added in 24 h · {{ o.added_bytes_24h|size }}</span></a>
-    <a class="stat" href="/activity?kind=rejected"><span class="stat-value">{{ o.rejected_24h|num }}</span><span class="stat-label">downloads rejected in 24 h</span></a>
-    {% if paused %}<span class="stat"><span class="stat-value bad-text">paused</span><span class="stat-label">downloads (state/PAUSED)</span></span>{% endif %}
+    <a class="stat" href="/activity?kind=added"><span class="stat-value">{{ o.added_24h|num }}</span><span class="stat-label">songs added · {{ o.added_bytes_24h|size }}</span></a>
+    <a class="stat" href="/activity?kind=rejected"><span class="stat-value">{{ o.rejected_24h|num }}</span><span class="stat-label">downloads rejected</span></a>
   </div>
-  <table class="rows jobs">
-    <thead><tr><th>Job</th><th>State</th><th class="hide-narrow">Schedule</th><th>Last run</th><th>Next</th></tr></thead>
-    <tbody>
-    {% for s in pipeline_jobs %}
-    <tr>
-      <td>{{ s.job.label }}</td>
-      <td class="nowrap">{% if s.running %}<span class="dot on"></span>running{% elif s.rule is none %}<span class="dot"></span><span class="muted">off</span>{% elif s.waiting_for %}<span class="dot wait"></span>waiting{% else %}<span class="dot"></span><span class="muted">idle</span>{% endif %}</td>
-      <td class="muted small hide-narrow">{{ s.rule|minutes }}</td>
-      <td class="small nowrap">{{ s.started|ago }}</td>
-      <td class="small">{% if s.rule is none %}<span class="muted">–</span>{% elif s.running %}<span class="muted">–</span>{% elif s.waiting_for %}after {{ s.waiting_for }}{% else %}{{ s.next_run|until }}{% endif %}</td>
-    </tr>
-    {% endfor %}
-    {% set r = o.jobs.get('refresh') %}
-    <tr>
-      <td>Echolot refresh</td>
-      <td class="nowrap" title="{{ r.message if r else '' }}">{% if r and not r.finished %}<span class="dot on"></span>running{% elif r and not r.ok %}<span class="dot err"></span>failed{% elif r %}<span class="dot"></span><span class="muted">idle</span>{% else %}<span class="muted">–</span>{% endif %}</td>
-      <td class="muted small hide-narrow">every {{ refresh_minutes }} min</td>
-      <td class="small nowrap">{{ r.finished|ago if r and r.finished else '–' }}</td>
-      <td class="small">{% if refresh_in is not none %}{{ 'due now' if refresh_in < 60 else 'in ' ~ ((refresh_in / 60)|round(0, 'ceil')|int) ~ ' min' }}{% else %}<span class="muted">–</span>{% endif %}</td>
-    </tr>
-    </tbody>
-  </table>
+  {% include "_jobs.html" %}
 </section>
 {% endblock %}

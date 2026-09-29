@@ -1,0 +1,20 @@
+{# the Soulseek card; reloaded every few seconds while the daemon is not ready #}
+<section class="card account" id="soulseek" {% if not s.soulseek.ready %}hx-get="/accounts/soulseek" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  <div class="card-head">
+    <h2 class="group-name">Soulseek</h2>
+    {% if s.soulseek.ready %}<span class="pill ok-pill">logged in as {{ s.soulseek.user }}</span>
+    {% elif not s.soulseek.reachable %}<span class="pill bad-pill">daemon not reachable</span>
+    {% elif s.soulseek.user %}<span class="pill warn-pill">logging in …</span>{% else %}<span class="pill">no account</span>{% endif %}
+  </div>
+  <p class="muted">The songs come from Soulseek, a file sharing network, through the Sockseek daemon (in the VPN's network{% if s.soulseek.version %}, version {{ s.soulseek.version }}{% endif %}). It needs a Soulseek account of its own: a new name is registered on the first login. Use one no other client logs in with (an account can only be online once).</p>
+  {% if not s.soulseek.reachable %}<p class="flash error">{{ s.soulseek.error }}</p>{% endif %}
+  {% if has_daemon_dir %}
+  <form method="post" action="/accounts/soulseek" class="stack narrow-form">{{ csrf_input }}
+    <label>User name <input type="text" name="user" value="{{ s.soulseek.user }}" autocomplete="off" required></label>
+    <label>Password {% if s.soulseek.password %}<span class="muted small">saved; leave empty to keep it</span>{% endif %}<input type="password" name="password" autocomplete="new-password" {% if not s.soulseek.password %}required{% endif %}></label>
+    <p><button class="{{ 'primary' if not s.soulseek.ready }}">Save and log in</button></p>
+  </form>
+  {% else %}
+  <p class="muted small">Echolot can't set the account here (no <code>ECHOLOT_DAEMON_DIR</code>): put <code>user</code> and <code>pass</code> into the daemon's config file.</p>
+  {% endif %}
+</section>

@@ -117,20 +117,16 @@ def _apply(con: sqlite3.Connection, parsed: Parsed) -> None:
     if parsed.lists is not None:
         sources.replace_rows(con, parsed.lists)
     if parsed.rules:
-        schedule.store(con, parsed.rules, "imported echolot.yml")
+        schedule.store(con, parsed.rules)
     for section in parsed.sections:
         options.put(con, section)
 
 
 def apply(con: sqlite3.Connection, text: str) -> None:
     """Import an echolot.yml (checked first, then all of it in one transaction)."""
+    from echolot import lists
+
     parsed = parse(con, text)
-    before = sources.render(con)
     with con:
         _apply(con, parsed)
-        if sources.render(con) != before:
-            con.execute(
-                "INSERT INTO config_versions (name, ts, text, note) VALUES (?, ?, ?, ?)",
-                (sources.FILE, datetime.now().isoformat(timespec="seconds"), before,
-                 "imported echolot.yml"),
-            )  # fmt: skip
+    lists.sync_table(con)

@@ -98,7 +98,7 @@ def test_session_expiry(app, login: Callable[..., TestClient]) -> None:
 def test_api_tokens(app, login: Callable[..., TestClient]) -> None:
     client = login(app)
     html = client.post("/settings/tokens", data={"name": "grafana"}).text
-    token = html.split('<div class="token">')[1].split("</div>")[0]
+    token = html.split('id="new-token" type="text" value="')[1].split('"')[0]
     assert token.startswith("echolot_")
     bearer = TestClient(app, headers={"Authorization": f"Bearer {token}"})
     assert bearer.get("/api/stats").status_code == 200

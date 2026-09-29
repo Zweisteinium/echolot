@@ -65,7 +65,7 @@ def collect(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
     rows += [("library_bytes_by_format", k, v) for k, v in sorted(fbytes.items())]
 
     songs = con.execute(
-        "SELECT s.service, s.file, s.unavailable, f.quality, a.tries FROM songs s "
+        "SELECT s.service, s.file, s.unavailable, f.quality, a.tries FROM wanted s "
         "LEFT JOIN files f ON f.path = s.file LEFT JOIN attempts a ON a.song_key = s.key"
     ).fetchall()
     wanted, have, reasons, tries, quality, fmt = (Counter() for _ in range(6))
@@ -211,10 +211,10 @@ def prometheus(con: sqlite3.Connection) -> str:
         lines.append(
             f'echolot_probe_users{{song="{song}",kind="{_escape(kind)}",lossless="true"}} {lossless}'
         )
-    refreshed = con.execute("SELECT finished FROM jobs WHERE name = 'refresh'").fetchone()
+    refreshed = con.execute("SELECT finished FROM jobs WHERE name = 'library'").fetchone()
     if refreshed and refreshed[0]:
         lines += [
-            "# HELP echolot_refresh_timestamp_seconds Last import of the pipeline state and library scan",
+            "# HELP echolot_refresh_timestamp_seconds Last library scan",
             "# TYPE echolot_refresh_timestamp_seconds gauge",
             f"echolot_refresh_timestamp_seconds {datetime.fromisoformat(refreshed[0]).timestamp():.0f}",
         ]

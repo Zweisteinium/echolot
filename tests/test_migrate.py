@@ -1,4 +1,4 @@
-"""Import from the pipeline, library scan and song matching, end to end."""
+"""The takeover of the pipeline's state (migrate.py), the library scan and song matching, end to end."""
 
 import json
 import os
@@ -6,14 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from echolot import db, jobs, library, pipeline, stats
+from echolot import db, library, pipeline, stats, vault
 from echolot.config import Settings
 
 
 @pytest.fixture
 def con(settings: Settings):
     con = db.connect(settings.db_path)
-    jobs.refresh(settings, con)
     yield con
     con.close()
 
@@ -69,9 +68,9 @@ def test_missing_and_overview(con) -> None:
     ]
 
 
-def test_events_are_imported_once(con, settings: Settings) -> None:
+def test_events_are_imported_once(con, pipeline_dir: Path) -> None:
     assert con.execute("SELECT count(*) FROM events").fetchone()[0] == 2
-    log = settings.pipeline_dir / "logs" / "downloads.jsonl"
+    log = pipeline_dir / "logs" / "downloads.jsonl"
     assert pipeline.import_events(con, log) == 0
     with log.open("a") as f:
         f.write(json.dumps({"ts": "2026-09-27T09:00:00", "action": "new", "path": "x"}) + "\n")
@@ -86,7 +85,7 @@ def test_scan_notices_changes(con, settings: Settings) -> None:
     new = settings.library_dir / "Artist C" / "Artist C - Gone Song.flac"
     new.parent.mkdir()
     new.write_bytes(b"x")
-    jobs.refresh(settings, con)
+    library.refresh(con, settings.library_dir)
     songs = dict(con.execute("SELECT key, file FROM songs").fetchall())
     assert songs["spotify:s1"] is None
     assert songs["spotify:s3"] == "Artist C/Artist C - Gone Song.flac"
@@ -113,29 +112,8 @@ def test_scan_uses_known_durations(con, settings: Settings) -> None:
     assert tuple(row) == (400.0, 256)
 
 
-def test_pipeline_activity_from_logs(settings: Settings) -> None:
-    logs = settings.pipeline_dir / "logs"
-    (logs / "sync.log").write_text(
-        "2026-09-27 00:20:00 === music-sync sync start\nsome output\n"
-        "2026-09-27 00:23:02 === music-sync sync done\n"
-        "2026-09-27 00:50:00 === music-sync sync start\n"
-    )
-    (logs / "soundcloud.log").write_text(
-        "2026-09-27 00:05:00 === music-sync soundcloud start\n"
-        "2026-09-27 00:05:19 === music-sync soundcloud done\n"
-    )
-    jobs_ = {a.job: a for a in pipeline.activity(settings.pipeline_dir)}
-    assert jobs_["sync"].running and jobs_["sync"].started == "2026-09-27T00:50:00"
-    assert not jobs_["soundcloud"].running
-    assert jobs_["soundcloud"].finished == "2026-09-27T00:05:19"
-    assert not jobs_["upgrade"].running and jobs_["upgrade"].started is None
-    assert not pipeline.paused(settings.pipeline_dir)
-    (settings.pipeline_dir / "state" / "PAUSED").touch()
-    assert pipeline.paused(settings.pipeline_dir)
-
-
-def test_probes_imported_and_summarised(con, settings: Settings) -> None:
-    log = settings.pipeline_dir / "logs" / "probe.jsonl"
+def test_probes_imported_and_summarised(con, pipeline_dir: Path) -> None:
+    log = pipeline_dir / "logs" / "probe.jsonl"
     lines = [
         {"ts": "2026-09-27T20:05:00", "artist": "A", "title": "Rare", "kind": "rare", "users": 2,
          "lossless_users": 1, "files": 3},
@@ -153,3 +131,27 @@ def test_probes_imported_and_summarised(con, settings: Settings) -> None:
     assert (rare[20]["users"], rare[3]["users"], rare[12]["users"]) == (2, 0, None)
     song = {s["title"]: s for s in a["songs"]}["Rare"]
     assert (song["probes"], song["found"], song["max_users"]) == (2, 0.5, 2)
+
+
+def test_takeover_details(con, pipeline_dir: Path, settings: Settings) -> None:
+    """History, attempts, SoundCloud downloads, schedule and paused jobs come over; a second run adds
+    nothing twice."""
+    from echolot import migrate, options, schedule
+
+    history = con.execute("SELECT count(*) FROM list_history").fetchone()[0]
+    assert history == con.execute("SELECT count(*) FROM list_songs").fetchone()[0] == 8
+    assert tuple(
+        con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:s3'").fetchone()
+    ) == (3, 1790000000)
+    assert (
+        con.execute("SELECT archived FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0] == 1
+    )
+    assert options.get(con, options.Jobs).paused
+    assert schedule.rules(con)["sync"] == 30
+    before = con.execute("SELECT count(*) FROM songs").fetchone()[0]
+    migrate.run(con, pipeline_dir, settings.library_dir.parent, {"SC_TOKEN": "tok", "SPOTIFY_ID": "x" * 32,
+                "SLSK_USER": "me"}, vault.Vault.from_env(settings.data_dir, {}))  # fmt: skip
+    assert con.execute("SELECT count(*) FROM songs").fetchone()[0] == before
+    assert vault.Vault.from_env(settings.data_dir, {}).get(con, "soundcloud.token") == "tok"
+    assert options.get(con, options.Soulseek).user == "me"
+    assert options.get(con, options.Spotify).client_id == "x" * 32

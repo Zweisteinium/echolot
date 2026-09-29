@@ -11,6 +11,9 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
 FROM python:3.13-slim
+# ffmpeg: checking, converting and analysing downloads; nodejs: yt-dlp's JavaScript runtime (YouTube)
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg nodejs ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \

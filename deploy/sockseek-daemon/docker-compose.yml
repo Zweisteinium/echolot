@@ -1,0 +1,18 @@
+# The Sockseek daemon Echolot searches and downloads through, in the VPN container's network namespace
+# (gluetun). Its API (port 5031) is reachable only from gluetun's Docker network, where Echolot joins.
+# Put this service next to gluetun (it needs the same compose project or network_mode: container:gluetun),
+# with ./daemon holding run.sh; Echolot writes daemon.conf (the Soulseek login) there.
+services:
+  sockseek-daemon:
+    image: sockseek:upstream              # built from github.com/fiso64/sockseek (its Dockerfile)
+    container_name: sockseek-daemon
+    network_mode: "container:gluetun"
+    user: "1000:1000"
+    init: true
+    entrypoint: ["/bin/sh", "/daemon/run.sh"]
+    environment:
+      HOME: /tmp
+    volumes:
+      - ./daemon:/daemon
+      - ${MUSIC_DIR}/inbox/soulseek:/music/inbox/soulseek   # the only place it writes
+    restart: unless-stopped

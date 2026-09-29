@@ -4,31 +4,28 @@
 <form method="post" action="/settings">{{ csrf_input }}
 <section class="card">
   <h1>Settings</h1>
-  <h2>Pipeline jobs</h2>
-  {% if jobs %}
-  <p class="muted small">Minutes between runs (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Written to the pipeline's <code>schedule.yml</code>, applied within a minute. Soulseek jobs share one connection: a due job waits for the running one.</p>
+  <h2 class="spaced">When the jobs run</h2>
+  <p class="muted small">Minutes between starts (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Soulseek jobs share one connection: a due job waits for the running one and keeps its turn. Jobs can also be started by hand on the <a href="/">overview</a>.</p>
   <table class="rows">
-    <thead><tr><th>Job</th><th>When</th><th></th><th>Last start</th><th>Next</th></tr></thead>
-    {% for s in jobs %}
+    <thead><tr><th>Job</th><th>When</th><th></th></tr></thead>
+    {% for job, when in jobs %}
     <tr>
-      <td>{{ s.job.label }}<div class="muted small">{{ s.job.help }}</div></td>
-      <td><input type="text" name="{{ s.job.name }}" value="{{ s.when }}" aria-label="{{ s.job.label }}: when" size="24"></td>
-      <td class="muted small nowrap">{{ s.rule|minutes }}<div>min. {{ s.job.minimum }} min</div></td>
-      <td class="small nowrap">{% if s.running %}<span class="dot on"></span>running{% else %}{{ s.started|ago }}{% endif %}</td>
-      <td class="small nowrap">{% if s.rule is not none %}{% if s.waiting_for %}waiting for {{ s.waiting_for }}{% else %}{{ s.next_run|until }}{% endif %}{% else %}<span class="muted">off</span>{% endif %}</td>
+      <td>{{ job.label }}<div class="muted small">{{ job.help }}</div></td>
+      <td><input type="text" name="{{ job.name }}" value="{{ when }}" aria-label="{{ job.label }}: when" size="24"></td>
+      <td class="muted small nowrap">at least every {{ job.minimum }} min</td>
     </tr>
     {% endfor %}
   </table>
-  {% else %}
-  <p class="muted">No pipeline configured (ECHOLOT_PIPELINE_DIR).</p>
-  {% endif %}
 
-  <h2 class="spaced">Echolot</h2>
+  <h2 class="spaced">Soulseek</h2>
   <dl>
-    <dt><label for="refresh">Refresh every (min)</label></dt>
-    <dd><input id="refresh" type="number" name="refresh" value="{{ refresh }}" min="1" step="1" class="short"> <span class="muted small">import the pipeline state and rescan the library</span></dd>
+    <dt><label for="parallel">Songs at a time</label></dt>
+    <dd><input id="parallel" type="number" name="parallel" value="{{ soulseek.parallel }}" min="1" max="8" class="short"> <span class="muted small">searched and downloaded in parallel (Soulseek allows about 34 searches per 220 s anyway)</span></dd>
+    <dt><label for="upgrade_batch">FLAC upgrade</label></dt>
+    <dd><input id="upgrade_batch" type="number" name="upgrade_batch" value="{{ soulseek.upgrade_batch }}" min="1" max="2000" class="short"> <span class="muted small">songs per run, the longest waiting first</span></dd>
+    <dt><label for="stall_minutes">Stuck downloads</label></dt>
+    <dd><input id="stall_minutes" type="number" name="stall_minutes" value="{{ soulseek.stall_minutes }}" min="2" max="120" class="short"> <span class="muted small">minutes without progress (queued at the peer) before the next file is tried</span></dd>
     <dt>Library</dt><dd><code>{{ settings.library_dir or 'not configured' }}</code></dd>
-    <dt>Pipeline</dt><dd><code>{{ settings.pipeline_dir or 'not configured' }}</code>{% if settings.pipeline_out %} <span class="muted small">config files written to <code>{{ settings.pipeline_out }}</code></span>{% endif %}</dd>
     <dt>Data</dt><dd><code>{{ settings.data_dir }}</code></dd>
   </dl>
   <p><button class="primary">Save</button></p>
@@ -37,7 +34,7 @@
 
 <section class="card">
   <h2>Configuration file</h2>
-  <p class="muted small">All lists, the pipeline's schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install. It holds no secrets and no users. An import shows what it changes before anything is stored.</p>
+  <p class="muted small">All lists, the schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install. It holds no secrets and no account. An import shows what it changes before anything is stored.</p>
   <p><a href="/settings/config/export">Download echolot.yml</a></p>
   <form method="post" action="/settings/config/import" enctype="multipart/form-data" class="row-form">{{ csrf_input }}
     <input type="file" name="file" accept=".yml,.yaml,text/yaml" aria-label="echolot.yml to import" required>
@@ -76,7 +73,7 @@
   <p class="muted small">For scripts and dashboards: send <code>Authorization: Bearer &lt;token&gt;</code>. The API is described at <a href="/api/docs">/api/docs</a>.</p>
   {% if new_token %}
   <div class="flash ok" role="status">Token <strong>{{ new_token_name }}</strong> created. Copy it now, it is not shown again:
-    <div class="token">{{ new_token }}</div></div>
+    <div class="copy-row"><input id="new-token" type="text" value="{{ new_token }}" readonly aria-label="New token"><button type="button" data-copy="#new-token">Copy</button></div></div>
   {% endif %}
   <table class="rows">
     <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
@@ -99,11 +96,6 @@
 
 <section class="card">
   <h2>Secrets</h2>
-  <p class="muted small">Credentials are stored encrypted with the key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %} (a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing){% endif %}. They are never shown again. The setup for Spotify and SoundCloud comes with the move of the pipeline into Echolot.</p>
-  <table class="rows">
-    {% for s in secrets %}
-    <tr><td><code>{{ s.name }}</code><div class="muted small">{{ s.help }}</div></td><td class="small nowrap">{% if s.updated %}set {{ s.updated|ago }}{% else %}<span class="muted">not set</span>{% endif %}</td></tr>
-    {% endfor %}
-  </table>
+  <p class="muted small">The credentials of your <a href="/accounts">accounts</a> are stored encrypted with the key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}, a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing{% endif %}. They are never shown again.</p>
 </section>
 {% endblock %}

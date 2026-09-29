@@ -1,7 +1,7 @@
-"""The music library: <root>/<Artist>/<Artist> - <Title>.<ext>, read-only for now.
+"""The music library: <root>/<Artist>/<Artist> - <Title>.<ext>.
 
-scan() keeps the files table in step with the disk; match_songs() finds each wanted song's best
-library copy with the same-song rules of matching.py (as the pipeline's library.py does).
+scan() keeps the files table in step with the disk; match_songs() finds each song's best library copy
+with the same-song rules (rules.py). Files are put in and taken out only by filing.py.
 """
 
 import json
@@ -10,10 +10,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.matching import artist_keys, mix_cut, same_feat, same_length, title_key
-
-AUDIO = ["flac", "wav", "aiff", "m4a", "mp3", "opus", "ogg", "webm", "aac"]  # preference order
-LOSSLESS = {"flac", "wav", "aiff"}
+from echolot.audio import AUDIO, LOSSLESS, probe
+from echolot.rules import artist_keys, mix_cut, same_feat, same_length, title_key
 
 # quality tiers, best first: (key, label)
 QUALITY = [
@@ -80,9 +78,13 @@ class Catalog:
         self.entries = entries
         self.by_key: dict[tuple[str, str], list[Entry]] = {}
         self.by_stem: dict[str, Entry] = {}
+        self.folders: dict[str, dict[str, int]] = {}  # artist key -> {folder: files}
         for e in entries:
             for k in e.akeys:
                 self.by_key.setdefault((k, e.tkey), []).append(e)
+                folders = self.folders.setdefault(k, {})
+                folder = e.path.partition("/")[0]
+                folders[folder] = folders.get(folder, 0) + 1
             other = self.by_stem.get(e.stem)
             if other is None or AUDIO.index(e.ext) < AUDIO.index(other.ext):
                 self.by_stem[e.stem] = e
@@ -125,22 +127,6 @@ class Catalog:
             if same_length(e.duration, length) and same_feat(e.title, title)
         }
         return sorted(hits.values(), key=Entry.rank, reverse=True)
-
-
-def probe(path: Path) -> tuple[float, int]:
-    """(duration in s, bitrate in kbps) from the file header; zeros if unreadable."""
-    from mutagen import File
-
-    try:
-        audio = File(path)
-        info = audio.info if audio is not None else None
-        if info is None:
-            return 0.0, 0
-        return float(getattr(info, "length", 0) or 0), int(
-            (getattr(info, "bitrate", 0) or 0) / 1000
-        )
-    except Exception:
-        return 0.0, 0
 
 
 Known = dict[str, tuple[int, int, float, int]]  # path -> (size, mtime, duration, kbps)
@@ -210,3 +196,8 @@ def match_songs(con: sqlite3.Connection) -> str:
         con.executemany("UPDATE songs SET file = ? WHERE key = ?", found)
     have = sum(1 for path, _ in found if path)
     return f"{have} of {len(songs)} songs in the library"
+
+
+def refresh(con: sqlite3.Connection, root: Path) -> str:
+    """Rescan the library (only new or changed files are probed) and match the songs to files."""
+    return f"{scan(con, root)}; {match_songs(con)}"
