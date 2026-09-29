@@ -1,9 +1,9 @@
 """Review: songs the pipeline filed on a probable match (library.identify) and rejected downloads it
 keeps in inbox/review/ for 30 days.
 
-Decisions are appended to review.yml in the pipeline directory; music-sync applies each one once (at the
-start of its Soulseek jobs, or within 10 min by the playlists job) and records the result in
-state/review-done.json:
+Decisions are appended to review.yml (in the pipeline directory, or the directory the pipeline's
+config files are written to: `out`); music-sync applies each one once (at the start of its Soulseek jobs,
+or within 10 min by the playlists job) and records the result in state/review-done.json:
   ok       the probable match is right
   wrong    it is not: the file is retired, that download is never taken for the song again, and the song
            is searched again
@@ -97,11 +97,13 @@ def upgrade(e: sqlite3.Row) -> bool:
     return lossless and e["song_quality"] not in ("lossless", None)
 
 
-def items(con: sqlite3.Connection, root: Path, music_dir: Path) -> dict[str, list[Item]]:
+def items(
+    con: sqlite3.Connection, root: Path, music_dir: Path, out: Path | None = None
+) -> dict[str, list[Item]]:
     """What to look at: probable matches still in the library without a decision, and kept rejected
     downloads of songs that are still missing, or genuine lossless ones of songs the library has only lossy
     (from the FLAC upgrade; accepting one replaces the lossy copy). Newest first."""
-    decided = {d["id"]: d.get("decision") for d in _decisions(root)}
+    decided = {d["id"]: d.get("decision") for d in _decisions(out or root)}
     done = _done(root)
     rows = con.execute(
         "SELECT e.*, s.length AS wanted_length, s.file AS song_file, f.quality AS song_quality, "
@@ -128,11 +130,13 @@ def items(con: sqlite3.Connection, root: Path, music_dir: Path) -> dict[str, lis
     return out
 
 
-def find(con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int) -> Item | None:
+def find(
+    con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int, out: Path | None = None
+) -> Item | None:
     return next(
         (
             i
-            for group in items(con, root, music_dir).values()
+            for group in items(con, root, music_dir, out).values()
             for i in group
             if i.event["id"] == event_id
         ),
@@ -141,10 +145,16 @@ def find(con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int) ->
 
 
 def decide(
-    con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int, decision: str
+    con: sqlite3.Connection,
+    root: Path,
+    music_dir: Path,
+    event_id: int,
+    decision: str,
+    out: Path | None = None,
 ) -> Item:
     """Append a decision to review.yml (atomically; the pipeline only reads it)."""
-    item = find(con, root, music_dir, event_id)
+    out = out or root
+    item = find(con, root, music_dir, event_id, out)
     if item is None:
         raise ConfigError("This download is no longer up for review.")
     if decision not in DECISIONS[item.kind]:
@@ -165,24 +175,27 @@ def decide(
         "tries": e["tries"] or 0,
         "at": datetime.now().isoformat(timespec="seconds"),
     }
-    decisions = [d for d in _decisions(root) if d["id"] != item.id] + [entry]
+    decisions = [d for d in _decisions(out) if d["id"] != item.id] + [entry]
     text = HEADER + yaml.safe_dump(
         {"decisions": decisions}, allow_unicode=True, sort_keys=False, width=1000
     )
-    write_atomic(root / FILE, text)
+    write_atomic(out / FILE, text)
     return item
 
 
-def revert(con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int) -> Item:
+def revert(
+    con: sqlite3.Connection, root: Path, music_dir: Path, event_id: int, out: Path | None = None
+) -> Item:
     """Take back a decision the pipeline has not applied yet (it is removed from review.yml)."""
-    item = find(con, root, music_dir, event_id)
+    out = out or root
+    item = find(con, root, music_dir, event_id, out)
     if item is None or not item.decision:
         raise ConfigError("There is no pending decision for this download.")
     if item.id in _done(root):
         raise ConfigError("The pipeline has applied this decision already.")
-    decisions = [d for d in _decisions(root) if d["id"] != item.id]
+    decisions = [d for d in _decisions(out) if d["id"] != item.id]
     text = HEADER + yaml.safe_dump(
         {"decisions": decisions}, allow_unicode=True, sort_keys=False, width=1000
     )
-    write_atomic(root / FILE, text)
+    write_atomic(out / FILE, text)
     return item

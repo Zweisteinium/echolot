@@ -14,6 +14,7 @@ services:
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_PIPELINE_DIR: /pipeline
+      ECHOLOT_PIPELINE_OUT_DIR: /data/pipeline # its sources.yml etc., never the pipeline's
     volumes:
       - ./data:/data
       - /media/hdd/medialib/audio/music:/music:ro

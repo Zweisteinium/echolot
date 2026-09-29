@@ -5,10 +5,10 @@
 <section class="card">
   <div class="card-head">
     <h1>Sources</h1>
-    <a href="/sources/yaml">Edit sources.yml directly</a>
+    <a href="/sources/yaml">Edit as YAML</a>
   </div>
-  <p class="muted small">What the library follows. Changes are written to the pipeline's <code>sources.yml</code> and picked up on its next run; earlier versions can be restored under "Edit sources.yml directly".</p>
-  <form method="post" action="/sources/options" class="options">
+  <p class="muted small">What the library follows. Echolot writes the pipeline's <code>sources.yml</code> from these lists after every change; the pipeline picks them up on its next run. Earlier versions can be restored under "Edit as YAML".</p>
+  <form method="post" action="/sources/options" class="options">{{ csrf_input }}
     <input type="hidden" name="version" value="{{ file_version }}">
     <label><input type="checkbox" name="spotify_likes" value="1" {% if likes.spotify %}checked{% endif %}> Spotify Liked Songs</label>
     <label><input type="checkbox" name="soundcloud_likes" value="1" {% if likes.soundcloud %}checked{% endif %}> SoundCloud likes of</label>
@@ -20,7 +20,7 @@
 
 <section class="card">
   <h2>Add a list</h2>
-  <form method="post" action="/sources/add" class="add">
+  <form method="post" action="/sources/add" class="add">{{ csrf_input }}
     <input type="hidden" name="version" value="{{ file_version }}">
     <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/user/sets/…" aria-label="URL" class="grow">
     <input type="text" name="title" placeholder="Name (optional)" aria-label="Name">
@@ -44,7 +44,7 @@
       </td>
       <td class="num">{% if k and k.fetched %}{{ k.have|num }} / {{ k.songs|num }}{% else %}–{% endif %}</td>
       <td colspan="2">
-        <form method="post" action="/sources/update" class="row-form">
+        <form method="post" action="/sources/update" class="row-form">{{ csrf_input }}
           <input type="hidden" name="version" value="{{ file_version }}">
           <input type="hidden" name="key" value="{{ e.key }}">
           <input type="text" name="title" value="{{ e.title or '' }}" placeholder="source name" aria-label="Name override" size="18">
@@ -53,7 +53,7 @@
         </form>
       </td>
       <td>
-        <form method="post" action="/sources/remove" onsubmit="return confirm('Remove this list? Its songs stay in the library.')">
+        <form method="post" action="/sources/remove" onsubmit="return confirm('Remove this list? Its songs stay in the library.')">{{ csrf_input }}
           <input type="hidden" name="version" value="{{ file_version }}">
           <input type="hidden" name="key" value="{{ e.key }}">
           <button class="danger">Remove</button>

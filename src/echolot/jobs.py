@@ -2,18 +2,18 @@
 
 from sqlite3 import Connection
 
-from echolot import db, history, library, pipeline
+from echolot import db, history, library, options, pipeline, pipeline_config, sources
 from echolot.config import Settings
 from echolot.scheduler import Job
-
-REFRESH_MINUTES = 5  # default; changed on the settings page
 
 
 def refresh(settings: Settings, con: Connection) -> str:
     """Import the pipeline's state, rescan the library, match songs to files."""
     parts = []
-    if settings.pipeline_dir:
-        parts.append(pipeline.import_state(con, settings.pipeline_dir))
+    if settings.pipeline_dir and db.get_meta(con, pipeline_config.TAKEN_OVER):
+        parts.append(pipeline.import_state(con, settings.pipeline_dir, sources.lists(con)))
+    elif settings.pipeline_dir:  # the lists are not known yet: keep what was imported before
+        parts.append("pipeline state not imported (its config files are not taken over)")
     if settings.library_dir:
         known = pipeline.known_files(settings.pipeline_dir) if settings.pipeline_dir else None
         parts.append(library.scan(con, settings.library_dir, known))
@@ -24,8 +24,8 @@ def refresh(settings: Settings, con: Connection) -> str:
 
 
 def refresh_minutes(con: Connection) -> int:
-    return int(db.get_meta(con, "refresh_minutes", str(REFRESH_MINUTES)))
+    return options.get(con, options.General).refresh_minutes
 
 
-def all_jobs(settings: Settings, minutes: int = REFRESH_MINUTES) -> list[Job]:
+def all_jobs(settings: Settings, minutes: int) -> list[Job]:
     return [Job("refresh", minutes * 60, lambda con: refresh(settings, con))]

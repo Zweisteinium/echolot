@@ -50,8 +50,8 @@ def test_series(con) -> None:
     assert history.series(con, "songs_missing", since="2999-01-01") == []
 
 
-def test_api(con, settings: Settings) -> None:
-    client = TestClient(create_app(settings))
+def test_api(con, settings: Settings, login) -> None:
+    client = login(create_app(settings))
     assert client.get("/api/stats").json()["metrics"]["library_files"] == {"": 3}
     assert client.get("/api/stats/metrics").json()["songs_by_quality"]["label"] == "quality"
     rows = client.get("/api/stats/history", params={"metric": "songs_wanted"}).json()

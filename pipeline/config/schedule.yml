@@ -1,4 +1,5 @@
-# When the music-sync jobs run. scripts/tick.py reads this every minute; Echolot's settings page edits it.
+# When the music-sync jobs run. scripts/tick.py reads this every minute. With Echolot, it takes this file
+# over on its first start and writes it from then on (change it on its settings page).
 # Per job: minutes between runs, or {at: [...]} with local times ("20:30", "sat,sun 15:00"), or off.
 # Soulseek jobs share one lock: a due job waits for the one running, it does not lose its turn.
 sync: 30            # Spotify lists -> Soulseek (VPN): new songs; missing ones retried after 3 h, 6 h, 12 h, then daily

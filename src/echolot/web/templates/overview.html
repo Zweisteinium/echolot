@@ -82,7 +82,7 @@
 <section class="card">
   <div class="card-head">
     <h2>Activity</h2>
-    <form method="post" action="/jobs/refresh/run"><button>Refresh now</button></form>
+    <form method="post" action="/jobs/refresh/run">{{ csrf_input }}<button>Refresh now</button></form>
   </div>
   <div class="stats">
     <a class="stat" href="/activity?kind=added"><span class="stat-value">{{ o.added_24h|num }}</span><span class="stat-label">songs added in 24 h · {{ o.added_bytes_24h|size }}</span></a>

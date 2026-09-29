@@ -135,14 +135,24 @@ misses the artist is no longer required in the Soulseek path (the checks still r
 | Review | songs filed on a probable match (right / wrong) and kept near misses (accept / discard), with a player; decisions can be reverted until applied |
 | Activity | everything filed, upgraded or rejected, with reasons |
 | Availability | how many Soulseek users have a set of probe songs, by hour |
-| Sources | add, rename, hide or remove lists and options, or edit `sources.yml` directly (with undo) |
-| Settings | when each pipeline job runs (`schedule.yml`) and how often Echolot refreshes |
+| Sources | add, rename, hide or remove lists and options, or edit them as YAML (with undo) |
+| Settings | when each pipeline job runs and how often Echolot refreshes; login length and public metrics; password, API tokens; the configuration as one file (`echolot.yml`) |
 
+- **Login:** every page and API call needs a login (browser) or an API token (scripts,
+  `Authorization: Bearer <token>`); only `/healthz` and, by default, `/metrics` are open. On the
+  first start the log shows a one-time `/setup?token=...` link for the first user (or set
+  `ECHOLOT_ADMIN_PASSWORD`). Forms and htmx requests carry a CSRF token.
+- **Configuration:** the lists, the pipeline's schedule and the settings live in Echolot's SQLite
+  database. On its first start Echolot takes the pipeline's `sources.yml` and `schedule.yml` over;
+  from then on it writes both from the database after every change (an edit made to the files
+  directly is replaced, and kept as a version). `echolot.yml` holds all of it as one file for
+  backups or another install (Settings, `echolot config export|import`, `GET/PUT /api/config`).
+- **Secrets** (credentials for the sources) are stored encrypted with `ECHOLOT_SECRET_KEY` and
+  never shown again; `echolot secret list|set|delete`.
 - **Refresh:** every 5 minutes (adjustable) Echolot imports the pipeline's state into its SQLite
   database, rescans the library and matches every song to its best file.
 - **Writes:** in the pipeline directory only `sources.yml`, `schedule.yml` and `review.yml`, each
-  validated and written atomically; earlier versions of the first two are kept for undo. The
-  pipeline applies review decisions once (`state/review-done.json`).
+  written atomically. The pipeline applies review decisions once (`state/review-done.json`).
 - **Never touches** the library, or the pipeline's state, logs and scripts (mounted read-only).
 
 ### Metrics and API
@@ -169,7 +179,11 @@ per day):
 | `GET /api/stats/history?metric=songs_missing[&key=spotify][&since=...][&until=...]` | one metric over time: `[{ts, time, key, value}]` |
 | `GET /api/stats/downloads?days=30` | events per day, action, source and format |
 | `GET /api/stats/availability?days=30` | probe results per run and song |
+| `GET /api/config`, `PUT /api/config[?dry_run=true]` | the whole configuration (as `echolot.yml`); an import answers what changes as a diff |
 | `GET /api/docs` | OpenAPI documentation of all endpoints |
+
+`/metrics` answers without login unless Settings → Access says otherwise; everything else needs a
+login or an API token (Settings → API tokens).
 
 Grafana: let Prometheus scrape `/metrics`, or read `data/echolot.db` with the SQLite data source
 (`SELECT ts AS time, key AS metric, value FROM snapshots WHERE metric = 'library_files_by_format'
@@ -380,7 +394,8 @@ services:
     build: .                            # or image: echolot:local (docker build -t echolot:local .)
     user: "1000:1000"
     ports:
-      - "192.168.1.10:8490:8490"        # LAN only: there is no login yet
+      - "192.168.1.10:8490:8490"        # LAN, or behind a reverse proxy with HTTPS
+    env_file: .env                      # ECHOLOT_SECRET_KEY (chmod 600)
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_PIPELINE_DIR: /pipeline
@@ -401,8 +416,14 @@ services:
 | `ECHOLOT_DATA_DIR` | `data` | SQLite database (`/data` in the image) |
 | `ECHOLOT_LIBRARY_DIR` | unset | the library (`<music>/tracks`), read-only |
 | `ECHOLOT_PIPELINE_DIR` | unset | the pipeline's `config/` directory |
+| `ECHOLOT_PIPELINE_OUT_DIR` | the pipeline directory | where `sources.yml`, `schedule.yml` and `review.yml` are written (a test instance points it elsewhere) |
 | `ECHOLOT_HOST` | `127.0.0.1` | listen address (`0.0.0.0` in the image) |
 | `ECHOLOT_PORT` | `8490` | listen port |
+| `ECHOLOT_SECRET_KEY` | unset | key for the stored secrets: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Unset: a key file `data/secret.key` is created (a copy of `data/` then holds key and secrets together) |
+| `ECHOLOT_SECRET_KEY_FILE` | `data/secret.key` | the key file, when the key is not in the environment |
+| `ECHOLOT_ADMIN_USER`, `ECHOLOT_ADMIN_PASSWORD` | `admin`, unset | create this user on a start with no user yet (else: the `/setup` link in the log) |
+
+More users, a new password: `docker exec -it echolot echolot user add <name>` / `user passwd <name>`.
 
 ## Operation
 
@@ -416,7 +437,9 @@ services:
 - **Rule changes:** `pipeline/tools/rules_check.py` compares matching rules against the real
   library and history, `pipeline/tools/live_check.py` runs a sample of searches without
   downloading and judges every result.
-- **Back up** `config/` (state, sources, secrets), Echolot's `data/` and the library.
+- **Back up** `config/` (state, secrets of the pipeline), Echolot's `data/` (lists, schedule,
+  settings, users, encrypted secrets; `echolot config export` for a readable copy), its
+  `ECHOLOT_SECRET_KEY`, and the library.
 
 ## Develop
 

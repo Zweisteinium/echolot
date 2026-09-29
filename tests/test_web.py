@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 
 import pytest
 import yaml
@@ -10,11 +11,12 @@ from echolot.web import create_app
 
 
 @pytest.fixture
-def client(settings: Settings) -> TestClient:
+def client(settings: Settings, login: Callable[..., TestClient]) -> TestClient:
+    app = create_app(settings)  # takes the pipeline's sources.yml and schedule.yml over
     con = db.connect(settings.db_path)
     jobs.refresh(settings, con)
     con.close()
-    return TestClient(create_app(settings))  # no `with`: the scheduler thread stays off
+    return login(app)
 
 
 def test_healthz(client: TestClient) -> None:
@@ -85,10 +87,10 @@ def test_sources_yaml_keeps_invalid_edit(client: TestClient, settings: Settings)
     assert response.status_code == 400
     assert "Unknown setting" in response.text and "spotfy: {}" in response.text
     before = (settings.pipeline_dir / "sources.yml").read_text()
-    new = before + "\n# note\n"
-    ok = client.post("/sources/yaml", data={"version": version, "text": new})
+    new = before.replace("removed_playlists: true", "removed_playlists: false")
+    ok = client.post("/sources/yaml", data={"version": version, "text": new + "# a note\n"})
     assert ok.status_code == 200 and (settings.pipeline_dir / "sources.yml").read_text() == new
-    assert "before: edited as YAML" in ok.text
+    assert "before: edited as YAML" in ok.text and "before: Echolot took the file over" in ok.text
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
@@ -100,9 +102,9 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
     }
     response = client.post("/settings", data=form | {"refresh": "7"})
     assert "Settings saved" in response.text
-    assert schedule.read(settings.pipeline_dir)["sync"] == 20
-    assert schedule.read(settings.pipeline_dir)["fallback"] is None
-    assert schedule.read(settings.pipeline_dir)["upgrade"] == ["13:00", "sat 10:00"]
+    written = schedule.read_file(settings.pipeline_dir)  # the file the pipeline reads
+    assert (written["sync"], written["fallback"]) == (20, None)
+    assert written["upgrade"] == ["13:00", "sat 10:00"]
     assert 'value="7"' in client.get("/settings").text
     bad = client.post("/settings", data=form | {"sync": "2", "refresh": "5"})
     assert "at least 10" in bad.text

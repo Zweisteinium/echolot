@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Settings · Echolot{% endblock %}
 {% block content %}
-<form method="post" action="/settings">
+<form method="post" action="/settings">{{ csrf_input }}
 <section class="card">
   <h1>Settings</h1>
   <h2>Pipeline jobs</h2>
@@ -28,10 +28,82 @@
     <dt><label for="refresh">Refresh every (min)</label></dt>
     <dd><input id="refresh" type="number" name="refresh" value="{{ refresh }}" min="1" step="1" class="short"> <span class="muted small">import the pipeline state and rescan the library</span></dd>
     <dt>Library</dt><dd><code>{{ settings.library_dir or 'not configured' }}</code></dd>
-    <dt>Pipeline</dt><dd><code>{{ settings.pipeline_dir or 'not configured' }}</code></dd>
+    <dt>Pipeline</dt><dd><code>{{ settings.pipeline_dir or 'not configured' }}</code>{% if settings.pipeline_out %} <span class="muted small">config files written to <code>{{ settings.pipeline_out }}</code></span>{% endif %}</dd>
     <dt>Data</dt><dd><code>{{ settings.data_dir }}</code></dd>
   </dl>
   <p><button class="primary">Save</button></p>
 </section>
 </form>
+
+<section class="card">
+  <h2>Configuration file</h2>
+  <p class="muted small">All lists, the pipeline's schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install. It holds no secrets and no users. An import shows what it changes before anything is stored.</p>
+  <p><a href="/settings/config/export">Download echolot.yml</a></p>
+  <form method="post" action="/settings/config/import" enctype="multipart/form-data" class="row-form">{{ csrf_input }}
+    <input type="file" name="file" accept=".yml,.yaml,text/yaml" aria-label="echolot.yml to import" required>
+    <button>Preview import</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Access</h2>
+  <form method="post" action="/settings/access">{{ csrf_input }}
+    <dl>
+      <dt><label for="session_days">A login lasts (days)</label></dt>
+      <dd><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short"></dd>
+      <dt>Metrics</dt>
+      <dd><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label> <span class="muted small">for Prometheus; else it needs an API token</span></dd>
+    </dl>
+    <p><button>Save</button></p>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Your account <span class="muted small">{{ user.name }}</span></h2>
+  <form method="post" action="/settings/password" class="stack narrow-form">{{ csrf_input }}
+    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
+    <label>New password <span class="muted small">at least 10 characters</span><input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <label>New password again <input type="password" name="repeat" autocomplete="new-password" minlength="10" required></label>
+    <p><button>Change password</button> <span class="muted small">ends your other logins</span></p>
+  </form>
+  <form method="post" action="/settings/sessions/end-others">{{ csrf_input }}
+    <button>Log out everywhere else</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>API tokens</h2>
+  <p class="muted small">For scripts and dashboards: send <code>Authorization: Bearer &lt;token&gt;</code>. The API is described at <a href="/api/docs">/api/docs</a>.</p>
+  {% if new_token %}
+  <div class="flash ok" role="status">Token <strong>{{ new_token_name }}</strong> created. Copy it now, it is not shown again:
+    <div class="token">{{ new_token }}</div></div>
+  {% endif %}
+  <table class="rows">
+    <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    {% for t in tokens %}
+    <tr>
+      <td>{{ t.name }}</td>
+      <td class="small nowrap" title="{{ t.created }}">{{ t.created|ago }}</td>
+      <td class="small nowrap">{{ t.last_used|ago }}</td>
+      <td><form method="post" action="/settings/tokens/{{ t.id }}/revoke" onsubmit="return confirm('Revoke this token?')">{{ csrf_input }}<button class="danger">Revoke</button></form></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">No tokens.</td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="/settings/tokens" class="row-form">{{ csrf_input }}
+    <input type="text" name="name" placeholder="what uses it, e.g. grafana" aria-label="Token name" required maxlength="64">
+    <button>Create token</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Secrets</h2>
+  <p class="muted small">Credentials are stored encrypted with the key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %} (a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing){% endif %}. They are never shown again. The setup for Spotify and SoundCloud comes with the move of the pipeline into Echolot.</p>
+  <table class="rows">
+    {% for s in secrets %}
+    <tr><td><code>{{ s.name }}</code><div class="muted small">{{ s.help }}</div></td><td class="small nowrap">{% if s.updated %}set {{ s.updated|ago }}{% else %}<span class="muted">not set</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</section>
 {% endblock %}

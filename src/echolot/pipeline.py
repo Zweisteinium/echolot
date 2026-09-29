@@ -1,8 +1,9 @@
 """Read-only import from the music-sync pipeline (/opt/sockseek/config), which still does the
-downloading. Its state files are mirrored into the database; nothing there is ever written.
+downloading. Its state files are mirrored into the database; nothing there is ever written (the
+config files sources.yml, schedule.yml and review.yml are Echolot's: pipeline_config.py, review.py).
 
 Layout of the pipeline directory:
-  sources.yml                        the lists to follow
+  sources.yml                        the lists to follow (written by Echolot)
   state/playlist-meta.json           list names from Spotify/SoundCloud
   state/spotify-<list>.json          current songs of a Spotify list
   state/soundcloud-order-<list>.json current track ids of a SoundCloud list
@@ -26,8 +27,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 from echolot import db
 from echolot.library import Known
@@ -130,10 +129,10 @@ def sources(config: dict[str, Any]) -> list[Source]:
     return out
 
 
-def import_state(con: sqlite3.Connection, root: Path) -> str:
-    """Mirror lists, songs, download attempts and lossy-sourced FLACs into the database."""
+def import_state(con: sqlite3.Connection, root: Path, lists_: list[Source]) -> str:
+    """Mirror lists (those of `lists_`, the sources table), songs, download attempts and lossy-sourced
+    FLACs into the database."""
     state = root / "state"
-    config = yaml.safe_load((root / "sources.yml").read_text(encoding="utf-8")) or {}
     meta = _read_json(state / "playlist-meta.json", {})
     unplayable = set(_read_json(state / "spotify-unplayable.json", []))
     sc_tracks = _read_json(state / "soundcloud-tracks.json", {})
@@ -148,7 +147,7 @@ def import_state(con: sqlite3.Connection, root: Path) -> str:
         )
 
     lists, songs, list_songs = [], {}, []
-    for src in sources(config):
+    for src in lists_:
         keys = []
         if src.service == "spotify":
             items = _read_json(state / f"spotify-{slug(src.name)}.json", None)
