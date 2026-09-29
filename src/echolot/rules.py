@@ -371,13 +371,14 @@ def prejudge(
     reason). Only what is certain from the name rejects: the artist missing (when the search requires
     it), a file name naming another version, a length that makes it another song, or a download
     marked wrong in review, or the requested title without the version it asks for ("Paradies" for
-    "Paradies - Abrissgebeat Remix"). A name that shows the title is accepted (rank 0 exact, 1 probable);
-    one that says nothing about it is unknown (rank 2): its tags decide after the download."""
+    "Paradies - Abrissgebeat Remix"). With the artist in the path, a name that shows the title is
+    accepted (rank 0 exact, 1 probable) and one that says nothing about it is unknown (rank 2): its tags
+    decide after the download. Without the artist (a loosened search), only a name showing the title is
+    worth a download (unknown: the tags must name the artist)."""
     parts = [p for p in re.split(r"[\\/]+", path) if p]
     name = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", parts[-1]) if parts else ""
-    folders = parts[
-        :-1
-    ]  # the artist is often a few levels up: Music\\Artist\\Singles\\Song\\01. Song.flac
+    # the artist is often a few levels up: Music\\Artist\\Singles\\Song\\01. Song.flac
+    folders = parts[:-1]
     if name in set(blocked):
         return REJECT, 9, "marked wrong in review"
     if wanted and length and not mix_cut(title) and not same_length(length, wanted):
@@ -387,12 +388,9 @@ def prejudge(
     def has_artist(x: str) -> bool:
         return any(f" {w} " in words(x) for w in want)
 
-    if not any(has_artist(t) for t in [name, *folders]):
-        return (
-            (REJECT, 9, "artist not in the path")
-            if strict_artist
-            else (UNKNOWN, 2, "artist unseen")
-        )
+    artist_seen = any(has_artist(t) for t in [name, *folders])
+    if not artist_seen and strict_artist:
+        return REJECT, 9, "artist not in the path"
     known = set(" ".join(want).split())
     names = _readings(name, has_artist)
     if c := other_version(title, names, known):
@@ -403,9 +401,17 @@ def prejudge(
     if versions and cores and not any(versions <= set(_vwords(c)) for c in cores):
         return REJECT, 9, f"the file name lacks '{' '.join(sorted(versions))}' (another recording)"
     tk = title_key(title)
-    if tk and any(title_key(c) == tk and same_feat(c, title) for c in names):
+    exact = bool(tk) and any(title_key(c) == tk and same_feat(c, title) for c in names)
+    close = exact or bool(
+        length and wanted and abs(length - wanted) <= 3 and probable(title, names, known)
+    )
+    if not artist_seen:  # a loosened search: the tags must name the artist
+        if close:
+            return UNKNOWN, 2, "title in the file name, artist unseen"
+        return REJECT, 9, "neither artist nor title in the path"
+    if exact:
         return ACCEPT, 0, "exact"
-    if length and wanted and abs(length - wanted) <= 3 and probable(title, names, known):
+    if close:
         return ACCEPT, 1, "probable"
     return UNKNOWN, 2, "title not in the file name"
 
