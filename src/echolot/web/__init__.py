@@ -7,7 +7,6 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from echolot import __version__, db
@@ -15,7 +14,7 @@ from echolot.config import Settings
 from echolot.jobs.worker import Worker
 from echolot.settings import auth, vault
 from echolot.web import access, accounts, admin, api, jobs, pages, review, sources, stats
-from echolot.web.common import asset_urls
+from echolot.web.common import Assets, asset_urls
 from echolot.web.format import FILTERS, pct
 
 HERE = Path(__file__).parent
@@ -46,7 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     finally:
         con.close()
     app.middleware("http")(access.authenticate)
-    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    app.mount("/static", Assets(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(FILTERS)
     templates.env.globals.update(pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__)
