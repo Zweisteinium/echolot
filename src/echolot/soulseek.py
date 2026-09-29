@@ -22,9 +22,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 # Sockseek's filters (necessary) and ranking preferences, as the pipeline used them
-SEARCH: dict[str, Any] = {
+SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [...]}
     "necessaryCond": {"strictArtist": True, "lengthTolerance": 3},
-    "preferredCond": {"formats": ["flac"], "minBitrate": 200, "maxBitrate": 2500,
+    "preferredCond": {"formats": {"replace": ["flac"]}, "minBitrate": 200, "maxBitrate": 2500,
                       "maxSampleRate": 48000, "strictTitle": True, "strictArtist": True},
     "maxStaleTime": 90000,  # ms without progress before Sockseek gives a transfer up
 }  # fmt: skip
@@ -39,7 +39,7 @@ def search_settings(
     search["desperateSearch"] = desperate
     search["necessaryCond"]["strictArtist"] = strict_artist
     if flac_only:
-        search["necessaryCond"]["formats"] = ["flac"]
+        search["necessaryCond"]["formats"] = {"replace": ["flac"]}
     return {"search": search, "preprocess": {"removeFt": True}}
 
 
