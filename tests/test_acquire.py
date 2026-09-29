@@ -33,8 +33,13 @@ class FakeDaemon:
     def __init__(self, url: str, timeout: float = 30) -> None:
         self.jobs: dict[str, object] = {}
 
+    ready = True
+
     def status(self) -> dict:
-        return {"ready": True, "state": "Connected, LoggedIn"}
+        return {
+            "ready": FakeDaemon.ready,
+            "state": "Connected, LoggedIn" if FakeDaemon.ready else "Disconnected",
+        }
 
     def search(self, artist: str, title: str, length: int, settings: dict) -> str:
         FakeDaemon.searches.append((artist, title, length, settings))
@@ -78,6 +83,7 @@ class FakeDaemon:
 @pytest.fixture
 def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     FakeDaemon.files, FakeDaemon.searches, FakeDaemon.downloads, FakeDaemon.lost = {}, [], [], False
+    FakeDaemon.ready = True
     monkeypatch.setattr(soulseek, "Daemon", FakeDaemon)
     monkeypatch.setattr(
         audio, "prepare", lambda p: audio.Prepared(p, False, None)
@@ -219,3 +225,16 @@ def test_levels_and_due() -> None:
     assert not acquire.due(1, now - 3600, 3 * 3600, 86400, now)
     assert acquire.due(1, now - 3 * 3600 + 1800, 3 * 3600, 86400, now)  # half an hour early is fine
     assert not acquire.due(9, now - 20 * 3600, 3 * 3600, 86400, now)  # capped at a day
+
+
+def test_login_failure_counts_no_try(run: Run) -> None:
+    """A wrong Soulseek password: nothing is found, but that is not the songs' fault."""
+    FakeDaemon.ready = False
+    rows = missing(run)
+    assert "interrupted" in acquire._search(run, rows, "search")
+    con = run.connect()
+    assert (
+        con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
+    )
+    con.close()
+    assert run.stop.is_set()
