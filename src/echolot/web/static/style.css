@@ -166,6 +166,9 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .icon { flex: none; vertical-align: -3px; }
 .loading { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
+.cards.htmx-added, .review-item.htmx-added { opacity: 0; }  /* loaded lists and decisions fade in */
+.cards, .review-item { transition: opacity 0.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
 
 /* collapsible groups */
 details summary { cursor: pointer; margin-top: 0.75rem; color: var(--muted); }
@@ -342,8 +345,10 @@ ol.steps form { margin-top: 0.5rem; }
 .src-card.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
 .src-card .cover { aspect-ratio: 1; background: var(--track); display: grid; place-items: center; }
-.src-card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.src-card:not(.on) .cover img { filter: saturate(0.6); opacity: 0.85; }
+.src-card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
+.src-card .cover img.shown { opacity: 1; }  /* fades in when loaded (lazily, as it scrolls into view) */
+.src-card:not(.on) .cover img { filter: saturate(0.6); }
+.src-card:not(.on) .cover img.shown { opacity: 0.85; }
 .src-card .no-cover { font-size: 2.5rem; color: var(--muted); }
 .src-card .body { padding: 0.6rem 0.7rem 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
 .src-card .body > p { margin: 0; }
@@ -351,6 +356,12 @@ ol.steps form { margin-top: 0.5rem; }
 .src-card form { margin-top: auto; padding-top: 0.3rem; }  /* the buttons line up at the bottom of a row */
 .src-card .seg { display: flex; }
 .src-card .seg label { flex: 1; text-align: center; padding: 0.25rem 0.3rem; }
+/* placeholders while a list of cards loads */
+.skeleton .cover, .skeleton .line { background: linear-gradient(90deg, var(--track) 30%, color-mix(in srgb, var(--track) 40%, var(--surface)) 50%, var(--track) 70%) 0 0 / 300% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+.skeleton .line { display: block; height: 0.75rem; border-radius: 4px; }
+.skeleton .line.short { width: 55%; }
+.skeleton .line.tall { height: 1.6rem; margin-top: auto; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
 
 /* missing: what was tried */
 table.missing td.tried { min-width: 18rem; }

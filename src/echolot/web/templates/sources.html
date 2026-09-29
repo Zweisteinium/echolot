@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
+{% from "_icons.html" import icon, sprite, use %}
+{% macro loading(n) %}<div class="cards skeleton" aria-busy="true" aria-label="Loading">{% for _ in range(n) %}<div class="src-card"><div class="cover"></div><div class="body"><span class="line"></span><span class="line short"></span><span class="line tall"></span></div></div>{% endfor %}</div>{% endmacro %}
 {% block title %}Sources · Echolot{% endblock %}
 {% block content %}
 <section class="card intro">
@@ -9,46 +10,42 @@
   </div>
   <p class="lead">The lists Echolot follows. For each one choose:</p>
   <p class="mode-legend">
-    <span>{{ icon('songs') }} <b>Songs</b>: downloaded into the library</span>
-    <span>{{ icon('playlist') }} <b>Playlist</b>: the songs, and the list as a playlist in your music server</span>
+    <span>{{ use('songs') }} <b>Songs</b>: downloaded into the library</span>
+    <span>{{ use('playlist') }} <b>Playlist</b>: the songs, and the list as a playlist in your music server</span>
     <span><b>Off</b>: not followed; nothing is deleted</span>
   </p>
 </section>
 
+{{ sprite(['songs', 'playlist']) }}
+{% for service, label, what in (('spotify', 'Spotify', 'playlists'), ('soundcloud', 'SoundCloud', 'likes and sets')) %}
+{% set account = s[service] %}
 <section class="card">
-  <details class="group" data-remember="sources-spotify" open>
-    <summary><h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
-      {% if followed.spotify %}<span class="pill">{{ followed.spotify }} followed</span>{% endif %}
-      {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">{{ s.spotify.name }}</span>{% endif %}</summary>
-    {% if s.spotify.connected and not s.spotify.error %}
-    <div hx-get="/sources/found/spotify" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your Spotify playlists …</p></div>
-    {% else %}<p class="muted"><a href="/accounts#spotify">Connect Spotify</a> to see your playlists here.</p>{% endif %}
+  <details class="group" data-remember="sources-{{ service }}" open>
+    <summary><h2 class="group-name">{{ icon(service, 20) }} {{ label }}</h2>
+      <span class="muted small">found automatically in your account</span>
+      {% if followed[service] %}<span class="pill">{{ followed[service] }} followed</span>{% endif %}
+      {% if account.name %}<span class="pill ok-pill">{{ account.name }}</span>{% endif %}</summary>
+    {% if account.connected %}
+    <div hx-get="/sources/found/{{ service }}" hx-trigger="load" hx-swap="outerHTML">{{ loading(6) }}</div>
+    {% else %}<p class="muted"><a href="/accounts#{{ service }}">Connect {{ label }}</a> to see your {{ what }} here.</p>{% endif %}
   </details>
 </section>
+{% endfor %}
 
 <section class="card">
-  <details class="group" data-remember="sources-soundcloud" open>
-    <summary><h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
-      {% if followed.soundcloud %}<span class="pill">{{ followed.soundcloud }} followed</span>{% endif %}
-      {% if s.soundcloud.connected %}<span class="pill ok-pill">{{ s.soundcloud.name }}</span>{% endif %}</summary>
-    {% if s.soundcloud.connected %}
-    <div hx-get="/sources/found/soundcloud" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your SoundCloud likes and sets …</p></div>
-    {% else %}<p class="muted"><a href="/accounts#soundcloud">Connect SoundCloud</a> to see your likes and sets here.</p>{% endif %}
+  <details class="group" data-remember="sources-manual" open>
+    <summary><h2 class="group-name">Added manually</h2>
+      <span class="muted small">anyone's public playlist, set or likes page, by its link</span></summary>
+    <form method="post" action="/sources/add" class="add">{{ csrf_input }}
+      <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/…/sets/…" aria-label="Link" class="grow">
+      <span class="seg" role="radiogroup" aria-label="Follow as">
+        <label title="Songs into the library"><input type="radio" name="mode" value="songs"> {{ use('songs', 13) }} Songs</label>
+        <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> {{ use('playlist', 13) }} Playlist</label>
+      </span>
+      <button class="primary">Follow</button>
+    </form>
+    <div hx-get="/sources/other" hx-trigger="load" hx-swap="outerHTML">{{ loading(2) }}</div>
   </details>
-</section>
-
-<section class="card">
-  <h2>Other lists</h2>
-  <p class="muted small">Anyone's public Spotify playlist, SoundCloud set or SoundCloud likes page, by its link.</p>
-  <form method="post" action="/sources/add" class="add">{{ csrf_input }}
-    <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/…/sets/…" aria-label="Link" class="grow">
-    <span class="seg" role="radiogroup" aria-label="Follow as">
-      <label title="Songs into the library"><input type="radio" name="mode" value="songs"> {{ icon('songs', 13) }} Songs</label>
-      <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> {{ icon('playlist', 13) }} Playlist</label>
-    </span>
-    <button class="primary">Follow</button>
-  </form>
-  <div hx-get="/sources/other" hx-trigger="load delay:300ms" hx-swap="outerHTML"></div>
 </section>
 
 <section class="card">

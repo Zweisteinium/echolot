@@ -5,15 +5,17 @@
 {% block content %}
 {% set missing = o.wanted - o.have %}
 <section class="tiles">
-  <div class="tile">
+{% set flac = o.song_tiers[0][2] %}
+{% set unlisted = o.files - o.in_lists %}
+  <div class="tile" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists: a recording that is in them more than once (on Spotify and on SoundCloud, or as several releases) is one file.{% if unlisted %} {{ unlisted|num }} are in no followed list any more.{% endif %}">
     <div class="label">Library</div>
     <div class="value">{{ o.files|num }}</div>
     <div class="sub">files · {{ o.size|size }}</div>
   </div>
-  <div class="tile">
+  <div class="tile" title="Songs of your lists, as in the chart below. By files: {{ o.lossless|num }} of {{ o.files|num }} genuine FLACs.">
     <div class="label">Lossless</div>
-    <div class="value">{{ pct(o.lossless, o.files) }} %</div>
-    <div class="sub">{{ o.lossless|num }} genuine FLACs</div>
+    <div class="value">{{ pct(flac, o.wanted) }} %</div>
+    <div class="sub">{{ flac|num }} of {{ o.wanted|num }} songs genuine FLAC</div>
   </div>
   <div class="tile">
     <div class="label">Lists complete</div>

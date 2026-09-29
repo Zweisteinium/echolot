@@ -126,6 +126,11 @@ class Worker:
         self._wake.set()
         return True
 
+    def state(self) -> tuple[dict[str, Run], set[str]]:
+        """The runs in progress and the jobs asked for, at one moment (no job between the two)."""
+        with self._lock:
+            return dict(self.runs), set(self.requested)
+
     def cancel(self, name: str) -> bool:
         with self._lock:
             run = self.runs.get(name)

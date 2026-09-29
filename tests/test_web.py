@@ -1,4 +1,5 @@
 import json
+import time
 import urllib.parse
 from collections.abc import Callable
 
@@ -62,12 +63,15 @@ def test_jobs(client: TestClient) -> None:
     assert 'id="jobs"' in html and "Pause all" in html
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
     assert jobs["sync"]["schedule"] == 30 and not jobs["sync"]["running"]
+    html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # shown at once, asked again every second
+    assert "starting …" in html and 'hx-trigger="every 1s"' in html
 
 
 def test_static_stylesheet(client: TestClient) -> None:
     assert client.get("/static/style.css").status_code == 200
     # root-relative: no http:// link on an https page behind a proxy
     assert 'href="/static/style.css?v=' in client.get("/login").text
+    assert "immutable" in client.get("/static/style.css?v=1").headers["cache-control"]
 
 
 def test_sources_page(client: TestClient) -> None:
@@ -126,9 +130,10 @@ def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) ->
     assert "no progress (queued at the peer)" in html and "Kept for review" in html and "3:39" in html
 
 
-def test_follow_and_stop_following(client: TestClient, settings: Settings) -> None:
-    card = {"key": "spotify:playlist:NEW1", "service": "spotify", "url": "https://open.spotify.com/playlist/NEW1",
-            "name": "New list", "owner": "you", "songs": "12", "image": ""}  # fmt: skip
+def test_follow_and_stop_following(client: TestClient, settings: Settings, monkeypatch) -> None:
+    card = {"key": "spotify:playlist:NEW1", "service": "spotify", "url": "https://open.spotify.com/playlist/NEW1"}
+    found = [card | {"name": "New list", "owner": "you", "songs": 12, "image": ""}]
+    monkeypatch.setitem(sources_web._found, "spotify", (time.time(), found))
     html = client.post("/sources/follow", data=card | {"mode": "songs"}, headers={"HX-Request": "true"}).text
     assert 'class="src-card on"' in html and 'value="songs" checked' in html
     con = db.connect(settings.db_path)
@@ -255,6 +260,10 @@ def test_review(client: TestClient, settings: Settings) -> None:
     r = client.post(f"/review/{ids[1]}/revert", follow_redirects=False)
     assert "ok=" in r.headers["location"]
     assert con.execute("SELECT count(*) FROM review_decisions").fetchone()[0] == 1
+    html = client.post(f"/review/{ids[1]}", data={"decision": "discard"}, headers={"HX-Request": "true"}).text
+    assert html.startswith('<article class="review-item decided">') and "Revert" in html  # only this item
+    html = client.post(f"/review/{ids[1]}/revert", headers={"HX-Request": "true"}).text
+    assert 'class="review-item"' in html and ">Discard</button>" in html
     con.close()
 
 

@@ -1,5 +1,5 @@
 {# the jobs table: htmx reloads it every few seconds while something runs #}
-<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '5s' if running else '30s' }}" hx-swap="outerHTML">
+<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="outerHTML">
   <div class="card-head">
     <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
     <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}
@@ -14,7 +14,9 @@
     <tr>
       <td>{{ r.job.label }}<div class="muted small hide-narrow">{{ r.job.help }}</div></td>
       <td class="small">
-        {% if r.run %}<span class="dot on"></span>running<div class="muted small">{{ r.run.progress }}</div>
+        {% if r.stopping %}<span class="dot wait"></span>stopping …<div class="muted small">songs in progress end first</div>
+        {% elif r.run %}<span class="dot on"></span>running<div class="muted small">{{ r.run.progress }}</div>
+        {% elif r.starting %}<span class="dot wait"></span>starting …{% if r.waiting %}<div class="muted small">after {{ r.waiting }}</div>{% endif %}
         {% elif r.waiting %}<span class="dot wait"></span>waiting for {{ r.waiting }}
         {% elif last and last.ok == 0 %}<span class="dot err"></span><span title="{{ last.message }}">failed</span><div class="muted small">{{ last.message|truncate(90) }}</div>
         {% elif r.rule is none %}<span class="dot"></span><span class="muted">off</span>

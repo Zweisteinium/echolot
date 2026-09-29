@@ -1,17 +1,17 @@
-{% from "_icons.html" import icon %}
+{% from "_icons.html" import use %}
 {% set MODES = (('off', 'Off', 'Not followed'), ('songs', 'Songs', 'Songs into the library'), ('playlist', 'Playlist', 'Songs into the library, and a playlist in your music server')) %}
 <article class="src-card{{ ' on' if c.mode != 'off' }}" id="card-{{ c.key|replace(':', '-')|replace('/', '-') }}"{% if c.kind %} data-kind="{{ c.kind }}"{% endif %}>
-  <div class="cover">{% if c.image %}<img src="{{ c.image }}" alt="" loading="lazy">{% else %}<span class="no-cover" aria-hidden="true">♫</span>{% endif %}</div>
+  <div class="cover">{% if c.image %}<img src="{{ c.image }}" alt="" loading="lazy" decoding="async" onload="this.classList.add('shown')">{% else %}<span class="no-cover" aria-hidden="true">♫</span>{% endif %}</div>
   <div class="body">
     <div class="name" title="{{ c.name }}">{{ c.name }}</div>
     <div class="muted small">{% if c.owner %}{{ 'by ' ~ c.owner if c.owner != 'you' else 'yours' }}{% endif %}{% if c.kind == 'collab' %} · collaborative{% endif %}{% if c.songs is not none %}{{ ' · ' if c.owner }}{{ c.songs|num }} songs{% endif %}</div>
     {% if c.mode != 'off' and c.in_library %}<div class="small"><a href="/lists/{{ c.key }}">{{ c.have|num }} of {{ c.in_library|num }} in the library</a></div>{% endif %}
     {% if c.note %}<p class="small warn-text">{{ c.note }}</p>{% endif %}
     <form method="post" action="/sources/follow" hx-post="/sources/follow" hx-trigger="change" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}
-      {% for k in ('key', 'service', 'url', 'name', 'owner', 'songs', 'image', 'note', 'kind') %}<input type="hidden" name="{{ k }}" value="{{ c[k] if c[k] is not none else '' }}">{% endfor %}
+      {% for k in ('key', 'service', 'url') %}<input type="hidden" name="{{ k }}" value="{{ c[k] }}">{% endfor %}
       <span class="seg" role="radiogroup" aria-label="Follow {{ c.name }}">
         {% for value, label, tip in MODES %}
-        <label title="{{ tip }}"><input type="radio" name="mode" value="{{ value }}" {% if c.mode == value %}checked{% endif %}> {% if value != 'off' %}{{ icon(value, 13) }} {% endif %}{{ label }}</label>
+        <label title="{{ tip }}"><input type="radio" name="mode" value="{{ value }}" {% if c.mode == value %}checked{% endif %}> {% if value != 'off' %}{{ use(value, 13) }} {% endif %}{{ label }}</label>
         {% endfor %}
       </span>
       <noscript><button>Save</button></noscript>
