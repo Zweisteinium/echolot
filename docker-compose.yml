@@ -1,6 +1,8 @@
-# Development instance on debian-server. Echolot writes to ./data and, in the pipeline's config
-# directory, only sources.yml, schedule.yml and review.yml (Sources, Settings, Review pages); the music
-# library and the pipeline's state, logs and scripts are mounted read-only.
+# Development instance on debian-server, next to production (/opt/echolot, port 8490; PLAN.md).
+# It works on its own database in ./data (a copy of production's) and reads the pipeline's config
+# directory and the music library read-only, so trying things here never changes what production
+# or the pipeline use.
+name: echolot-dev
 services:
   echolot:
     build: .
@@ -8,17 +10,13 @@ services:
     container_name: echolot-dev
     user: "1000:1000"
     ports:
-      - "192.168.178.42:8490:8490" # home network only (no login yet)
+      - "192.168.178.42:8491:8490" # home network only
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_PIPELINE_DIR: /pipeline
     volumes:
       - ./data:/data
       - /media/hdd/medialib/audio/music:/music:ro
-      - /opt/sockseek/config:/pipeline
-      - /opt/sockseek/config/state:/pipeline/state:ro
-      - /opt/sockseek/config/logs:/pipeline/logs:ro
-      - /opt/sockseek/config/scripts:/pipeline/scripts:ro
-      - /opt/sockseek/config/crontabs:/pipeline/crontabs:ro
+      - /opt/sockseek/config:/pipeline:ro
       - /etc/localtime:/etc/localtime:ro # timestamps in the pipeline's logs are local time
     restart: unless-stopped
