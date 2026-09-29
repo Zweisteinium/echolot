@@ -148,14 +148,17 @@ def test_first_user_setup(app) -> None:
     client = TestClient(app)
     assert "/setup" in client.get("/login").text
     assert client.get("/setup", params={"token": "wrong"}).status_code == 403
-    assert "Welcome" in client.get("/setup", params={"token": token}).text
-    r = client.post("/setup", data={"token": token, "name": "admin", "password": "long enough 1",
+    assert "admin</strong> account" in client.get("/setup", params={"token": token}).text
+    r = client.post("/setup", data={"token": token, "password": "long enough 1",
                                     "repeat": "different 12"})  # fmt: skip
     assert r.status_code == 400 and "differ" in r.text
-    r = client.post("/setup", data={"token": token, "name": "admin", "password": "long enough 1",
+    r = client.post("/setup", data={"token": token, "name": "someone", "password": "long enough 1",
                                     "repeat": "long enough 1"}, follow_redirects=False)  # fmt: skip
     assert r.status_code == 303
     assert client.get("/api/stats").status_code == 200  # logged in right away
+    con = db.connect(app.state.settings.db_path)
+    assert [u["name"] for u in auth.users(con)] == ["admin"]  # always the admin account
+    con.close()
     assert client.get("/setup", params={"token": token}).status_code == 404
 
 
