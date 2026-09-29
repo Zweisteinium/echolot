@@ -181,8 +181,8 @@ def set_playlist_meta(src, name, title, image_url):
 def sockseek_cmd(inp, extra):
     idx = STATE / "sockseek-run-index.csv"
     idx.unlink(missing_ok=True)   # bookkeeping of this run only; what is missing is decided by library.py
-    cmd = ["sockseek", inp, "-c", str(CONFIG / "sockseek.conf"),
-           "--user", ENV["SLSK_USER"], "--pass", ENV["SLSK_PASS"], "--index-path", str(idx)]
+    # the Soulseek login is in sockseek.conf (user, pass), not on the command line, where ps would show it
+    cmd = ["sockseek", inp, "-c", str(CONFIG / "sockseek.conf"), "--index-path", str(idx)]
     # Second ProtonVPN forwarded port, assigned by host/sync-listen-port.sh (host cron)
     port_file = STATE / "listen-port"
     port = port_file.read_text().strip() if port_file.exists() else ""

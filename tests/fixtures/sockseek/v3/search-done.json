@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/api/jobs/122d8818-132b-4769-b0d6-d8c827b98a9a",
+    "body": null
+  },
+  "status": 200,
+  "response": {
+    "summary": {
+      "jobId": "122d8818-132b-4769-b0d6-d8c827b98a9a",
+      "displayId": 1,
+      "workflowId": "392f8918-3c01-4eb4-94e1-261371f0e8db",
+      "kind": "search",
+      "lifecycleState": "Terminal",
+      "activityPhase": "None",
+      "terminalOutcome": "Succeeded",
+      "skipReason": "None",
+      "queryText": "Scooter - Aiii Shot The DJ",
+      "discoveryRawResultCount": 2,
+      "discoveryLockedFileCount": 0,
+      "appliedAutoProfiles": [],
+      "availableActions": [],
+      "cancellationSource": "None",
+      "printOption": 0
+    },
+    "payload": {
+      "kind": "search",
+      "queryText": "Scooter - Aiii Shot The DJ",
+      "defaultFileProjection": {
+        "songQuery": {
+          "artist": "Scooter",
+          "title": "Aiii Shot The DJ",
+          "length": 5,
+          "artistMaybeWrong": false
+        },
+        "includeFullResults": true
+      },
+      "resultCount": 2,
+      "revision": 2,
+      "isComplete": true
+    },
+    "children": []
+  }
+}
