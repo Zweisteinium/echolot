@@ -131,16 +131,19 @@ class YtDlp:
                             "uploader": e.get("uploader") or e.get("channel") or ""})  # fmt: skip
         return out
 
-    def fetch(self, url: str, dest: Path, stop: threading.Event) -> Path | None:
-        """Download a found video's or track's best audio as dest.<ext>."""
+    def fetch(self, url: str, dest: Path, stop: threading.Event) -> tuple[Path | None, str]:
+        """Download a found video's or track's best audio as dest.<ext>: (path, '') or (None, why)."""
         r = self.run(["-f", "bestaudio/best", "-x", "--audio-quality", "0", "--embed-metadata",
                       "--no-playlist", "-o", f"{dest}.%(ext)s", "--print", "after_move:filepath", url],
                      stop, 900)  # fmt: skip
         out = [line for line in r.stdout.splitlines() if line.strip()]
         if r.returncode == 0 and out and os.path.isfile(out[-1]):
-            return Path(out[-1])
-        log.info("fallback: download of %s failed: %s", url, r.stderr.strip()[-200:])
-        return None
+            return Path(out[-1]), ""
+        err = r.stderr.strip()
+        log.info("fallback: download of %s failed: %s", url, err[-200:])
+        if "DRM" in err:
+            return None, "DRM-protected"
+        return None, (err.splitlines()[-1].removeprefix("ERROR: ")[:160] if err else "failed")
 
 
 def _communicate(p: subprocess.Popen, stop: threading.Event, timeout: float) -> tuple[str, str]:

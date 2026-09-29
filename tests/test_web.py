@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from collections.abc import Callable
 
@@ -73,7 +74,7 @@ def test_sources_page(client: TestClient) -> None:
     cards = client.get("/sources/other").text  # followed lists without an account: all of them
     assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
     assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
-    assert 'class="legend"' in html and " Playlist</label>" in cards and "Songs + playlist" not in html + cards
+    assert 'class="mode-legend"' in html and " Playlist</label>" in cards and "Songs + playlist" not in html + cards
 
 
 def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
@@ -98,6 +99,29 @@ def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
     assert html.count('data-kind="own"') == 2 and 'data-kind="other"' in html and "· collaborative" in html
     assert html.count('class="small warn-text"') == 1  # only on the one Spotify withholds
     lists_web._found.clear()
+
+
+def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) -> None:
+    con = db.connect(settings.db_path)
+    key = con.execute("SELECT key FROM wanted WHERE file IS NULL AND service = 'spotify' ORDER BY key").fetchone()[0]
+    soulseek = {
+        "stage": 1,
+        "results": 12,
+        "fits": 1,
+        "rejected": {"another length": 7, "another version": 4},
+        "tried": [["Song (Original Mix).mp3", "failed", "no progress (queued at the peer)"]],
+    }
+    fallback = {"youtube": {"results": 5, "fits": 0, "rejected": {"another length": 5}, "tried": []},
+                "soundcloud": {"results": 1, "fits": 1, "rejected": {}, "tried": [["Song", "download failed", "DRM-protected"]]},
+                "near": ["youtube", "Song (Official Visualizer)", 219, "mismatch", ""]}  # fmt: skip
+    with con:
+        con.execute("INSERT OR REPLACE INTO attempts (song_key, tries, last_try, last_fallback, result, fallback_result) "
+                    "VALUES (?, 3, 1, 1, ?, ?)", (key, json.dumps(soulseek), json.dumps(fallback)))  # fmt: skip
+    con.close()
+    html = client.get("/missing").text
+    assert "DRM on SoundCloud" in html and "stalls at peers" in html
+    assert "Last search: 12 results, 1 fit" in html and "7 another length, 4 another version" in html
+    assert "no progress (queued at the peer)" in html and "Kept for review" in html and "3:39" in html
 
 
 def test_follow_and_stop_following(client: TestClient, settings: Settings) -> None:
