@@ -69,9 +69,7 @@ def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
         con.close()
 
 
-async def authenticate(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
+async def authenticate(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     user, via, csrf, public = await run_in_threadpool(_identify, request)
     request.state.user, request.state.via, request.state.csrf = user, via, csrf
     if user is None and not public:
@@ -79,9 +77,7 @@ async def authenticate(
             if not await run_in_threadpool(_has_users, request):
                 return RedirectResponse("/setup", status_code=303)
             target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
-            return RedirectResponse(
-                "/login?" + urllib.parse.urlencode({"next": target}), status_code=303
-            )
+            return RedirectResponse("/login?" + urllib.parse.urlencode({"next": target}), status_code=303)
         return JSONResponse(
             {"detail": "Log in first, or send Authorization: Bearer <API token>."},
             status_code=401,
@@ -107,9 +103,7 @@ def _safe_next(target: str) -> str:
     return target if target.startswith("/") and not target.startswith("//") else "/"
 
 
-def set_session_cookie(
-    request: Request, response: Response, con: sqlite3.Connection, user: auth.User
-) -> None:
+def set_session_cookie(request: Request, response: Response, con: sqlite3.Connection, user: auth.User) -> None:
     """Log `user` in on this browser (a new session)."""
     days = options.get(con, options.Auth).session_days
     token = auth.create_session(con, user, days)
@@ -144,8 +138,7 @@ def login(
     if user is None:
         throttle.failed(client)
         log.warning("failed login for %r from %s", name, client)
-        return page(request, "login.html", 400, next=next, name=name,
-                    error="Wrong user name or password.")  # fmt: skip
+        return page(request, "login.html", 400, next=next, name=name, error="Wrong user name or password.")
     throttle.passed(client)
     response = RedirectResponse(_safe_next(next), status_code=303)
     set_session_cookie(request, response, con, user)
@@ -168,12 +161,7 @@ def setup_page(request: Request, con: DB) -> Response:
 
 
 @router.post("/setup", response_class=HTMLResponse, response_model=None)
-def setup(
-    request: Request,
-    con: DB,
-    password: Annotated[str, Form()],
-    repeat: Annotated[str, Form()],
-) -> Response:
+def setup(request: Request, con: DB, password: Annotated[str, Form()], repeat: Annotated[str, Form()]) -> Response:
     if auth.has_users(con):
         raise HTTPException(403, "The admin password is set already: log in.")
     try:

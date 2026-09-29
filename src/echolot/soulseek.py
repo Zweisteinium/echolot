@@ -30,9 +30,7 @@ SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [
 }  # fmt: skip
 
 
-def search_settings(
-    *, desperate: bool = False, strict_artist: bool = True, flac_only: bool = False
-) -> dict:
+def search_settings(*, desperate: bool = False, strict_artist: bool = True, flac_only: bool = False) -> dict:
     """downloadSettings for a job. desperate: a search without results is repeated with the title
     alone and the artist alone. flac_only: only FLAC files count (upgrades)."""
     search = json.loads(json.dumps(SEARCH))
@@ -162,11 +160,7 @@ class Daemon:
             ref, peer = it.get("ref") or {}, it.get("peer") or {}
             path = ref.get("filename") or it.get("filename") or ""
             # peers send length and bitrate as attributes, if at all; the extension is often empty
-            attrs = {
-                a.get("type"): a.get("value")
-                for a in it.get("attributes") or []
-                if isinstance(a, dict)
-            }
+            attrs = {a.get("type"): a.get("value") for a in it.get("attributes") or [] if isinstance(a, dict)}
             ext = (it.get("extension") or "").lower().lstrip(".") or path.rsplit(".", 1)[-1].lower()
             out.append(Candidate(
                 user=ref.get("username") or it.get("username") or "", path=path, size=int(it.get("size") or 0),
@@ -190,18 +184,13 @@ class Daemon:
     def transfer(self, job_id: str) -> Transfer:
         detail = self.job(job_id)
         s, p = detail.get("summary") or {}, detail.get("payload") or {}
-        done, total = (
-            int(p.get("bytesTransferred") or 0),
-            int(p.get("totalBytes") or p.get("resolvedSize") or 0),
-        )
+        done, total = (int(p.get("bytesTransferred") or 0), int(p.get("totalBytes") or p.get("resolvedSize") or 0))
         if s.get("lifecycleState") != "Terminal":
             return Transfer("running", None, done, total, "")
         outcome = s.get("terminalOutcome") or ""
         state = {"Succeeded": "done", "Cancelled": "cancelled"}.get(outcome, "failed")
         reason = s.get("failureMessage") or s.get("failureReason") or outcome
-        return Transfer(
-            state, p.get("downloadPath") if state == "done" else None, done, total, str(reason)
-        )
+        return Transfer(state, p.get("downloadPath") if state == "done" else None, done, total, str(reason))
 
     def cancel(self, job_id: str) -> None:
         with contextlib.suppress(DaemonError):

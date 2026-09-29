@@ -65,9 +65,7 @@ class Entry:
             return "lossless"
         if self.fake:
             return "fake"
-        return (
-            "lossy-high" if self.kbps >= 250 else "lossy-mid" if self.kbps >= 150 else "lossy-low"
-        )
+        return "lossy-high" if self.kbps >= 250 else "lossy-mid" if self.kbps >= 150 else "lossy-low"
 
     def rank(self) -> tuple[int, int, int]:
         return (int(self.genuine), 0 if self.fake else self.kbps, -AUDIO.index(self.ext))
@@ -178,21 +176,14 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None) -> str
 def match_songs(con: sqlite3.Connection) -> str:
     """Set each file's quality tier and each song's best library copy."""
     cat = Catalog.from_db(con)
-    songs = con.execute(
-        "SELECT key, artist, title, length, stem, artists, link FROM songs"
-    ).fetchall()
+    songs = con.execute("SELECT key, artist, title, length, stem, artists, link FROM songs").fetchall()
     found: list[tuple[str | None, str]] = []
     for key, artist, title, length, stem, artists, link in songs:
-        hits = cat.song(
-            artist, title, length, json.loads(artists or "[]"), json.loads(link or "null")
-        )
+        hits = cat.song(artist, title, length, json.loads(artists or "[]"), json.loads(link or "null"))
         best = hits[0] if hits else cat.by_stem.get(stem or "")  # SoundCloud: its own download
         found.append((best.path if best else None, key))
     with con:
-        con.executemany(
-            "UPDATE files SET quality = ? WHERE path = ?",
-            [(e.quality, e.path) for e in cat.entries],
-        )
+        con.executemany("UPDATE files SET quality = ? WHERE path = ?", [(e.quality, e.path) for e in cat.entries])
         con.executemany("UPDATE songs SET file = ? WHERE key = ?", found)
     have = sum(1 for path, _ in found if path)
     return f"{have} of {len(songs)} songs in the library"
