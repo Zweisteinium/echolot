@@ -8,26 +8,28 @@
     <a href="/accounts">Accounts</a>
   </div>
   <p class="lead">The lists Echolot follows. For each one choose <b>Songs</b> (they are downloaded into the library) or <b>Songs + playlist</b> (the list also appears as a playlist in your music server). <b>Off</b> stops following it; nothing is deleted.</p>
-  <form method="post" action="/sources/options" class="options">{{ csrf_input }}
-    <label title="Songs that leave a list keep their files and go to a '&lt;list&gt; – removed' playlist"><input type="checkbox" name="removed_playlists" value="1" {% if removed_playlists %}checked{% endif %} onchange="this.form.requestSubmit()"> "– removed" playlists for songs that leave a list</label>
-    <noscript><button>Save</button></noscript>
-  </form>
 </section>
 
 <section class="card">
-  <div class="card-head"><h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
-    {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">{{ s.spotify.name }}</span>{% endif %}</div>
-  {% if s.spotify.connected and not s.spotify.error %}
-  <div hx-get="/sources/found/spotify" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your Spotify playlists …</p></div>
-  {% else %}<p class="muted"><a href="/accounts#spotify">Connect Spotify</a> to see your playlists here.</p>{% endif %}
+  <details class="group" data-remember="sources-spotify" open>
+    <summary><h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
+      {% if followed.spotify %}<span class="pill">{{ followed.spotify }} followed</span>{% endif %}
+      {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">{{ s.spotify.name }}</span>{% endif %}</summary>
+    {% if s.spotify.connected and not s.spotify.error %}
+    <div hx-get="/sources/found/spotify" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your Spotify playlists …</p></div>
+    {% else %}<p class="muted"><a href="/accounts#spotify">Connect Spotify</a> to see your playlists here.</p>{% endif %}
+  </details>
 </section>
 
 <section class="card">
-  <div class="card-head"><h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
-    {% if s.soundcloud.connected %}<span class="pill ok-pill">{{ s.soundcloud.name }}</span>{% endif %}</div>
-  {% if s.soundcloud.connected %}
-  <div hx-get="/sources/found/soundcloud" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your SoundCloud likes and sets …</p></div>
-  {% else %}<p class="muted"><a href="/accounts#soundcloud">Connect SoundCloud</a> to see your likes and sets here.</p>{% endif %}
+  <details class="group" data-remember="sources-soundcloud" open>
+    <summary><h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
+      {% if followed.soundcloud %}<span class="pill">{{ followed.soundcloud }} followed</span>{% endif %}
+      {% if s.soundcloud.connected %}<span class="pill ok-pill">{{ s.soundcloud.name }}</span>{% endif %}</summary>
+    {% if s.soundcloud.connected %}
+    <div hx-get="/sources/found/soundcloud" hx-trigger="load" hx-swap="outerHTML"><p class="muted loading">Looking up your SoundCloud likes and sets …</p></div>
+    {% else %}<p class="muted"><a href="/accounts#soundcloud">Connect SoundCloud</a> to see your likes and sets here.</p>{% endif %}
+  </details>
 </section>
 
 <section class="card">
@@ -42,5 +44,13 @@
     <button class="primary">Follow</button>
   </form>
   <div hx-get="/sources/other" hx-trigger="load delay:300ms" hx-swap="outerHTML"></div>
+</section>
+
+<section class="card">
+  <h2>Options</h2>
+  <form method="post" action="/sources/options" class="options">{{ csrf_input }}
+    <label><input type="checkbox" name="removed_playlists" value="1" {% if removed_playlists %}checked{% endif %} onchange="this.form.requestSubmit()"> "– removed" playlists: songs that leave a list keep their files and go to a playlist "&lt;list&gt; – removed"</label>
+    <noscript><button>Save</button></noscript>
+  </form>
 </section>
 {% endblock %}

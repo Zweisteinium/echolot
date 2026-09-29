@@ -3,6 +3,7 @@ as off, songs only, or songs and a playlist in the music server; other people's 
 Stopping to follow deletes nothing: the songs stay in the library, the list's history in the database,
 following it again brings it back."""
 
+import collections
 import contextlib
 import json
 import sqlite3
@@ -20,9 +21,10 @@ from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
 MODES = ("off", "songs", "playlist")
+KINDS = (("own", "Yours"), ("collab", "Collaborative"), ("other", "By others"))  # the filter on the page
 NOT_READABLE = (
-    "Spotify hands apps only the songs of your own and collaborative playlists, so Echolot "
-    "can't read this one. Copy its songs into a playlist of yours (select all, Add to playlist)."
+    "Spotify doesn't hand out this playlist's songs (its rules for private apps cover only your own and "
+    "collaborative playlists). Copy them into a playlist of yours (select all, Add to playlist)."
 )
 _found: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # service -> (when, cards): 5 min cache
 
@@ -52,11 +54,12 @@ def _spotify_cards(request: Request, con: sqlite3.Connection) -> list[dict[str, 
         return cached[1]
     sp = spotify.Spotify(con, request.app.state.vault)
     cards = [{"key": "spotify:likes", "service": "spotify", "url": "likes", "name": "Liked Songs",
-              "owner": "you", "songs": sp.liked_count(), "image": spotify.LIKED_SONGS_IMAGE}]  # fmt: skip
+              "owner": "you", "songs": sp.liked_count(), "image": spotify.LIKED_SONGS_IMAGE, "kind": "own"}]  # fmt: skip
     for p in sp.playlists():
         cards.append({"key": f"spotify:playlist:{p['id']}", "service": "spotify", "url": p["url"],
                       "name": p["name"], "owner": "you" if p["own"] else p["owner"], "songs": p["songs"],
-                      "image": p["image"], "note": "" if p["readable"] else NOT_READABLE})  # fmt: skip
+                      "image": p["image"], "note": "" if p["readable"] else NOT_READABLE,
+                      "kind": "own" if p["own"] else "collab" if p["collaborative"] else "other"})  # fmt: skip
     _found["spotify"] = (time.time(), cards)
     return cards
 
@@ -70,7 +73,7 @@ def _soundcloud_cards(request: Request, con: sqlite3.Connection) -> list[dict[st
         raise soundcloud.SoundCloudError("SoundCloud is not connected.")
     me = soundcloud.me(token)
     cards = [{"key": f"soundcloud:{me['user']}/likes", "service": "soundcloud", "url": "likes",
-              "name": "SoundCloud Likes", "owner": "you", "songs": me["likes"], "image": me["avatar"]}]  # fmt: skip
+              "name": "SoundCloud Likes", "owner": "you", "songs": me["likes"], "image": me["avatar"], "kind": "own"}]  # fmt: skip
     for p in soundcloud.sets(token):
         try:
             _, url = sources.parse_url(p["url"])
@@ -78,7 +81,7 @@ def _soundcloud_cards(request: Request, con: sqlite3.Connection) -> list[dict[st
             continue
         cards.append({"key": f"soundcloud:{urllib.parse.urlparse(url).path.strip('/')}", "service": "soundcloud",
                       "url": url, "name": p["name"], "owner": "you" if p["own"] else p["owner"],
-                      "songs": p["songs"], "image": p["image"]})  # fmt: skip
+                      "songs": p["songs"], "image": p["image"], "kind": "own" if p["own"] else "other"})  # fmt: skip
     _found["soundcloud"] = (time.time(), cards)
     return cards
 
@@ -87,8 +90,8 @@ def _soundcloud_cards(request: Request, con: sqlite3.Connection) -> list[dict[st
 def sources_page(request: Request, con: DB) -> HTMLResponse:
     from echolot.web.accounts import status
 
-    s = status(request, con)
-    return page(request, "sources.html", nav="sources", s=s,
+    return page(request, "sources.html", nav="sources", s=status(request, con),
+                followed=collections.Counter(x.service for x in sources.lists(con)),
                 removed_playlists=options.get(con, options.SourceOptions).removed_playlists)  # fmt: skip
 
 
@@ -101,7 +104,9 @@ def found(request: Request, con: DB, service: str) -> HTMLResponse:
         error = None
     except (spotify.SpotifyError, soundcloud.SoundCloudError) as e:
         cards, error = [], str(e)
-    return page(request, "_cards.html", cards=[_card(c, state) for c in cards], error=error, service=service)
+    kinds = collections.Counter(c["kind"] for c in cards)
+    return page(request, "_cards.html", cards=[_card(c, state) for c in cards], error=error, service=service,
+                kinds=[(k, label, kinds[k]) for k, label in KINDS if kinds[k]])  # fmt: skip
 
 
 @router.get("/sources/other", response_class=HTMLResponse)
@@ -141,10 +146,12 @@ def follow(
     songs: Annotated[str, Form()] = "",
     image: Annotated[str, Form()] = "",
     note: Annotated[str, Form()] = "",
+    kind: Annotated[str, Form()] = "",
 ) -> Response:
     """Follow a list (mode songs or playlist) or stop following it (off: nothing is deleted)."""
     card = {"key": key, "service": service, "url": url, "name": name, "owner": owner,
-            "songs": int(songs) if songs.isdigit() else None, "image": image or None, "note": note}  # fmt: skip
+            "songs": int(songs) if songs.isdigit() else None, "image": image or None, "note": note,
+            "kind": kind}  # fmt: skip
     if mode not in MODES:
         return _card_answer(request, con, card, "Unknown choice.")
     try:

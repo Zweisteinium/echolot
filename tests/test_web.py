@@ -8,6 +8,7 @@ from echolot import __version__, db, schedule, spotify
 from echolot.config import Settings
 from echolot.filing import Paths
 from echolot.web import create_app
+from echolot.web import lists as lists_web
 
 
 @pytest.fixture
@@ -72,6 +73,30 @@ def test_sources_page(client: TestClient) -> None:
     cards = client.get("/sources/other").text  # followed lists without an account: all of them
     assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
     assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
+
+
+def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
+    class FakeSpotify:
+        def __init__(self, con, vault) -> None:
+            pass
+
+        def liked_count(self) -> int:
+            return 7
+
+        def playlists(self) -> list[dict]:
+            p = {"url": "https://open.spotify.com/playlist/x", "songs": 3, "image": None, "readable": True}
+            return [p | {"id": "O1", "name": "Mine", "owner": "me", "own": True, "collaborative": False},
+                    p | {"id": "C1", "name": "Shared", "owner": "Ann", "own": False, "collaborative": True},
+                    p | {"id": "X1", "name": "Hers", "owner": "Ann", "own": False, "collaborative": False,
+                         "readable": False}]  # fmt: skip
+
+    monkeypatch.setattr(spotify, "Spotify", FakeSpotify)
+    lists_web._found.clear()
+    html = client.get("/sources/found/spotify").text
+    assert 'class="seg kind-filter"' in html and "By others" in html and "Collaborative" in html
+    assert html.count('data-kind="own"') == 2 and 'data-kind="other"' in html and "· collaborative" in html
+    assert html.count('class="small warn-text"') == 1  # only on the one Spotify withholds
+    lists_web._found.clear()
 
 
 def test_follow_and_stop_following(client: TestClient, settings: Settings) -> None:
