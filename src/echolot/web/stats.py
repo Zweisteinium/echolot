@@ -19,7 +19,8 @@ REJECTED = ("wrong-song", "mismatch")
 def overview(con: Connection) -> dict[str, Any]:
     files, size = con.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
     by_tier = dict(con.execute("SELECT quality, count(*) FROM files GROUP BY quality").fetchall())
-    wanted, have, in_lists = con.execute("SELECT count(*), count(file), count(DISTINCT file) FROM wanted").fetchone()
+    counts = "count(*), count(file), count(DISTINCT file), coalesce(sum(file IS NOT NULL AND close_match), 0)"
+    wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted").fetchone()
     since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
     day = {
         action: (n, b or 0)
@@ -52,6 +53,7 @@ def overview(con: Connection) -> dict[str, Any]:
         "lossless": by_tier.get("lossless", 0),
         "wanted": wanted,
         "have": have,
+        "close": close,  # of 'have': covered by a close match (another version, taken in review)
         "not_found": not_found,
         "added_24h": sum(day.get(a, (0, 0))[0] for a in ADDED),
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
@@ -142,6 +144,14 @@ def missing(con: Connection, list_key: str | None = None, paths: Paths | None = 
             if len(rejected.setdefault(e["song"], [])) < 3:
                 rejected[e["song"]].append(e)
     return [_tried(r, rejected.get(r["key"], []), paths) for r in rows]
+
+
+def close_matches(con: Connection) -> list[Row]:
+    """Wanted songs covered by a close match: another version, taken for the song in review."""
+    return con.execute(
+        "SELECT key, service, artist, title, length, file, f.duration FROM wanted s JOIN files f ON f.path = s.file "
+        "WHERE s.close_match ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE"
+    ).fetchall()
 
 
 def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:

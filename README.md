@@ -27,8 +27,9 @@ you, and why.
   with the official release by fingerprint (the recording's ISRC, the release's preview). An official
   video with another edit waits for your decision instead of slipping in.
 - **Fake FLACs found.** A spectrum check spots FLACs made from MP3s and keeps looking for the real one.
-- **Review with a player.** Uncertain matches wait for one click: right, wrong, accept, discard; each
-  decision can be taken back for two minutes.
+- **Review with a player.** Uncertain matches wait for one click: perfect match, close match (another
+  version you take for the song; it keeps its real name) or no match; each decision can be taken
+  back for two minutes.
 - **Knows why something is missing.** Every search is kept: how many results, why they did not fit,
   transfers that stalled, DRM on SoundCloud, songs Spotify greys out.
 - **Nothing gets lost.** No file is ever overwritten; a replaced one waits 30 days in an inbox. Songs

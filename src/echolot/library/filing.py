@@ -155,6 +155,27 @@ def retire(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, reason: 
     return dest
 
 
+def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: str, title: str, reason: str) -> Path:
+    """File a library file under what it really is (<Artist>/<Artist> - <Title>), e.g. a close match that
+    was filed under the wanted song's name. The tags follow the name."""
+    src = paths.tracks / entry.path
+    with LOCK:
+        cat = catalog.Catalog.from_db(con)
+        folder = artist_dir(paths, cat, artist)
+        stem = f"{folder.name} - {clean_name(title)}"
+        dest = src
+        if (src.parent, src.stem) != (folder, stem):
+            dest = _free_name(folder, stem, entry.ext, entry.duration)
+            _place(src, dest)
+            with con:
+                con.execute("DELETE FROM files WHERE path = ?", (entry.path,))
+                con.execute("DELETE FROM lossy_sourced WHERE stem = ?", (entry.stem,))
+            _add_file(con, paths, dest, entry.fake)
+        audio.write_tags(dest, artist=artist, title=title)
+        event(con, paths, "renamed", dest, artist=artist, title=title, reason=f"{reason} (was {entry.path})")
+    return dest
+
+
 def keep(paths: Paths, src: Path, artist: str, title: str, source: str) -> Path:
     """Move a rejected download to inbox/review/<date>/ (kept KEEP_DAYS days, see the review page)."""
     folder = paths.inbox("review") / datetime.date.today().isoformat()

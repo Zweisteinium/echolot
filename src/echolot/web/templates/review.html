@@ -3,23 +3,36 @@
 {% block content %}
 <section class="card">
   <div class="card-head">
-    <h1>Filed on a probable match <span class="count">{{ items.filed|length|num }}</span></h1>
+    <h1>Please confirm <span class="count">{{ items.filed|length|num }}</span></h1>
   </div>
-  <p class="lead small">A download that is probably the song (the same core title and version words, no other featured artist, the length within a few seconds) is filed and listed here until you confirm it. <em>Wrong</em> takes it out again, never takes that download for the song again and searches anew.</p>
+  <p class="lead small">Very probably the right song, and already in your library: the same core title and version words, no other featured artist, the length within a few seconds. Give it a final listen; if you do nothing, it stays.</p>
   <div class="review-list">
     {% for i in items.filed %}{% include "_review_item.html" %}
-    {% else %}<p class="muted">Nothing to check.</p>{% endfor %}
+    {% else %}<p class="muted">Nothing to confirm.</p>{% endfor %}
   </div>
 </section>
 
 <section class="card">
   <div class="card-head">
-    <h1>Rejected downloads <span class="count">{{ items.kept|length|num }}</span></h1>
+    <h1>Worth a look <span class="count">{{ items.kept|length|num }}</span></h1>
   </div>
-  <p class="lead small">Downloads that did not pass the check (other title, other version, other length), of songs that are still missing, and genuine FLACs of songs the library has only lossy (from the FLAC upgrade: <em>Accept</em> replaces the lossy copy). They are kept for 30 days. A decision is applied within a few minutes; until then <em>Revert</em> takes it back.</p>
+  <p class="lead small">Downloads that did not pass the automatic check (another title, version, length or artist), so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have only lossy, where <em>Perfect match</em> replaces the lossy copy.</p>
   <div class="review-list">
     {% for i in items.kept %}{% include "_review_item.html" %}
-    {% else %}<p class="muted">Nothing kept.</p>{% endfor %}
+    {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}
   </div>
+</section>
+
+<section class="card">
+  <h2>The three answers</h2>
+  <dl class="answers small">
+    <dt>Perfect match</dt>
+    <dd>It is the song. The file is named and tagged as the song in your list.</dd>
+    <dt>Close match</dt>
+    <dd>Another version you take for the song, such as an extended mix or a live take. The file keeps the name it really has (you can edit it), so what you play and share is labelled right. Your song counts as covered and is no longer searched; <a href="/missing#close">Missing</a> lists these and can search for the perfect match again.</dd>
+    <dt>No match</dt>
+    <dd>Not the song. The file goes, this download is never taken for the song again, and the song is searched again.</dd>
+  </dl>
+  <p class="muted small">A decision is applied by the Library job within a few minutes; until then <em>Revert</em> takes it back.</p>
 </section>
 {% endblock %}

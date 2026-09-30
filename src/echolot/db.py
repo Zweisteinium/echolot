@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 12
+VERSION = 13
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -43,7 +43,8 @@ CREATE TABLE songs (                -- every song of every list, once; kept when
     stem TEXT,                      -- SoundCloud: the library file it was downloaded as
     file TEXT,                      -- best library copy (files.path), NULL = missing
     artists TEXT,                   -- JSON list of all the song's artists (Spotify)
-    link TEXT,                      -- JSON [artist, title]: the library song it is (review accept)
+    link TEXT,                      -- JSON [artist, title]: the library song it is (review decision)
+    close_match INTEGER NOT NULL DEFAULT 0,  -- the link is another version, taken as a close match in review
     url TEXT,                       -- SoundCloud: the track page it is downloaded from
     archived INTEGER NOT NULL DEFAULT 0,  -- SoundCloud: downloaded once
     isrc TEXT                       -- Spotify: the recording's ISRC
@@ -114,7 +115,8 @@ CREATE TABLE blocked (              -- downloads marked wrong in review: never t
 CREATE TABLE review_decisions (
     id TEXT PRIMARY KEY,            -- review.decision_id: '<event ts> <path>'
     event_id INTEGER,
-    decision TEXT NOT NULL,         -- ok, wrong, accept, discard
+    decision TEXT NOT NULL,         -- ok, close, wrong (filed); accept, close, discard (kept)
+    name TEXT,                      -- close: 'Artist - Title', what the download really is
     decided TEXT NOT NULL,
     applied TEXT,                   -- NULL: not yet (can be reverted)
     result TEXT
@@ -182,6 +184,15 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
 
+# version -> the statements from the version before; each step runs in one transaction with its user_version
+MIGRATIONS = {
+    13: [
+        "ALTER TABLE songs ADD COLUMN close_match INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE review_decisions ADD COLUMN name TEXT",
+    ]
+}
+
+
 def connect(path: Path) -> sqlite3.Connection:
     # one connection per request or job; FastAPI may open and use it on different threads
     con = sqlite3.connect(path, timeout=30, check_same_thread=False)
@@ -191,7 +202,7 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def init(path: Path) -> None:
-    """Create the database, or check that it has this schema."""
+    """Create the database, or bring it to this schema (from version 12 on)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     con = connect(path)
     try:
@@ -199,8 +210,11 @@ def init(path: Path) -> None:
         version = con.execute("PRAGMA user_version").fetchone()[0]
         if version == 0 and not con.execute("SELECT 1 FROM sqlite_master").fetchone():
             con.executescript(f"BEGIN; {SCHEMA}; PRAGMA user_version = {VERSION}; COMMIT;")
-        elif version != VERSION:
+            version = VERSION
+        elif not 12 <= version <= VERSION:
             raise RuntimeError(f"{path} has database schema {version}; this Echolot needs {VERSION}")
+        for step in range(version + 1, VERSION + 1):
+            con.executescript(f"BEGIN; {'; '.join(MIGRATIONS[step])}; PRAGMA user_version = {step}; COMMIT;")
     finally:
         con.close()
 
