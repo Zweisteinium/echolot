@@ -79,6 +79,12 @@ class Item:
         return artist, title, bool(artist) and not names_one(credited, self.song_artists)
 
     @property
+    def quality(self) -> str:
+        """The download's quality tier (catalog.QUALITY), for its chip."""
+        e = self.event
+        return catalog.Entry(f"-/-.{e['ext'] or ''}", 0, e["kbps"] or 0, bool(e["fake"])).quality
+
+    @property
     def likelihood(self) -> tuple:
         """Sort key, the likeliest to be the song first: the audio check (the release's audio, unclear or not
         checked, other audio), the artist named, named as the song (only another length) before another title,

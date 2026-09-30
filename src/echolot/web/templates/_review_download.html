@@ -1,13 +1,17 @@
-{# one download of a song card (_review_group.html): what it is, why it waits, the answers, a player -#}
+{# one download of a song card (_review_group.html): play button, what it is, the facts, why it waits,
+   the answers; Close match opens a line to name what the file is -#}
+{% from "_macros.html" import quality -%}
+{% from "_icons.html" import icon -%}
 {% set e = i.event -%}
 {% set d_artist, d_title, other = i.download -%}
 {% set goes = taken and taken.event.id != e.id and not i.decision -%}
 {% set open = not i.decision and not goes -%}
+{% set SOURCES = {'soulseek': 'Soulseek', 'youtube': 'YouTube', 'soundcloud': 'SoundCloud', 'soundcloud-search': 'SoundCloud'} -%}
 {% if i.kind == 'filed' -%}
 {% set note = [e.reason|replace('back in review: ', 'Back for a check: ') if e.action == 'recheck', e.audio]|select|join(' · ') -%}
 {% set HELP = {
   'ok': 'It is the song: the file stays as it is.',
-  'close': 'Another version you take for the song: the file is renamed to the name under Listen and covers the song.',
+  'close': 'Another version you take for the song: the file gets the name you give it and covers the song.',
   'wrong': 'Not the song: the file goes, this download is never taken again, and the song is searched again.',
 } -%}
 {% else -%}
@@ -15,32 +19,46 @@
 {% set note = why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '') -%}
 {% set HELP = {
   'accept': ('It is the song: the FLAC replaces your lossy copy.' if e.song_file else 'It is the song: it is filed and tagged as the song.') ~ ' The other downloads go.',
-  'close': 'Another version you take for the song: it is filed under the name under Listen and covers the song' ~ ('; your lossy copy stays as a file of its own.' if e.song_file else '.') ~ ' The other downloads go.',
+  'close': 'Another version you take for the song: it is filed under the name you give it and covers the song' ~ ('; your lossy copy stays as a file of its own.' if e.song_file else '.') ~ ' The other downloads go.',
   'discard': 'Not the song: it is deleted and this download is never taken for the song again.',
 } -%}
 {% endif -%}
-<li class="download{{ ' decided' if not open }}">
-  <div class="download-row">
-    <div class="download-what">
-      <div>{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}</div>
-      <div class="muted small">{{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %} · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.bytes %} · {{ e.bytes|size }}{% endif %}{% if e.fake %} · made from a lossy file{% endif %}</div>
-      {% if note %}<div class="muted small">{{ note }}</div>{% endif %}
+<li class="download{{ ' settled' if not open }}" data-event="{{ e.id }}">
+  <button type="button" class="play" data-play="/review/{{ e.id }}/audio" title="Play" aria-label="Play {{ d_title }}">
+    <span class="when-paused">{{ icon('play', 16) }}</span><span class="when-playing">{{ icon('pause', 16) }}</span></button>
+  <div class="download-body">
+    <div class="download-name">{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}</div>
+    <div class="seek" title="Jump to"><span class="seek-done"></span></div>
+    <div class="download-facts">
+      <span class="source">{{ SOURCES.get(e.source, e.source) }}</span>
+      <span class="{{ 'fits' if i.length_diff is not none and i.length_diff|abs <= 3 else 'off' if i.length_diff is not none }}">{{ e.seconds|mmss }}{% if i.length_diff is not none and i.length_diff|abs > 0 %} ({{ '%+d'|format(i.length_diff) }} s){% endif %}</span>
+      {{ quality(i.quality, e.kbps) }}
+      {% if e.bytes %}<span>{{ e.bytes|size }}</span>{% endif %}
+      <span class="play-time"></span>
     </div>
-    <div class="review-actions">
-      {% if i.decision %}<span class="muted small">{{ i.label }}{% if i.name %} as “{{ i.name }}”{% endif %}: applied soon</span>
-      <form method="post" action="/review/{{ e.id }}/revert" hx-post="/review/{{ e.id }}/revert" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<button>Revert</button></form>
-      {% elif goes %}<span class="muted small">goes with your choice</span>
-      {% else %}
-      {% for value, label in i.choices %}
-      <form method="post" action="/review/{{ e.id }}" hx-post="/review/{{ e.id }}" hx-target="closest article" hx-swap="outerHTML"{% if value == 'close' %} id="close-{{ e.id }}"{% endif %}>{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ 'danger' if loop.last }}" title="{{ HELP[value] }}"{% if value == 'close' %} data-close="listen-{{ e.id }}"{% endif %}>{{ label }}</button></form>
-      {% endfor %}
-      {% endif %}
+    {% if note %}<div class="download-why">{{ note }}</div>{% endif %}
+    {% if open and 'close' in dict(i.choices) %}
+    <div class="close-line" id="close-line-{{ e.id }}" hidden>
+      <label for="close-name-{{ e.id }}">Files as</label>
+      <input type="text" id="close-name-{{ e.id }}" name="name" form="close-{{ e.id }}" value="{{ i.close_name }}" required>
+      <button class="primary" form="close-{{ e.id }}">File as close match</button>
+      <button type="button" data-close-cancel>Cancel</button>
     </div>
+    {% endif %}
   </div>
-  <details class="listen" id="listen-{{ e.id }}">
-    <summary>Listen</summary>
-    <audio controls preload="none" src="/review/{{ e.id }}/audio"></audio>
-    {% if open %}<label class="close-name small"><span class="muted">Close match files it as</span>
-      <input type="text" name="name" form="close-{{ e.id }}" value="{{ i.close_name }}" required aria-label="Artist - Title the close match is filed as"></label>{% endif %}
-  </details>
+  <div class="review-actions">
+    {% if i.decision %}<span class="status">{{ i.label }}{% if i.name %} as “{{ i.name }}”{% endif %} · applied soon</span>
+    <form method="post" action="/review/{{ e.id }}/revert" hx-post="/review/{{ e.id }}/revert" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<button>Revert</button></form>
+    {% elif goes %}<span class="status">goes with your choice</span>
+    {% else %}
+    {% for value, label in i.choices %}
+    {% if value == 'close' %}
+    <form id="close-{{ e.id }}" method="post" action="/review/{{ e.id }}" hx-post="/review/{{ e.id }}" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="decision" value="close"></form>
+    <button type="button" title="{{ HELP[value] }}" data-close-line="close-line-{{ e.id }}">{{ label }}</button>
+    {% else %}
+    <form method="post" action="/review/{{ e.id }}" hx-post="/review/{{ e.id }}" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ 'danger' if loop.last }}" title="{{ HELP[value] }}">{{ label }}</button></form>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+  </div>
 </li>
