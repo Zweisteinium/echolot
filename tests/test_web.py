@@ -245,6 +245,7 @@ def test_review(client: TestClient, settings: Settings) -> None:
     ids = [r[0] for r in con.execute("SELECT id FROM events WHERE song IS NOT NULL ORDER BY id DESC LIMIT 4")][::-1]
     html = client.get("/review").text
     assert "First Song (Official Video)" in html
+    assert 'href="https://open.spotify.com/track/s1" data-app="spotify:track:s1"' in html  # desktop app first
     assert "Gone Song (Club Mix)" in html and "title differs" in html
     assert "/etc/passwd" not in html and "Requiem in D minor" not in html  # no near miss
     assert client.get(f"/review/{ids[1]}/audio").content == b"audio"
