@@ -11,7 +11,7 @@ from echolot.config import Settings
 from echolot.jobs import lists
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
-from echolot.library import audio, playlists
+from echolot.library import audio, catalog, playlists
 from echolot.services import spotify, ytdlp
 from echolot.settings.vault import Vault
 
@@ -165,7 +165,21 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
         == "https://i/x-t500x500.jpg"
     )
     con.close()
+    library(run)
     assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 0 new files"  # nothing downloaded twice
+    library(run)
     asked = len(FakeYtDlp.asked)  # the pages of the songs stored in the first run
     lists.soundcloud(run)
     assert len(FakeYtDlp.asked) == asked  # no page asked for twice
+    con = run.connect()  # a download that left the library (e.g. retired in review) is fetched again
+    (run.paths.tracks / con.execute("SELECT file FROM songs WHERE key = 'soundcloud:2002'").fetchone()[0]).unlink()
+    con.close()
+    library(run)
+    assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 1 new files"
+
+
+def library(run: Run) -> None:
+    """What the library job does after each SoundCloud run: rescan, match the songs to files."""
+    con = run.connect()
+    catalog.refresh(con, run.paths.tracks)
+    con.close()
