@@ -12,7 +12,7 @@
   <div class="review-head">
     <dl>
       <dt>Wanted</dt>
-      <dd>{% if e.song and e.song.startswith('spotify:') %}<a href="https://open.spotify.com/track/{{ e.song.split(':')[1] }}" target="_blank" rel="noopener">{{ e.artist }} – {{ e.title }}</a>{% else %}{{ e.artist }} – {{ e.title }}{% endif %}
+      <dd>{% if e.song and e.song.startswith('spotify:') %}{% set sid = e.song.split(':')[1] %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ e.artist }} – {{ e.title }}</a>{% else %}{{ e.artist }} – {{ e.title }}{% endif %}
         <span class="muted small">{{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</span></dd>
       <dt>Downloaded</dt>
       <dd>{{ e.found or e.file_name or '–' }}

@@ -47,6 +47,34 @@
       b.textContent = done ? "Copied" : "Select and copy";
       setTimeout(() => (b.textContent = "Copy"), 2000);
     });
+    // song links with data-app="spotify:track:…" try the desktop app first. A page cannot ask whether an app is
+    // installed, so if no app takes the focus within 2 s the web link opens instead. Phones and middle or
+    // modifier clicks keep the plain https link (phones hand it to an installed app themselves).
+    document.addEventListener("click", (ev) => {
+      const a = ev.target.closest("a[data-app]");
+      if (!a || ev.button || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+      if (matchMedia("(pointer: coarse)").matches) return;
+      ev.preventDefault();
+      let left = false;
+      const away = () => (left = true);
+      window.addEventListener("blur", away, { once: true });
+      document.addEventListener("visibilitychange", away, { once: true });
+      if (navigator.userAgent.includes("Firefox")) {  // shows an error page for a scheme without an app
+        const frame = Object.assign(document.createElement("iframe"), { hidden: true, src: a.dataset.app });
+        document.body.append(frame);
+        setTimeout(() => frame.remove(), 5000);
+      } else {
+        location.href = a.dataset.app;
+      }
+      setTimeout(() => {
+        window.removeEventListener("blur", away);
+        document.removeEventListener("visibilitychange", away);
+        if (left) return;
+        const tab = window.open(a.href, "_blank");
+        if (tab) tab.opener = null;
+        else location.href = a.href;  // popup blocked
+      }, 2000);
+    });
     // Sources: show one kind of list (yours, collaborative, by others), remembered per service
     const showKind = (filter, value) => {
       const input = filter.querySelector(`input[value="${value}"]`);
