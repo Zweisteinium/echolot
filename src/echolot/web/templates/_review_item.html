@@ -1,5 +1,5 @@
 {# one download up for review; a decision swaps just this card (htmx) -#}
-{% from "_macros.html" import quality -%}
+{% from "_macros.html" import quality, song_link -%}
 {% set e = i.event -%}
 {% if i.kind == 'filed' -%}
 {% set note = [e.reason|replace('back in review: ', 'Back for a check: ') if e.action == 'recheck', e.audio]|select|join(' · ') -%}
@@ -13,7 +13,7 @@
 {% set note = why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '') -%}
 {% set HELP = {
   'accept': 'It is the song: the FLAC replaces your lossy copy.' if e.song_file else 'It is the song: it is filed and tagged as the song.',
-  'close': 'Another version you take for the song: it is filed under the name below and covers the song.',
+  'close': 'Another version you take for the song: it is filed under the name below and covers the song' ~ ('; your lossy copy stays as a file of its own.' if e.song_file else '.'),
   'discard': 'Not the song: it is deleted and this download is never taken for the song again.',
 } -%}
 {% endif -%}
@@ -21,7 +21,7 @@
   <div class="review-head">
     <dl>
       <dt>Wanted</dt>
-      <dd>{% if e.song and e.song.startswith('spotify:') %}{% set sid = e.song.split(':')[1] %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ i.artists }} – {{ e.title }}</a>{% else %}{{ i.artists }} – {{ e.title }}{% endif %}
+      <dd>{{ song_link(e.song, e.song_url, i.artists ~ ' – ' ~ e.title) }}
         <span class="muted small">{{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</span></dd>
       <dt>Downloaded</dt>
       <dd>{{ e.found or e.file_name or '–' }}
@@ -39,7 +39,7 @@
     </div>
   </div>
   <audio controls preload="none" src="/review/{{ e.id }}/audio"></audio>
-  {% if not i.decision and i.choices|length == 3 %}
+  {% if not i.decision %}
   <label class="close-name small"><span class="muted">Close match files it as</span>
     <input type="text" name="name" form="close-{{ e.id }}" value="{{ i.close_name }}" required aria-label="Artist - Title the close match is filed as"></label>
   {% endif %}

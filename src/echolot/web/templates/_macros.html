@@ -2,6 +2,14 @@
 <span class="service">{{ 'Spotify' if name == 'spotify' else 'SoundCloud' }}</span>
 {%- endmacro %}
 
+{# a song's title linked to its page at the source: Spotify tries the desktop app first (base.html) #}
+{% macro song_link(key, url, text) -%}
+{% set service, _, sid = (key or '').partition(':') -%}
+{% if service == 'spotify' and sid %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ text }}</a>
+{%- elif service == 'soundcloud' and (url or '').startswith('https://soundcloud.com/') %}<a href="{{ url }}" target="_blank" rel="noopener">{{ text }}</a>
+{%- else %}{{ text }}{% endif %}
+{%- endmacro %}
+
 {% macro quality(key, kbps=None, label=None) -%}
 <span class="chip q-{{ key }}"><span class="swatch" aria-hidden="true"></span>{{ label or ('FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else 'missing' if key == 'missing' else (kbps ~ ' kbps') if kbps else 'lossy') }}</span>
 {%- endmacro %}

@@ -16,7 +16,7 @@ router = APIRouter(include_in_schema=False)
 def overview(request: Request, con: DB) -> HTMLResponse:
     o, vault = stats.overview(con), request.app.state.vault
     connected = vault.has(con, "spotify.refresh_token") or vault.has(con, "soundcloud.token")
-    donut, running = charts.donut(o["song_tiers"]), jobs.status(request, con)
+    donut, running = charts.donut(o["tiers"]), jobs.status(request, con)  # the library's files by quality
     return page(request, "overview.html", nav="overview", o=o, donut=donut, connected=connected, **running)
 
 
