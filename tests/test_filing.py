@@ -421,3 +421,18 @@ def test_a_renamed_file_stays_the_soundcloud_songs_download(env) -> None:
     filing.rename(con, paths, entry, "No Chasa", "MASTER DISASTER (EXTENDED MIX)", "close match")
     catalog.match_songs(con)
     assert song(con, "soundcloud:1")["file"] == "No Chasa/No Chasa - MASTER DISASTER (EXTENDED MIX).wav"
+
+
+def test_the_card_names_the_download_by_its_tags(env, monkeypatch) -> None:
+    con, paths, _ = env
+    want = add_song(con, "spotify:tk", "TEKKNO", "say it right tekkno", 135)
+    search_hit(con, paths, download(paths, "a.wav", 200), want, "say it right tekkno", "soulseek")
+    tags = {"credit": ("BananaCar", "say it right tekkno")}
+    monkeypatch.setattr("echolot.library.audio.read_credit", lambda p: tags["credit"])
+    assert review.items(con, paths.music)["kept"][0].download == ("BananaCar", "say it right tekkno", True)
+    tags["credit"] = ("TEKKNO, BananaCar", "say it right tekkno")
+    assert review.items(con, paths.music)["kept"][0].download[2] is False  # names the wanted artist
+    tags["credit"] = ("yourdancefloortv", "TEKKNO - say it right tekkno (Official Video)")  # a channel
+    assert review.items(con, paths.music)["kept"][0].download[2] is False
+    tags["credit"] = ("", "")  # no tags: the name it was downloaded as
+    assert review.items(con, paths.music)["kept"][0].download == ("", "say it right tekkno", False)
