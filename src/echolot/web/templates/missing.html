@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import song_link %}
 {% block title %}Missing · Echolot{% endblock %}
 {% set STAGES = [
   ('as listed', 'Artist and title as listed; the artist must be in the file path.'),
@@ -28,7 +29,7 @@
     {% for s in songs %}
     <tr>
       <td>{{ s.artist }}</td>
-      <td>{% if s.service == 'spotify' %}{% set sid = s.key.split(':')[1] %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</td>
+      <td>{{ song_link(s.key, s.url, s.title) }}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
       <td class="muted small hide-narrow">{{ s.in_lists }}</td>
       <td class="small tried">
@@ -87,7 +88,7 @@
       {% for s in close %}
       <tr>
         <td>{{ s.artist }}</td>
-        <td>{% if s.service == 'spotify' %}{% set sid = s.key.split(':')[1] %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</td>
+        <td>{{ song_link(s.key, s.url, s.title) }}</td>
         <td class="num muted">{{ s.length|mmss }}</td>
         <td><span title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span> <span class="muted small">{{ s.duration|mmss }}</span></td>
         <td><form method="post" action="/songs/{{ s.key }}/search">{{ csrf_input }}<button title="Look for the perfect match again; the close match stays a file of its own">Search again</button></form></td>

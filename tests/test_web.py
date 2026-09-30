@@ -42,9 +42,13 @@ def test_missing(client: TestClient) -> None:
     assert "Locked" in html and "Gone Song" not in html
 
 
-def test_list_page(client: TestClient) -> None:
+def test_list_page(client: TestClient, settings: Settings) -> None:
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("UPDATE songs SET url = 'https://soundcloud.com/up/trance-tune' WHERE key = 'soundcloud:1001'")
+    con.close()
     html = client.get("/lists/soundcloud:someone/sets/trance").text
-    assert "Trance Tune" in html
+    assert '<a href="https://soundcloud.com/up/trance-tune" target="_blank" rel="noopener">Trance Tune</a>' in html
     assert client.get("/lists/nope").status_code == 404
 
 

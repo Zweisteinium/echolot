@@ -16,7 +16,7 @@
   <div class="card-head">
     <h1>Worth a look <span class="count">{{ items.kept|length|num }}</span></h1>
   </div>
-  <p class="lead small">Downloads that did not pass the automatic check (another title, version, length or artist), so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have only lossy, where <em>Perfect match</em> replaces the lossy copy.</p>
+  <p class="lead small">Downloads that did not pass the automatic check (another title, version, length or artist), so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have only lossy, where <em>Perfect match</em> replaces the lossy copy and <em>Close match</em> keeps both.</p>
   <div class="review-list">
     {% for i in items.kept %}{% include "_review_item.html" %}
     {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}

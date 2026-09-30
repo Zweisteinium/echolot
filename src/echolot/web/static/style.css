@@ -312,7 +312,8 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 
 /* ------------------------------------------------------------------ pages */
 /* overview */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--gap); }
+.tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--gap); }  /* rows of 6, 3, 2 */
+@media (max-width: 1240px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 a.tile { color: inherit; }
 a.tile:hover { text-decoration: none; border-color: var(--accent); }
 .tile .label { color: var(--muted); font-size: 0.85rem; }

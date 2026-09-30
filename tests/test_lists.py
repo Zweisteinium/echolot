@@ -113,12 +113,15 @@ def test_playlists(run: Run) -> None:
 
 
 class FakeYtDlp:
+    asked: ClassVar[list[str]] = []  # meta() calls
+
     def __init__(self, private: Path, token: str | None = None) -> None:
         pass
 
     def listing(self, url: str, stop) -> tuple:
-        if url.endswith("/likes"):
-            return [("1001", "https://sc/1001"), ("2002", "https://sc/2002"), ("3003", "https://sc/3003")], {}
+        if url.endswith("/likes"):  # 1001 by API address, as a set lists all but its first tracks
+            tracks = [("1001", "https://api-v2.soundcloud.com/tracks/1001"), ("2002", "https://sc/2002")]
+            return [*tracks, ("3003", "https://sc/3003")], {}
         return [("2002", "https://sc/2002")], {"title": "Trance", "thumbnails": [{"url": "https://i/x-large.jpg"}]}
 
     def download(self, tracks: list, folder: Path, stop) -> list[dict]:
@@ -135,7 +138,10 @@ class FakeYtDlp:
         return out
 
     def meta(self, url: str, stop) -> dict:
-        return {"formats": [], "uploader": "Label", "title": "Big Label - Locked Two", "duration": 222}
+        FakeYtDlp.asked.append(url)
+        page = "https://soundcloud.com/uploader/" + url.rsplit("/", 1)[-1]
+        locked = {"formats": [], "uploader": "Label", "title": "Big Label - Locked Two", "duration": 222}
+        return {**locked, "webpage_url": page}
 
 
 def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -152,9 +158,14 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     order = [r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = 'soundcloud:someone/likes' "
                                        "ORDER BY position")]  # fmt: skip
     assert order == ["soundcloud:1001", "soundcloud:2002", "soundcloud:3003"]
+    old = con.execute("SELECT url FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0]
+    assert old == "https://soundcloud.com/uploader/1001"  # the page of a song downloaded before, asked for once
     assert (
         con.execute("SELECT cover_url FROM lists WHERE key = 'soundcloud:someone/sets/trance'").fetchone()[0]
         == "https://i/x-t500x500.jpg"
     )
     con.close()
     assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 0 new files"  # nothing downloaded twice
+    asked = len(FakeYtDlp.asked)  # the pages of the songs stored in the first run
+    lists.soundcloud(run)
+    assert len(FakeYtDlp.asked) == asked  # no page asked for twice
