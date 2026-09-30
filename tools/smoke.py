@@ -1,5 +1,5 @@
 """Smoke test of a built image: the tools Echolot runs are there and do what it needs. CI runs it in the
-image before a release; locally: docker run --rm -v "$PWD/tools:/tools:ro" echolot:dev python /tools/smoke.py"""
+image; locally: docker run --rm -v "$PWD/tools:/tools:ro" echolot:dev python /tools/smoke.py"""
 
 import subprocess
 import sys
@@ -41,7 +41,9 @@ def main() -> int:
 
     check("ffmpeg chromaprint muxer", " chromaprint " in run("ffmpeg", "-hide_banner", "-muxers"))
     check("ffmpeg soxr", "--enable-libsoxr" in run("ffmpeg", "-hide_banner", "-buildconf"))
-    check("node", run("node", "--version").startswith("v"))
+    runtimes = subprocess.run(["yt-dlp", "-v", "--js-runtimes", "quickjs"], capture_output=True, text=True).stderr
+    js = next((line for line in runtimes.splitlines() if "JS runtimes:" in line), "")
+    check("yt-dlp JavaScript runtime", "quickjs-" in js and "unsupported" not in js, js.split(": ", 1)[-1])
     check("yt-dlp finds ffmpeg", FFmpegPostProcessor(None).available)
     check("curl_cffi", __import__("curl_cffi") is not None)
     with tempfile.TemporaryDirectory() as tmp:
