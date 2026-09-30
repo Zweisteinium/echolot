@@ -17,10 +17,10 @@
     <div class="value">{{ pct(flac, o.wanted) }} %</div>
     <div class="sub">{{ flac|num }} of {{ o.wanted|num }} songs genuine FLAC</div>
   </div>
-  <div class="tile">
+  <div class="tile"{% if o.close %} title="{{ o.close|num }} of them {{ 'is' if o.close == 1 else 'are' }} covered by a close match: another version you took for the song in review (Missing lists them)."{% endif %}>
     <div class="label">Lists complete</div>
     <div class="value">{{ pct(o.have, o.wanted) }} %</div>
-    <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs</div>
+    <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs{% if o.close %} · {{ o.close|num }} close match{{ 'es' if o.close != 1 }}{% endif %}</div>
   </div>
   <a class="tile" href="/missing">
     <div class="label">Missing</div>

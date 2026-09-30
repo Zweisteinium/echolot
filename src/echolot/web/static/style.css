@@ -144,8 +144,9 @@ a.pill { text-decoration: none; }
   border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
 .action { display: inline-block; font-size: 0.78rem; font-weight: 550; padding: 0 0.45rem; border-radius: 4px;
   white-space: nowrap; background: var(--track); color: var(--muted); }
-.a-new, .a-upgrade, .a-linked { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.a-new, .a-upgrade, .a-linked, .a-renamed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .a-wrong-song, .a-mismatch { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.a-recheck { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5;
   margin-right: 0.45rem; vertical-align: 1px; }
@@ -387,6 +388,10 @@ table.missing td.tried { min-width: 18rem; }
 .review-head dd .muted { margin-left: 0.35rem; }
 .review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .review-item audio { display: block; width: 100%; height: 2.5rem; }
+.close-name { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; }
+.close-name input { flex: 1; min-width: min(100%, 16rem); }
+.answers dt { color: inherit; font-weight: 600; }
+.answers + p { margin: 0.75rem 0 0; }
 
 /* ------------------------------------------------------------------ small screens */
 @media (max-width: 720px) {
