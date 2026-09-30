@@ -75,28 +75,56 @@
         else location.href = a.href;  // popup blocked
       }, 2000);
     });
-    // Review: Listen plays at once (and pauses any other player); Close match first shows the name it files as
-    document.addEventListener("toggle", (ev) => {
-      const d = ev.target;
-      if (!d.matches?.("details.listen")) return;
-      const player = d.querySelector("audio");
-      if (!d.open) {
-        delete d.dataset.naming;
-        return player?.pause();
+    // Review: one player for the page. ▶ on a download plays it (again: pauses); its bar shows where it
+    // is and jumps on a click. Rows are found by their event id, so it survives a card swapped by htmx.
+    const player = new Audio();
+    let playing = null;  // the event id of the download in the player
+    const rowOf = (id) => document.querySelector(`.download[data-event="${id}"]`);
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    const paint = () => {
+      for (const row of document.querySelectorAll(".download.active")) {
+        if (row.dataset.event !== playing) row.classList.remove("active", "playing");
       }
-      if (d.dataset.naming) return;
-      for (const other of document.querySelectorAll("audio")) if (other !== player) other.pause();
-      player?.play().catch(() => {});
-    }, true);  // toggle does not bubble
+      const row = playing && rowOf(playing);
+      if (!row) return;
+      row.classList.add("active");
+      row.classList.toggle("playing", !player.paused);
+      const done = player.duration ? player.currentTime / player.duration : 0;
+      row.querySelector(".seek-done").style.width = `${100 * done}%`;
+      row.querySelector(".play-time").textContent = player.duration ? `${mmss(player.currentTime)} / ${mmss(player.duration)}` : "";
+    };
+    const load = (row) => {
+      if (playing === row.dataset.event) return;
+      playing = row.dataset.event;
+      player.src = row.querySelector("[data-play]").dataset.play;
+    };
+    for (const e of ["play", "pause", "timeupdate", "loadedmetadata", "ended"]) player.addEventListener(e, paint);
+    document.addEventListener("htmx:afterSwap", paint);
     document.addEventListener("click", (ev) => {
-      const b = ev.target.closest("button[data-close]");
-      const d = b && document.getElementById(b.dataset.close);
-      if (!d || d.open) return;
-      ev.preventDefault();
-      d.dataset.naming = "1";
-      d.open = true;
-      d.querySelector("input[name=name]")?.focus();
-      b.textContent = "File as close match";
+      const play = ev.target.closest("[data-play]");
+      if (play) {
+        const row = play.closest(".download");
+        if (playing === row.dataset.event && !player.paused) return player.pause();
+        load(row);
+        player.play().catch(() => {});
+        return;
+      }
+      const seek = ev.target.closest(".seek");
+      if (seek) {
+        const box = seek.getBoundingClientRect();
+        const at = Math.min(Math.max((ev.clientX - box.left) / box.width, 0), 1);
+        load(seek.closest(".download"));
+        const jump = () => { player.currentTime = at * player.duration; player.play().catch(() => {}); };
+        if (player.readyState >= 1) jump(); else player.addEventListener("loadedmetadata", jump, { once: true });
+        return;
+      }
+      // Close match: the line to name what the file is opens first; its button files it
+      const open = ev.target.closest("[data-close-line]");
+      const cancel = ev.target.closest("[data-close-cancel]");
+      const line = open ? document.getElementById(open.dataset.closeLine) : cancel?.closest(".close-line");
+      if (!line) return;
+      line.hidden = !open;
+      if (open) line.querySelector("input").focus();
     });
     // Sources: show one kind of list (yours, collaborative, by others), remembered per service
     const showKind = (filter, value) => {
