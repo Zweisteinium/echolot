@@ -5,7 +5,7 @@ import getpass
 import sys
 from pathlib import Path
 
-from echolot import __version__
+from echolot import COMMIT, __version__
 from echolot.config import Settings
 
 
@@ -153,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "version":
-        print(__version__)
+        print(f"{__version__} ({COMMIT})" if COMMIT else __version__)
         return 0
     settings = Settings.from_env()
     if args.command != "serve":

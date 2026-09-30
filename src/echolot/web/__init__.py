@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.templating import Jinja2Templates
 
-from echolot import __version__, db
+from echolot import COMMIT, __version__, db
 from echolot.config import Settings
 from echolot.jobs.worker import Worker
 from echolot.settings import auth, vault
@@ -48,7 +48,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", Assets(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(FILTERS)
-    templates.env.globals.update(pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS, version=__version__)
+    templates.env.globals.update(pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS)
+    templates.env.globals.update(version=__version__, commit=COMMIT)
     templates.env.globals["asset"] = asset_urls(HERE / "static")
     app.state.templates = templates
     for module in ROUTERS:
@@ -60,6 +61,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
+        return {"status": "ok", "version": __version__, "commit": COMMIT}
 
     return app
