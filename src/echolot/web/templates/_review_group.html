@@ -1,0 +1,22 @@
+{# one wanted song and its downloads up for review, the likeliest first; a decision swaps this card (htmx) -#}
+{% from "_macros.html" import quality, song_link -%}
+{% set lead, taken = g.lead, g.taken -%}
+{% set w = lead.event -%}
+<article class="song-review" id="{{ g.dom_id }}">
+  <header class="song-review-head">
+    <div>
+      <div class="wanted">{{ song_link(w.song, w.song_url, lead.artists ~ ' – ' ~ w.title) }}</div>
+      <div class="muted small">{{ lead.length|mmss }}
+        {%- if g.tries %} · not found in {{ g.tries }} search{{ 'es' if g.tries != 1 }}{% endif %}
+        {%- if lead.kind == 'kept' and w.song_file %} · in your library as {{ quality(w.song_quality, w.song_kbps) }}{% endif %}
+        {%- if g.items|length > 1 %} · {{ g.items|length }} downloads, the likeliest first{% endif %}</div>
+    </div>
+    {% if lead.kind == 'kept' and not taken and g.undecided|length > 1 %}
+    <form method="post" action="/review/{{ w.id }}/discard-all" hx-post="/review/{{ w.id }}/discard-all" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<button class="danger" title="None of them is the song: they are deleted and never taken for it again">No match for all</button></form>
+    {% endif %}
+  </header>
+  <ol class="downloads">
+    {% for i in g.items %}{% include "_review_download.html" %}{% endfor %}
+  </ol>
+  {% if error %}<p class="small bad-text">{{ error }}</p>{% endif %}
+</article>

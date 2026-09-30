@@ -3,22 +3,23 @@
 {% block content %}
 <section class="card">
   <div class="card-head">
-    <h1>Please confirm <span class="count">{{ items.filed|length|num }}</span></h1>
+    <h1>Please confirm <span class="count">{{ songs.filed|length|num }}</span></h1>
   </div>
   <p class="lead small">Very probably the right song, and already in your library: the same core title and version words, no other featured artist, the length within a few seconds. Give it a final listen; if you do nothing, it stays.</p>
   <div class="review-list">
-    {% for i in items.filed %}{% include "_review_item.html" %}
+    {% for g in songs.filed %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to confirm.</p>{% endfor %}
   </div>
 </section>
 
 <section class="card">
   <div class="card-head">
-    <h1>Worth a look <span class="count">{{ items.kept|length|num }}</span></h1>
+    <h1>Worth a look <span class="count">{{ songs.kept|length|num }}</span></h1>
+    {% if items.kept|length > songs.kept|length %}<span class="muted small">{{ items.kept|length|num }} downloads</span>{% endif %}
   </div>
   <p class="lead small">Downloads that did not pass the automatic check (another title, version, length or artist), so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have only lossy, where <em>Perfect match</em> replaces the lossy copy and <em>Close match</em> keeps both.</p>
   <div class="review-list">
-    {% for i in items.kept %}{% include "_review_item.html" %}
+    {% for g in songs.kept %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}
   </div>
 </section>
@@ -33,6 +34,6 @@
     <dt>No match</dt>
     <dd>Not the song. The file goes, this download is never taken for the song again, and the song is searched again.</dd>
   </dl>
-  <p class="muted small">A decision is applied by the Library job within a few minutes; until then <em>Revert</em> takes it back.</p>
+  <p class="muted small">All downloads of a song are on one card, the likeliest first (the audio check, the artist, the length). Taking one as a Perfect or Close match discards the others. A decision is applied by the Library job within a few minutes; until then <em>Revert</em> takes it back.</p>
 </section>
 {% endblock %}
