@@ -156,6 +156,14 @@ def _fetch_spotify_list(con: sqlite3.Connection, sp: spotify.Spotify, s: Source)
 # ---------------------------------------------------------------- SoundCloud
 
 
+# SoundCloud songs not to download: downloaded and still in the library (a file that left it, e.g.
+# retired in review, is fetched again), or handed out to nobody
+SC_HAVE = (
+    "SELECT substr(key, 12) FROM songs WHERE service = 'soundcloud' "
+    "AND (archived AND file IS NOT NULL OR unavailable IS NOT NULL)"
+)
+
+
 def soundcloud(run: "Run") -> str:
     """Read the followed SoundCloud lists, download their new songs (originals kept lossless, streams
     as they are) and file them. A track SoundCloud hands out to nobody (label releases) is marked and
@@ -191,8 +199,7 @@ def soundcloud(run: "Run") -> str:
     _sc_pages(run, ydl, urls)
     con = run.connect()
     try:
-        have = {r[0].removeprefix("soundcloud:") for r in con.execute(
-            "SELECT key FROM songs WHERE service = 'soundcloud' AND (archived = 1 OR unavailable IS NOT NULL)")}  # fmt: skip
+        have = {r[0] for r in con.execute(SC_HAVE)}
     finally:
         con.close()
     new = [(tid, url) for tid, url in urls.items() if tid not in have and url]

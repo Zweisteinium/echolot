@@ -67,7 +67,7 @@
             {% endif %}
           </dl>
         </details>
-        {% elif s.unavailable is none %}<span class="muted">waiting for the first search</span>{% endif %}
+        {% elif s.unavailable is none %}<span class="muted">{{ 'downloaded again with the next SoundCloud run' if s.service == 'soundcloud' else 'waiting for the first search' }}</span>{% endif %}
       </td>
     </tr>
     {% else %}
