@@ -407,3 +407,17 @@ def test_a_close_match_for_a_lossy_song_keeps_both(env) -> None:
     assert mp3.exists()
     catalog.match_songs(con)
     assert song(con, "spotify:tk")["file"] == "TEKKNO/TEKKNO - say it right tekkno (Hardtekk Mix).wav"
+
+
+def test_a_renamed_file_stays_the_soundcloud_songs_download(env) -> None:
+    """A SoundCloud song is its own download, found by the file name: a rename takes it along."""
+    con, paths, _ = env
+    filing.file_into(con, paths, download(paths, "a.wav", 316), Want("No Chasa", "MASTER DISASTER"), "x")
+    row = ("soundcloud:1", "No Chasa", "MASTER DISASTER", 316, "No Chasa/No Chasa - MASTER DISASTER")
+    with con:
+        sql = "INSERT INTO songs (key, service, artist, title, length, stem, archived) VALUES (?, 'soundcloud', ?, ?, ?, ?, 1)"
+        con.execute(sql, row)
+    entry = catalog.Catalog.from_db(con).entries[0]
+    filing.rename(con, paths, entry, "No Chasa", "MASTER DISASTER (EXTENDED MIX)", "close match")
+    catalog.match_songs(con)
+    assert song(con, "soundcloud:1")["file"] == "No Chasa/No Chasa - MASTER DISASTER (EXTENDED MIX).wav"
