@@ -188,6 +188,7 @@ def soundcloud(run: "Run") -> str:
         finally:
             con.close()
     urls = {tid: url for tracks in listed.values() for tid, url in tracks}
+    _sc_pages(run, ydl, urls)
     con = run.connect()
     try:
         have = {r[0].removeprefix("soundcloud:") for r in con.execute(
@@ -227,6 +228,28 @@ def soundcloud(run: "Run") -> str:
     shutil.rmtree(work, ignore_errors=True)
     run.after.add("library")
     return f"SoundCloud: {len(listed)} of {len(srcs)} lists read, {added} new files"
+
+
+SC_PAGE = "https://soundcloud.com/"
+
+
+def _sc_pages(run: "Run", ydl: ytdlp.YtDlp, urls: dict[str, str]) -> None:
+    """Store the track pages of the listed songs (songs.url; the web pages link to them). A set lists only
+    its first tracks in full, the others by API address: their page is asked for once."""
+    con = run.connect()
+    try:
+        known = dict(con.execute("SELECT substr(key, 12), coalesce(url, '') FROM songs WHERE service = 'soundcloud'"))
+        pages = {tid: url for tid, url in urls.items() if url.startswith(SC_PAGE)}
+        for tid, url in urls.items():
+            if tid in pages or known.get(tid, SC_PAGE).startswith(SC_PAGE) or run.stop.is_set():
+                continue  # a page, a page known already, or a song not stored yet (its download stores it)
+            if (page := (ydl.meta(url, run.stop) or {}).get("webpage_url") or "").startswith(SC_PAGE):
+                pages[tid] = page
+        with con:
+            rows = [(page, f"soundcloud:{tid}", page) for tid, page in pages.items()]
+            con.executemany("UPDATE songs SET url = ? WHERE key = ? AND url IS NOT ?", rows)
+    finally:
+        con.close()
 
 
 def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:

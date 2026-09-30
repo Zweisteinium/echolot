@@ -97,7 +97,7 @@ def get_list(con: Connection, key: str) -> Row | None:
 
 def list_songs(con: Connection, key: str) -> list[Row]:
     return con.execute(
-        "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
+        "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, "
         "s.file, f.quality, f.kbps FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
         "LEFT JOIN files f ON f.path = s.file WHERE ls.list_key = ? ORDER BY ls.position",
         (key,),
@@ -125,7 +125,7 @@ def missing(con: Connection, list_key: str | None = None, paths: Paths | None = 
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
     rows = con.execute(
-        "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
+        "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, "
         "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
         "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
         " FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key "
@@ -149,8 +149,8 @@ def missing(con: Connection, list_key: str | None = None, paths: Paths | None = 
 def close_matches(con: Connection) -> list[Row]:
     """Wanted songs covered by a close match: another version, taken for the song in review."""
     return con.execute(
-        "SELECT key, service, artist, title, length, file, f.duration FROM wanted s JOIN files f ON f.path = s.file "
-        "WHERE s.close_match ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE"
+        "SELECT key, service, artist, title, length, url, file, f.duration FROM wanted s "
+        "JOIN files f ON f.path = s.file WHERE s.close_match ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE"
     ).fetchall()
 
 

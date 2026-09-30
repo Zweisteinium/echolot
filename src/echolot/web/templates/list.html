@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import legend, qbar, quality, service %}
+{% from "_macros.html" import legend, qbar, quality, service, song_link %}
 {% block title %}{{ lst.title }} · Echolot{% endblock %}
 {% block content %}
 {% set missing = tiers[-1][2] %}
@@ -21,7 +21,7 @@
     <tr{% if not s.file %} class="missing"{% endif %}>
       <td class="num muted">{{ s.position + 1 }}</td>
       <td>{{ s.artist }}</td>
-      <td>{{ s.title }}</td>
+      <td>{{ song_link(s.key, s.url, s.title) }}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
       <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}</td>
       <td class="hide-narrow">{% if s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>

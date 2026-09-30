@@ -384,3 +384,26 @@ def test_no_match_on_a_recheck_takes_the_file_out(env) -> None:
 )
 def test_close_guess(found: str, artists: list[str], name: str) -> None:
     assert review.close_guess(found, artists) == name
+
+
+def test_a_close_match_for_a_lossy_song_keeps_both(env) -> None:
+    """A FLAC whose audio is not the release's, for a song the library has lossy: taken as another version,
+    it is filed under its own name and the lossy copy stays."""
+    con, paths, run = env
+    want = add_song(con, "spotify:tk", "TEKKNO", "say it right tekkno", 135)
+    mp3 = paths.tracks / "TEKKNO" / "TEKKNO - say it right tekkno.mp3"
+    mp3.parent.mkdir()
+    mp3.write_bytes(b"not really audio")
+    catalog.scan(con, paths.tracks)
+    with con:
+        con.execute("UPDATE files SET duration = 135, kbps = 312")
+    catalog.match_songs(con)
+    other = Evidence("other", "audio differs from the release (0.57)")
+    search_hit(con, paths, download(paths, "a.wav", 134), want, "say it right tekkno", "soulseek", heard=other)
+    item = review.items(con, paths.music)["kept"][0]
+    assert [d for d, _ in item.choices] == ["accept", "close", "discard"]
+    result = close(con, run, item.event["id"], "TEKKNO - say it right tekkno (Hardtekk Mix)")
+    assert result.endswith(": new TEKKNO/TEKKNO - say it right tekkno (Hardtekk Mix).wav")
+    assert mp3.exists()
+    catalog.match_songs(con)
+    assert song(con, "spotify:tk")["file"] == "TEKKNO/TEKKNO - say it right tekkno (Hardtekk Mix).wav"
