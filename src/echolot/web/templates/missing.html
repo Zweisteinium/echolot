@@ -28,7 +28,7 @@
     {% for s in songs %}
     <tr>
       <td>{{ s.artist }}</td>
-      <td>{% if s.service == 'spotify' %}<a href="https://open.spotify.com/track/{{ s.key.split(':')[1] }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</td>
+      <td>{% if s.service == 'spotify' %}{% set sid = s.key.split(':')[1] %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
       <td class="muted small hide-narrow">{{ s.in_lists }}</td>
       <td class="small tried">
