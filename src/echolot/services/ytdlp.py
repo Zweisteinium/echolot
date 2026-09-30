@@ -34,7 +34,7 @@ class YtDlp:
     def run(
         self, args: list[str], stop: threading.Event | None = None, timeout: float = 3600
     ) -> subprocess.CompletedProcess:
-        cmd = ["yt-dlp", "--no-warnings", "--js-runtimes", "node", "--sleep-requests", "1.5",
+        cmd = ["yt-dlp", "--no-warnings", "--js-runtimes", "quickjs", "--sleep-requests", "1.5",
                "--extractor-retries", "8", "--retry-sleep", "extractor:exp=10:300",
                "--retry-sleep", "http:exp=10:300"]  # fmt: skip
         if self.netrc:

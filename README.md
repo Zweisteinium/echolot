@@ -172,11 +172,11 @@ uv run echolot serve           # http://127.0.0.1:8490
 
 `tools/` has checks to run by hand: `rules_check.py` compares the matching rules of two versions on
 a real library, `daemon_check.py` tests the Sockseek daemon's API against a mock, `icons.py` draws
-the icons. `smoke.py` checks a built image (ffmpeg with chromaprint and soxr, yt-dlp, node); CI runs it.
+the icons. `smoke.py` checks a built image (ffmpeg with chromaprint and soxr, yt-dlp with QuickJS); CI runs it.
 
 **Releases:** CI tests every push and builds the image. A new version in `pyproject.toml` (after
-`uv lock`) is released when it reaches `main`: CI tags the commit `v<version>` and publishes the
-release notes. The image brings its own audio-only ffmpeg (built in the Dockerfile, cached).
+`uv lock`, and in `deploy/compose.yaml`; a test checks both) is released when it reaches `main`: CI
+tags the commit `v<version>` and publishes the release notes. The image brings its own audio-only ffmpeg (built in the Dockerfile, cached).
 
 ## Intended use
 
