@@ -24,8 +24,9 @@
       <dd>{{ song_link(e.song, e.song_url, i.artists ~ ' – ' ~ e.title) }}
         <span class="muted small">{{ i.length|mmss }}{% if e.tries %} · not found in {{ e.tries }} search{{ 'es' if e.tries != 1 }} before{% endif %}</span></dd>
       <dt>Downloaded</dt>
-      <dd>{{ e.found or e.file_name or '–' }}
-        <span class="muted small">{{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %} · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.fake %} · made from a lossy file{% endif %}</span>
+      {% set d_artist, d_title, other = i.download -%}
+      <dd>{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}
+        <span class="muted small">{{ e.source }} · {{ e.seconds|mmss }}{% if i.length_diff is not none %} ({{ '%+d'|format(i.length_diff) }} s){% endif %} · {{ e.ext }}{% if e.kbps %} {{ e.kbps }} kbps{% endif %}{% if e.bytes %} · {{ e.bytes|size }}{% endif %}{% if e.fake %} · made from a lossy file{% endif %}</span>
         {% if i.kind == 'kept' and e.song_file %}<div class="small">replaces {{ quality(e.song_quality, e.song_kbps) }} in the library</div>{% endif %}</dd>
     </dl>
     <div class="review-actions">

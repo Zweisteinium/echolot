@@ -189,6 +189,18 @@ def read_tags(path: Path) -> tuple[list[str], str]:
         return [], ""
 
 
+def read_credit(path: Path) -> tuple[str, str]:
+    """(artist tag, title tag) as the file names them, for showing it ('' where missing)."""
+    from mutagen import File
+
+    try:
+        m = File(path, easy=True)
+        t = m.tags if m is not None and m.tags is not None else {}
+        return ", ".join(v.strip() for v in t.get("artist") or [] if v.strip()), ((t.get("title") or [""])[0]).strip()
+    except Exception:
+        return "", ""
+
+
 def read_isrc(path: Path) -> str:
     """The ISRC tag ('' if none)."""
     from mutagen import File

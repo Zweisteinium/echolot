@@ -14,6 +14,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -61,6 +62,23 @@ class Item:
         return ", ".join(dict.fromkeys(n for n in names if n))
 
     @property
+    def song_artists(self) -> list[str]:
+        return [self.event["artist"], *json.loads(self.event["song_artists"] or "[]")]
+
+    @cached_property
+    def download(self) -> tuple[str, str, bool]:
+        """(artist, title, another artist): what the download is by its tags; another artist when they name
+        none of the wanted song's artists (a video's artist tag is often its channel; its title then starts
+        with the artist: 'Artist - Title'). Without tags, or with the song's own ones (Echolot tagged a file accepted before), the name
+        it was downloaded as, without an artist."""
+        e = self.event
+        artist, title = audio.read_credit(self.file)
+        if not title or (artist, title) == (e["artist"], e["title"]):
+            return "", (e["found"] or e["file_name"] or "–").strip(), False
+        credited = artist + (" / " + title.partition(" - ")[0] if " - " in title else "")
+        return artist, title, bool(artist) and not names_one(credited, self.song_artists)
+
+    @property
     def choices(self) -> list[tuple[str, str]]:
         """(decision, label): the three answers of the item's group."""
         return [(d, LABELS[d]) for d in DECISIONS[self.kind]]
@@ -79,8 +97,7 @@ class Item:
         stem, dot, ext = found.rpartition(".")
         if dot and ext.lower() in audio.AUDIO:
             found = stem
-        artists = [e["artist"], *json.loads(e["song_artists"] or "[]")]
-        return close_guess(found, artists) or f"{e['artist']} - {e['title']}"
+        return close_guess(found, self.song_artists) or f"{e['artist']} - {e['title']}"
 
 
 # video decorations in a download's name: "(Official Music Video)", "[4K Upgrade]", "• TopPop", "| JCC 2020";
@@ -97,17 +114,18 @@ def close_guess(found: str, artists: list[str]) -> str:
         found = re.sub(pat, "", found, flags=re.I).strip()
     if not found:
         return ""
-    names = {w for a in artists if a for w in rules.artist_words(a)}
-
-    def named(part: str) -> bool:
-        return any(f" {w} " in rules.words(part) for w in names)
-
     head, _, tail = found.rpartition(" - ")
-    if " - " in found and named(found.partition(" - ")[0]):
+    if " - " in found and names_one(found.partition(" - ")[0], artists):
         return found
-    if head and named(tail):
+    if head and names_one(tail, artists):
         return f"{tail} - {head}"
     return f"{artists[0]} - {found}"
+
+
+def names_one(text: str, artists: list[str]) -> bool:
+    """The text names one of the artists (as a whole name, see rules.artist_words)."""
+    names = {w for a in artists if a for w in rules.artist_words(a)}
+    return any(f" {w} " in rules.words(text) for w in names)
 
 
 def local_file(path: str, music_dir: Path) -> Path | None:
