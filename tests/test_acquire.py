@@ -256,3 +256,19 @@ def test_fallback_keeps_another_length_for_review(run: Run) -> None:
     assert acquire._fallback_song(run, con, ydl, want, 2, strict_probable=True)[0] == "not found"
     assert ydl.fetched.count("yt1") == 1  # one waits for review already
     con.close()
+
+
+def test_a_download_rejected_before_is_not_downloaded_again(run: Run) -> None:
+    """A file only its tags could judge (they are not the song): kept for review once, then skipped by
+    the next searches, where the same name and length show up again."""
+    FakeDaemon.files["Gone Song"] = [("u1", "Music\\Artist C\\Album\\07 Track Seven.flac", 180, "ok")]
+    rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
+    acquire._search(run, rows, "search")
+    assert len(FakeDaemon.downloads) == 1
+    FakeDaemon.files["Gone Song"].append(("u2", "Share\\Artist C\\07 Track Seven.flac", 181, "ok"))  # another peer
+    acquire._search(run, [r for r in missing(run) if r["key"] == "spotify:s3"], "search")
+    assert len(FakeDaemon.downloads) == 1
+    con = run.connect()
+    result = con.execute("SELECT result FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0]
+    con.close()
+    assert '"rejected before": 2' in result
