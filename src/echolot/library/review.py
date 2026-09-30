@@ -47,6 +47,12 @@ class Item:
         seconds = self.event["seconds"]
         return seconds - self.length if seconds and self.length else None
 
+    @property
+    def artists(self) -> str:
+        """All the wanted song's artists (a remixer can be the only difference), else the event's one."""
+        names = [self.event["artist"], *json.loads(self.event["song_artists"] or "[]")]
+        return ", ".join(dict.fromkeys(n for n in names if n))
+
 
 def local_file(path: str, music_dir: Path) -> Path | None:
     """Echolot's path of an event file: library-relative, or /music/inbox/review/<...>."""
@@ -79,8 +85,8 @@ def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
     has only lossy (accepting one replaces the lossy copy). Newest first."""
     decisions = {r["id"]: r for r in con.execute("SELECT * FROM review_decisions")}
     rows = con.execute(
-        "SELECT e.*, s.length AS wanted_length, s.file AS song_file, f.quality AS song_quality, "
-        "f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
+        "SELECT e.*, s.length AS wanted_length, s.file AS song_file, s.artists AS song_artists, "
+        "f.quality AS song_quality, f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
         "LEFT JOIN files f ON f.path = s.file WHERE (e.action IN ('new', 'upgrade') AND e.matched = 'probable') "
         "OR (e.action IN ('wrong-song', 'mismatch') AND e.path LIKE ?) ORDER BY e.id DESC",
         (KEPT + "%",),
