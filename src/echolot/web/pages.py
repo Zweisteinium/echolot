@@ -24,7 +24,8 @@ def overview(request: Request, con: DB) -> HTMLResponse:
 def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "") -> HTMLResponse:
     library = request.app.state.settings.library_dir
     songs = stats.missing(con, list_key or None, filing.Paths(library.parent) if library else None)
-    return page(request, "missing.html", nav="missing", songs=songs, lists=stats.lists(con), selected=list_key)
+    lists, close = stats.lists(con), stats.close_matches(con)
+    return page(request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key)
 
 
 @router.get("/lists/{key:path}", response_class=HTMLResponse)

@@ -349,7 +349,8 @@ def sweep(run: "Run") -> str:
 def upgrade(run: "Run") -> str:
     """FLAC-only search for wanted Spotify songs whose library copy is not genuine lossless; each song
     waits 12 h, 1 d, 2 d, then every 3 d between searches; the longest waiting first, at most
-    upgrade_batch per run. SoundCloud songs are not upgraded from Soulseek."""
+    upgrade_batch per run. SoundCloud songs are not upgraded from Soulseek, close matches not at all
+    (a FLAC found would be the song, not the version taken for it)."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
@@ -357,7 +358,7 @@ def upgrade(run: "Run") -> str:
         rows = con.execute(
             "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
             "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
-            "WHERE s.service = 'spotify' AND f.quality != 'lossless' ORDER BY last_try"
+            "WHERE s.service = 'spotify' AND f.quality != 'lossless' AND NOT s.close_match ORDER BY last_try"
         ).fetchall()
         with con:  # songs that are lossless now or left every list
             con.execute(

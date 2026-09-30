@@ -2,11 +2,20 @@
 {% from "_macros.html" import quality -%}
 {% set e = i.event -%}
 {% if i.kind == 'filed' -%}
-{% set choices, note = [('ok', 'Right song', ''), ('wrong', 'Wrong', 'danger')], e.audio -%}
+{% set note = [e.reason|replace('back in review: ', 'Back for a check: ') if e.action == 'recheck', e.audio]|select|join(' · ') -%}
+{% set HELP = {
+  'ok': 'It is the song: the file stays as it is.',
+  'close': 'Another version you take for the song: the file is renamed to the name below and covers the song.',
+  'wrong': 'Not the song: the file goes, this download is never taken again, and the song is searched again.',
+} -%}
 {% else -%}
-{% set why = e.action ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) -%}
-{% set choices = [('accept', 'Accept', ''), ('discard', 'Discard', 'danger')] -%}
+{% set why = ('Not the song' if e.action == 'wrong-song' else 'Another length') ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) -%}
 {% set note = why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '') -%}
+{% set HELP = {
+  'accept': 'It is the song: the FLAC replaces your lossy copy.' if e.song_file else 'It is the song: it is filed and tagged as the song.',
+  'close': 'Another version you take for the song: it is filed under the name below and covers the song.',
+  'discard': 'Not the song: it is deleted and this download is never taken for the song again.',
+} -%}
 {% endif -%}
 <article class="review-item{{ ' decided' if i.decision }}">
   <div class="review-head">
@@ -20,16 +29,20 @@
         {% if i.kind == 'kept' and e.song_file %}<div class="small">replaces {{ quality(e.song_quality, e.song_kbps) }} in the library</div>{% endif %}</dd>
     </dl>
     <div class="review-actions">
-      {% if i.decision %}<span class="muted small">{{ i.decision }}: applied soon</span>
+      {% if i.decision %}<span class="muted small">{{ i.label }}{% if i.name %} as “{{ i.name }}”{% endif %}: applied soon</span>
       <form method="post" action="/review/{{ e.id }}/revert" hx-post="/review/{{ e.id }}/revert" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<button>Revert</button></form>
       {% else %}
-      {% for value, label, cls in choices %}
-      <form method="post" action="/review/{{ e.id }}" hx-post="/review/{{ e.id }}" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ cls }}">{{ label }}</button></form>
+      {% for value, label in i.choices %}
+      <form method="post" action="/review/{{ e.id }}" hx-post="/review/{{ e.id }}" hx-target="closest article" hx-swap="outerHTML"{% if value == 'close' %} id="close-{{ e.id }}"{% endif %}>{{ csrf_input }}<input type="hidden" name="decision" value="{{ value }}"><button class="{{ 'danger' if loop.last }}" title="{{ HELP[value] }}">{{ label }}</button></form>
       {% endfor %}
       {% endif %}
     </div>
   </div>
   <audio controls preload="none" src="/review/{{ e.id }}/audio"></audio>
+  {% if not i.decision and i.choices|length == 3 %}
+  <label class="close-name small"><span class="muted">Close match files it as</span>
+    <input type="text" name="name" form="close-{{ e.id }}" value="{{ i.close_name }}" required aria-label="Artist - Title the close match is filed as"></label>
+  {% endif %}
   {% if note %}<p class="muted small">{{ note }}</p>{% endif %}
   {% if item_error %}<p class="small bad-text">{{ item_error }}</p>{% endif %}
 </article>

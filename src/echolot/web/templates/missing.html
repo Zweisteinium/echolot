@@ -75,4 +75,27 @@
     </tbody>
   </table>
 </section>
+
+{% if close %}
+<section class="card" id="close">
+  <details class="group" data-remember="missing-close" open>
+    <summary><h2 class="group-name">Covered by a close match <span class="count">{{ close|length|num }}</span></h2></summary>
+    <p class="lead small">Another version you took for the song in review. It plays in your playlists under its own name, and the song is not searched. <em>Search again</em> looks for the perfect match; the close match stays in your library as its own file.</p>
+    <table class="rows">
+      <thead><tr><th>Artist</th><th>Title</th><th class="num">Length</th><th>Covered by</th><th></th></tr></thead>
+      <tbody>
+      {% for s in close %}
+      <tr>
+        <td>{{ s.artist }}</td>
+        <td>{% if s.service == 'spotify' %}{% set sid = s.key.split(':')[1] %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}</td>
+        <td class="num muted">{{ s.length|mmss }}</td>
+        <td><span title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span> <span class="muted small">{{ s.duration|mmss }}</span></td>
+        <td><form method="post" action="/songs/{{ s.key }}/search">{{ csrf_input }}<button title="Look for the perfect match again; the close match stays a file of its own">Search again</button></form></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+</section>
+{% endif %}
 {% endblock %}

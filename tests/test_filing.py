@@ -290,3 +290,97 @@ def test_a_wrong_download_far_off_the_length_is_deleted(env) -> None:
     search_hit(con, paths, src, want, "31 Eine Art Chansons - Was können sie dir tun", "soulseek")
     assert events(con)[-1]["action"] == "wrong-song"
     assert not src.exists() and not filing.in_review(paths, "HK", "Was!?!?")
+
+
+def close(con, run, event_id: int, name: str) -> str:
+    """Take a download as a close match and apply it at once."""
+    review.decide(con, run.paths.music, event_id, "close", name)
+    with con:
+        con.execute("UPDATE review_decisions SET decided = '2000-01-01T00:00:00'")
+    return review.apply_due(run, con)[-1]
+
+
+def song(con, key: str) -> sqlite3.Row:
+    return con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone()
+
+
+def add_song(con, key: str, artist: str, title: str, length: int) -> Want:
+    with con:
+        sql = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', ?, ?, ?)"
+        con.execute(sql, (key, artist, title, length))
+        con.execute("INSERT INTO attempts (song_key, tries, last_try) VALUES (?, 3, 1)", (key,))
+    return Want(artist, title, length, key)
+
+
+def test_a_close_match_is_filed_under_its_own_name(env) -> None:
+    """An extended mix taken for the radio version: filed as what it is, the song linked to it."""
+    con, paths, run = env
+    want = add_song(con, "spotify:nc", "No Chasa", "Master Disaster", 212)
+    found = "NO CHASA - MASTER DISASTER (EXTENDED MIX)"
+    search_hit(con, paths, download(paths, "a.wav", 316), want, found, "soulseek")
+    item = review.items(con, paths.music)["kept"][0]
+    assert item.close_name == found and [d for d, _ in item.choices] == ["accept", "close", "discard"]
+    for name in ("No Chasa - Master Disaster", "Master Disaster (Extended Mix)"):
+        with pytest.raises(review.ConfigError):
+            review.decide(con, paths.music, item.event["id"], "close", name)
+    result = close(con, run, item.event["id"], "No Chasa - Master Disaster (Extended Mix)")
+    assert result.endswith(": new No Chasa/No Chasa - Master Disaster (Extended Mix).wav")
+    s = song(con, "spotify:nc")
+    assert (s["link"], s["close_match"]) == ('["No Chasa", "Master Disaster (Extended Mix)"]', 1)
+    assert con.execute("SELECT 1 FROM attempts WHERE song_key = 'spotify:nc'").fetchone() is None
+    catalog.match_songs(con)
+    assert song(con, "spotify:nc")["file"] == "No Chasa/No Chasa - Master Disaster (Extended Mix).wav"
+    review.search_again(con, "spotify:nc")  # look for the radio version again: the file stays
+    catalog.match_songs(con)
+    assert song(con, "spotify:nc")["file"] is None
+    assert (paths.tracks / "No Chasa" / "No Chasa - Master Disaster (Extended Mix).wav").is_file()
+
+
+def accept_visualizer(con, paths, run) -> Path:
+    """LAWTON - Believe In, accepted from a video 19 s longer: filed and linked as the song."""
+    want = add_song(con, "spotify:lw", "LAWTON", "Believe In", 200)
+    search_hit(con, paths, download(paths, "a.wav", 219), want, "LAWTON - Believe In (Official Visualizer)")
+    decide(con, run, events(con)[-1]["id"], "accept")
+    catalog.match_songs(con)
+    return paths.tracks / song(con, "spotify:lw")["file"]
+
+
+def test_recheck_and_rename_a_close_match(env) -> None:
+    con, paths, run = env
+    old = accept_visualizer(con, paths, run)
+    assert review.recheck(con, paths, "spotify:lw", "maybe another version")
+    assert not review.recheck(con, paths, "spotify:lw", "twice")  # up for review already
+    item = review.items(con, paths.music)["filed"][0]
+    assert item.event["action"] == "recheck" and item.close_name == "LAWTON - Believe In"  # without the video noise
+    with pytest.raises(review.ConfigError, match="Add the version"):
+        review.decide(con, paths.music, item.event["id"], "close", item.close_name)
+    result = close(con, run, item.event["id"], "LAWTON - Believe In (Video Edit)")
+    assert result.endswith(": renamed LAWTON/LAWTON - Believe In (Video Edit).wav")
+    assert not old.exists() and events(con)[-1]["action"] == "renamed"
+    catalog.match_songs(con)
+    assert song(con, "spotify:lw")["file"] == "LAWTON/LAWTON - Believe In (Video Edit).wav"
+    assert song(con, "spotify:lw")["close_match"] == 1
+
+
+def test_no_match_on_a_recheck_takes_the_file_out(env) -> None:
+    con, paths, run = env
+    old = accept_visualizer(con, paths, run)
+    review.recheck(con, paths, "spotify:lw", "maybe another version")
+    assert decide(con, run, events(con)[-1]["id"], "wrong") == "No match LAWTON - Believe In: retired"
+    assert not old.exists() and song(con, "spotify:lw")["link"] is None
+    assert filing.is_blocked(con, "spotify:lw", ["LAWTON - Believe In (Official Visualizer)"])
+    assert con.execute("SELECT last_try FROM attempts WHERE song_key = 'spotify:lw'").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("found", "artists", "name"),
+    [
+        ("One - 2017 Remake", ["5udo"], "5udo - One - 2017 Remake"),
+        ("BURN IT DOWN (Official Video) [4K] - Linkin Park", ["Linkin Park"], "Linkin Park - BURN IT DOWN"),
+        ("Raket One - Techno & Tekk (Actek Remix)", ["Actek", "Raket One"], "Raket One - Techno & Tekk (Actek Remix)"),
+        ("Jaspa - Auge der Vorsehung | JCC 2020 | Qualifikation #17", ["Jaspa"], "Jaspa - Auge der Vorsehung"),
+        ("CAPO - Run Run Run [Official Remix]", ["CAPO"], "CAPO - Run Run Run [Official Remix]"),
+    ],
+)
+def test_close_guess(found: str, artists: list[str], name: str) -> None:
+    assert review.close_guess(found, artists) == name

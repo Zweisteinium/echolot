@@ -267,7 +267,32 @@ def test_review(client: TestClient, settings: Settings) -> None:
     html = client.post(f"/review/{ids[1]}", data={"decision": "discard"}, headers={"HX-Request": "true"}).text
     assert html.startswith('<article class="review-item decided">') and "Revert" in html  # only this item
     html = client.post(f"/review/{ids[1]}/revert", headers={"HX-Request": "true"}).text
-    assert 'class="review-item"' in html and ">Discard</button>" in html
+    assert 'class="review-item"' in html and ">Close match</button>" in html and ">No match</button>" in html
+    close = {"decision": "close", "name": "Artist C - Gone Song"}
+    html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
+    assert "Add the version" in html  # the wanted song's own name is no close match
+    close["name"] = " Artist C  -  Gone Song (Club Mix) "
+    html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
+    assert "Close match as “Artist C - Gone Song (Club Mix)”: applied soon" in html
+    con.close()
+
+
+def test_close_matches_on_the_missing_page(client: TestClient, settings: Settings) -> None:
+    con = db.connect(settings.db_path)
+    path, link = "Artist A/Artist A - First Song (Extended Mix).flac", '["Artist A", "First Song (Extended Mix)"]'
+    with con:
+        con.execute("INSERT INTO files (path, size, mtime, duration, kbps) VALUES (?, 1, 1, 320, 900)", (path,))
+        close = "UPDATE songs SET file = ?, close_match = 1, link = ? WHERE key = 'spotify:s1'"
+        con.execute(close, (path, link))
+    html = client.get("/missing").text
+    assert "Covered by a close match" in html and "Artist A - First Song (Extended Mix)" in html
+    assert "· 1 close match<" in client.get("/").text
+    r = client.post("/songs/spotify:s1/search", follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    song = con.execute("SELECT link, close_match FROM songs WHERE key = 'spotify:s1'").fetchone()
+    assert tuple(song) == (None, 0)
+    assert con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:s1'").fetchone()[1] == 0
+    assert "error=" in client.post("/songs/spotify:s1/search", follow_redirects=False).headers["location"]
     con.close()
 
 
