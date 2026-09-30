@@ -27,7 +27,7 @@
       <span class="muted small">{{ user.name }}</span> <button class="link">Log out</button>
     </form>
     {% endif %}
-    <span class="muted version">v{{ version }}</span>
+    <span class="muted version">v{{ version }}{% if commit %} · {{ commit }}{% endif %}</span>
   </header>
   <main>
     {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
