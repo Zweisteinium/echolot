@@ -128,11 +128,15 @@ class Fetcher:
         con = self.run.connect()
         try:
             blocked = [r[0] for r in con.execute("SELECT name FROM blocked WHERE song_key = ?", (want.key,))]
+            before = filing.rejected_before(con, want.key)
         finally:
             con.close()
         wanted = 0 if rules.mix_cut(want.title) else want.length
         judged, rejected, terms = [], collections.Counter(), (wanted, opts.get("strict_artist", True), blocked, loosen)
         for c in found:
+            if filing.was_rejected(before, c.name, c.length):
+                rejected["rejected before"] += 1
+                continue
             verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms)
             if verdict != rules.REJECT:
                 judged.append((rank, c.rank, c))
@@ -459,12 +463,16 @@ def _fallback_song(
     )  # "Was!?!?" finds nothing
     queries = {"youtube": [f'{query} "Provided to YouTube"', query], "soundcloud": [query]}  # releases' own audio first
     wanted = 0 if rules.mix_cut(want.title) else want.length
+    before = filing.rejected_before(con, want.key)
     report: dict = {}
     others = []  # (how far off, site, result): the song by name, another length
     for site in ("youtube", "soundcloud"):
         results = list({r["url"]: r for q in queries[site] for r in ydl.search(q, site, run.stop)}.values())
         judged, rejected = [], collections.Counter()
         for i, r in enumerate(results):
+            if filing.was_rejected(before, r["title"], r["duration"] or 0):
+                rejected["rejected before"] += 1
+                continue
             path = f"{r['uploader']}/{r['title']}"
             verdict, rank, why = rules.prejudge(want.artist, want.title, path, r["duration"], wanted)
             if verdict != rules.REJECT:

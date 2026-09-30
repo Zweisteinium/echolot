@@ -167,8 +167,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .icon { flex: none; vertical-align: -3px; }
 .loading { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
-.cards.htmx-added, .review-item.htmx-added { opacity: 0; }  /* loaded lists and decisions fade in */
-.cards, .review-item { transition: opacity 0.2s ease-out; }
+.cards.htmx-added, .song-review.htmx-added { opacity: 0; }  /* loaded lists and decisions fade in */
+.cards, .song-review { transition: opacity 0.2s ease-out; }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
 
 /* collapsible groups */
@@ -378,17 +378,22 @@ table.missing td.tried { min-width: 18rem; }
 .stage i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--track); }
 .stage i.on { background: var(--warn); }
 
-/* review: one card per download, the player across its width for precise seeking */
+/* review: one card per wanted song, a row per download (the likeliest first), players opened on demand */
 .review-list { display: grid; gap: 0.75rem; }
-.review-item { display: grid; gap: 0.6rem; padding: 0.8rem 1rem; border: 1px solid var(--border);
+.song-review { padding: 0.8rem 1rem 0.3rem; border: 1px solid var(--border);
   border-radius: var(--radius); }
-.review-item.decided { opacity: 0.6; }
-.review-item p { margin: 0; }
-.review-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.75rem 1.5rem; }
-.review-head dl { flex: 1; min-width: min(100%, 24rem); gap: 0.3rem 1rem; }
-.review-head dd .muted { margin-left: 0.35rem; }
+.song-review-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: 0.5rem 1rem; padding-bottom: 0.6rem; }
+.song-review .wanted { font-weight: 600; }
+.downloads { list-style: none; margin: 0; padding: 0; }
+.download { display: grid; gap: 0.4rem; padding: 0.6rem 0; border-top: 1px solid var(--border); }
+.download.decided > :not(.download-row), .download.decided .download-what { opacity: 0.6; }
+.download-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.5rem 1rem; }
+.download-what { flex: 1; min-width: min(100%, 22rem); display: grid; gap: 0.1rem; }
 .review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-.review-item audio { display: block; width: 100%; height: 2.5rem; }
+details.listen > summary { width: fit-content; cursor: pointer; font-size: 0.85rem; color: var(--accent); }
+details.listen[open] { display: grid; gap: 0.5rem; }
+details.listen audio { display: block; width: 100%; height: 2.5rem; }
 .close-name { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; }
 .close-name input { flex: 1; min-width: min(100%, 16rem); }
 .answers dt { color: inherit; font-weight: 600; }

@@ -75,6 +75,29 @@
         else location.href = a.href;  // popup blocked
       }, 2000);
     });
+    // Review: Listen plays at once (and pauses any other player); Close match first shows the name it files as
+    document.addEventListener("toggle", (ev) => {
+      const d = ev.target;
+      if (!d.matches?.("details.listen")) return;
+      const player = d.querySelector("audio");
+      if (!d.open) {
+        delete d.dataset.naming;
+        return player?.pause();
+      }
+      if (d.dataset.naming) return;
+      for (const other of document.querySelectorAll("audio")) if (other !== player) other.pause();
+      player?.play().catch(() => {});
+    }, true);  // toggle does not bubble
+    document.addEventListener("click", (ev) => {
+      const b = ev.target.closest("button[data-close]");
+      const d = b && document.getElementById(b.dataset.close);
+      if (!d || d.open) return;
+      ev.preventDefault();
+      d.dataset.naming = "1";
+      d.open = true;
+      d.querySelector("input[name=name]")?.focus();
+      b.textContent = "File as close match";
+    });
     // Sources: show one kind of list (yours, collaborative, by others), remembered per service
     const showKind = (filter, value) => {
       const input = filter.querySelector(`input[value="${value}"]`);

@@ -269,9 +269,10 @@ def test_review(client: TestClient, settings: Settings) -> None:
     assert "ok=" in r.headers["location"]
     assert con.execute("SELECT count(*) FROM review_decisions").fetchone()[0] == 1
     html = client.post(f"/review/{ids[1]}", data={"decision": "discard"}, headers={"HX-Request": "true"}).text
-    assert html.startswith('<article class="review-item decided">') and "Revert" in html  # only this item
+    assert html.startswith('<article class="song-review" id="song-spotify-s3">')  # only this song's card
+    assert 'class="download decided"' in html and "Revert" in html
     html = client.post(f"/review/{ids[1]}/revert", headers={"HX-Request": "true"}).text
-    assert 'class="review-item"' in html and ">Close match</button>" in html and ">No match</button>" in html
+    assert 'class="download"' in html and ">Close match</button>" in html and ">No match</button>" in html
     close = {"decision": "close", "name": "Artist C - Gone Song"}
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
     assert "Add the version" in html  # the wanted song's own name is no close match

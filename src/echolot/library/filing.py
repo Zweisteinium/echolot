@@ -13,6 +13,7 @@ keeps current (catalog.scan picks up changes made by others):
 """
 
 import datetime
+import filecmp
 import glob
 import os
 import shutil
@@ -180,7 +181,13 @@ def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: 
 
 
 def keep(paths: Paths, src: Path, artist: str, title: str, source: str) -> Path:
-    """Move a rejected download to inbox/review/<date>/ (kept KEEP_DAYS days, see the review page)."""
+    """Move a rejected download to inbox/review/<date>/ (kept KEEP_DAYS days, see the review page). The same
+    file kept for the song already is not kept twice: then it is deleted (the returned path is gone)."""
+    song = f"{clean_name(artist)} - {clean_name(title)} ["
+    size = src.stat().st_size
+    for other in paths.inbox("review").glob(f"*/{glob.escape(song)}*"):
+        if other.stat().st_size == size and filecmp.cmp(other, src, shallow=False):
+            return drop(src)
     folder = paths.inbox("review") / datetime.date.today().isoformat()
     base = f"{clean_name(artist)} - {clean_name(title)} [{clean_name(source or 'download')}]"
     for n in range(1, 1000):
@@ -206,6 +213,20 @@ def in_review(paths: Paths, artist: str, title: str) -> bool:
     """A kept download of this song waits on the review page (named as keep() names it)."""
     name = f"{clean_name(artist)} - {clean_name(title)} ["
     return any(paths.inbox("review").glob(f"*/{glob.escape(name)}*"))
+
+
+def rejected_before(con: sqlite3.Connection, key: str) -> list[tuple[str, int]]:
+    """(name, seconds) of the downloads the checks rejected for the song in the last KEEP_DAYS days. The same
+    file would be rejected again, so it is not downloaded again (after that a changed rule gets its chance)."""
+    since = (datetime.datetime.now() - datetime.timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
+    sql = "SELECT file_name, seconds FROM events WHERE song = ? AND action IN ('wrong-song', 'mismatch') AND ts >= ?"
+    return [(n.strip(), s or 0) for n, s in con.execute(sql, (norm_key(key), since)) if n]
+
+
+def was_rejected(before: list[tuple[str, int]], name: str, seconds: float) -> bool:
+    """A search result is a download rejected before: the same name and, where both are known, length (±2 s)."""
+    name = name.strip()
+    return any(n == name and (not s or not seconds or abs(s - seconds) <= 2) for n, s in before)
 
 
 def is_blocked(con: sqlite3.Connection, key: str, names: list[str]) -> bool:

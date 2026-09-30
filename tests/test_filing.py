@@ -436,3 +436,49 @@ def test_the_card_names_the_download_by_its_tags(env, monkeypatch) -> None:
     assert review.items(con, paths.music)["kept"][0].download[2] is False
     tags["credit"] = ("", "")  # no tags: the name it was downloaded as
     assert review.items(con, paths.music)["kept"][0].download == ("", "say it right tekkno", False)
+
+
+def test_the_same_file_is_not_kept_twice(env) -> None:
+    con, paths, _ = env
+    want = add_song(con, "spotify:tk", "TEKKNO", "say it right tekkno", 135)
+    first = download(paths, "a.wav", 200)
+    twin = paths.inbox("soulseek") / "b.wav"
+    twin.write_bytes(first.read_bytes())
+    search_hit(con, paths, first, want, "01-01. say it right tekkno", "soulseek")
+    search_hit(con, paths, twin, want, "01-01. say it right tekkno", "soulseek")
+    assert len(list(paths.inbox("review").rglob("*.wav"))) == 1 and not twin.exists()
+    assert len(review.items(con, paths.music)["kept"]) == 1
+
+
+def test_one_card_per_song_and_taking_one_discards_the_others(env, monkeypatch) -> None:
+    """Three downloads of one song, all another length: one card, the closest length first; taking one
+    discards the others once applied, and blocks them."""
+    con, paths, run = env
+    want = add_song(con, "spotify:t78", "T78", "Megator", 330)
+    monkeypatch.setattr("echolot.library.audio.read_credit", lambda p: ("T78", "Megator (Original Mix)"))
+    for n, seconds in enumerate((419, 390, 400)):  # all another length: kept for review
+        search_hit(con, paths, download(paths, f"{n}.wav", seconds), want, f"0{n} T78 - Megator", "soulseek")
+    [g] = review.groups(review.items(con, paths.music)["kept"])
+    assert [i.event["seconds"] for i in g.items] == [390, 400, 419]
+    best, *rest = g.items
+    review.decide(con, paths.music, best.event["id"], "accept")
+    with pytest.raises(review.ConfigError, match="taken already"):
+        review.decide(con, paths.music, rest[0].event["id"], "accept")
+    g = review.find_group(con, paths.music, best.event["id"])
+    assert g.taken.event["id"] == best.event["id"] and len(g.undecided) == 2
+    with con:
+        con.execute("UPDATE review_decisions SET decided = '2000-01-01T00:00:00'")
+    assert review.apply_due(run, con)[-1].endswith("; 2 other downloads of the song discarded")
+    assert list(paths.inbox("review").rglob("*.wav")) == []
+    assert all(filing.is_blocked(con, "spotify:t78", [f"0{n} T78 - Megator"]) for n in (0, 2))  # 1 was taken
+
+
+def test_no_match_for_all(env) -> None:
+    con, paths, _ = env
+    want = add_song(con, "spotify:t78", "T78", "Megator", 330)
+    for n, seconds in enumerate((419, 400)):
+        search_hit(con, paths, download(paths, f"{n}.wav", seconds), want, f"0{n} T78 - Megator", "soulseek")
+    first = review.items(con, paths.music)["kept"][0].event["id"]
+    g = review.discard_all(con, paths.music, first)
+    assert {r[0] for r in con.execute("SELECT decision FROM review_decisions")} == {"discard"} and len(g.items) == 2
+    assert review.find_group(con, paths.music, first).undecided == []

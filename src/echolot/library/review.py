@@ -79,6 +79,18 @@ class Item:
         return artist, title, bool(artist) and not names_one(credited, self.song_artists)
 
     @property
+    def likelihood(self) -> tuple:
+        """Sort key, the likeliest to be the song first: the audio check (the release's audio, unclear or not
+        checked, other audio), the artist named, named as the song (only another length) before another title,
+        the length within 3 s, how far off, genuine lossless, bitrate."""
+        e, diff = self.event, abs(self.length_diff) if self.length_diff is not None else 10**6
+        audio_ = e["audio"] or ""
+        heard = 0 if "of the release" in audio_ or audio_.startswith("ISRC") else 2 if "differs" in audio_ else 1
+        lossless = (e["ext"] or "") in audio.LOSSLESS and not e["fake"]
+        named = e["action"] != "wrong-song"
+        return heard, self.download[2], not named, diff > 3, diff, not lossless, -(e["kbps"] or 0)
+
+    @property
     def choices(self) -> list[tuple[str, str]]:
         """(decision, label): the three answers of the item's group."""
         return [(d, LABELS[d]) for d in DECISIONS[self.kind]]
@@ -181,6 +193,63 @@ def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
     return out
 
 
+TAKE = ("ok", "accept", "close")  # decisions that give the song a file
+
+
+@dataclass
+class Group:
+    """One wanted song and its downloads up for review, the likeliest first. Taking one of its kept downloads
+    (Perfect or Close match) discards the others when it is applied."""
+
+    items: list[Item]
+
+    @property
+    def lead(self) -> Item:
+        return self.items[0]
+
+    @property
+    def dom_id(self) -> str:
+        return "song-" + re.sub(r"\W", "-", self.lead.event["song"] or f"event-{self.lead.event['id']}")
+
+    @property
+    def taken(self) -> Item | None:
+        return next((i for i in self.items if i.decision in TAKE), None) if self.lead.kind == "kept" else None
+
+    @property
+    def undecided(self) -> list[Item]:
+        return [i for i in self.items if not i.decision]
+
+    @property
+    def tries(self) -> int:
+        return max(i.event["tries"] or 0 for i in self.items)
+
+
+def groups(found: list[Item]) -> list[Group]:
+    """The items by wanted song, in the order of each song's newest item."""
+    by_song: dict[str, list[Item]] = {}
+    for i in found:
+        by_song.setdefault(i.event["song"] or f"event {i.event['id']}", []).append(i)
+    return [Group(sorted(rows, key=lambda i: i.likelihood)) for rows in by_song.values()]
+
+
+def find_group(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Group | None:
+    for rows in items(con, music_dir).values():
+        for g in groups(rows):
+            if any(i.event["id"] == event_id for i in g.items):
+                return g
+    return None
+
+
+def discard_all(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Group:
+    """No match for every kept download of the song that has no decision yet."""
+    g = find_group(con, music_dir, event_id)
+    if g is None or g.lead.kind != "kept":
+        raise ConfigError("These downloads are no longer up for review.")
+    for i in g.undecided:
+        decide(con, music_dir, i.event["id"], "discard")
+    return g
+
+
 def find(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item | None:
     return next((i for group in items(con, music_dir).values() for i in group if i.event["id"] == event_id), None)
 
@@ -196,6 +265,9 @@ def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: st
         raise ConfigError("This download is no longer up for review.")
     if decision not in dict(item.choices):
         raise ConfigError(f"'{decision}' is not a decision for this download.")
+    taken = find_group(con, music_dir, event_id).taken
+    if decision in TAKE and taken and taken.event["id"] != event_id:
+        raise ConfigError("Another download of this song is taken already: revert that one first.")
     if decision == "close":
         artist, title = split_name(name)
         if not artist or not title:
@@ -318,10 +390,17 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
         p.unlink()
         _block(con, key, d)  # the search fallback would keep it again
         return "deleted"
-    if decision == "close":
-        return _close_kept(run, con, d, key, p)
-    # accept: the download is tagged with another artist who has this song in the library already: the
-    # same recording under two artist names (Spotify lists it twice). Link the song to that file.
+    taken = _close_kept(run, con, d, key, p) if decision == "close" else _accept_kept(run, con, d, key, p)
+    if gone := _discard_rest(run, con, d, key):
+        taken += f"; {gone} other download{'s' if gone != 1 else ''} of the song discarded"
+    return taken
+
+
+def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, p: Path) -> str:
+    """File a kept download as the song (Perfect match)."""
+    paths = run.paths
+    # the download is tagged with another artist who has this song in the library already: the same
+    # recording under two artist names (Spotify lists it twice). Link the song to that file.
     want = Want(d["artist"] or "", d["title"] or "", 0, key)
     song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
     if song:
@@ -350,6 +429,23 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     if key and action in ("new", "upgrade", "duplicate"):
         _link(con, key, want.artist, want.title, close=False)  # this file whatever its length (another edit)
     return f"{action} {dest.relative_to(paths.tracks) if dest else ''}".strip()
+
+
+def _discard_rest(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str) -> int:
+    """The song took one of its kept downloads: the others without a decision of their own go (No match)."""
+    decided = {r[0] for r in con.execute("SELECT event_id FROM review_decisions")}
+    rows = con.execute(
+        "SELECT * FROM events WHERE song = ? AND id != ? AND action IN ('wrong-song', 'mismatch') AND path LIKE ?",
+        (d["song"], d["id"], KEPT + "%"),
+    ).fetchall()
+    gone = 0
+    for e in rows:
+        p = local_file(e["path"], run.paths.music)
+        if e["id"] not in decided and p is not None and p.is_file():
+            p.unlink()
+            _block(con, key, e)
+            gone += 1
+    return gone
 
 
 def _close_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, p: Path) -> str:
