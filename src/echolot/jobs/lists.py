@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from echolot.jobs.acquire import finish
-from echolot.library import audio, filing, rules
+from echolot.library import audio, catalog, filing, recordings, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import spotify, ytdlp
 from echolot.settings import sources
@@ -260,9 +260,12 @@ def _sc_pages(run: "Run", ydl: ytdlp.YtDlp, urls: dict[str, str]) -> None:
 
 
 def _names(con: sqlite3.Connection, uploader: str, artist: str, title: str) -> tuple[str, str]:
-    """A SoundCloud track's artist and title (ytdlp.artist_title), turned round when the title is an artist
-    of your Spotify songs and the artist is not: "Outside (Hardstyle) - crypvolk", uploaded by neither."""
+    """A SoundCloud track's artist and title (ytdlp.artist_title) without release decoration
+    (tagging.clean_title: "[Free DL]", "( deleting soon save it on spotify )"), turned round when the title
+    is an artist of your Spotify songs and the artist is not: "Outside (Hardstyle) - crypvolk", uploaded by
+    neither."""
     a, t = ytdlp.artist_title(uploader, artist, title)
+    t = tagging.clean_title(t, a)
     known = {
         rules.artist_key(name)
         for r in con.execute("SELECT artist, artists FROM songs WHERE service = 'spotify'")
@@ -289,6 +292,16 @@ def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
         want = Want(artist, title, length, key)
         with con:
             _song(con, key, "soundcloud", artist=artist, title=title, length=length, url=url)
+        index = recordings.Index(catalog.Catalog.from_db(con))
+        if same := recordings.already(run.paths, prepared.path, title, length or audio.probe(prepared.path)[0], index):
+            genuine = prepared.path.suffix.lower().lstrip(".") in audio.LOSSLESS and not prepared.fake
+            if not genuine or same.genuine:  # the library has it under other names: linked, not filed twice
+                prepared.path.unlink(missing_ok=True)
+                with con:
+                    con.execute("UPDATE songs SET archived = 1, unavailable = NULL WHERE key = ?", (key,))
+                recordings.link(con, run.paths, key, want, same, "the same audio")
+                return 0
+            want = Want(same.path.partition("/")[0], same.title, same.duration, key)  # a FLAC takes over its name
         page = url if url.startswith("https://soundcloud.com/") else ""  # a set lists some tracks by API address
         action, dest = filing.file_into(con, run.paths, prepared.path, want, "soundcloud", fake=prepared.fake, url=page)
         if dest is None:

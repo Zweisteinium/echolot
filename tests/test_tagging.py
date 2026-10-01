@@ -174,3 +174,23 @@ def test_normalize(env, tmp_path: Path) -> None:
     assert tagging.read(wrong)["title"] == "I Want It"  # left for review
     assert '"file": "Hardwell/Hardwell - Anybody Out There.mp3"' in (tmp_path / "b.jsonl").read_text()
     assert tagging.normalize(con, paths.tracks, dry_run=False, backup=tmp_path / "b.jsonl")["changed"] == 0
+
+
+@pytest.mark.parametrize(
+    ("title", "clean"),
+    [
+        ("[NOW ON SPOTIFY] UNENDLICHKEIT (The Boy The G Remix)", "UNENDLICHKEIT (The Boy The G Remix)"),
+        ("Can't Get Enough ( deleting soon save it on spotify )", "Can't Get Enough"),
+        ("Song (Recorded at Spotify Studios NYC)", "Song (Recorded at Spotify Studios NYC)"),
+    ],
+)
+def test_a_note_about_spotify_is_not_part_of_a_title(title: str, clean: str) -> None:
+    assert tagging.clean_title(title, "Someone") == clean
+
+
+def test_the_core_of_a_title() -> None:
+    from echolot.library.recordings import core
+
+    assert core("Sweet Lovin' - Radio Edit") == core("Sweet Lovin' - Original Mix") == "sweet lovin"
+    assert core("Ignite (feat. SEUNGRI)") == core("Ignite") == "ignite"
+    assert core("Adagio for Strings - Unmixed Version") == "adagio for strings"
