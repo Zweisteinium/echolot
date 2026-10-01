@@ -3,7 +3,8 @@
 
 A job is due when its interval has passed since its last start, or when a fixed time has passed since
 it; a fixed-time run that could not start within LATE (Soulseek busy, Echolot down) is dropped. Jobs that
-share a resource wait for each other and do not lose their turn.
+share a resource wait for each other and do not lose their turn; a running one of a lower priority ends
+after its songs in progress when a more urgent one is due, and goes on after it.
 """
 
 import re
@@ -28,25 +29,59 @@ class JobInfo:
     resource: str  # jobs sharing one run one at a time: soulseek, web (home IP), local
     default: Rule
     minimum: int  # minutes between runs
-    help: str
-    gives_way: bool = False  # stops after the songs in progress when another job of its resource is due, and
-    # resumes with the songs left once the resource is free
+    help: str  # one line, under its name
+    details: str  # how it works, behind the info button
+    priority: int = 0  # a running job of a lower one ends after its songs in progress when one of a higher
+    # one of its resource is due, and goes on with the rest after it (worker.resume)
 
 
 JOBS = [
-    JobInfo("sync", "Spotify → Soulseek", "soulseek", 30, 10,
-            "read the Spotify lists, search new songs; missing ones again after 3 h, 6 h, 12 h, then daily"),
-    JobInfo("sweep", "Missing songs sweep", "soulseek", ["20:00", "sat,sun 15:00"], 360,
-            "search every missing Spotify song again, at the hours most users are online"),
+    JobInfo("sync", "New Spotify songs", "soulseek", 30, 10,
+            "Reads your Spotify lists and searches new songs on Soulseek right away.",
+            "Reads the followed Spotify lists. A new song is first looked for in your library: a song with the "
+            "same recording (ISRC), or a file with its title and length that sounds like the release, is linked "
+            "instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: up to five downloads are "
+            "tried, each checked by length, tags and audio; a doubtful one waits in Review. A song Soulseek does "
+            "not have goes to the YouTube & SoundCloud search right after this job. Comes first: a less urgent "
+            "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3),
+    JobInfo("soundcloud", "New SoundCloud songs", "web", 30, 15,
+            "Reads your SoundCloud lists and downloads new songs from SoundCloud itself.",
+            "Reads the followed SoundCloud lists and downloads each new song from SoundCloud: the uploader's own "
+            "file where downloads are allowed (sometimes lossless), else the stream. Before it is filed, a "
+            "download is compared by audio with the library's files of the same title and length: the same "
+            "recording is linked, not kept twice. A song SoundCloud hands out to nobody (label releases) goes to "
+            "the YouTube & SoundCloud search. Comes first on the home connection.", priority=3),
+    JobInfo("fallback", "YouTube & SoundCloud search", "web", 120, 60,
+            "Songs Soulseek does not have, and SoundCloud songs that cannot be downloaded.",
+            "Starts right after New Spotify songs when Soulseek had nothing, and on its schedule. Per song: the "
+            "release's own audio on YouTube (\"Provided to YouTube\") first, then YouTube, then a SoundCloud "
+            "search; the first result that passes the same checks as a Soulseek download is filed, one of "
+            "another length waits in Review. A download the library has under other names is linked instead. "
+            "Each song at most once a week, new ones first. The result is lossy: the FLAC upgrade looks for a "
+            "lossless copy from 12 h later. Gives way to New SoundCloud songs.", priority=2),
+    JobInfo("sweep", "Missing songs", "soulseek", ["20:00", "sat,sun 15:00"], 360,
+            "Searches the songs found nowhere yet again, when most Soulseek users are online.",
+            "Songs that neither Soulseek nor YouTube or SoundCloud had are searched on Soulseek again, with "
+            "looser terms after two misses (title without additions, first artist only, then without the "
+            "artist in the path): each song daily, weekly after 7 searches without a find. Gives way to New "
+            "Spotify songs.", priority=2),
     JobInfo("upgrade", "FLAC upgrade", "soulseek", ["14:00", "20:30"], 360,
-            "FLAC-only search for songs that are not genuine lossless (each: 12 h, 1 d, 2 d, then every 3 d); "
-            "gives way to the sync and the sweep and goes on after them", gives_way=True),
-    JobInfo("soundcloud", "SoundCloud", "web", 30, 15,
-            "read the SoundCloud lists and download new songs (SoundCloud rate-limits bursts)"),
-    JobInfo("fallback", "YouTube fallback", "web", 120, 60,
-            "search YouTube and SoundCloud for songs Soulseek did not find twice"),
-    JobInfo("library", "Library", "local", 5, 1,
-            "rescan the library, apply review decisions, write the playlists"),
+            "Looks for genuine FLACs of the songs you have lossy.",
+            "FLAC-only Soulseek search for songs whose file is not genuine lossless (a FLAC made from an MP3 "
+            "counts as lossy): each song 12 h, 1 d and 2 d after the last search, then every 3 days, the longest "
+            "waiting first, at most the batch size per run. A genuine FLAC replaces the lossy file under its "
+            "name. A FLAC for a SoundCloud song waits in Review. Gives way to New Spotify songs and Missing "
+            "songs and goes on after them.", priority=1),
+    JobInfo("upgrade_all", "FLAC upgrade, all songs", "soulseek", None, 360,
+            "Every song you have lossy at once, whatever its wait. Start it with Run now.",
+            "Searches a FLAC for every song that is not genuine lossless, regardless of when it was last "
+            "searched, the longest waiting first. Gives way to every other Soulseek job that is due and goes on "
+            "after it until all songs are done (a restart of Echolot ends it). Off on the schedule.", priority=0),
+    JobInfo("library", "Library upkeep", "local", 5, 1,
+            "Rescans the library, applies review decisions and writes the playlists.",
+            "Notices new, changed and removed files (only those are read again), applies review decisions once "
+            "their undo time is over, matches the songs to files and writes one playlist per list. Once a day "
+            "it empties the replaced and review files older than 30 days."),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
 

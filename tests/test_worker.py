@@ -178,3 +178,33 @@ def test_pausing_ends_scheduled_runs_after_their_songs(w) -> None:
     assert wk.runs["soundcloud"].give_way.is_set() and wk.runs["library"].give_way.is_set()
     assert wk.runs["sync"].trigger == "manual" and not wk.runs["sync"].give_way.is_set()
     release.set()
+
+
+def test_only_a_more_urgent_job_makes_one_give_way(w) -> None:
+    """The evening search is not stopped by a due FLAC upgrade (less urgent), the full upgrade is."""
+    wk, _, release, settings = w
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Jobs, paused=False)
+        now = datetime.now().isoformat(timespec="seconds")
+        con.executemany(
+            "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
+        )
+    con.close()
+    wk.trigger("sweep")
+    wk._start_due()
+    wait_for(lambda: "sweep" in wk.runs)
+    wk.trigger("upgrade")
+    wk._start_due()
+    assert not wk.runs["sweep"].give_way.is_set()
+    release.set()
+    wait_for(lambda: not wk.runs)
+    release.clear()
+    wk.requested.clear()
+    wk.trigger("upgrade_all")
+    wk._start_due()
+    wait_for(lambda: "upgrade_all" in wk.runs)
+    wk.trigger("upgrade")
+    wk._start_due()
+    assert wk.runs["upgrade_all"].give_way.is_set()
+    release.set()

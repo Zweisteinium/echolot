@@ -78,7 +78,15 @@ def level(tries: int) -> tuple[bool, dict[str, bool]]:
     return False, {}
 
 
-MISSING_RETRY = (3 * 3600, 86400)  # missing songs are searched again after 3 h, 6 h, 12 h, then daily
+# a song Soulseek did not find goes to the YouTube and SoundCloud search at once (fallback); one found nowhere
+# is searched again by the evening search: daily, weekly after WEEKLY_AFTER misses
+DAILY, WEEKLY, WEEKLY_AFTER = 20 * 3600, int(6.5 * 86400), 7
+UPGRADE_WAIT = (12 * 3600, 3 * 86400)  # a lossy song's FLAC search: after 12 h, 1 d, 2 d, then every 3 d
+
+
+def next_search(tries: int, last: int) -> float:
+    """From when the evening search takes a song searched `tries` times without a find."""
+    return (last or 0) + (DAILY if tries < WEEKLY_AFTER else WEEKLY)
 
 
 def retry_at(tries: int, last: int, first: int, cap: int) -> float:
@@ -368,7 +376,8 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 
 def sync(run: "Run") -> str:
-    """Fetch the Spotify lists, then search the missing songs whose wait is over."""
+    """Fetch the Spotify lists, then search the new songs (never searched) on Soulseek. One not found goes to
+    the YouTube and SoundCloud search right after (fallback); a later search is the evening search's."""
     from echolot.jobs import lists
 
     parts = [lists.fetch_spotify(run)]
@@ -378,28 +387,48 @@ def sync(run: "Run") -> str:
         if linked := recordings.link_isrc(con, run.paths):  # the library has them under other names
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
-        now = time.time()
-        songs = [r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], *MISSING_RETRY, now)]
+        songs = [r for r in _spotify_missing(con) if not r["tries"]]
     finally:
         con.close()
     parts.append(_search(run, songs, "search"))
+    con = run.connect()
+    try:  # a miss counted a try (a find left the attempts, an interrupted search counted nothing)
+        keys = [r["key"] for r in songs]
+        sql = f"SELECT 1 FROM attempts WHERE tries >= 1 AND song_key IN ({','.join('?' * len(keys))})"
+        missed = con.execute(sql, keys).fetchone()
+    finally:
+        con.close()
+    if missed:
+        run.after.add("fallback")  # not on Soulseek: YouTube, then SoundCloud, now
     return "; ".join(parts)
 
 
 def sweep(run: "Run") -> str:
-    """Search every missing Spotify song now, whatever its wait (at the hours most users are online)."""
+    """Search the songs found nowhere yet again (at the hours most Soulseek users are online): each one
+    daily, weekly after WEEKLY_AFTER searches without a find."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
         if recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
-        songs = _spotify_missing(con)
+        now = time.time()
+        songs = [r for r in _spotify_missing(con) if now >= next_search(r["tries"], r["last_try"])]
     finally:
         con.close()
     return _search(run, songs, "search")
 
 
 def upgrade(run: "Run") -> str:
+    return _upgrade(run, everything=False)
+
+
+def upgrade_all(run: "Run") -> str:
+    """The FLAC upgrade for every song not genuine lossless, whatever its wait (started by hand; it gives
+    way to every other Soulseek job and goes on after it)."""
+    return _upgrade(run, everything=True)
+
+
+def _upgrade(run: "Run", everything: bool) -> str:
     """FLAC-only search for wanted songs whose library copy is not genuine lossless; each song waits 12 h,
     1 d, 2 d, then every 3 d between searches; the longest waiting first, at most upgrade_batch per run (or
     what a run that gave way left). A SoundCloud song's FLAC is kept for review (Fetcher.attempt), and the
@@ -408,7 +437,6 @@ def upgrade(run: "Run") -> str:
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
-        batch = run.budget or options.get(con, options.Soulseek).upgrade_batch  # what a run that gave way left
         rows = con.execute(
             "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
             "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
@@ -420,13 +448,15 @@ def upgrade(run: "Run") -> str:
                 "DELETE FROM upgrades WHERE song_key NOT IN (SELECT s.key FROM wanted s JOIN files f "
                 "ON f.path = s.file WHERE f.quality != 'lossless')"
             )
+        # what a run that gave way left, else every song (by hand) or the batch
+        batch = run.budget or (len(rows) if everything else options.get(con, options.Soulseek).upgrade_batch)
     finally:
         con.close()
     now, seen, songs = time.time(), set(), []
     for r in rows:
         if r["service"] == "soundcloud" and filing.in_review(run.paths, r["artist"], _want(r).title):
             continue  # its FLAC waits for your answer
-        if r["file"] not in seen and due(r["tries"], r["last_try"], 12 * 3600, 3 * 86400, now):
+        if r["file"] not in seen and (everything or due(r["tries"], r["last_try"], *UPGRADE_WAIT, now)):
             seen.add(r["file"])
             songs.append(r)
     run.say(f"{len(rows)} songs not genuine lossless, {len(songs[:batch])} searched now")
@@ -437,10 +467,11 @@ def upgrade(run: "Run") -> str:
 
 
 def fallback(run: "Run") -> str:
-    """Songs Soulseek did not find twice, and SoundCloud songs SoundCloud hands out to nobody: search
-    YouTube, then SoundCloud (each song once a week). The first result that passes the same checks as a
-    Soulseek download is filed; the rest are tried in order. The result is lossy: the upgrade keeps
-    looking for a FLAC."""
+    """Songs Soulseek did not find (started by the sync right after its search), and SoundCloud songs
+    SoundCloud hands out to nobody: search YouTube, then SoundCloud, each song at most once a week, the
+    ones never tried first. The first result that passes the same checks as a Soulseek download is filed;
+    the rest are tried in order; a download the library has under other names (its audio) is linked instead.
+    The result is lossy: the FLAC upgrade looks for a FLAC from 12 h later."""
     week = int(time.time()) - 7 * 86400
     con = run.connect()
     try:
@@ -448,16 +479,18 @@ def fallback(run: "Run") -> str:
         songs = con.execute(
             "SELECT s.*, coalesce(a.tries, 0) AS tries FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key "
             "WHERE s.file IS NULL AND coalesce(a.last_fallback, 0) < ? AND ((s.service = 'spotify' "
-            "AND a.tries >= 2) OR (s.service = 'soundcloud' AND s.unavailable IS NOT NULL))",
+            "AND a.tries >= 1) OR (s.service = 'soundcloud' AND s.unavailable IS NOT NULL)) "
+            "ORDER BY coalesce(a.last_fallback, 0) > 0, s.unavailable IS NULL",
             (week,),
         ).fetchall()
         token = run.vault.get(con, "soundcloud.token")
     finally:
         con.close()
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
-    added = kept = 0
+    added = kept = linked = 0
     for n, row in enumerate(songs, 1):
-        if run.stop.is_set() or run.give_way.is_set():  # paused: the song in progress was the last
+        if run.stop.is_set() or run.give_way.is_set():  # paused or a more urgent job: that song was the last
+            run.left = 0 if run.stop.is_set() else len(songs) - n + 1
             break
         want = Want.of(row)
         run.say(f"{n} of {len(songs)}: {want.artist} - {want.title}")
@@ -477,12 +510,16 @@ def fallback(run: "Run") -> str:
         finally:
             con.close()
         added += action in ("new", "upgrade")
+        linked += action == "linked"
         kept += action == "mismatch"
         log.info("fallback: %s - %s: %s", want.artist, want.title, action)
     shutil.rmtree(run.paths.inbox("fallback"), ignore_errors=True)
     run.after.add("library")
-    return f"{added} of {len(songs)} songs found on YouTube or SoundCloud" + (
-        f", {kept} of another length kept for review" if kept else ""
+    return (
+        f"{added} of {len(songs)} songs found on YouTube or SoundCloud"
+        + (f", {linked} in the library under other names" if linked else "")
+        + (f", {kept} of another length kept for review" if kept else "")
+        + (f"; gave way, {run.left} left" if run.left else "")
     )
 
 
@@ -503,6 +540,13 @@ def _fallback_song(
         except audio.Rejected as e:
             return "bad file", str(e)
         source = "youtube" if site == "youtube" else "soundcloud-search"
+        dur = want.length or audio.probe(prepared.path)[0]
+        if same := recordings.already(
+            run.paths, prepared.path, want.title, dur, recordings.Index(catalog.Catalog.from_db(con))
+        ):
+            prepared.path.unlink(missing_ok=True)  # the library has it under other names
+            recordings.link(con, run.paths, want.key, want, same, "the same audio")
+            return "linked", ""
         heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
         found = {"file_name": r["title"], "folders": (r["uploader"],), "fake": prepared.fake, "heard": heard}
         found["url"] = r["url"]  # the page, for the DOWNLOAD tag
@@ -510,6 +554,9 @@ def _fallback_song(
         action, dest = filing.file_into(con, run.paths, prepared.path, want, source, **found, **checks)
         if dest and action in ("new", "upgrade"):
             finish(run, con, dest, want)
+            with con:  # lossy: the FLAC upgrade's first search 12 h from now (Soulseek just had nothing)
+                sql = "INSERT OR REPLACE INTO upgrades (song_key, tries, last_try) VALUES (?, 1, ?)"
+                con.execute(sql, (want.key, int(time.time())))
         return action, ""
 
     query = " ".join(
