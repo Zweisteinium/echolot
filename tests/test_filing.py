@@ -326,7 +326,7 @@ def test_a_close_match_is_filed_under_its_own_name(env) -> None:
     result = close(con, run, item.event["id"], "No Chasa - Master Disaster (Extended Mix)")
     assert result.endswith(": new No Chasa/No Chasa - Master Disaster (Extended Mix).wav")
     s = song(con, "spotify:nc")
-    assert (s["link"], s["close_match"]) == ('["No Chasa", "Master Disaster (Extended Mix)"]', 1)
+    assert (s["link"], s["close_match"]) == ('["No Chasa", "Master Disaster (Extended Mix)", 316]', 1)
     assert con.execute("SELECT 1 FROM attempts WHERE song_key = 'spotify:nc'").fetchone() is None
     catalog.match_songs(con)
     assert song(con, "spotify:nc")["file"] == "No Chasa/No Chasa - Master Disaster (Extended Mix).wav"
@@ -352,7 +352,7 @@ def test_recheck_and_rename_a_close_match(env) -> None:
     assert not review.recheck(con, paths, "spotify:lw", "twice")  # up for review already
     item = review.items(con, paths.music)["filed"][0]
     assert item.event["action"] == "recheck" and item.close_name == "LAWTON - Believe In"  # without the video noise
-    with pytest.raises(review.ConfigError, match="Add the version"):
+    with pytest.raises(review.ConfigError, match="add the version"):
         review.decide(con, paths.music, item.event["id"], "close", item.close_name)
     result = close(con, run, item.event["id"], "LAWTON - Believe In (Video Edit)")
     assert result.endswith(": renamed LAWTON/LAWTON - Believe In (Video Edit).wav")
@@ -482,3 +482,35 @@ def test_no_match_for_all(env) -> None:
     g = review.discard_all(con, paths.music, first)
     assert {r[0] for r in con.execute("SELECT decision FROM review_decisions")} == {"discard"} and len(g.items) == 2
     assert review.find_group(con, paths.music, first).undecided == []
+
+
+def test_a_close_match_whose_title_reduces_to_the_songs(env) -> None:
+    """Megator 5:30 wanted, "Megator (Original Mix)" 6:59 downloaded: both titles reduce to "megator" for the
+    matching rules, yet the original mix is another version. It is taken as a close match under its own
+    name; the link carries its length, so the song finds this file and not the radio version."""
+    con, paths, run = env
+    want = add_song(con, "spotify:t78", "T78", "Megator", 330)
+    search_hit(con, paths, download(paths, "a.wav", 419), want, "T78 - Megator (Original Mix)", "soulseek")
+    item = review.items(con, paths.music)["kept"][0]
+    with pytest.raises(review.ConfigError, match="own name"):
+        review.decide(con, paths.music, item.event["id"], "close", "t78 -  megator")
+    result = close(con, run, item.event["id"], "T78 - Megator (Original Mix)")
+    assert result.endswith(": new T78/T78 - Megator (Original Mix).wav")
+    assert song(con, "spotify:t78")["link"] == '["T78", "Megator (Original Mix)", 419]'
+    download(paths, "b.wav", 330).rename(paths.tracks / "T78" / "T78 - Megator.wav")  # the radio version too
+    catalog.scan(con, paths.tracks)
+    catalog.match_songs(con)  # without the length in the link, both files would fit its title
+    assert song(con, "spotify:t78")["file"] == "T78/T78 - Megator (Original Mix).wav"
+    review.search_again(con, "spotify:t78")
+    catalog.match_songs(con)
+    assert song(con, "spotify:t78")["file"] == "T78/T78 - Megator.wav"
+
+
+def test_the_same_name_and_length_is_no_close_match(env) -> None:
+    con, paths, _ = env
+    want = add_song(con, "spotify:t78", "T78", "Megator", 330)
+    other = Evidence("other", "audio differs from the release (0.60)")
+    search_hit(con, paths, download(paths, "a.wav", 331), want, "T78 - Megator", "soulseek", heard=other)
+    item = review.items(con, paths.music)["kept"][0]
+    with pytest.raises(review.ConfigError, match="Perfect match"):
+        review.decide(con, paths.music, item.event["id"], "close", "T78 - Megator (Original Mix)")
