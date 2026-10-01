@@ -435,6 +435,8 @@ def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, 
                          title=want.title, source=d["source"], matched="review",
                          reason=f"same recording as {hits[0].path} ({other})")  # fmt: skip
             return f"linked {hits[0].path}"
+    if key:  # it is the song whatever its length: a lossy copy the library has is replaced, under its name
+        _link(con, key, want.artist, want.title, close=False)
     action, dest = filing.file_into(con, paths, p, want, d["source"] or "", match="review", fake=bool(d["fake"]))
     if dest and action in ("new", "upgrade"):
         audio.write_tags(dest, artist=want.artist, title=want.title)  # accepted as this song
