@@ -142,11 +142,6 @@ a.pill { text-decoration: none; }
 
 .service { display: inline-block; font-size: 0.72rem; font-weight: 550; color: var(--muted); padding: 0 0.4rem;
   border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
-.action { display: inline-block; font-size: 0.78rem; font-weight: 550; padding: 0 0.45rem; border-radius: 4px;
-  white-space: nowrap; background: var(--track); color: var(--muted); }
-.a-new, .a-upgrade, .a-linked, .a-renamed { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.a-wrong-song, .a-mismatch { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.a-recheck { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5;
   margin-right: 0.45rem; vertical-align: 1px; }
@@ -378,41 +373,40 @@ table.missing td.tried { min-width: 18rem; }
 .stage i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--track); }
 .stage i.on { background: var(--warn); }
 
-/* review: one card per wanted song, a tile per download (the likeliest first). The left column lines up:
-   the song's source icon above each download's play button; one player plays one download at a time */
-.review-list { display: grid; gap: 1rem; }
-.song-review { display: grid; gap: 0.75rem; padding: 0.9rem 1rem 1rem; border: 1px solid var(--border);
-  border-radius: var(--radius); background: var(--surface); }
-.song-head, .download { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) auto; gap: 0.35rem 0.85rem;
-  align-items: center; }
-.song-source { display: grid; place-items: center; color: var(--muted); }
-.song-source.svc-spotify { color: #1db954; }
-.song-source.svc-soundcloud { color: #ff5500; }
+/* a download's facts (Review, Activity): source · length · quality · size, then a tag and a note */
+.facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.7rem; font-size: 0.8rem; color: var(--muted); }
+.facts .fits { color: var(--ok); }
+.facts .off { color: var(--warn); }
+.facts .arrow { margin: 0 -0.35rem; }
+.activity td:last-child { width: 50%; }
+
+/* review: the section is the only box. Each song is a block (a hairline between songs); its header and its
+   download rows share three columns: the source icon above each play button, the text, the buttons */
+.review-list { display: grid; }
+.song-review { display: grid; gap: 0.15rem; padding: 0.75rem 0; border-top: 1px solid var(--border); }
+.song-review:first-child { border-top: none; padding-top: 0.25rem; }
+.song-head, .download { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) auto; gap: 0.25rem 0.85rem;
+  align-items: center; padding: 0.45rem 0.6rem; border-radius: 8px; }
+.song-source { display: grid; place-items: center; }
 .song-title { display: grid; gap: 0.1rem; }
-.song-review .wanted { font-weight: 650; font-size: 1.02rem; }
+.song-review .wanted { font-weight: 650; }
 .song-facts { color: var(--muted); font-size: 0.85rem; }
 .song-facts .chip { vertical-align: -1px; }
-.downloads { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
-.download { align-items: start; padding: 0.65rem 0.75rem 0.65rem 0; border: 1px solid var(--border);
-  border-radius: 8px; background: var(--bg); transition: border-color 0.15s, background 0.15s; }
-.download:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--border)); }
-.download.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 5%, var(--bg)); }
+.downloads { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.1rem; }
+.download { transition: background 0.15s; }
+.download:hover { background: color-mix(in srgb, var(--track) 55%, transparent); }
+.download.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .download.settled .download-body, .download.settled .play { opacity: 0.55; }
-.play { justify-self: center; width: 2rem; height: 2rem; padding: 0; border-radius: 50%; display: grid; place-items: center;
-  color: var(--text); }
+.play { justify-self: center; align-self: center; width: 2rem; height: 2rem; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; color: var(--text); }
 .play .icon { vertical-align: 0; }
 .play .when-playing, .download.playing .play .when-paused { display: none; }
 .download.playing .play .when-playing { display: inline; }
 .download.playing .play { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.download-body { display: grid; gap: 0.3rem; min-width: 0; }
+.download-body { display: grid; gap: 0.2rem; min-width: 0; }
 .download-name { font-weight: 550; overflow-wrap: anywhere; }
-.download-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.75rem; font-size: 0.8rem;
-  color: var(--muted); }
-.download-facts .source { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
-.download-facts .fits { color: var(--ok); }
-.download-facts .off { color: var(--warn); }
 .download-why { font-size: 0.8rem; color: var(--muted); }
-.seek { display: none; height: 6px; border-radius: 3px; background: var(--track); cursor: pointer; margin: 0.15rem 0; }
+.seek { display: none; height: 4px; border-radius: 2px; background: var(--track); cursor: pointer; margin: 0.2rem 0; }
 .seek-done { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); }
 .download.active .seek { display: block; }
 .play-time:empty { display: none; }
@@ -424,9 +418,8 @@ table.missing td.tried { min-width: 18rem; }
 .review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.4rem; }
 .review-actions .status { font-size: 0.8rem; color: var(--muted); }
 @media (max-width: 720px) {
-  .download { grid-template-columns: 2.25rem minmax(0, 1fr); }
+  .song-head, .download { grid-template-columns: 2.25rem minmax(0, 1fr); }
   .download .review-actions, .song-actions { grid-column: 2; justify-content: flex-start; }
-  .song-head { grid-template-columns: 2.25rem minmax(0, 1fr); }
 }
 .answers dt { color: inherit; font-weight: 600; }
 .answers + p { margin: 0.75rem 0 0; }

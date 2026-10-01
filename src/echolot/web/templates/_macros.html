@@ -15,6 +15,14 @@
 {%- endmacro %}
 
 {# counts: [(tier, label, n)], best first (stats.tier_counts / tiers_of) #}
+{# a download's facts, the same on every page: source · length (± seconds off the wanted song) · quality · size #}
+{% macro facts(source=None, seconds=None, diff=None, tier=None, kbps=None, bytes=None) -%}
+{%- if source %}<span>{{ source|source }}</span>{% endif -%}
+{%- if seconds %}<span class="{{ 'fits' if diff is not none and diff|abs <= 3 else 'off' if diff is not none }}">{{ seconds|mmss }}{% if diff %} ({{ '%+d'|format(diff) }} s){% endif %}</span>{% endif -%}
+{%- if tier %}{{ quality(tier, kbps) }}{% endif -%}
+{%- if bytes %}<span>{{ bytes|size }}</span>{% endif -%}
+{%- endmacro %}
+
 {% macro qbar(counts, large=False) -%}
 {% set total = counts|sum(attribute=2) %}
 <span class="qbar{{ ' large' if large }}" role="img" aria-label="{% for k, label, n in counts if n %}{{ label }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}">

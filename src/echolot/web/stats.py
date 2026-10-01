@@ -7,7 +7,7 @@ from typing import Any
 
 from echolot.jobs import acquire
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
-from echolot.library import filing
+from echolot.library import catalog, filing
 from echolot.library.catalog import QUALITY
 from echolot.library.filing import Paths
 
@@ -184,7 +184,112 @@ def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:
 EVENT_FILTERS = {"added": ADDED, "rejected": REJECTED}
 
 
-def events(con: Connection, kind: str = "", limit: int = 300) -> list[Row]:
-    actions = EVENT_FILTERS.get(kind)
-    where = f"WHERE action IN ({', '.join('?' * len(actions))})" if actions else ""
-    return con.execute(f"SELECT * FROM events {where} ORDER BY id DESC LIMIT ?", (*(actions or ()), limit)).fetchall()
+# what an event is called on the Activity page, and its colour (pill style)
+EVENTS = {
+    "new": ("Added", "ok"),
+    "upgrade": ("Upgraded", "ok"),
+    "wrong-song": ("Rejected", "bad"),
+    "mismatch": ("Rejected", "bad"),
+    "duplicate": ("Already there", ""),
+    "retired": ("Removed", "warn"),
+    "renamed": ("Renamed", ""),
+    "linked": ("Linked", ""),
+    "recheck": ("Back in review", "warn"),
+    "restored": ("Restored", ""),
+}
+MATCHED = {"probable": ("probable match", "warn"), "review": ("from review", ""), "close": ("close match", "")}
+REPLACED = "replaced by genuine lossless"  # a retired file's reason when an upgrade took its place
+
+
+def activity(con: Connection, kind: str = "", limit: int = 300) -> list[dict[str, Any]]:
+    """The latest events for the Activity page, each as one entry: what happened, to which song, and the
+    facts worth a glance. An upgrade and the file it replaced are one entry (from -> to)."""
+    actions = (*EVENT_FILTERS[kind], "retired") if kind in EVENT_FILTERS else None
+    where = f"WHERE e.action IN ({', '.join('?' * len(actions))})" if actions else ""
+    sql = f"SELECT e.*, s.url AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song {where} ORDER BY e.id DESC"
+    rows = con.execute(f"{sql} LIMIT ?", (*(actions or ()), 2 * limit)).fetchall()
+    replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(REPLACED)}
+    partners = {e["id"]: was for e in rows if e["action"] == "upgrade" and (was := _replaced(e, replaced))}
+    taken = {was["id"] for was in partners.values()}
+    out = []
+    for e in rows:
+        if e["action"] == "retired" and (kind or e["id"] in taken):
+            continue  # an upgrade's other half, or fetched only to find those
+        entry = _entry(e)
+        if was := partners.get(e["id"]):
+            entry["was"], entry["was_bytes"] = _quality(was, lossy_flac=True), was["bytes"]
+        out.append(entry)
+    return out[:limit]
+
+
+def _replaced(upgrade: Row, replaced: dict[int, Row]) -> Row | None:
+    """The file an upgrade replaced: retired next to it (a few events apart), with the same name."""
+    stem = _stem(upgrade["path"]).lower()
+    for n in range(upgrade["id"] - 4, upgrade["id"] + 5):
+        if (r := replaced.get(n)) and _stem(r["path"]).lower().startswith(stem):
+            del replaced[n]
+            return r
+    return None
+
+
+def _stem(path: str | None) -> str:
+    return (path or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def _quality(e: Row, lossy_flac: bool = False) -> tuple[str, int] | None:
+    """(tier, kbps) of an event's file; a FLAC an upgrade replaced was one made from lossy."""
+    if not e["ext"]:
+        return None
+    fake = bool(e["fake"]) or (lossy_flac and e["ext"] in catalog.LOSSLESS)
+    return catalog.Entry(f"-/-.{e['ext']}", 0, e["kbps"] or 0, fake).quality, e["kbps"] or 0
+
+
+def _entry(e: Row) -> dict[str, Any]:
+    action, reason = e["action"], (e["reason"] or "").strip()
+    label, style = EVENTS.get(action, (action.capitalize(), ""))
+    song = f"{e['artist']} – {e['title']}" if e["artist"] else _stem(reason.rpartition("(was ")[2] or e["path"])
+    entry: dict[str, Any] = {"ts": e["ts"], "label": label, "style": style, "key": e["song"], "url": e["song_url"]}
+    entry |= {"song": song, "source": e["source"], "quality": _quality(e), "seconds": e["seconds"], "bytes": e["bytes"]}
+    entry |= {"tag": None, "note": "", "title": reason, "diff": None, "was": None, "was_bytes": None}
+    if action in ("new", "upgrade", "duplicate"):
+        entry["tag"] = MATCHED.get(e["matched"] or "")
+    elif action in ("wrong-song", "mismatch"):
+        wanted = e["wanted_seconds"]
+        entry["diff"] = e["seconds"] - wanted if action == "mismatch" and wanted and e["seconds"] else None
+        entry["tag"] = (_why(action, reason), "bad")
+        entry["note"] = f"“{(e['found'] or e['file_name'] or '').strip()}”" if e["found"] or e["file_name"] else ""
+    else:
+        entry["quality"] = None if action in ("retired", "renamed", "linked") else entry["quality"]
+        entry["note"] = _readable(action, reason)
+    return entry
+
+
+def _why(action: str, reason: str) -> str:
+    """A rejection's reason in a few words (the whole one is the hover text)."""
+    if action == "mismatch":
+        return "another length"
+    for test, why in (
+        (reason.startswith("artist "), "another artist"),
+        ("audio differs" in reason, "audio differs from the release"),
+        ("marked wrong" in reason, "No match before"),
+        ("another version" in reason or "lacks the version" in reason, "another version"),
+        (reason.startswith("title ") or "reading of tag" in reason, "another title"),
+        ("probable matches need a review" in reason, "kept for review"),
+    ):
+        if test:
+            return why
+    return reason.split(" (", 1)[0][:50] or "not the song"
+
+
+def _readable(action: str, reason: str) -> str:
+    """The reason of a removal, rename, link or second review, without file paths."""
+    text = reason.split(" (was ", 1)[0].removeprefix("back in review: ")
+    for wrong in ("no match in review", "marked wrong in review"):
+        text = text.replace(wrong, "No match in review")
+    text = text.replace(REPLACED, "replaced by a genuine FLAC")
+    if action == "linked" and text.startswith("same recording as "):
+        text = "same recording as " + _stem(text.removeprefix("same recording as ").split(" (", 1)[0])
+    if action == "renamed" and " (was " in reason:
+        text = "close match" if text.startswith("close match") else text
+        text = f"{text} · was “{_stem(reason.rpartition('(was ')[2].rstrip(')'))}”"
+    return text[:1].upper() + text[1:]

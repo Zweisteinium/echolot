@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import facts, quality, song_link %}
 {% block title %}Activity · Echolot{% endblock %}
 {% block content %}
 <section class="card">
@@ -10,24 +11,27 @@
       <a href="/activity?kind=rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
     </nav>
   </div>
-  <table class="rows">
-    <thead><tr><th>When</th><th>What</th><th>Song</th><th>Source</th><th>Details</th></tr></thead>
+  <table class="rows activity">
+    <thead><tr><th>When</th><th>Event</th><th>Song</th><th>Details</th></tr></thead>
     <tbody>
-    {% for e in events %}
+    {% for a in entries %}
     <tr>
-      <td class="muted small nowrap" title="{{ e.ts }}">{{ e.ts|ago }}</td>
-      <td><span class="action a-{{ e.action }}">{{ e.action }}</span></td>
-      <td>{% if e.artist %}{{ e.artist }} – {{ e.title }}{% else %}<span title="{{ e.path }}">{{ (e.path or '').rsplit('/', 1)[-1] }}</span>{% endif %}</td>
-      <td class="muted small">{{ e.source or '' }}</td>
-      <td class="muted small">
-        {% if e.reason %}{{ e.reason }}{% elif e.ext %}{{ e.ext }}{% if e.kbps %} · {{ e.kbps }} kbps{% endif %}{% if e.bytes %} · {{ e.bytes|size }}{% endif %}{% endif %}
-      </td>
+      <td class="muted small nowrap" title="{{ a.ts }}">{{ a.ts|ago }}</td>
+      <td><span class="pill{{ ' ' ~ a.style ~ '-pill' if a.style }}">{{ a.label }}</span></td>
+      <td>{{ song_link(a.key, a.url, a.song) }}</td>
+      <td><div class="facts"{% if a.title %} title="{{ a.title }}"{% endif %}>
+        {%- if a.was and a.quality %}<span>{{ a.source|source }}</span>{{ quality(*a.was) }}<span class="arrow">→</span>{{ quality(*a.quality) }}
+          {%- if a.was_bytes and a.bytes %}<span>{{ a.was_bytes|size }} → {{ a.bytes|size }}</span>{% endif %}
+        {%- elif a.quality %}{{ facts(a.source, a.seconds, a.diff, a.quality[0], a.quality[1], a.bytes) }}
+        {%- else %}{{ facts(a.source) }}{% endif %}
+        {%- if a.tag %}<span class="pill{{ ' ' ~ a.tag[1] ~ '-pill' if a.tag[1] }}">{{ a.tag[0] }}</span>{% endif %}
+        {%- if a.note %}<span class="note">{{ a.note }}</span>{% endif %}</div></td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="muted">No activity yet.</td></tr>
+    <tr><td colspan="4" class="muted">No activity yet.</td></tr>
     {% endfor %}
     </tbody>
   </table>
-  {% if events|length >= 300 %}<p class="muted small">Showing the latest 300.</p>{% endif %}
+  {% if entries|length >= 300 %}<p class="muted small">Showing the latest 300.</p>{% endif %}
 </section>
 {% endblock %}

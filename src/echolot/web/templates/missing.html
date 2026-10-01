@@ -63,7 +63,7 @@
             {% if s.last_fallback and not s.fallback %}<dt>YouTube, SoundCloud</dt><dd>{{ s.last_fallback|ago }} <span class="muted">(details from the next search on)</span></dd>{% endif %}
             {% if s.rejected %}
             <dt>Rejected</dt>
-            <dd>{% for e in s.rejected %}<div class="item"><span class="muted">{{ e.ts[:10] }} {{ e.source }}</span> <span class="name" title="{{ e.found or e.file_name }}">{{ e.found or e.file_name }}</span>: {{ e.reason or ('length ' ~ e.seconds|mmss ~ ', wanted ' ~ e.wanted_seconds|mmss) }}</div>{% endfor %}</dd>
+            <dd>{% for e in s.rejected %}<div class="item"><span class="muted">{{ e.ts[:10] }} {{ e.source|source }}</span> <span class="name" title="{{ e.found or e.file_name }}">{{ e.found or e.file_name }}</span>: {{ e.reason or ('length ' ~ e.seconds|mmss ~ ', wanted ' ~ e.wanted_seconds|mmss) }}</div>{% endfor %}</dd>
             {% endif %}
           </dl>
         </details>

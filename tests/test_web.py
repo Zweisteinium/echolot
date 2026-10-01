@@ -11,7 +11,7 @@ from echolot.config import Settings
 from echolot.jobs import schedule
 from echolot.library.filing import Paths
 from echolot.services import spotify
-from echolot.web import create_app
+from echolot.web import create_app, stats
 from echolot.web import sources as sources_web
 
 
@@ -52,10 +52,25 @@ def test_list_page(client: TestClient, settings: Settings) -> None:
     assert client.get("/lists/nope").status_code == 404
 
 
-def test_activity(client: TestClient) -> None:
-    assert "Artist A - First Song.mp3" in client.get("/activity").text
+def test_activity(client: TestClient, settings: Settings) -> None:
+    html = client.get("/activity").text
+    assert "Artist A - First Song" in html and ">Added</span>" in html and ">Soulseek</span>" in html
     html = client.get("/activity", params={"kind": "rejected"}).text
-    assert "Gone Song" in html and "First Song" not in html
+    assert "Gone Song" in html and "First Song" not in html and ">another artist</span>" in html
+    con = db.connect(settings.db_path)  # an upgrade and the file it replaced: one entry, from -> to
+    old = "Artist A/Artist A - First Song.mp3"
+    columns = "ts, action, path, ext, bytes, kbps, reason, source, song, artist, title"
+    moved, why = f"/music/inbox/replaced/2026-09-30/{old}", f"replaced by genuine lossless (was {old})"
+    retired = ("retired", moved, "mp3", 8000000, 320, why)
+    upgrade = ("upgrade", "Artist A/Artist A - First Song.flac", "flac", 30000000, 900, None)
+    with con:
+        sql = f"INSERT INTO events ({columns}) VALUES ('2026-09-30T10:00:00', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        con.execute(sql, (*retired, None, None, None, None))
+        con.execute(sql, (*upgrade, "soulseek", "spotify:s1", "Artist A", "First Song"))
+    first, *rest = stats.activity(con)
+    assert (first["label"], first["was"], first["quality"]) == ("Upgraded", ("lossy-high", 320), ("lossless", 900))
+    assert not any(a["label"] == "Removed" for a in rest)
+    con.close()
 
 
 def test_jobs(client: TestClient) -> None:

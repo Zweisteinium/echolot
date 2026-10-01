@@ -39,4 +39,4 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
 
 @router.get("/activity", response_class=HTMLResponse)
 def activity(request: Request, con: DB, kind: str = "") -> HTMLResponse:
-    return page(request, "activity.html", nav="activity", events=stats.events(con, kind), kind=kind)
+    return page(request, "activity.html", nav="activity", entries=stats.activity(con, kind), kind=kind)
