@@ -174,13 +174,14 @@ def upgrade(e: sqlite3.Row) -> bool:
 def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
     """What to look at: probable matches still in the library without an applied decision, and kept
     rejected downloads of songs that are still missing, or genuine lossless ones of songs the library
-    has only lossy (accepting one replaces the lossy copy). Newest first."""
+    has only lossy (accepting one replaces the lossy copy; a SoundCloud song's FLAC always waits here,
+    'confirm'). Newest first."""
     decisions = {r["id"]: r for r in con.execute("SELECT * FROM review_decisions")}
     rows = con.execute(
         "SELECT e.*, s.length AS wanted_length, s.file AS song_file, s.artists AS song_artists, s.url AS song_url, "
         "f.quality AS song_quality, f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
         f"LEFT JOIN files f ON f.path = s.file WHERE (e.action IN {FILED} AND e.matched = 'probable') "
-        "OR (e.action IN ('wrong-song', 'mismatch') AND e.path LIKE ?) ORDER BY e.id DESC",
+        "OR (e.action IN ('wrong-song', 'mismatch', 'confirm') AND e.path LIKE ?) ORDER BY e.id DESC",
         (KEPT + "%",),
     ).fetchall()
     out: dict[str, list[Item]] = {"filed": [], "kept": []}

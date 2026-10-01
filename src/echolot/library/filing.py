@@ -219,10 +219,11 @@ def in_review(paths: Paths, artist: str, title: str) -> bool:
 
 
 def rejected_before(con: sqlite3.Connection, key: str) -> list[tuple[str, int]]:
-    """(name, seconds) of the downloads the checks rejected for the song in the last KEEP_DAYS days. The same
-    file would be rejected again, so it is not downloaded again (after that a changed rule gets its chance)."""
+    """(name, seconds) of the downloads the checks rejected (or kept for a confirmation) for the song in the
+    last KEEP_DAYS days. The same file would be rejected again, so it is not downloaded again (after that a
+    changed rule gets its chance)."""
     since = (datetime.datetime.now() - datetime.timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
-    sql = "SELECT file_name, seconds FROM events WHERE song = ? AND action IN ('wrong-song', 'mismatch') AND ts >= ?"
+    sql = "SELECT file_name, seconds FROM events WHERE song = ? AND action IN ('wrong-song', 'mismatch', 'confirm') AND ts >= ?"
     return [(n.strip(), s or 0) for n, s in con.execute(sql, (norm_key(key), since)) if n]
 
 
@@ -277,6 +278,7 @@ def file_into(
     fake: bool = False,
     heard: Evidence = UNKNOWN,
     url: str = "",
+    confirm: bool = False,
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -286,7 +288,9 @@ def file_into(
     review, or with probable=False (upgrades, SoundCloud uploader names) kept for review. `heard` is what
     the audio says (identity.check): the release's audio makes a probable match exact, other audio keeps
     even an exact one for review. A rejected download far off the length is deleted, not kept. `url` is
-    the page it was downloaded from (YouTube, SoundCloud), kept with the event."""
+    the page it was downloaded from (YouTube, SoundCloud), kept with the event. `confirm`: a genuine
+    lossless match is kept for review whatever the names say ('confirm'), a lossy or fake one deleted (a
+    SoundCloud song's FLAC: its names are an uploader's, so only you can tell)."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
@@ -302,8 +306,8 @@ def file_into(
             match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
             match = "exact"  # confirmed by the audio: no review needed
-        ok = match == "exact" or (match == "probable" and probable)
-        if match == "probable" and not probable:
+        ok = match == "exact" or (match == "probable" and (probable or confirm))
+        if match == "probable" and not probable and not confirm:
             why = f"{why} (not filed: {source} probable matches need a review)"
         if ok and is_blocked(con, key, [tag_title, file_name]):
             ok, why = False, "this download was marked wrong in review"
@@ -320,6 +324,13 @@ def file_into(
             event(con, paths, "mismatch", kept, wanted_seconds=round(length), **info)
             return "mismatch", None
         info["reason"] = why
+        if confirm:
+            if ext not in audio.LOSSLESS or fake:
+                src.unlink(missing_ok=True)
+                return "duplicate", None  # no better than the copy the song has
+            kept = keep(paths, src, want.artist, want.title, source)
+            event(con, paths, "confirm", kept, matched=match, **info)
+            return "confirm", None
     if match:
         info["matched"] = match
     length = dur or length

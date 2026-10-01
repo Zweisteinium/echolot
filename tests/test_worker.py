@@ -119,3 +119,39 @@ def test_cancel(w) -> None:
     assert wk.cancel("sync") and not wk.cancel("sweep")
     wait_for(lambda: (row := last(settings, "sync")) is not None and row["finished"] is not None)
     assert last(settings, "sync")["message"] == "cancelled: stopped early"
+
+
+def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
+    """A due sync does not wait for a long upgrade: the upgrade ends after its songs in progress, the sync
+    runs, then the upgrade goes on with the songs it left."""
+    wk, _, _, settings = w
+    con = db.connect(settings.db_path)
+    with con:  # nothing due by the schedule
+        options.update(con, options.Jobs, paused=False)
+        now = datetime.now().isoformat(timespec="seconds")
+        con.executemany(
+            "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
+        )
+    con.close()
+    ran: list[tuple[str, int | None]] = []
+
+    def upgrade(r: worker.Run) -> str:
+        ran.append(("upgrade", r.budget))
+        if r.budget is None and r.give_way.wait(5):
+            r.left = 7
+        return "upgrade done"
+
+    worker.FUNCTIONS["upgrade"] = upgrade
+    worker.FUNCTIONS["sync"] = lambda r: ran.append(("sync", r.budget)) or "sync done"
+    wk.trigger("upgrade")
+    wk._start_due()
+    wait_for(lambda: ran == [("upgrade", None)])
+    wk.trigger("sync")
+    wk._start_due()  # sync is due, Soulseek busy: the upgrade gives way
+    wait_for(lambda: not wk.runs)
+    assert wk.resume == {"upgrade": 7}
+    wk._start_due()  # the sync first (its turn), the upgrade waits for it
+    wait_for(lambda: not wk.runs)
+    wk._start_due()
+    wait_for(lambda: ran == [("upgrade", None), ("sync", None), ("upgrade", 7)])
+    assert wk.resume == {}
