@@ -19,6 +19,8 @@ from echolot.library import rules
 
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "manual": "by hand"}
 SOURCES["soundcloud-search"] = "SoundCloud"
+# where yt-dlp puts the page it downloaded (the video's description, links and all, goes elsewhere)
+PAGE_FIELDS = {"vorbis": ["purl", "comment", "description"], "mp4": ["\xa9cmt"], "id3": ["COMM", "TXXX:purl"]}
 LINK = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|soundcloud\.com/[^\s\"']+)")
 # never part of a SoundCloud title: release decoration, not the song (version words stay)
 _DECOR = r"free\s*(?:dl|d/l|download)|out\s*now|premiere|lyrics?(?:\s+video)?|visuali[sz]er|hq|hd|4k(?:\s+upgrade)?"
@@ -86,16 +88,15 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
 
 
 def download_of(con: sqlite3.Connection, rel: str, path: Path, songs: list[sqlite3.Row]) -> str:
-    """Where a file was downloaded from, by the best evidence: the link Echolot recorded, a link yt-dlp left
-    in its tags, the source Echolot recorded, a SoundCloud song's own download; a FLAC or a file with
+    """Where a file was downloaded from, by the best evidence: the link Echolot recorded, the page yt-dlp
+    left in its tags, the source Echolot recorded, a SoundCloud song's own download; a FLAC or a file with
     an uploader's album tags came from Soulseek. '' when nothing tells."""
     e = con.execute(LAST_FILED, (rel,)).fetchone()
     if e and e["url"]:
         return e["url"]
     existing = read(path)
-    links = [m[0] for m in LINK.finditer(existing["text"]) if m[0] not in existing["sources"]]  # not our SOURCE
-    if links and (not e or e["source"] != "soulseek"):
-        return links[0]
+    if existing["page"] and (not e or e["source"] != "soulseek"):
+        return existing["page"]
     if e and e["source"] in SOURCES:
         return SOURCES[e["source"]]
     if existing["download"]:
@@ -120,9 +121,10 @@ def _raw(path: Path) -> Any:
 
 
 def read(path: Path) -> dict[str, Any]:
-    """What a file's tags hold, in Tags terms, plus 'text': every text value (to find links in)."""
+    """What a file's tags hold, in Tags terms, plus 'page': the page yt-dlp downloaded it from, and 'text':
+    every text value."""
     out: dict[str, Any] = {"artists": [], "albumartist": "", "title": "", "album": "", "sources": [], "download": ""}
-    out |= {"track": "", "text": ""}
+    out |= {"track": "", "page": "", "text": ""}
     try:
         m = _raw(path)
     except Exception:
@@ -136,6 +138,7 @@ def read(path: Path) -> dict[str, Any]:
     out |= {"album": " ".join(get("ALBUM")), "sources": get("SOURCE"), "download": " ".join(get("DOWNLOAD"))}
     out["track"] = " ".join(get("TRACK"))
     out["text"] = " ".join(str(v) for v in _values(t))
+    out["page"] = _page(t)
     return out
 
 
@@ -166,6 +169,17 @@ def _getter(t: Any) -> Callable[[str], list[str]]:
         return [str(v) for v in t.get(key.lower(), []) or t.get(key, [])]
 
     return get
+
+
+def _page(t: Any) -> str:
+    """The first of yt-dlp's page fields that is a link and nothing else."""
+    kind = _kind(t)
+    for key in PAGE_FIELDS[kind]:
+        values = [v for f in t.getall(key) for v in f.text] if kind == "id3" else t.get(key, [])
+        for v in map(str, values):
+            if LINK.fullmatch(v.strip()):
+                return v.strip()
+    return ""
 
 
 def _values(t: Any) -> list[Any]:
