@@ -315,7 +315,7 @@ def test_a_run_that_gives_way_leaves_the_rest(run: Run, monkeypatch: pytest.Monk
     rows = missing(run) * 3  # three songs to search (the same one: only the first is)
     message = acquire._search(run, rows, "search")
     assert len(rows) > 1 and len(FakeDaemon.searches) == 1
-    assert run.left == len(rows) - 1 and message.endswith(f"; gave way, {run.left} after the next job")
+    assert run.left == len(rows) - 1 and message.endswith(f"; gave way, {run.left} left")
 
 
 def test_a_soundcloud_songs_flac_waits_for_review(run: Run) -> None:

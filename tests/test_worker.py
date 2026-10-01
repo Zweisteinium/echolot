@@ -155,3 +155,26 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
     wk._start_due()
     wait_for(lambda: ran == [("upgrade", None), ("sync", None), ("upgrade", 7)])
     assert wk.resume == {}
+
+
+def test_pausing_ends_scheduled_runs_after_their_songs(w) -> None:
+    """A pause (as a deploy does) makes the scheduled runs give way; a run started by hand goes on."""
+    wk, _, release, settings = w  # paused
+    wk.trigger("sync")
+    wk._start_due()
+    wait_for(lambda: "sync" in wk.runs)
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Jobs, paused=False)
+        con.execute("DELETE FROM jobs WHERE name != 'sync'")  # never run: due
+    con.close()
+    wk._start_due()
+    wait_for(lambda: {"soundcloud", "library"} <= set(wk.runs))
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Jobs, paused=True)
+    con.close()
+    wk._start_due()
+    assert wk.runs["soundcloud"].give_way.is_set() and wk.runs["library"].give_way.is_set()
+    assert wk.runs["sync"].trigger == "manual" and not wk.runs["sync"].give_way.is_set()
+    release.set()

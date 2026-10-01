@@ -50,3 +50,29 @@ def test_tags_normalize(
     con.close()
     with pytest.raises(SystemExit, match="Pause the jobs first"):
         main(["tags", "normalize"])
+
+
+def test_jobs_pause_waits_for_the_running_ones(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What a deploy does: remember whether the jobs were paused, pause them and wait until none runs."""
+    from echolot import db
+    from echolot.settings import options
+
+    monkeypatch.setenv("ECHOLOT_DATA_DIR", str(settings.data_dir))
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Jobs, paused=False)
+        con.execute(
+            "INSERT OR REPLACE INTO jobs (name, started, finished) VALUES ('upgrade', '2026-10-01T21:30:00', NULL)"
+        )
+    assert main(["jobs", "status"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["paused: no", "running: upgrade"]
+    assert main(["jobs", "pause", "--wait", "--timeout", "0"]) == 1  # still running
+    assert "Still running after 0 min: upgrade." in capsys.readouterr().out
+    assert options.get(con, options.Jobs).paused
+    with con:
+        con.execute("UPDATE jobs SET finished = '2026-10-01T21:40:00'")
+    assert main(["jobs", "pause", "--wait"]) == 0
+    assert main(["jobs", "resume"]) == 0 and not options.get(con, options.Jobs).paused
+    con.close()
