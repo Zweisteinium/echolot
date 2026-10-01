@@ -1,12 +1,11 @@
 {# one download of a song card (_review_group.html): play button, what it is, the facts, why it waits,
    the answers; Close match opens a line to name what the file is -#}
-{% from "_macros.html" import quality -%}
+{% from "_macros.html" import facts -%}
 {% from "_icons.html" import icon -%}
 {% set e = i.event -%}
 {% set d_artist, d_title, other = i.download -%}
 {% set goes = taken and taken.event.id != e.id and not i.decision -%}
 {% set open = not i.decision and not goes -%}
-{% set SOURCES = {'soulseek': 'Soulseek', 'youtube': 'YouTube', 'soundcloud': 'SoundCloud', 'soundcloud-search': 'SoundCloud'} -%}
 {% if i.kind == 'filed' -%}
 {% set note = [e.reason|replace('back in review: ', 'Back for a check: ') if e.action == 'recheck', e.audio]|select|join(' · ') -%}
 {% set HELP = {
@@ -29,13 +28,7 @@
   <div class="download-body">
     <div class="download-name">{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}</div>
     <div class="seek" title="Jump to"><span class="seek-done"></span></div>
-    <div class="download-facts">
-      <span class="source">{{ SOURCES.get(e.source, e.source) }}</span>
-      <span class="{{ 'fits' if i.length_diff is not none and i.length_diff|abs <= 3 else 'off' if i.length_diff is not none }}">{{ e.seconds|mmss }}{% if i.length_diff is not none and i.length_diff|abs > 0 %} ({{ '%+d'|format(i.length_diff) }} s){% endif %}</span>
-      {{ quality(i.quality, e.kbps) }}
-      {% if e.bytes %}<span>{{ e.bytes|size }}</span>{% endif %}
-      <span class="play-time"></span>
-    </div>
+    <div class="facts">{{ facts(e.source, e.seconds, i.length_diff, i.quality, e.kbps, e.bytes) }}<span class="play-time"></span></div>
     {% if note %}<div class="download-why">{{ note }}</div>{% endif %}
     {% if open and 'close' in dict(i.choices) %}
     <div class="close-line" id="close-line-{{ e.id }}" hidden>
