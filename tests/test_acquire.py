@@ -12,7 +12,7 @@ from echolot.config import Settings
 from echolot.jobs import acquire
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
-from echolot.library import audio, filing, review, tagging
+from echolot.library import audio, catalog, filing, identity, review, tagging
 from echolot.library.filing import Want
 from echolot.services import soulseek
 from echolot.settings import options, vault
@@ -346,3 +346,40 @@ def test_a_soundcloud_songs_flac_waits_for_review(run: Run) -> None:
     paths = sorted(r[0] for r in con.execute("SELECT path FROM files WHERE path LIKE 'Uploader/%'"))
     con.close()
     assert paths == ["Uploader/Uploader - Trance Tune.flac"]
+
+
+def test_a_song_the_library_has_under_other_names_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spotify lists First Song twice: by ISRC, and as a single by another artist whose release sounds like
+    the library's file. Both are linked to Artist A's file instead of being searched."""
+    con = run.connect()
+    with con:
+        con.execute("UPDATE songs SET isrc = 'QZAAA0000001' WHERE key = 'spotify:s1'")
+        con.execute("UPDATE files SET duration = 201 WHERE path = 'Artist A/Artist A - First Song.mp3'")
+        sql = "INSERT INTO songs (key, service, artist, title, length, isrc) VALUES (?, 'spotify', ?, ?, 201, ?)"
+        con.execute(sql, ("spotify:twin", "Artist Z", "First Song - Single Version", "QZAAA0000001"))
+        con.execute(sql, ("spotify:single", "Artist Y", "First Song (Radio Edit)", "QZBBB0000002"))
+        con.executemany("INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:likes', ?, ?)",
+                        [(10, "spotify:twin"), (11, "spotify:single")])  # fmt: skip
+    from echolot.library import recordings
+
+    assert recordings.link_isrc(con, run.paths) == 1
+    catalog.match_songs(con)
+    assert con.execute("SELECT file FROM songs WHERE key = 'spotify:twin'").fetchone()[0] == (
+        "Artist A/Artist A - First Song.mp3"
+    )
+    con.close()
+    monkeypatch.setattr(identity, "check", lambda con, isrc, path, any_length=False: identity.Evidence("same", "x"))
+    rows = [r for r in missing(run) if r["key"] == "spotify:single"]
+    assert acquire._search(run, rows, "search") == "1 of 1 songs: 1 linked"
+    assert FakeDaemon.searches == []  # not searched
+    con = run.connect()
+    catalog.match_songs(con)
+    assert con.execute("SELECT file FROM songs WHERE key = 'spotify:single'").fetchone()[0] == (
+        "Artist A/Artist A - First Song.mp3"
+    )
+    reasons = [r[0] for r in con.execute("SELECT reason FROM events WHERE action = 'linked' ORDER BY id")]
+    con.close()
+    assert reasons == [
+        "same recording as Artist A/Artist A - First Song.mp3 (ISRC QZAAA0000001)",
+        "same recording as Artist A/Artist A - First Song.mp3 (the release's audio)",
+    ]

@@ -103,3 +103,27 @@ def _get(url: str, raw: bool = False) -> Any:
     req = urllib.request.Request(url, headers={"User-Agent": "Echolot (self-hosted music library)"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read() if raw else json.load(r)
+
+
+def alike(a: Path, b: Path) -> float:
+    """How alike two recordings are: the least share of equal bits of three 25 s pieces of the shorter file
+    (at a quarter, a half and three quarters) at their best place in the longer one. From about 0.85 the
+    same recording (a remix that shares the chorus differs somewhere); 0.0 if one could not be read."""
+    da, _ = audio.probe(a)
+    db, _ = audio.probe(b)
+    if not da or not db:
+        return 0.0
+    short, long_, d = (a, b, da) if da <= db else (b, a, db)
+    whole = fingerprint(long_)
+    if whole is None or not len(whole):
+        return 0.0
+    shares = []
+    for at in (0.25, 0.5, 0.75):
+        cmd = ["ffmpeg", "-v", "error", "-ss", str(max(0.0, d * at - 12.5)), "-t", "25", "-i", str(short)]
+        try:
+            piece = subprocess.run([*cmd, "-ac", "1", "-f", "wav", "-"], capture_output=True, timeout=120).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return 0.0
+        ref = fingerprint(piece) if piece else None
+        shares.append(similarity(ref, whole) if ref is not None and len(ref) else 0.0)
+    return min(shares)

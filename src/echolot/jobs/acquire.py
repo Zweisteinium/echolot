@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, identity, rules, tagging
+from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import soulseek, spotify, ytdlp
 from echolot.settings import options
@@ -46,7 +46,7 @@ LOOSEN = [(4, {"desperate": True, "strict_artist": False}), (2, {"desperate": Tr
 MAX_RESULTS = 5  # downloads tried per song and attempt
 SEARCH_SECONDS = 300  # a search waits at most this long (queued behind the rate limit included)
 TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
-FOUND = {"new", "upgrade", "duplicate"}
+FOUND = {"new", "upgrade", "duplicate", "linked"}  # linked: the library had it under other names
 
 
 def stage(tries: int) -> int:
@@ -272,6 +272,11 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         return "nothing to search"
     fetcher = Fetcher(run, purpose)
     fetcher.daemon.status()  # reachable (it logs in to Soulseek with the first search)
+    con = run.connect()
+    try:
+        index = recordings.Index(catalog.Catalog.from_db(con))
+    finally:
+        con.close()
     deadline = time.monotonic() + 20 * 60 + 15 * len(songs)  # a run shares Soulseek with the others
     counts: dict[str, int] = {}
     done = 0
@@ -283,7 +288,8 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
             return
         want = _want(row)
         try:
-            outcome = fetcher.song(want, row["tries"])
+            outcome = _in_library(run, want, index) if purpose == "search" else None
+            outcome = outcome or fetcher.song(want, row["tries"])
         except soulseek.Lost:
             outcome = Outcome("interrupted", "the daemon restarted")
         except soulseek.Cancelled:
@@ -314,6 +320,18 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         run.left = len(songs) - done  # searched after the job that is due (worker.resume)
         summary += f"; gave way, {run.left} left"
     return summary
+
+
+def _in_library(run: "Run", want: Want, index: recordings.Index) -> Outcome | None:
+    """The song is a library file under other names (its release's audio): linked, not searched."""
+    con = run.connect()
+    try:
+        if e := recordings.in_library(con, run.paths, want, index):
+            recordings.link(con, run.paths, want.key, want, e, "the release's audio")
+            return Outcome("linked", e.path)
+        return None
+    finally:
+        con.close()
 
 
 def _want(row: sqlite3.Row) -> Want:
@@ -357,6 +375,9 @@ def sync(run: "Run") -> str:
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
+        if linked := recordings.link_isrc(con, run.paths):  # the library has them under other names
+            catalog.match_songs(con)
+            parts.append(f"{linked} linked by ISRC")
         now = time.time()
         songs = [r for r in _spotify_missing(con) if due(r["tries"], r["last_try"], *MISSING_RETRY, now)]
     finally:
@@ -370,6 +391,8 @@ def sweep(run: "Run") -> str:
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
+        if recordings.link_isrc(con, run.paths):
+            catalog.match_songs(con)
         songs = _spotify_missing(con)
     finally:
         con.close()

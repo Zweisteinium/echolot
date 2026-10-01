@@ -33,6 +33,8 @@ JUNK = [
     rf"\s*[\(\[]\s*(?:{_DECOR}|{_OFFICIAL})\s*[\)\]]",
     rf"\s*\[\s*(?!{_VERSION})[A-Za-z]{{2,10}}\s?-?\d{{2,5}}\s*\]",  # catalogue numbers: [ARONAVA08], [HAK003]
     r"\s+[|•]\s.*$",
+    # "[NOW ON SPOTIFY]", "( deleting soon save it on spotify )"; not a version ("(Spotify Singles)")
+    r"\s*[\(\[](?![^\)\]]*\b(?:remix|edit|mix|vip|version|rework|bootleg|flip|live|singles?|sessions?|studios?)\b)[^\)\]]*\b(?:spotify|deleting|deleted)\b[^\)\]]*[\)\]]",
 ]
 LAST_FILED = "SELECT source, url FROM events WHERE path = ? AND action IN ('new', 'upgrade', 'linked') ORDER BY id DESC"
 # what players read beside or before the fields written (Navidrome's aliases): other spellings of the album

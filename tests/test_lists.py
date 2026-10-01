@@ -196,3 +196,26 @@ def test_a_soundcloud_title_naming_a_known_artist_is_turned_round(run: Run) -> N
     assert lists._names(con, "user-1", "NA", "Artist A - First Song") == ("Artist A", "First Song")
     assert lists._names(con, "someone", "NA", "DJ Nobody - Night Drive") == ("DJ Nobody", "Night Drive")
     con.close()
+
+
+def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Night Drive is in the library under another artist name and sounds the same: the SoundCloud song is
+    linked to that file, nothing is filed twice."""
+    monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
+    monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))
+    monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
+    monkeypatch.setattr("echolot.library.identity.alike", lambda a, b: 0.95)
+    there = run.paths.tracks / "Night Rider" / "Night Rider - Night Drive (Original Mix).wav"
+    there.parent.mkdir(parents=True)
+    with wave.open(str(there), "wb") as w:
+        w.setnchannels(1), w.setsampwidth(1), w.setframerate(100)
+        w.writeframes(b"\x80" * 100 * 251)
+    library(run)
+    assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 0 new files"
+    library(run)
+    con = run.connect()
+    assert con.execute("SELECT file FROM songs WHERE key = 'soundcloud:2002'").fetchone()[0] == (
+        "Night Rider/Night Rider - Night Drive (Original Mix).wav"
+    )
+    assert not (run.paths.tracks / "DJ Nobody").exists()
+    con.close()
