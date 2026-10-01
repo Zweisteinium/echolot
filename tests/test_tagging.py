@@ -103,6 +103,9 @@ def test_where_a_download_came_from(env) -> None:
         sql = "INSERT INTO events (ts, action, path, source, url) VALUES ('2026-10-01T10:00:00', 'new', ?, ?, ?)"
         con.execute(sql, ("A/A - Song.opus", "youtube", "https://www.youtube.com/watch?v=recorded"))
     assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://www.youtube.com/watch?v=recorded"
+    f = copy(paths, "flac", "B/B - Song")  # a page in SOURCE is where the song is, not where the file came from
+    tagging.write(f, Tags(["B"], "B", "Song", None, ["https://soundcloud.com/b/song"], "Soulseek"))
+    assert tagging.download_of(con, "B/B - Song.flac", f, []) == "Soulseek"
 
 
 @pytest.mark.parametrize(
