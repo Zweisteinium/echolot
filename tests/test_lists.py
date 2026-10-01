@@ -183,3 +183,16 @@ def library(run: Run) -> None:
     con = run.connect()
     catalog.refresh(con, run.paths.tracks)
     con.close()
+
+
+def test_a_soundcloud_title_naming_a_known_artist_is_turned_round(run: Run) -> None:
+    """'Song - Artist' from an uploader who is neither: the side that is an artist of the Spotify songs is the
+    artist (else a duplicate of the Spotify song, filed under the song's title as artist)."""
+    con = run.connect()
+    assert lists._names(con, "user-1", "NA", "First Song (Hardstyle) - Artist A") == (
+        "Artist A",
+        "First Song (Hardstyle)",
+    )
+    assert lists._names(con, "user-1", "NA", "Artist A - First Song") == ("Artist A", "First Song")
+    assert lists._names(con, "someone", "NA", "DJ Nobody - Night Drive") == ("DJ Nobody", "Night Drive")
+    con.close()

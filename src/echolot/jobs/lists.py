@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from echolot.jobs.acquire import finish
-from echolot.library import audio, filing
+from echolot.library import audio, filing, rules
 from echolot.library.filing import Want
 from echolot.services import spotify, ytdlp
 from echolot.settings import sources
@@ -215,8 +215,8 @@ def soundcloud(run: "Run") -> str:
                     continue
                 meta = ydl.meta(url, run.stop)
                 if meta and not meta.get("formats"):
-                    artist, title = ytdlp.artist_title(meta.get("uploader") or "", meta.get("artist") or "",
-                                                        meta.get("title") or "")  # fmt: skip
+                    artist, title = _names(con, meta.get("uploader") or "", meta.get("artist") or "",
+                                           meta.get("title") or "")  # fmt: skip
                     with con:
                         if _song(con, f"soundcloud:{tid}", "soundcloud", artist=artist, title=title,
                                  length=meta.get("duration") or 0, url=url):  # fmt: skip
@@ -259,9 +259,23 @@ def _sc_pages(run: "Run", ydl: ytdlp.YtDlp, urls: dict[str, str]) -> None:
         con.close()
 
 
+def _names(con: sqlite3.Connection, uploader: str, artist: str, title: str) -> tuple[str, str]:
+    """A SoundCloud track's artist and title (ytdlp.artist_title), turned round when the title is an artist
+    of your Spotify songs and the artist is not: "Outside (Hardstyle) - crypvolk", uploaded by neither."""
+    a, t = ytdlp.artist_title(uploader, artist, title)
+    known = {
+        rules.artist_key(name)
+        for r in con.execute("SELECT artist, artists FROM songs WHERE service = 'spotify'")
+        for name in [r["artist"], *json.loads(r["artists"] or "[]")]
+        if name
+    }
+    if rules.artist_key(t) in known and rules.artist_key(a) not in known:
+        return t, a
+    return a, t
+
+
 def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
-    """File one SoundCloud download (its title often holds the artist: ytdlp.artist_title)."""
-    artist, title = ytdlp.artist_title(d["uploader"], d["artist"], d["title"])
+    """File one SoundCloud download (its title often holds the artist: _names)."""
     key = f"soundcloud:{d['id']}"
     try:
         prepared = audio.prepare(Path(d["path"]))
@@ -269,9 +283,10 @@ def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
         log.warning("soundcloud %s: %s", key, e)
         return 0
     length = float(d["duration"] or 0) if d["duration"] not in ("NA", "") else 0
-    want = Want(artist, title, length, key)
     con = run.connect()
     try:
+        artist, title = _names(con, d["uploader"], d["artist"], d["title"])
+        want = Want(artist, title, length, key)
         with con:
             _song(con, key, "soundcloud", artist=artist, title=title, length=length, url=url)
         page = url if url.startswith("https://soundcloud.com/") else ""  # a set lists some tracks by API address
