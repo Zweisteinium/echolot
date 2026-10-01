@@ -51,8 +51,22 @@ def test_written_tags_read_back_and_the_comment_stays(env, ext: str) -> None:
         m = File(p)
         m.tags["\xa9cmt" if ext == "m4a" else "comment"] = ["3A - 160"]
         m.save()
+    stale = {"mp3": "TSO2", "wav": "TSO2", "m4a": "soaa"}.get(ext, "album_artist")  # the uploader's album artist
+    m = File(p)
+    if m.tags is None:
+        m.add_tags()
+    if ext in ("mp3", "wav"):
+        from mutagen.id3 import TSO2
+
+        m.tags.add(TSO2(encoding=3, text=["Hardwell, Azteck & Hepburn, Alex"]))
+    else:
+        m.tags[stale] = ["Hardwell, Azteck & Hepburn, Alex"]
+    m.save()
+    assert tagging.read(p)["stale"] == {stale: ["Hardwell, Azteck & Hepburn, Alex"]}
+    assert "stale" in tagging.differs(p, TAGS)
     tagging.write(p, TAGS)
     now = tagging.read(p)
+    assert now["stale"] == {}  # what players would read beside the album artist is gone
     assert now["artists"] == TAGS.artists and now["albumartist"] == "Hardwell" and now["title"] == TAGS.title
     assert now["album"] == TAGS.album and now["sources"] == TAGS.sources and now["download"] == "Soulseek"
     assert tagging.differs(p, TAGS) == []  # a second write changes nothing
