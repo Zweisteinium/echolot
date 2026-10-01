@@ -93,8 +93,9 @@ def download_of(con: sqlite3.Connection, rel: str, path: Path, songs: list[sqlit
     if e and e["url"]:
         return e["url"]
     existing = read(path)
-    if (found := LINK.search(existing["text"])) and (not e or e["source"] != "soulseek"):
-        return found[0]
+    links = [m[0] for m in LINK.finditer(existing["text"]) if m[0] not in existing["sources"]]  # not our SOURCE
+    if links and (not e or e["source"] != "soulseek"):
+        return links[0]
     if e and e["source"] in SOURCES:
         return SOURCES[e["source"]]
     if existing["download"]:
