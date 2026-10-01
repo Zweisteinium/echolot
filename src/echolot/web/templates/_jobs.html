@@ -3,7 +3,7 @@
   <div class="card-head">
     <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
     <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}
-      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule; Run now still works">Pause all</button>{% endif %}
+      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; Run now still works">Pause all</button>{% endif %}
     </form>
   </div>
   <table class="rows jobs">
