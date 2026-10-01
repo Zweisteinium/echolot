@@ -41,16 +41,16 @@
 </section>
 
 <section class="card quality-card">
-  <h2>Quality of your library <span class="count">{{ donut.total|num }} files</span></h2>
+  <h2>Quality of your library <span class="count">{{ o.files|num }} files{% if missing %} · {{ missing|num }} songs missing{% endif %}</span></h2>
   <div class="quality-split">
     {{ donut_chart(donut, share(o.lossless, donut.total), 'FLAC') }}
     <table class="legend-table">
-      <thead><tr><th colspan="2">Tier</th><th class="num">Files</th><th class="num">Share</th></tr></thead>
+      <thead><tr><th colspan="2">Tier</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
       <tbody>
       {% for k, label, n in o.tiers %}
       <tr class="q-{{ k }}{{ ' dim' if not n }}">
         <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
-        <td>{{ label }}</td>
+        <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
         <td class="num">{{ n|num }}</td>
         <td class="num muted">{{ share(n, donut.total) }}</td>
       </tr>
