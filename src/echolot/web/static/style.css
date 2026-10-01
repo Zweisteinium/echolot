@@ -148,6 +148,9 @@ a.pill { text-decoration: none; }
 .dot.on { background: var(--ok); opacity: 1; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 .dot.wait { background: var(--warn); opacity: 1; }
 .dot.err { background: var(--bad); opacity: 1; }
+.info-toggle { border: none; background: none; padding: 0 0.15rem; color: var(--muted); cursor: pointer; vertical-align: -0.15em; }
+.info-toggle:hover, .info-toggle[aria-expanded="true"] { color: var(--text); }
+.job-info { margin: 0.35rem 0 0.15rem; max-width: 60ch; line-height: 1.45; color: var(--text); }
 
 .flash { border-radius: var(--radius); padding: 0.6rem 1rem; border: 1px solid; }
 .flash.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent);

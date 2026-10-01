@@ -5,8 +5,8 @@ by name (catalog.Catalog.song), each got its own file. So the library is asked f
   link_isrc   a missing song whose ISRC another song has a file of is linked to that file
   in_library  before a missing song is searched: a file with the same core title and length (±3 s) that
               sounds like the song's release (identity.check) is the song
-  already     before a SoundCloud download is filed: a file with the same core title and length that sounds
-              the same (identity.alike) is the song; a genuine FLAC still replaces a lossy copy
+  already     before a SoundCloud or YouTube download is filed: a file with the same core title and length
+              that sounds the same (identity.alike) is the song; a genuine FLAC still replaces a lossy copy
 
 Either way the song is linked to the file (songs.link, as a review link) and an event says why."""
 

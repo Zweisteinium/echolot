@@ -1,6 +1,7 @@
 """Getting songs through the Soulseek daemon (acquire.py), against a fake daemon, with real filing."""
 
 import threading
+import time
 import wave
 from pathlib import Path
 from typing import ClassVar
@@ -383,3 +384,74 @@ def test_a_song_the_library_has_under_other_names_is_linked(run: Run, monkeypatc
         "same recording as Artist A/Artist A - First Song.mp3 (ISRC QZAAA0000001)",
         "same recording as Artist A/Artist A - First Song.mp3 (the release's audio)",
     ]
+
+
+def add_missing(run: Run, key: str, title: str, tries: int = 0, last_try: int = 0, last_fallback: int = 0) -> None:
+    con = run.connect()
+    with con:
+        sql = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', 'Artist N', ?, 200)"
+        con.execute(sql, (key, title))
+        sql = "INSERT INTO list_songs (list_key, position, song_key) SELECT 'spotify:likes', max(position) + 1, ? FROM list_songs"
+        con.execute(sql, (key,))
+        if tries or last_fallback:
+            sql = "INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES (?, ?, ?, ?)"
+            con.execute(sql, (key, tries, last_try, last_fallback))
+    con.close()
+
+
+def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
+    run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only songs never searched; Gone Song (searched 3 times) is the evening search's. One Soulseek does not
+    have goes to YouTube and SoundCloud right after."""
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "Spotify: 0 lists read")
+    add_missing(run, "spotify:new", "New Song")
+    acquire.sync(run)
+    assert [s[1] for s in FakeDaemon.searches] == ["New Song"] and "fallback" in run.after
+    run.after.clear()
+    FakeDaemon.files["Newer Song"] = [("u1", "Music\\Artist N\\Artist N - Newer Song.flac", 200, "ok")]
+    add_missing(run, "spotify:newer", "Newer Song")
+    acquire.sync(run)
+    assert "fallback" not in run.after  # found: nothing for the fallback
+
+
+def test_the_evening_search_takes_each_song_daily_then_weekly(run: Run) -> None:
+    now = int(time.time())
+    add_missing(run, "spotify:recent", "Recent Song", tries=1, last_try=now - 3600)  # searched an hour ago
+    add_missing(run, "spotify:old", "Old Song", tries=8, last_try=now - 2 * 86400)  # weekly by now
+    add_missing(run, "spotify:due", "Due Song", tries=8, last_try=now - 7 * 86400)
+    acquire.sweep(run)
+    assert sorted(s[1] for s in FakeDaemon.searches) == ["Due Song", "Gone Song"]
+
+
+def test_the_fallback_takes_new_misses_first_and_the_upgrade_waits(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """After one Soulseek miss; a song never tried before one tried a week ago. A lossy file filed from
+    YouTube gets its first FLAC search 12 h later (Soulseek just had nothing)."""
+    add_missing(run, "spotify:new", "New Song", tries=1, last_try=int(time.time()))
+    con = run.connect()
+    with con:
+        con.execute(
+            "UPDATE attempts SET last_fallback = ? WHERE song_key = 'spotify:s3'", (int(time.time()) - 8 * 86400,)
+        )
+    con.close()
+    ydl = FakeYtDlp({"youtube": [hit("yt-new", "Artist N", "Artist N - New Song", 200)]}, {})
+    monkeypatch.setattr(acquire.ytdlp, "YtDlp", lambda *a, **k: ydl)
+    assert acquire.fallback(run).startswith("1 of ")
+    first = [q.split(' "')[0] for q in ydl.queries if q.endswith('"Provided to YouTube"')]
+    assert first.index("Artist N New Song") < first.index("Artist C Gone Song")  # never tried before tried
+    con = run.connect()
+    tries, last = con.execute("SELECT tries, last_try FROM upgrades WHERE song_key = 'spotify:new'").fetchone()
+    con.close()
+    assert tries == 1 and not acquire.due(tries, last, *acquire.UPGRADE_WAIT, time.time())
+
+
+def test_a_fallback_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gone Song is in the library under another artist's name and sounds the same: linked, not filed."""
+    monkeypatch.setattr(identity, "alike", lambda a, b: 0.95)
+    wav(run.paths.tracks / "Other Name" / "Other Name - Gone Song (Radio Edit).wav", 181)
+    con = run.connect()
+    catalog.refresh(con, run.paths.tracks)
+    ydl = FakeYtDlp({"youtube": [hit("yt-gone", "Artist C", "Artist C - Gone Song", 180)]}, {})
+    action, _ = acquire._fallback_song(run, con, ydl, Want("Artist C", "Gone Song", 180, "spotify:s3"), 2, True)
+    con.close()
+    assert action == "linked" and not (run.paths.tracks / "Artist C" / "Artist C - Gone Song.wav").exists()

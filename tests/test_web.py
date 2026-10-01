@@ -224,7 +224,7 @@ def test_connection_line(client: TestClient) -> None:
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
-    assert "Spotify → Soulseek" in client.get("/settings").text
+    assert "New Spotify songs" in client.get("/settings").text
     form = {j.name: schedule.when_text(j.default) for j in schedule.JOBS} | {
         "sync": "20",
         "fallback": "0",

@@ -35,6 +35,23 @@
     {% block content %}{% endblock %}
   </main>
   <script>
+    // info buttons (data-info="id") show or hide a text. The jobs table is reloaded every few seconds: the open
+    // ones are remembered and opened again in the new table
+    const openInfo = new Set();
+    const showInfo = (id, open) => {
+      const text = document.getElementById(id);
+      if (!text) return;
+      text.hidden = !open;
+      document.querySelector(`[data-info="${id}"]`)?.setAttribute("aria-expanded", String(open));
+    };
+    document.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-info]");
+      if (!b) return;
+      const open = !openInfo.has(b.dataset.info);
+      open ? openInfo.add(b.dataset.info) : openInfo.delete(b.dataset.info);
+      showInfo(b.dataset.info, open);
+    });
+    document.addEventListener("htmx:load", () => openInfo.forEach((id) => showInfo(id, true)));
     // copy buttons (data-copy="#id"): the clipboard API needs https; on plain http select and copy
     document.addEventListener("click", async (ev) => {
       const b = ev.target.closest("[data-copy]");

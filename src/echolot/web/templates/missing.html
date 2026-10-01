@@ -43,7 +43,7 @@
           <dl>
             {% if s.tries %}
             <dt>Soulseek</dt>
-            <dd>{{ s.tries }} search{{ 'es' if s.tries != 1 }}, last {{ s.last_try|ago }}{% if s.next_try %}, next {{ s.next_try|until }}{% endif %} · {{ STAGES[s.stage][0] }}
+            <dd>{{ s.tries }} search{{ 'es' if s.tries != 1 }}, last {{ s.last_try|ago }}{% if s.next_try %}{% set u = s.next_try|until %}, again at the first Missing songs run {{ 'from now' if u == 'due now' else u ~ ' or later' }}{% endif %} · {{ STAGES[s.stage][0] }}
               {% set r = s.result %}
               {% if r %}<div>Last search: {{ found(r) }}</div>
                 {% for name, action, detail in r.tried %}<div class="muted item"><span class="name" title="{{ name }}">{{ name }}</span>: {{ outcome(action, detail) }}</div>{% endfor %}
