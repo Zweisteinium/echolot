@@ -196,6 +196,7 @@ EVENTS = {
     "linked": ("Linked", ""),
     "recheck": ("Back in review", "warn"),
     "restored": ("Restored", ""),
+    "retagged": ("Retagged", ""),
 }
 MATCHED = {"probable": ("probable match", "warn"), "review": ("from review", ""), "close": ("close match", "")}
 REPLACED = "replaced by genuine lossless"  # a retired file's reason when an upgrade took its place
@@ -248,6 +249,7 @@ def _entry(e: Row) -> dict[str, Any]:
     action, reason = e["action"], (e["reason"] or "").strip()
     label, style = EVENTS.get(action, (action.capitalize(), ""))
     song = f"{e['artist']} – {e['title']}" if e["artist"] else _stem(reason.rpartition("(was ")[2] or e["path"])
+    song = "Your library" if action == "retagged" else song
     entry: dict[str, Any] = {"ts": e["ts"], "label": label, "style": style, "key": e["song"], "url": e["song_url"]}
     entry |= {"song": song, "source": e["source"], "quality": _quality(e), "seconds": e["seconds"], "bytes": e["bytes"]}
     entry |= {"tag": None, "note": "", "title": reason, "diff": None, "was": None, "was_bytes": None}

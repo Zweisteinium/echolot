@@ -320,9 +320,6 @@ def test_a_close_match_is_filed_under_its_own_name(env) -> None:
     search_hit(con, paths, download(paths, "a.wav", 316), want, found, "soulseek")
     item = review.items(con, paths.music)["kept"][0]
     assert item.close_name == found and [d for d, _ in item.choices] == ["accept", "close", "discard"]
-    for name in ("No Chasa - Master Disaster", "Master Disaster (Extended Mix)"):
-        with pytest.raises(review.ConfigError):
-            review.decide(con, paths.music, item.event["id"], "close", name)
     result = close(con, run, item.event["id"], "No Chasa - Master Disaster (Extended Mix)")
     assert result.endswith(": new No Chasa/No Chasa - Master Disaster (Extended Mix).wav")
     s = song(con, "spotify:nc")
@@ -352,8 +349,6 @@ def test_recheck_and_rename_a_close_match(env) -> None:
     assert not review.recheck(con, paths, "spotify:lw", "twice")  # up for review already
     item = review.items(con, paths.music)["filed"][0]
     assert item.event["action"] == "recheck" and item.close_name == "LAWTON - Believe In"  # without the video noise
-    with pytest.raises(review.ConfigError, match="add the version"):
-        review.decide(con, paths.music, item.event["id"], "close", item.close_name)
     result = close(con, run, item.event["id"], "LAWTON - Believe In (Video Edit)")
     assert result.endswith(": renamed LAWTON/LAWTON - Believe In (Video Edit).wav")
     assert not old.exists() and events(con)[-1]["action"] == "renamed"
@@ -492,8 +487,6 @@ def test_a_close_match_whose_title_reduces_to_the_songs(env) -> None:
     want = add_song(con, "spotify:t78", "T78", "Megator", 330)
     search_hit(con, paths, download(paths, "a.wav", 419), want, "T78 - Megator (Original Mix)", "soulseek")
     item = review.items(con, paths.music)["kept"][0]
-    with pytest.raises(review.ConfigError, match="own name"):
-        review.decide(con, paths.music, item.event["id"], "close", "t78 -  megator")
     result = close(con, run, item.event["id"], "T78 - Megator (Original Mix)")
     assert result.endswith(": new T78/T78 - Megator (Original Mix).wav")
     assert song(con, "spotify:t78")["link"] == '["T78", "Megator (Original Mix)", 419]'
@@ -506,14 +499,21 @@ def test_a_close_match_whose_title_reduces_to_the_songs(env) -> None:
     assert song(con, "spotify:t78")["file"] == "T78/T78 - Megator.wav"
 
 
-def test_the_same_name_and_length_is_no_close_match(env) -> None:
+def test_a_close_match_takes_any_name_but_another_files(env) -> None:
+    """The name given is the file's name: any name, a title alone takes the song's artist; a name another
+    library file has is refused (filing would otherwise add the length to it)."""
     con, paths, _ = env
     want = add_song(con, "spotify:t78", "T78", "Megator", 330)
+    (paths.tracks / "T78").mkdir()
+    download(paths, "radio.wav", 330).rename(paths.tracks / "T78" / "T78 - Megator.wav")
+    catalog.scan(con, paths.tracks)
     other = Evidence("other", "audio differs from the release (0.60)")
-    search_hit(con, paths, download(paths, "a.wav", 331), want, "T78 - Megator", "soulseek", heard=other)
+    search_hit(con, paths, download(paths, "a.wav", 419), want, "T78 - Megator (Original Mix)", "soulseek", heard=other)
     item = review.items(con, paths.music)["kept"][0]
-    with pytest.raises(review.ConfigError, match="Perfect match"):
-        review.decide(con, paths.music, item.event["id"], "close", "T78 - Megator (Original Mix)")
+    with pytest.raises(review.ConfigError, match="already a file in your library"):
+        review.decide(con, paths.music, item.event["id"], "close", "T78 - Megator")
+    review.decide(con, paths.music, item.event["id"], "close", "Megator (Original Mix)")
+    assert con.execute("SELECT name FROM review_decisions").fetchone()[0] == "T78 - Megator (Original Mix)"
 
 
 def test_a_perfect_match_of_another_length_replaces_the_lossy_copy(env) -> None:
@@ -535,3 +535,18 @@ def test_a_perfect_match_of_another_length_replaces_the_lossy_copy(env) -> None:
     assert not lossy.exists() and list(paths.inbox("replaced").rglob("T78 - Rave Nation.mp3"))
     catalog.match_songs(con)
     assert song(con, "spotify:rn")["file"] == "T78/T78 - Rave Nation.wav"
+
+
+def test_tags_naming_another_song_need_a_confirmation(env, monkeypatch) -> None:
+    """Juice WRLD: the file name says "Come & Go", the tags say "I Want It". Filed only for review (Please
+    confirm), unless the audio check hears the release."""
+    con, paths, _ = env
+    want = add_song(con, "spotify:jw", "Juice WRLD", "Come & Go (with Marshmello)", 205)
+    monkeypatch.setattr("echolot.library.audio.read_tags", lambda p: (["Juice WRLD"], "I Want It"))
+    name = "Juice WRLD - Come & Go (with Marshmello)"
+    search_hit(con, paths, download(paths, "a.wav", 205), want, name, "soulseek")
+    e = events(con)[-1]
+    assert (e["action"], e["matched"]) == ("new", "probable") and "tags name another song: 'I Want It'" in e["reason"]
+    same = Evidence("same", "audio of the release (0.95)")
+    search_hit(con, paths, download(paths, "b.wav", 205), want, name, "soulseek", heard=same)
+    assert events(con)[-1]["matched"] == "exact"

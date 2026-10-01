@@ -1,4 +1,4 @@
-"""Command line: `echolot serve`, users, configuration file, secrets, `echolot version`."""
+"""Command line: `echolot serve`, users, configuration file, secrets, jobs, tags, `echolot version`."""
 
 import argparse
 import getpass
@@ -42,6 +42,46 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
     finally:
         con.close()
     return 0
+
+
+def _tags(args: argparse.Namespace, settings: Settings) -> int:
+    """`tags normalize`: only with the jobs paused and none running (they write the same files). The old
+    tags go to <data>/tag-backups/normalize-<time>.jsonl, the report next to it; a conflict goes to review."""
+    import datetime
+    import json
+
+    from echolot import db
+    from echolot.library import catalog, filing, review, tagging
+    from echolot.settings import options
+
+    if not settings.library_dir:
+        raise SystemExit("No library configured (ECHOLOT_LIBRARY_DIR).")
+    con = db.connect(settings.db_path)
+    try:
+        running = [r[0] for r in con.execute("SELECT name FROM jobs WHERE finished IS NULL")]
+        if not args.dry_run and (not options.get(con, options.Jobs).paused or running):
+            raise SystemExit(f"Pause the jobs first and let them finish (running: {', '.join(running) or 'none'}).")
+        folder = settings.data_dir / "tag-backups"
+        folder.mkdir(exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+        backup = None if args.dry_run else folder / f"normalize-{stamp}.jsonl"
+        report = tagging.normalize(con, settings.library_dir, dry_run=args.dry_run, backup=backup, limit=args.limit)
+        if not args.dry_run:
+            paths = filing.Paths(settings.library_dir.parent)
+            for c in report["conflicts"]:
+                for key in c["keys"]:
+                    review.recheck(con, paths, key, f"the file's tags name another song: '{c['tags']}'")
+            catalog.refresh(con, settings.library_dir)
+            fields = ", ".join(f"{n} {k}" for k, n in report["fields"].items())
+            filing.event(con, paths, "retagged", settings.library_dir, reason=f"{report['changed']} files: {fields}")
+        name = f"normalize-{stamp}{'-dry-run' if args.dry_run else ''}.json"
+        (folder / name).write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
+    finally:
+        con.close()
+    summary = {k: v for k, v in report.items() if k not in ("conflicts", "errors", "examples")}
+    print(json.dumps(summary, ensure_ascii=False))
+    print(f"{len(report['conflicts'])} conflicts, {len(report['errors'])} errors; report: {folder / name}")
+    return 1 if report["errors"] else 0
 
 
 def _config(args: argparse.Namespace, settings: Settings) -> int:
@@ -150,6 +190,12 @@ def main(argv: list[str] | None = None) -> int:
     jobs = commands.add_parser("jobs", help="pause or resume the scheduled jobs")
     jobs.add_argument("action", choices=["pause", "resume"])
 
+    tags = commands.add_parser("tags", help="the library files' tags")
+    tag_actions = tags.add_subparsers(dest="action", required=True)
+    norm = tag_actions.add_parser("normalize", help="give every file the tags of its song (jobs paused)")
+    norm.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
+    norm.add_argument("--limit", type=int, default=0, help="only the first N files")
+
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -160,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         from echolot import db
 
         db.init(settings.db_path)
-        handler = {"user": _user, "config": _config, "secret": _secret, "jobs": _jobs}[args.command]
+        handler = {"user": _user, "config": _config, "secret": _secret, "jobs": _jobs, "tags": _tags}[args.command]
         return handler(args, settings)
 
     import logging

@@ -274,7 +274,8 @@ def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
     try:
         with con:
             _song(con, key, "soundcloud", artist=artist, title=title, length=length, url=url)
-        action, dest = filing.file_into(con, run.paths, prepared.path, want, "soundcloud", fake=prepared.fake)
+        page = url if url.startswith("https://soundcloud.com/") else ""  # a set lists some tracks by API address
+        action, dest = filing.file_into(con, run.paths, prepared.path, want, "soundcloud", fake=prepared.fake, url=page)
         if dest is None:
             return 0
         stem = dest.relative_to(run.paths.tracks).with_suffix("").as_posix()
@@ -282,8 +283,7 @@ def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
             con.execute("UPDATE songs SET stem = ?, archived = 1, unavailable = NULL WHERE key = ?", (stem, key))
         if action == "duplicate":
             return 0
-        audio.write_tags(dest, artist=artist, title=title, albumartist=artist)
-        finish(run, con, dest, want, cover=work / f"{d['id']}.jpg")
+        finish(run, con, dest, want, cover=work / f"{d['id']}.jpg")  # the tags from the song, the cover
         return 1
     finally:
         con.close()
