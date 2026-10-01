@@ -29,6 +29,8 @@ class JobInfo:
     default: Rule
     minimum: int  # minutes between runs
     help: str
+    gives_way: bool = False  # stops after the songs in progress when another job of its resource is due, and
+    # resumes with the songs left once the resource is free
 
 
 JOBS = [
@@ -37,7 +39,8 @@ JOBS = [
     JobInfo("sweep", "Missing songs sweep", "soulseek", ["20:00", "sat,sun 15:00"], 360,
             "search every missing Spotify song again, at the hours most users are online"),
     JobInfo("upgrade", "FLAC upgrade", "soulseek", ["14:00", "20:30"], 360,
-            "FLAC-only search for songs that are not genuine lossless (each: 12 h, 1 d, 2 d, then every 3 d)"),
+            "FLAC-only search for songs that are not genuine lossless (each: 12 h, 1 d, 2 d, then every 3 d); "
+            "gives way to the sync and the sweep and goes on after them", gives_way=True),
     JobInfo("soundcloud", "SoundCloud", "web", 30, 15,
             "read the SoundCloud lists and download new songs (SoundCloud rate-limits bursts)"),
     JobInfo("fallback", "YouTube fallback", "web", 120, 60,

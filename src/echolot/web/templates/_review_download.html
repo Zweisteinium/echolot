@@ -15,7 +15,7 @@
   'wrong': 'Not the song: the file goes, this download is never taken again, and the song is searched again.',
 } -%}
 {% else -%}
-{% set why = ('Not the song' if e.action == 'wrong-song' else 'Another length') ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) -%}
+{% set why = 'A FLAC for a SoundCloud song: only you can tell whether it is the song' if e.action == 'confirm' else ('Not the song' if e.action == 'wrong-song' else 'Another length') ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) -%}
 {% set note = why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '') -%}
 {% set HELP = {
   'accept': ('It is the song: the FLAC replaces your lossy copy.' if e.song_file else 'It is the song: it is filed and tagged as the song.') ~ ' The other downloads go.',

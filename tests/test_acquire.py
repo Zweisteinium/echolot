@@ -12,7 +12,7 @@ from echolot.config import Settings
 from echolot.jobs import acquire
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
-from echolot.library import audio, filing, tagging
+from echolot.library import audio, filing, review, tagging
 from echolot.library.filing import Want
 from echolot.services import soulseek
 from echolot.settings import options, vault
@@ -296,3 +296,53 @@ def test_a_filed_song_is_tagged_from_the_song(run: Run) -> None:
     tags = tagging.read(run.paths.tracks / "Artist C" / "Artist C - Gone Song.wav")
     assert (tags["artists"], tags["title"]) == (["Artist C"], "Gone Song")
     assert (tags["sources"], tags["download"]) == (["https://open.spotify.com/track/s3"], "Soulseek")
+
+
+def test_a_run_that_gives_way_leaves_the_rest(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Another job of the resource is due: the song in progress ends, the others are left for the run that
+    goes on after it (worker.resume)."""
+    con = run.connect()
+    with con:
+        options.update(con, options.Soulseek, parallel=1)
+    con.close()
+    search = FakeDaemon.search
+
+    def search_then_due(self, *args):
+        run.give_way.set()
+        return search(self, *args)
+
+    monkeypatch.setattr(FakeDaemon, "search", search_then_due)
+    rows = missing(run) * 3  # three songs to search (the same one: only the first is)
+    message = acquire._search(run, rows, "search")
+    assert len(rows) > 1 and len(FakeDaemon.searches) == 1
+    assert run.left == len(rows) - 1 and message.endswith(f"; gave way, {run.left} after the next job")
+
+
+def test_a_soundcloud_songs_flac_waits_for_review(run: Run) -> None:
+    """Trance Tune is a SoundCloud song, in the library as M4A. The upgrade finds a FLAC, but its names are
+    an uploader's: it is kept for review, not searched again while it waits, and Perfect match replaces
+    the M4A."""
+    FakeDaemon.files["Trance Tune"] = [("u1", "Music\\Uploader\\Uploader - Trance Tune.flac", 400, "ok")]
+    con = run.connect()
+    with con:
+        con.execute("UPDATE files SET duration = 400 WHERE path = 'Uploader/Uploader - Trance Tune.m4a'")
+    con.close()
+    assert "1 confirm" in acquire.upgrade(run)
+    con = run.connect()
+    assert con.execute("SELECT 1 FROM files WHERE path = 'Uploader/Uploader - Trance Tune.m4a'").fetchone()
+    (item,) = review.items(con, run.paths.music)["kept"]
+    assert item.event["action"] == "confirm" and item.event["song"] == "soundcloud:1001"
+    with con:
+        con.execute("UPDATE upgrades SET last_try = 0")  # due again, but its FLAC waits for an answer
+    con.close()
+    searches = len(FakeDaemon.searches)
+    acquire.upgrade(run)
+    assert [s for s in FakeDaemon.searches[searches:] if s[1] == "Trance Tune"] == []
+    con = run.connect()
+    review.decide(con, run.paths.music, item.event["id"], "accept")
+    with con:
+        con.execute("UPDATE review_decisions SET decided = '2000-01-01T00:00:00'")
+    assert "upgrade Uploader/Uploader - Trance Tune.flac" in review.apply_due(run, con)[-1]
+    paths = sorted(r[0] for r in con.execute("SELECT path FROM files WHERE path LIKE 'Uploader/%'"))
+    con.close()
+    assert paths == ["Uploader/Uploader - Trance Tune.flac"]
