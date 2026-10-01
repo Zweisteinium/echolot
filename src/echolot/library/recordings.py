@@ -49,11 +49,12 @@ class Index:
 
 
 def link(con: sqlite3.Connection, paths: Paths, key: str, want: Want, e: catalog.Entry, why: str) -> None:
-    """The song is the file `e` (found by its name, as a review link) from now on."""
+    """The song is the file `e` from now on: found by its name and length, as a review link (the length tells
+    "I Remember" 3:21 from "I Remember (9m54s)")."""
     with con:
         con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
-        con.execute("UPDATE songs SET link = json_array(?, ?), close_match = 0 WHERE key = ?",
-                    (e.path.partition("/")[0], e.title, key))  # fmt: skip
+        con.execute("UPDATE songs SET link = json_array(?, ?, ?), close_match = 0 WHERE key = ?",
+                    (e.path.partition("/")[0], e.title, round(e.duration), key))  # fmt: skip
     filing.event(con, paths, "linked", paths.tracks / e.path, song=key, artist=want.artist, title=want.title,
                  reason=f"same recording as {e.path} ({why})")  # fmt: skip
 
