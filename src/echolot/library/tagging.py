@@ -19,9 +19,12 @@ from echolot.library import rules
 
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "manual": "by hand"}
 SOURCES["soundcloud-search"] = "SoundCloud"
+OLD_PAGE = re.compile(r"YouTube ([\w-]{11})")  # how an older pipeline noted a YouTube download
 # where yt-dlp puts the page it downloaded (the video's description, links and all, goes elsewhere)
 PAGE_FIELDS = {"vorbis": ["purl", "comment", "description"], "mp4": ["\xa9cmt"], "id3": ["COMM", "TXXX:purl"]}
-LINK = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|soundcloud\.com/[^\s\"']+)")
+LINK = re.compile(
+    r"https?://(?:www\.|m\.|music\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|soundcloud\.com/[^\s\"']+)"
+)
 # never part of a SoundCloud title: release decoration, not the song (version words stay)
 _DECOR = r"free\s*(?:dl|d/l|download)|out\s*now|premiere|lyrics?(?:\s+video)?|visuali[sz]er|hq|hd|4k(?:\s+upgrade)?"
 _OFFICIAL = r"official(?:\s+(?:music\s+)?(?:video|audio|visuali[sz]er))?"
@@ -190,6 +193,8 @@ def _page(t: Any) -> str:
         for v in map(str, values):
             if LINK.fullmatch(v.strip()):
                 return v.strip()
+            if m := OLD_PAGE.fullmatch(v.strip()):
+                return f"https://www.youtube.com/watch?v={m[1]}"
     return ""
 
 
