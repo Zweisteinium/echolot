@@ -1,4 +1,5 @@
-{# the jobs table: htmx reloads it every few seconds while something runs #}
+{# the jobs table: htmx reloads it every few seconds while something runs; an open info stays open (base.html) #}
+{% from "_icons.html" import icon -%}
 <div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="outerHTML">
   <div class="card-head">
     <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
@@ -12,9 +13,12 @@
     {% for r in jobs %}
     {% set last = r.last %}
     <tr>
-      <td>{{ r.job.label }}<div class="muted small hide-narrow">{{ r.job.help }}</div></td>
+      <td>{{ r.job.label }} <button type="button" class="info-toggle" data-info="job-info-{{ r.job.name }}" aria-controls="job-info-{{ r.job.name }}" aria-expanded="false" aria-label="How {{ r.job.label }} works" title="How it works">{{ icon('info', 15) }}</button>
+        <div class="muted small hide-narrow">{{ r.job.help }}</div>
+        <p class="job-info small" id="job-info-{{ r.job.name }}" hidden>{{ r.job.details }}</p></td>
       <td class="small">
         {% if r.stopping %}<span class="dot wait"></span>stopping …<div class="muted small">songs in progress end first</div>
+        {% elif r.run and r.run.give_way.is_set() %}<span class="dot wait"></span>{{ 'pausing' if paused else 'giving way' }} …<div class="muted small">ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}</div>
         {% elif r.run %}<span class="dot on"></span>running<div class="muted small">{{ r.run.progress }}</div>
         {% elif r.starting %}<span class="dot wait"></span>starting …{% if r.waiting %}<div class="muted small">after {{ r.waiting }}</div>{% endif %}
         {% elif r.waiting %}<span class="dot wait"></span>waiting for {{ r.waiting }}

@@ -175,9 +175,7 @@ def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:
         "result": result,
         "fallback": fallback,
         "stage": acquire.stage(tries),
-        "next_try": acquire.retry_at(tries, r["last_try"], *acquire.MISSING_RETRY)
-        if tries and r["service"] == "spotify"
-        else None,
+        "next_try": acquire.next_search(tries, r["last_try"]) if tries and r["service"] == "spotify" else None,
         "rejected": rejected,
         "in_review": paths is not None and filing.in_review(paths, r["artist"], r["title"]),
         "notes": notes,

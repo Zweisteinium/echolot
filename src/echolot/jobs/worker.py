@@ -1,7 +1,7 @@
 """The worker: starts the jobs when they are due (schedule.py), each in its own thread. Jobs that share a
 resource (Soulseek, the home IP, the library upkeep) run one at a time; a due job waits for the running
-one and keeps its turn, except that a job which gives way (the upgrade) ends after the songs in progress
-and goes on with the rest once the resource is free. The last run of each job is in the jobs table; a
+one and keeps its turn, except that a running job of a lower priority (JobInfo.priority) ends after its
+songs in progress and goes on with the rest once the resource is free. The last run of each job is in the jobs table; a
 run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
 section jobs) stops new starts, and scheduled runs end after their songs in progress (the upgrade goes
 on when resumed); a job started by hand ("Run now") runs anyway.
@@ -38,7 +38,7 @@ class Run:
         self.progress = ""
         self.started = _now()
         self.after: set[str] = set()  # jobs to start when this one ends
-        self.give_way = threading.Event()  # another job of the resource is due (JobInfo.gives_way)
+        self.give_way = threading.Event()  # a more urgent job of the resource is due, or the jobs are paused
         self.budget: int | None = None  # songs left by the run that gave way (None: the job's own batch)
         self.left = 0  # songs this run left when it gave way
 
@@ -86,6 +86,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "sync": acquire.sync,
     "sweep": acquire.sweep,
     "upgrade": acquire.upgrade,
+    "upgrade_all": acquire.upgrade_all,
     "soundcloud": lists.soundcloud,
     "fallback": acquire.fallback,
     "library": upkeep,
@@ -176,7 +177,7 @@ class Worker:
                 if not (requested or resume or (not paused and schedule.due(rules[job.name], started, now))):
                     continue
                 if other := running.get(job.resource):
-                    if other.job.gives_way:
+                    if other.job.priority < job.priority:
                         other.give_way.set()  # this one starts when it has ended
                     continue
                 self.requested.discard(job.name)
