@@ -112,6 +112,13 @@ def test_where_a_download_came_from(env) -> None:
     m.tags["synopsis"] = ["Out now!\nhttps://soundcloud.com/label"]  # the video's description: not the page
     m.save()
     assert tagging.download_of(con, "A/A - Song.opus", p, []) == ""  # nothing tells
+    m.tags["comment"] = ["YouTube wOIcV_r7TmU"]  # an older pipeline's note
+    m.save()
+    assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://www.youtube.com/watch?v=wOIcV_r7TmU"
+    m.tags["comment"] = ["https://music.youtube.com/watch?v=wOIcV_r7TmU"]  # spotDL's
+    m.save()
+    assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://music.youtube.com/watch?v=wOIcV_r7TmU"
+    del m.tags["comment"]
     m.tags["purl"] = ["https://www.youtube.com/watch?v=wOIcV_r7TmU"]  # what yt-dlp leaves
     m.save()
     assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://www.youtube.com/watch?v=wOIcV_r7TmU"
