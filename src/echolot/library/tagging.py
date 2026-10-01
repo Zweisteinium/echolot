@@ -89,12 +89,28 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
     songs = con.execute(sql, (rel, rel.rsplit(".", 1)[0], rules.norm_key(key))).fetchall()
     if not songs:
         return None
-    lead = sorted(songs, key=lambda s: (not s["close_match"], s["service"] != "spotify", s["key"]))[0]
+    folder = rules.artist_keys(rel.partition("/")[0])
+
+    def names(s: sqlite3.Row) -> list[str]:
+        return [s["artist"], *json.loads(s["artists"] or "[]")]
+
+    # a close match first, then Spotify's song named as the file's folder, with the most artists
+    lead = sorted(
+        songs,
+        key=lambda s: (
+            not s["close_match"],
+            s["service"] != "spotify",
+            not rules.artist_keys(s["artist"]) & folder,
+            -len(names(s)),
+            s["key"],
+        ),
+    )[0]
     link = json.loads(lead["link"]) if lead["close_match"] and lead["link"] else None
     if link:
         artists, title, album = [link[0]], link[1], None
-    elif lead["service"] == "spotify":
-        artists = list(dict.fromkeys([lead["artist"], *json.loads(lead["artists"] or "[]")]))
+    elif lead["service"] == "spotify":  # Spotify songs sharing a file are one recording: all their artists
+        same = [s for s in songs if s["service"] == "spotify" and not s["close_match"]]
+        artists = list(dict.fromkeys([*names(lead), *(a for s in same for a in names(s))]))
         title, album = lead["title"], lead["album"] or None
     else:
         artists, title, album = [lead["artist"]], clean_title(lead["title"], lead["artist"]), None
