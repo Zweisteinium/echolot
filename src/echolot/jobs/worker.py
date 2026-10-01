@@ -1,9 +1,10 @@
 """The worker: starts the jobs when they are due (schedule.py), each in its own thread. Jobs that share a
 resource (Soulseek, the home IP, the library upkeep) run one at a time; a due job waits for the running
 one and keeps its turn, except that a job which gives way (the upgrade) ends after the songs in progress
-and goes on with the rest once the resource is free. The last run of each job is in the jobs table; a run that was going when Echolot
-stopped is marked interrupted at the next start. Pausing (settings section jobs) stops new starts;
-a job started by hand ("Run now") runs anyway.
+and goes on with the rest once the resource is free. The last run of each job is in the jobs table; a
+run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
+section jobs) stops new starts, and scheduled runs end after their songs in progress (the upgrade goes
+on when resumed); a job started by hand ("Run now") runs anyway.
 """
 
 import datetime
@@ -162,6 +163,9 @@ class Worker:
             con.close()
         now = datetime.datetime.now()
         with self._lock:
+            for r in self.runs.values():
+                if paused and r.trigger != "manual":
+                    r.give_way.set()  # ends after the songs in progress (a deploy waits for that)
             running = {r.job.resource: r for r in self.runs.values()}
             for job in schedule.JOBS:
                 if job.name in self.runs:

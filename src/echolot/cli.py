@@ -141,17 +141,37 @@ def _secret(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _jobs(args: argparse.Namespace, settings: Settings) -> int:
+    """`jobs pause [--wait]`, `jobs resume`, `jobs status` (first line: paused: yes|no, for scripts). A pause
+    reaches the running jobs within the worker's tick; --wait returns once none runs (1 after --timeout)."""
+    import time
+
     from echolot import db
     from echolot.settings import options
 
     con = db.connect(settings.db_path)
     try:
-        with con:
-            options.update(con, options.Jobs, paused=args.action == "pause")
+        if args.action != "status":
+            with con:
+                options.update(con, options.Jobs, paused=args.action == "pause")
+            print("Jobs paused." if args.action == "pause" else "Jobs resumed.")
+        else:
+            print(f"paused: {'yes' if options.get(con, options.Jobs).paused else 'no'}")
+        end, said = time.monotonic() + args.timeout * 60, None
+        while True:
+            running = [r[0] for r in con.execute("SELECT name FROM jobs WHERE finished IS NULL ORDER BY name")]
+            if args.action == "status" or not (args.action == "pause" and args.wait) or not running:
+                if args.action == "status" or running:
+                    print(f"running: {', '.join(running) or 'none'}")
+                return 0
+            if time.monotonic() > end:
+                print(f"Still running after {args.timeout} min: {', '.join(running)}.")
+                return 1
+            if running != said:
+                print(f"Waiting for {', '.join(running)} to end after the songs in progress...", flush=True)
+                said = running
+            time.sleep(5)
     finally:
         con.close()
-    print("Jobs paused." if args.action == "pause" else "Jobs resumed.")
-    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,8 +207,10 @@ def main(argv: list[str] | None = None) -> int:
     d = secret_actions.add_parser("delete", help="delete a secret")
     d.add_argument("name")
 
-    jobs = commands.add_parser("jobs", help="pause or resume the scheduled jobs")
-    jobs.add_argument("action", choices=["pause", "resume"])
+    jobs = commands.add_parser("jobs", help="pause or resume the scheduled jobs, or show their state")
+    jobs.add_argument("action", choices=["pause", "resume", "status"])
+    jobs.add_argument("--wait", action="store_true", help="pause: wait until no job runs")
+    jobs.add_argument("--timeout", type=int, default=60, help="minutes --wait waits at most (default 60)")
 
     tags = commands.add_parser("tags", help="the library files' tags")
     tag_actions = tags.add_subparsers(dest="action", required=True)

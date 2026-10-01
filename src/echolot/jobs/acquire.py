@@ -312,7 +312,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     summary = f"{done} of {len(songs)} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
     if run.give_way.is_set() and not run.stop.is_set() and done < len(songs):
         run.left = len(songs) - done  # searched after the job that is due (worker.resume)
-        summary += f"; gave way, {run.left} after the next job"
+        summary += f"; gave way, {run.left} left"
     return summary
 
 
@@ -434,7 +434,7 @@ def fallback(run: "Run") -> str:
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
     added = kept = 0
     for n, row in enumerate(songs, 1):
-        if run.stop.is_set():
+        if run.stop.is_set() or run.give_way.is_set():  # paused: the song in progress was the last
             break
         want = Want.of(row)
         run.say(f"{n} of {len(songs)}: {want.artist} - {want.title}")

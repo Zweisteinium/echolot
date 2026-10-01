@@ -36,7 +36,7 @@ class Auth(Section):
 
 class Jobs(Section):
     SECTION = "jobs"
-    paused: bool = Field(False, description="no job starts (running ones finish)")
+    paused: bool = Field(False, description="no job starts; running ones end after their songs in progress")
 
 
 class Spotify(Section):
