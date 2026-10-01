@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import urllib.parse
 from collections.abc import Callable
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from echolot import __version__, db
 from echolot.config import Settings
 from echolot.jobs import schedule
+from echolot.library import filing
 from echolot.library.filing import Paths
 from echolot.services import spotify
 from echolot.web import create_app, stats
@@ -290,10 +292,39 @@ def test_review(client: TestClient, settings: Settings) -> None:
     assert 'class="download"' in html and ">Close match</button>" in html and ">No match</button>" in html
     close = {"decision": "close", "name": "Artist C - Gone Song"}
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
-    assert "Add the version" in html  # the wanted song's own name is no close match
+    assert "add the version" in html and 'role="alert"' in html  # the own name: the error next to the download
+    assert 'value="Artist C - Gone Song"' in html  # the name typed is kept, the line to name it stays open
     close["name"] = " Artist C  -  Gone Song (Club Mix) "
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
     assert "Close match as “Artist C - Gone Song (Club Mix)” · applied soon" in html
+    con.close()
+
+
+def test_every_close_match_button_is_wired(client: TestClient, settings: Settings) -> None:
+    """Close match opens a line (data-close-line) whose input and button submit a form with the decision
+    close: each id the page refers to exists, so the button cannot silently do nothing."""
+    two_kept_downloads(settings)
+    html = client.get("/review").text
+    lines = re.findall(r'data-close-line="([^"]+)"', html)
+    assert lines
+    for line in lines:
+        block = re.search(rf'<div class="close-line" id="{line}"[^>]*>(.*?)</div>', html, re.S)
+        assert block, line
+        forms = set(re.findall(r'form="([^"]+)"', block[1]))
+        assert len(forms) == 1 and 'name="name"' in block[1]
+        assert re.search(rf'<form id="{forms.pop()}"[^>]*>.*?name="decision" value="close"', html, re.S)
+
+
+def two_kept_downloads(settings: Settings) -> None:
+    """Two kept downloads of one song (the fixture library has none)."""
+    music = settings.library_dir.parent
+    con = db.connect(settings.db_path)
+    info = {"song": "spotify:s3", "artist": "Artist C", "title": "Gone Song", "source": "soulseek"}
+    for n in (1, 2):
+        kept = music / "inbox" / "review" / "2026-10-01" / f"Artist C - Gone Song [soulseek] ({n}).flac"
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        kept.write_bytes(b"audio" * n)
+        filing.event(con, Paths(music), "wrong-song", kept, found=f"Gone Song (Club Mix {n})", reason="differs", **info)
     con.close()
 
 

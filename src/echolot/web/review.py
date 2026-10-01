@@ -31,12 +31,17 @@ def review_page(request: Request, con: DB) -> HTMLResponse:
     return page(request, "review.html", nav="review", songs=songs, items=found)
 
 
-def _answer(request: Request, con: sqlite3.Connection, event_id: int, ok: str = "", error: str = "") -> Response:
-    """htmx: the song's card as it is now (gone when nothing is up for review); otherwise back to the page."""
+def _answer(
+    request: Request, con: sqlite3.Connection, event_id: int, ok: str = "", error: str = "", name: str = ""
+) -> Response:
+    """htmx: the song's card as it is now (gone when nothing is up for review), an error next to the
+    download it is about (with the close match name typed); otherwise back to the page."""
     if not request.headers.get("hx-request"):
         return back("/review", **({"error": error} if error else {"ok": ok}))
     g = review.find_group(con, music_dir(request), event_id)
-    return page(request, "_review_group.html", g=g, error=error, error_id=event_id) if g else HTMLResponse("")
+    if g is None:
+        return HTMLResponse("")
+    return page(request, "_review_group.html", g=g, card_error=error, error_id=event_id, tried=name)
 
 
 @router.post("/review/{event_id}")
@@ -44,7 +49,7 @@ def review_decide(request: Request, con: DB, event_id: int, decision: Field, nam
     try:
         item = review.decide(con, music_dir(request), event_id, decision, name)
     except ConfigError as e:
-        return _answer(request, con, event_id, error=str(e))
+        return _answer(request, con, event_id, error=str(e), name=name)
     song, label = f"{item.event['artist']} – {item.event['title']}", review.LABELS[decision]
     return _answer(request, con, event_id, ok=f"{song}: {label}. Applied within a few minutes (Revert until then).")
 
