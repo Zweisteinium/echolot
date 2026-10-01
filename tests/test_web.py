@@ -290,10 +290,10 @@ def test_review(client: TestClient, settings: Settings) -> None:
     assert 'class="download settled"' in html and "Revert" in html
     html = client.post(f"/review/{ids[1]}/revert", headers={"HX-Request": "true"}).text
     assert 'class="download"' in html and ">Close match</button>" in html and ">No match</button>" in html
-    close = {"decision": "close", "name": "Artist C - Gone Song"}
+    close = {"decision": "close", "name": "Artist A - First Song"}
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
-    assert "add the version" in html and 'role="alert"' in html  # the own name: the error next to the download
-    assert 'value="Artist C - Gone Song"' in html  # the name typed is kept, the line to name it stays open
+    assert "already a file in your library" in html and 'role="alert"' in html  # next to the download
+    assert 'value="Artist A - First Song"' in html  # the name typed is kept, the line to name it stays open
     close["name"] = " Artist C  -  Gone Song (Club Mix) "
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
     assert "Close match as “Artist C - Gone Song (Club Mix)” · applied soon" in html

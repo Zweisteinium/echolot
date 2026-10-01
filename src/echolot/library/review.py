@@ -18,7 +18,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, rules
+from echolot.library import audio, catalog, filing, rules, tagging
 from echolot.library.filing import MUSIC, Want
 from echolot.settings.sources import ConfigError
 
@@ -274,15 +274,13 @@ def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: st
     taken = find_group(con, music_dir, event_id).taken
     if decision in TAKE and taken and taken.event["id"] != event_id:
         raise ConfigError("Another download of this song is taken already: revert that one first.")
-    if decision == "close":
-        artist, title = split_name(name)
+    if decision == "close":  # any name; a title alone takes the song's artist
+        artist, title = split_name(name) if " - " in name else (item.event["artist"], name.strip())
         if not artist or not title:
-            raise ConfigError("A close match needs the name its file gets, as 'Artist - Title'.")
-        e, name = item.event, f"{artist} - {title}"
-        if _plain(name) == _plain(f"{e['artist']} - {e['title']}"):
-            raise ConfigError("That is the wanted song's own name: add the version, e.g. '(Original Mix)'.")
-        if _keys(artist, title) == _keys(e["artist"], e["title"]) and rules.same_length(e["seconds"], item.length):
-            raise ConfigError("The same song by name and length: that is a Perfect match.")
+            raise ConfigError("A close match needs a name for its file.")
+        name = f"{artist} - {title}"
+        if taken_by := _name_taken(con, music_dir, artist, title, item.file):
+            raise ConfigError(f"“{taken_by}” is already a file in your library: give this one another name.")
     with con:
         con.execute(
             "INSERT OR REPLACE INTO review_decisions (id, event_id, decision, name, decided) VALUES (?, ?, ?, ?, ?)",
@@ -291,13 +289,14 @@ def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: st
     return item
 
 
-def _plain(name: str) -> str:
-    return " ".join(name.casefold().split())
-
-
-def _keys(artist: str, title: str) -> tuple[str, str]:
-    """How the matching rules compare a song ("(Original Mix)" and other noise left out)."""
-    return rules.artist_key(artist), rules.title_key(title)
+def _name_taken(con: sqlite3.Connection, music_dir: Path, artist: str, title: str, own: Path) -> str:
+    """The library file that has the name a close match would get ('' if none): filing would otherwise add
+    the length to the name, and the name is to be the one given."""
+    paths = filing.Paths(music_dir)
+    folder = filing.artist_dir(paths, catalog.Catalog.from_db(con), artist)
+    stem = f"{folder.name} - {rules.clean_name(title)}"
+    taken = [folder / f"{stem}.{ext}" for ext in audio.AUDIO if (folder / f"{stem}.{ext}").exists()]
+    return next((p.name for p in taken if p.resolve() != own.resolve()), "")
 
 
 def _now() -> str:
@@ -437,12 +436,12 @@ def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, 
             return f"linked {hits[0].path}"
     if key:  # it is the song whatever its length: a lossy copy the library has is replaced, under its name
         _link(con, key, want.artist, want.title, close=False)
-    action, dest = filing.file_into(con, paths, p, want, d["source"] or "", match="review", fake=bool(d["fake"]))
+    origin = {"fake": bool(d["fake"]), "url": d["url"] or ""}
+    action, dest = filing.file_into(con, paths, p, want, d["source"] or "", match="review", **origin)
     if dest and action in ("new", "upgrade"):
-        audio.write_tags(dest, artist=want.artist, title=want.title)  # accepted as this song
         from echolot.jobs.acquire import finish
 
-        finish(run, con, dest, want)
+        finish(run, con, dest, want)  # tagged as this song
     if key and action in ("new", "upgrade", "duplicate"):
         _link(con, key, want.artist, want.title, close=False)  # this file whatever its length (another edit)
     return f"{action} {dest.relative_to(paths.tracks) if dest else ''}".strip()
@@ -472,14 +471,13 @@ def _close_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, p
     artist, title = split_name(d["close_name"])
     if key:
         _unlink(con, key)  # filing compares with the song's link: not the old one
-    want = Want(artist, title, 0, key)
-    action, dest = filing.file_into(con, run.paths, p, want, d["source"] or "", match="close", fake=bool(d["fake"]))
-    if dest and action in ("new", "upgrade"):
-        audio.write_tags(dest, artist=artist, title=title)
-        song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
-        finish(run, con, dest, Want.of(song) if song else want)  # album and cover of the wanted song
-    if key and dest:
+    want, origin = Want(artist, title, 0, key), {"fake": bool(d["fake"]), "url": d["url"] or ""}
+    action, dest = filing.file_into(con, run.paths, p, want, d["source"] or "", match="close", **origin)
+    if key and dest:  # first: the tags are the name given here (tagging reads the link)
         _link(con, key, artist, title, close=True, seconds=audio.probe(dest)[0])
+    if dest and action in ("new", "upgrade"):
+        song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
+        finish(run, con, dest, Want.of(song) if song else want)  # the cover of the wanted song
     return f"{action} {dest.relative_to(run.paths.tracks) if dest else ''}".strip()
 
 
@@ -493,6 +491,7 @@ def _close_filed(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str) 
         entry = next((e for e in cat.entries if e.path == d["path"]), None)
         if entry is None or not (paths.tracks / entry.path).is_file():
             return "file gone"
+        dest = None
         if other := [e for e in cat.find(artist, title, entry.duration) if e.path != entry.path]:
             filing.retire(con, paths, entry, f"close match {artist} - {title} is in the library")
             result = f"linked {other[0].path}"
@@ -501,6 +500,8 @@ def _close_filed(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str) 
             result = f"renamed {dest.relative_to(paths.tracks)}"
     if key:
         _link(con, key, artist, title, close=True, seconds=entry.duration)
+    if dest and (tags := tagging.for_file(con, dest.relative_to(paths.tracks).as_posix(), dest, key)):
+        tagging.write(dest, tags)  # the name given, the songs' pages, where it was downloaded
     return result
 
 

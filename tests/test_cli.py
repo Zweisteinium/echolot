@@ -29,3 +29,24 @@ def test_settings_from_env() -> None:
     assert str(settings.daemon_dir) == "/daemon"
     assert str(settings.db_path) == "data/echolot.db"
     assert (settings.host, settings.port) == ("0.0.0.0", 9000)
+
+
+def test_tags_normalize(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run reports and writes a report file; a run needs the jobs paused and none running."""
+    from echolot import db
+    from echolot.settings import options
+
+    env = {"ECHOLOT_DATA_DIR": str(settings.data_dir), "ECHOLOT_LIBRARY_DIR": str(settings.library_dir)}
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert main(["tags", "normalize", "--dry-run"]) == 0
+    assert '"files"' in capsys.readouterr().out
+    assert list((settings.data_dir / "tag-backups").glob("normalize-*-dry-run.json"))
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Jobs, paused=False)
+    con.close()
+    with pytest.raises(SystemExit, match="Pause the jobs first"):
+        main(["tags", "normalize"])

@@ -1,0 +1,145 @@
+"""A library file's tags from its song (tagging.py), on real files of every format the library holds."""
+
+import shutil
+import sqlite3
+from pathlib import Path
+
+import pytest
+from mutagen import File
+
+from echolot import db
+from echolot.library import tagging
+from echolot.library.filing import Paths
+from echolot.library.tagging import Tags
+
+AUDIO = Path(__file__).parent / "fixtures" / "audio"
+FORMATS = ["flac", "mp3", "m4a", "opus", "wav"]
+SPOTIFY = ["https://open.spotify.com/track/0Evl2AXlWFuAnDxryIIuYG"]
+ARTISTS, TITLE = ["Hardwell", "Azteck", "Alex Hepburn"], "Anybody Out There"
+TAGS = Tags(ARTISTS, "Hardwell", TITLE, TITLE, SPOTIFY, "Soulseek")
+
+
+@pytest.fixture
+def env(tmp_path: Path):
+    paths = Paths(tmp_path / "music")
+    paths.tracks.mkdir(parents=True)
+    db.init(tmp_path / "echolot.db")
+    con = db.connect(tmp_path / "echolot.db")
+    yield con, paths
+    con.close()
+
+
+def copy(paths: Paths, ext: str, rel: str) -> Path:
+    dest = paths.tracks / f"{rel}.{ext}"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(AUDIO / f"silence.{ext}", dest)
+    return dest
+
+
+def add_song(con: sqlite3.Connection, key: str, artist: str, title: str, **more: object) -> None:
+    columns = {"key": key, "service": key.split(":")[0], "artist": artist, "title": title, "length": 1} | more
+    sql = f"INSERT INTO songs ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})"
+    with con:
+        con.execute(sql, list(columns.values()))
+
+
+@pytest.mark.parametrize("ext", FORMATS)
+def test_written_tags_read_back_and_the_comment_stays(env, ext: str) -> None:
+    _, paths = env
+    p = copy(paths, ext, "Hardwell/Hardwell - Anybody Out There")
+    if ext in ("flac", "opus", "m4a"):  # a DJ's note in the comment
+        m = File(p)
+        m.tags["\xa9cmt" if ext == "m4a" else "comment"] = ["3A - 160"]
+        m.save()
+    tagging.write(p, TAGS)
+    now = tagging.read(p)
+    assert now["artists"] == TAGS.artists and now["albumartist"] == "Hardwell" and now["title"] == TAGS.title
+    assert now["album"] == TAGS.album and now["sources"] == TAGS.sources and now["download"] == "Soulseek"
+    assert tagging.differs(p, TAGS) == []  # a second write changes nothing
+    if ext in ("flac", "opus", "m4a"):
+        assert "3A - 160" in now["text"]  # the comment is not touched
+
+
+def test_the_tags_come_from_the_song(env) -> None:
+    con, paths = env
+    rel, artists = "Hardwell/Hardwell - Anybody Out There.flac", '["Hardwell", "Azteck", "Alex Hepburn"]'
+    add_song(con, "spotify:hw", "Hardwell", "Anybody Out There", album="Anybody Out There", artists=artists, file=rel)
+    sc = {"url": "https://soundcloud.com/hw/aot", "file": rel}
+    add_song(con, "soundcloud:1", "Hardwell", "Anybody Out There (Free DL) [HW001]", **sc)
+    p = copy(paths, "flac", "Hardwell/Hardwell - Anybody Out There")
+    tags = tagging.for_file(con, "Hardwell/Hardwell - Anybody Out There.flac", p)
+    assert tags.artists == ["Hardwell", "Azteck", "Alex Hepburn"] and tags.album == "Anybody Out There"
+    assert tags.sources == ["https://open.spotify.com/track/hw", "https://soundcloud.com/hw/aot"]
+    assert tags.download == "Soulseek"  # a FLAC: nothing recorded, but only Soulseek delivered FLACs
+
+
+def test_a_soundcloud_title_loses_its_decoration_and_a_close_match_keeps_its_name(env) -> None:
+    con, paths = env
+    sc = {"file": "ANNIE/ANNIE - 10 out 10.m4a", "url": "https://soundcloud.com/annie/10-out-10"}
+    add_song(con, "soundcloud:2", "ANNIE", "ANNIE - 10 out 10 [ARONAVA08]", **sc)
+    p = copy(paths, "m4a", "ANNIE/ANNIE - 10 out 10")
+    tags = tagging.for_file(con, "ANNIE/ANNIE - 10 out 10.m4a", p)
+    assert (tags.title, tags.album) == ("10 out 10", None)  # SoundCloud: the file keeps its album
+    close = {
+        "file": "T78/T78 - Megator (Original Mix).mp3",
+        "close_match": 1,
+        "link": '["T78", "Megator (Original Mix)", 419]',
+    }
+    add_song(con, "spotify:t78", "T78", "Megator", **close)
+    p = copy(paths, "mp3", "T78/T78 - Megator (Original Mix)")
+    tags = tagging.for_file(con, "T78/T78 - Megator (Original Mix).mp3", p)
+    assert (tags.artists, tags.title) == (["T78"], "Megator (Original Mix)")
+
+
+def test_where_a_download_came_from(env) -> None:
+    con, paths = env
+    p = copy(paths, "opus", "A/A - Song")
+    assert tagging.download_of(con, "A/A - Song.opus", p, []) == ""  # nothing tells
+    m = File(p)
+    m.tags["comment"] = ["https://www.youtube.com/watch?v=wOIcV_r7TmU"]  # what yt-dlp leaves
+    m.save()
+    assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://www.youtube.com/watch?v=wOIcV_r7TmU"
+    with con:
+        sql = "INSERT INTO events (ts, action, path, source, url) VALUES ('2026-10-01T10:00:00', 'new', ?, ?, ?)"
+        con.execute(sql, ("A/A - Song.opus", "youtube", "https://www.youtube.com/watch?v=recorded"))
+    assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://www.youtube.com/watch?v=recorded"
+
+
+@pytest.mark.parametrize(
+    ("tags", "song", "conflict"),
+    [
+        ("I Want It", "Come & Go (with Marshmello)", True),
+        ("They Can't Take That Away From Me", "Body", True),
+        ("Come & Go", "Come & Go (with Marshmello)", False),
+        ("Juice WRLD - Come & Go (Official Video)", "Come & Go (with Marshmello)", False),
+        ("Megator (Original Mix)", "Megator", False),
+        ("Francium - Original Mix", "Francium - Original Mix", False),
+        ("Started From the Bottom - Drake", "Started From the Bottom", False),
+        ("Oots (Original Mix) 145", "Feel It", True),
+        ("", "Megator", False),
+    ],
+)
+def test_conflict(tags: str, song: str, conflict: bool) -> None:
+    assert tagging.conflict(tags, song) is conflict
+
+
+def test_normalize(env, tmp_path: Path) -> None:
+    """A dry run writes nothing; a run backs the old tags up and writes; a second run has nothing to do; a
+    file whose tags name another song is left alone; a file no song has keeps its tags."""
+    con, paths = env
+    add_song(con, "spotify:jw", "Juice WRLD", "Come & Go (with Marshmello)", file="JW/JW - Come & Go.flac")
+    add_song(con, "spotify:hw", "Hardwell", "Anybody Out There", file="Hardwell/Hardwell - Anybody Out There.mp3")
+    wrong = copy(paths, "flac", "JW/JW - Come & Go")
+    tagging.write(wrong, Tags(["Juice WRLD"], "Juice WRLD", "I Want It", None))
+    right = copy(paths, "mp3", "Hardwell/Hardwell - Anybody Out There")
+    copy(paths, "opus", "Other/Other - Song")
+    before = {p: p.read_bytes() for p in paths.tracks.rglob("*.*")}
+    report = tagging.normalize(con, paths.tracks, dry_run=True, backup=tmp_path / "b.jsonl")
+    assert {p: p.read_bytes() for p in before} == before and not (tmp_path / "b.jsonl").exists()
+    assert (report["changed"], report["no song"], len(report["conflicts"])) == (1, 1, 1)
+    assert report["conflicts"][0]["keys"] == ["spotify:jw"]
+    report = tagging.normalize(con, paths.tracks, dry_run=False, backup=tmp_path / "b.jsonl")
+    assert report["changed"] == 1 and tagging.read(right)["title"] == "Anybody Out There"
+    assert tagging.read(wrong)["title"] == "I Want It"  # left for review
+    assert '"file": "Hardwell/Hardwell - Anybody Out There.mp3"' in (tmp_path / "b.jsonl").read_text()
+    assert tagging.normalize(con, paths.tracks, dry_run=False, backup=tmp_path / "b.jsonl")["changed"] == 0

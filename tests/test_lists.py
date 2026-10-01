@@ -147,7 +147,7 @@ class FakeYtDlp:
 def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
     monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))
-    monkeypatch.setattr("echolot.jobs.lists.finish", lambda *a, **k: None)
+    monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
     message = lists.soundcloud(run)
     assert message == "SoundCloud: 2 of 2 lists read, 1 new files"
     con = run.connect()

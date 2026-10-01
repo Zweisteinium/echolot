@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 13
+VERSION = 14
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -104,7 +104,8 @@ CREATE TABLE events (               -- everything that was filed into or taken o
     fake INTEGER,                   -- FLAC made from a lossy file
     tries INTEGER,                  -- searches that had not found the song before
     wanted_seconds INTEGER,
-    audio TEXT                      -- what the audio check found
+    audio TEXT,                     -- what the audio check found
+    url TEXT                        -- the page a download came from (YouTube, SoundCloud)
 );
 CREATE INDEX events_ts ON events(ts);
 CREATE TABLE blocked (              -- downloads marked wrong in review: never taken for the song again
@@ -189,7 +190,8 @@ MIGRATIONS = {
     13: [
         "ALTER TABLE songs ADD COLUMN close_match INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE review_decisions ADD COLUMN name TEXT",
-    ]
+    ],
+    14: ["ALTER TABLE events ADD COLUMN url TEXT"],
 }
 
 

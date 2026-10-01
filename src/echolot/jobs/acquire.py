@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, identity, rules
+from echolot.library import audio, catalog, filing, identity, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import soulseek, spotify, ytdlp
 from echolot.settings import options
@@ -206,10 +206,21 @@ class Fetcher:
 
 
 def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None) -> None:
-    """A song just filed: an empty album tag gets the list's album, and the cover and artist picture
-    come from Spotify (or the given cover file). Failures only cost the pictures."""
-    row = con.execute("SELECT album FROM songs WHERE key = ?", (want.key,)).fetchone()
-    audio.write_tags(dest, album_if_empty=(row[0] if row and row[0] else want.title))
+    """A song just filed: its tags from the song (tagging: artists, title, album, source, download), an
+    empty album the title (a single), and the cover and artist picture from Spotify (or the given cover
+    file). Failures only cost the tags or the pictures."""
+    rel = dest.relative_to(run.paths.tracks).as_posix()
+    try:
+        if tags := tagging.for_file(con, rel, dest, want.key):
+            tagging.write(dest, tags)
+    except Exception as e:
+        log.warning("tags of %s not written: %s", dest.name, e)
+    audio.write_tags(dest, album_if_empty=want.title)
+    pictures(run, con, dest, want, cover)
+
+
+def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:
+    """The cover (the given file, else Spotify's) and the artist picture of a song just filed."""
     if cover and cover.is_file():
         audio.embed_cover(dest, cover.read_bytes())
         return
@@ -452,6 +463,7 @@ def _fallback_song(
         source = "youtube" if site == "youtube" else "soundcloud-search"
         heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
         found = {"file_name": r["title"], "folders": (r["uploader"],), "fake": prepared.fake, "heard": heard}
+        found["url"] = r["url"]  # the page, for the DOWNLOAD tag
         checks = {"strict": True, "probable": strict_probable, "tries": tries}
         action, dest = filing.file_into(con, run.paths, prepared.path, want, source, **found, **checks)
         if dest and action in ("new", "upgrade"):

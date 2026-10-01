@@ -27,6 +27,9 @@ you, and why.
   with the official release by fingerprint (the recording's ISRC, the release's preview). An official
   video with another edit waits for your decision instead of slipping in.
 - **Fake FLACs found.** A spectrum check spots FLACs made from MP3s and keeps looking for the real one.
+- **Tags from your lists.** Every file is tagged as the song in your lists, not as its uploader tagged it:
+  all artists, title, album, and where it comes from (`SOURCE`: the song's pages, `DOWNLOAD`: Soulseek or
+  the page it was downloaded from). `echolot tags normalize [--dry-run]` does this once for a library.
 - **Review with a player.** Uncertain matches wait for one click: perfect match, close match (another
   version you take for the song; it keeps its real name) or no match; each decision can be taken
   back for two minutes.

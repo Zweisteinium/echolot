@@ -22,7 +22,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.library import audio, catalog
+from echolot.library import audio, catalog, tagging
 from echolot.library.identity import UNKNOWN, Evidence
 from echolot.library.rules import artist_key, clean_name, first_artist, identify, mix_cut, norm_key, same_length
 
@@ -107,14 +107,17 @@ def _place(src: Path, dest: Path) -> None:
     os.unlink(src)
 
 
-def _free_name(folder: Path, name: str, ext: str, length: float) -> Path:
-    """First unused '<name>.<ext>' in folder; a taken name (by any extension) gets the length appended."""
+def _free_name(folder: Path, name: str, ext: str, length: float, label: str = "") -> Path:
+    """First unused '<name>.<ext>' in folder; a taken name (by any extension) gets the label (another
+    version from SoundCloud: '(SoundCloud)'), else the length appended."""
 
     def taken(n: str) -> bool:
         return any((folder / f"{n}.{e}").exists() for e in audio.AUDIO)
 
     if not taken(name):
         return folder / f"{name}.{ext}"
+    if label and not taken(f"{name} ({label})"):
+        return folder / f"{name} ({label}).{ext}"
     base = f"{name} ({int(length) // 60}m{int(length) % 60:02d}s)" if length else f"{name} (2)"
     cand, i = base, 2
     while taken(cand):
@@ -273,6 +276,7 @@ def file_into(
     match: str | None = None,
     fake: bool = False,
     heard: Evidence = UNKNOWN,
+    url: str = "",
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -281,17 +285,21 @@ def file_into(
     file_name/folders, where it came from). An exact match is filed; a probable one is filed marked for
     review, or with probable=False (upgrades, SoundCloud uploader names) kept for review. `heard` is what
     the audio says (identity.check): the release's audio makes a probable match exact, other audio keeps
-    even an exact one for review. A rejected download far off the length is deleted, not kept."""
+    even an exact one for review. A rejected download far off the length is deleted, not kept. `url` is
+    the page it was downloaded from (YouTube, SoundCloud), kept with the event."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
     length = 0 if mix_cut(want.title) else float(want.length or 0)
     info: dict[str, object] = {"source": source, "song": key or None, "artist": want.artist, "title": want.title}
+    info["url"] = url
     if strict:
         tag_artists, tag_title = audio.read_tags(src)
         info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries, audio=heard.detail)
         tol = 3 if source == "soulseek" else 6  # videos have intros
         match, why = identify(want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol)
+        if match == "exact" and tagging.conflict(tag_title, want.title):  # named the song, tagged as another
+            match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
             match = "exact"  # confirmed by the audio: no review needed
         ok = match == "exact" or (match == "probable" and probable)
@@ -342,7 +350,8 @@ def file_into(
             event(con, paths, "upgrade", dest, **info)
             return "upgrade", dest
         folder = artist_dir(paths, cat, want.artist)
-        dest = _free_name(folder, f"{folder.name} - {clean_name(want.title)}", ext, length)
+        label = "SoundCloud" if source == "soundcloud" else ""  # a SoundCloud like next to its Spotify version
+        dest = _free_name(folder, f"{folder.name} - {clean_name(want.title)}", ext, length, label)
         _place(src, dest)
         _add_file(con, paths, dest, fake)
         event(con, paths, "new", dest, **{"fake": int(fake), **info})

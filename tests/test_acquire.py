@@ -12,7 +12,7 @@ from echolot.config import Settings
 from echolot.jobs import acquire
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
-from echolot.library import audio, filing
+from echolot.library import audio, filing, tagging
 from echolot.library.filing import Want
 from echolot.services import soulseek
 from echolot.settings import options, vault
@@ -82,7 +82,7 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     FakeDaemon.ready = True
     monkeypatch.setattr(soulseek, "Daemon", FakeDaemon)
     monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))  # no ffmpeg here
-    monkeypatch.setattr(acquire, "finish", lambda *a, **k: None)  # no Spotify pictures
+    monkeypatch.setattr(acquire, "pictures", lambda *a, **k: None)  # no Spotify pictures
     con = db.connect(settings.db_path)
     with con:
         options.update(con, options.Soulseek, daemon_music=str(settings.library_dir.parent), stall_minutes=2)
@@ -272,3 +272,27 @@ def test_a_download_rejected_before_is_not_downloaded_again(run: Run) -> None:
     result = con.execute("SELECT result FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0]
     con.close()
     assert '"rejected before": 2' in result
+
+
+def test_a_fallback_download_keeps_its_page(run: Run) -> None:
+    """The page a YouTube download came from is kept with the event and in the DOWNLOAD tag."""
+    want = Want("Artist C", "Gone Song", 180, "spotify:s3")
+    ydl = FakeYtDlp(
+        {"youtube": [hit("https://www.youtube.com/watch?v=gone", "Artist C", "Artist C - Gone Song", 180)]}, {}
+    )
+    con = run.connect()
+    action, _ = acquire._fallback_song(run, con, ydl, want, 2, strict_probable=True)
+    assert action == "new"
+    assert con.execute("SELECT url FROM events WHERE action = 'new' ORDER BY id DESC").fetchone()[0].endswith("v=gone")
+    path = run.paths.tracks / con.execute("SELECT path FROM events WHERE action = 'new' ORDER BY id DESC").fetchone()[0]
+    con.close()
+    assert tagging.read(path)["download"] == "https://www.youtube.com/watch?v=gone"
+
+
+def test_a_filed_song_is_tagged_from_the_song(run: Run) -> None:
+    """The file's tags: the song's artist and title, its Spotify page, downloaded from Soulseek."""
+    FakeDaemon.files["Gone Song"] = [("u2", "Music\\Artist C\\Artist C - Gone Song.wav", 180, "ok")]
+    acquire._search(run, [r for r in missing(run) if r["key"] == "spotify:s3"], "search")
+    tags = tagging.read(run.paths.tracks / "Artist C" / "Artist C - Gone Song.wav")
+    assert (tags["artists"], tags["title"]) == (["Artist C"], "Gone Song")
+    assert (tags["sources"], tags["download"]) == (["https://open.spotify.com/track/s3"], "Soulseek")
