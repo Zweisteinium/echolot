@@ -194,3 +194,15 @@ def test_the_core_of_a_title() -> None:
     assert core("Sweet Lovin' - Radio Edit") == core("Sweet Lovin' - Original Mix") == "sweet lovin"
     assert core("Ignite (feat. SEUNGRI)") == core("Ignite") == "ignite"
     assert core("Adagio for Strings - Unmixed Version") == "adagio for strings"
+
+
+def test_songs_sharing_a_file_give_it_all_their_artists(env) -> None:
+    """Spotify lists Komm mit twice (with and without its featured artist): one recording, so the file gets
+    both artists, led by the song named as its folder."""
+    con, paths = env
+    rel = "TheDoDo/TheDoDo - Komm mit.flac"
+    add_song(con, "spotify:a", "TheDoDo", "Komm Mit", artists='["TheDoDo"]', file=rel)
+    add_song(con, "spotify:b", "TheDoDo", "Komm mit", artists='["TheDoDo", "Pbb Yea"]', file=rel)
+    add_song(con, "spotify:c", "Pbb Yea", "Komm mit", artists='["Pbb Yea", "TheDoDo"]', file=rel)
+    tags = tagging.for_file(con, rel, copy(paths, "flac", "TheDoDo/TheDoDo - Komm mit"))
+    assert (tags.artists, tags.albumartist, tags.title) == (["TheDoDo", "Pbb Yea"], "TheDoDo", "Komm mit")
