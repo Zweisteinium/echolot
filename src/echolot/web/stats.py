@@ -193,6 +193,7 @@ EVENTS = {
     "upgrade": ("Upgraded", "ok"),
     "wrong-song": ("Rejected", "bad"),
     "mismatch": ("Rejected", "bad"),
+    "confirm": ("For review", "warn"),
     "duplicate": ("Already there", ""),
     "retired": ("Removed", "warn"),
     "renamed": ("Renamed", ""),
@@ -258,10 +259,10 @@ def _entry(e: Row) -> dict[str, Any]:
     entry |= {"tag": None, "note": "", "title": reason, "diff": None, "was": None, "was_bytes": None}
     if action in ("new", "upgrade", "duplicate"):
         entry["tag"] = MATCHED.get(e["matched"] or "")
-    elif action in ("wrong-song", "mismatch"):
+    elif action in ("wrong-song", "mismatch", "confirm"):
         wanted = e["wanted_seconds"]
         entry["diff"] = e["seconds"] - wanted if action == "mismatch" and wanted and e["seconds"] else None
-        entry["tag"] = (_why(action, reason), "bad")
+        entry["tag"] = ("FLAC for a SoundCloud song", "warn") if action == "confirm" else (_why(action, reason), "bad")
         entry["note"] = f"“{(e['found'] or e['file_name'] or '').strip()}”" if e["found"] or e["file_name"] else ""
     else:
         entry["quality"] = None if action in ("retired", "renamed", "linked") else entry["quality"]

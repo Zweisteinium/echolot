@@ -94,7 +94,8 @@ Accounts page shows where.
 5. **File.** `tracks/<Artist>/<Artist> - <Title>.<ext>`, one folder per artist. A genuine FLAC
    replaces a lossy or fake copy; the old file waits in `inbox/replaced/` for 30 days.
 6. **Upgrade.** Songs that are not genuine lossless are searched FLAC-only, the longest waiting
-   first (each one after 12 h, 1 d, 2 d, then every 3 d).
+   first (each one after 12 h, 1 d, 2 d, then every 3 d). A long run gives way to the Spotify sync and
+   goes on after it. A FLAC found for a SoundCloud song waits on the review page for your Perfect match.
 7. **Playlists.** One `.m3u` per list shown as a playlist, in list order, with the list's cover.
 
 ### When is a file the song?

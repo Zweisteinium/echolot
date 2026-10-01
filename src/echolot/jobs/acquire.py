@@ -1,6 +1,7 @@
 """Getting songs: Soulseek through the Sockseek daemon (sync, sweep, upgrade) and the search
-fallback on YouTube and SoundCloud. Only Spotify songs are searched on Soulseek; SoundCloud songs come from
-SoundCloud itself (their artist names are too unreliable for search results).
+fallback on YouTube and SoundCloud. Missing Spotify songs are searched on Soulseek; SoundCloud songs come from
+SoundCloud itself (their artist names are too unreliable to file search results by), and a FLAC the upgrade
+finds for one is kept for review (Worth a look), never filed by itself.
 
 One song, one attempt:
   1. search (the terms get looser with every search that found nothing: LOOSEN)
@@ -12,6 +13,7 @@ One song, one attempt:
 """
 
 import collections
+import dataclasses
 import json
 import logging
 import re
@@ -151,7 +153,7 @@ class Fetcher:
             if self.run.stop.is_set():
                 break
             outcome = self.attempt(job, c, want, tries, settings)
-            if outcome.action == "upgrade" or (outcome.action in FOUND and self.purpose == "search"):
+            if outcome.action in ("upgrade", "confirm") or (outcome.action in FOUND and self.purpose == "search"):
                 return outcome
             tried.append(f"{c.name}: {outcome.detail or outcome.action}")
             report["tried"].append([c.name, outcome.action, outcome.detail])
@@ -172,10 +174,11 @@ class Fetcher:
             con = self.run.connect()
             try:
                 heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
+                confirm = self.purpose == "upgrade" and want.key.startswith("soundcloud:")
                 action, dest = filing.file_into(
                     con, self.run.paths, prepared.path, want, "soulseek", strict=True,
                     file_name=c.name, folders=c.folders, probable=self.purpose == "search",
-                    tries=tries, fake=prepared.fake, heard=heard,
+                    tries=tries, fake=prepared.fake, heard=heard, confirm=confirm,
                 )  # fmt: skip
                 if dest and action in ("new", "upgrade"):
                     finish(self.run, con, dest, want)
@@ -276,9 +279,9 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
 
     def one(row: sqlite3.Row) -> None:
         nonlocal done
-        if run.stop.is_set() or time.monotonic() > deadline:
+        if run.stop.is_set() or run.give_way.is_set() or time.monotonic() > deadline:
             return
-        want = Want.of(row)
+        want = _want(row)
         try:
             outcome = fetcher.song(want, row["tries"])
         except soulseek.Lost:
@@ -306,7 +309,19 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     with ThreadPoolExecutor(fetcher.opts.parallel, thread_name_prefix=purpose) as pool:
         list(pool.map(one, songs))
     run.after.add("library")
-    return f"{done} of {len(songs)} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
+    summary = f"{done} of {len(songs)} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
+    if run.give_way.is_set() and not run.stop.is_set() and done < len(songs):
+        run.left = len(songs) - done  # searched after the job that is due (worker.resume)
+        summary += f"; gave way, {run.left} after the next job"
+    return summary
+
+
+def _want(row: sqlite3.Row) -> Want:
+    """The song to search for; a SoundCloud title without its release decoration (tagging.clean_title)."""
+    want = Want.of(row)
+    if row["service"] == "soundcloud":
+        want = dataclasses.replace(want, title=tagging.clean_title(want.title, want.artist))
+    return want
 
 
 def _logged_in(daemon: soulseek.Daemon) -> bool:
@@ -362,18 +377,20 @@ def sweep(run: "Run") -> str:
 
 
 def upgrade(run: "Run") -> str:
-    """FLAC-only search for wanted Spotify songs whose library copy is not genuine lossless; each song
-    waits 12 h, 1 d, 2 d, then every 3 d between searches; the longest waiting first, at most
-    upgrade_batch per run. SoundCloud songs are not upgraded from Soulseek, close matches not at all
-    (a FLAC found would be the song, not the version taken for it)."""
+    """FLAC-only search for wanted songs whose library copy is not genuine lossless; each song waits 12 h,
+    1 d, 2 d, then every 3 d between searches; the longest waiting first, at most upgrade_batch per run (or
+    what a run that gave way left). A SoundCloud song's FLAC is kept for review (Fetcher.attempt), and the
+    song is not searched while one waits there; a SoundCloud song whose file a Spotify song has is upgraded
+    as that one. Close matches are not upgraded (a FLAC found would be the song, not the version taken)."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
-        batch = options.get(con, options.Soulseek).upgrade_batch
+        batch = run.budget or options.get(con, options.Soulseek).upgrade_batch  # what a run that gave way left
         rows = con.execute(
             "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
             "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
-            "WHERE s.service = 'spotify' AND f.quality != 'lossless' AND NOT s.close_match ORDER BY last_try"
+            "WHERE f.quality != 'lossless' AND NOT s.close_match AND (s.service = 'spotify' OR NOT EXISTS "
+            "(SELECT 1 FROM wanted o WHERE o.service = 'spotify' AND o.file = s.file)) ORDER BY last_try"
         ).fetchall()
         with con:  # songs that are lossless now or left every list
             con.execute(
@@ -384,6 +401,8 @@ def upgrade(run: "Run") -> str:
         con.close()
     now, seen, songs = time.time(), set(), []
     for r in rows:
+        if r["service"] == "soundcloud" and filing.in_review(run.paths, r["artist"], _want(r).title):
+            continue  # its FLAC waits for your answer
         if r["file"] not in seen and due(r["tries"], r["last_try"], 12 * 3600, 3 * 86400, now):
             seen.add(r["file"])
             songs.append(r)
