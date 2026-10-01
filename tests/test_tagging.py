@@ -94,9 +94,11 @@ def test_a_soundcloud_title_loses_its_decoration_and_a_close_match_keeps_its_nam
 def test_where_a_download_came_from(env) -> None:
     con, paths = env
     p = copy(paths, "opus", "A/A - Song")
-    assert tagging.download_of(con, "A/A - Song.opus", p, []) == ""  # nothing tells
     m = File(p)
-    m.tags["comment"] = ["https://www.youtube.com/watch?v=wOIcV_r7TmU"]  # what yt-dlp leaves
+    m.tags["synopsis"] = ["Out now!\nhttps://soundcloud.com/label"]  # the video's description: not the page
+    m.save()
+    assert tagging.download_of(con, "A/A - Song.opus", p, []) == ""  # nothing tells
+    m.tags["purl"] = ["https://www.youtube.com/watch?v=wOIcV_r7TmU"]  # what yt-dlp leaves
     m.save()
     assert tagging.download_of(con, "A/A - Song.opus", p, []) == "https://www.youtube.com/watch?v=wOIcV_r7TmU"
     with con:
@@ -106,6 +108,11 @@ def test_where_a_download_came_from(env) -> None:
     f = copy(paths, "flac", "B/B - Song")  # a page in SOURCE is where the song is, not where the file came from
     tagging.write(f, Tags(["B"], "B", "Song", None, ["https://soundcloud.com/b/song"], "Soulseek"))
     assert tagging.download_of(con, "B/B - Song.flac", f, []) == "Soulseek"
+    m = File(copy(paths, "m4a", "C/C - Song"))
+    m.tags["\xa9cmt"] = ["https://soundcloud.com/c/song"]  # yt-dlp's page, the song's own: still the download
+    m.save()
+    tagging.write(Path(m.filename), Tags(["C"], "C", "Song", None, ["https://soundcloud.com/c/song"]))
+    assert tagging.download_of(con, "C/C - Song.m4a", Path(m.filename), []) == "https://soundcloud.com/c/song"
 
 
 @pytest.mark.parametrize(
