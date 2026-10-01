@@ -278,18 +278,26 @@ def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: st
         artist, title = split_name(name)
         if not artist or not title:
             raise ConfigError("A close match needs the name its file gets, as 'Artist - Title'.")
-        e = item.event
-        wanted = (rules.artist_key(e["artist"]), rules.title_key(e["title"]))
-        if (rules.artist_key(artist), rules.title_key(title)) == wanted:
-            hint = "That is the wanted song's name. Add the version, e.g. '(Extended Mix)', or choose Perfect match."
-            raise ConfigError(hint)
-        name = f"{artist} - {title}"
+        e, name = item.event, f"{artist} - {title}"
+        if _plain(name) == _plain(f"{e['artist']} - {e['title']}"):
+            raise ConfigError("That is the wanted song's own name: add the version, e.g. '(Original Mix)'.")
+        if _keys(artist, title) == _keys(e["artist"], e["title"]) and rules.same_length(e["seconds"], item.length):
+            raise ConfigError("The same song by name and length: that is a Perfect match.")
     with con:
         con.execute(
             "INSERT OR REPLACE INTO review_decisions (id, event_id, decision, name, decided) VALUES (?, ?, ?, ?, ?)",
             (item.id, event_id, decision, name if decision == "close" else None, _now()),
         )
     return item
+
+
+def _plain(name: str) -> str:
+    return " ".join(name.casefold().split())
+
+
+def _keys(artist: str, title: str) -> tuple[str, str]:
+    """How the matching rules compare a song ("(Original Mix)" and other noise left out)."""
+    return rules.artist_key(artist), rules.title_key(title)
 
 
 def _now() -> str:
@@ -342,11 +350,12 @@ def _search_again(con: sqlite3.Connection, key: str, tries: int) -> None:
         )
 
 
-def _link(con: sqlite3.Connection, key: str, artist: str, title: str, close: bool) -> None:
-    """The song is the library song <artist> - <title> whatever its length; close: another version of it."""
+def _link(con: sqlite3.Connection, key: str, artist: str, title: str, close: bool, seconds: float = 0) -> None:
+    """The song is the library song <artist> - <title> whatever the song's length; close: another version
+    of it, linked with the version's length (its title can reduce to the song's, catalog.Catalog.song)."""
     with con:
         con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
-        link = json.dumps([artist, title])
+        link = json.dumps([artist, title, round(seconds)] if close and seconds else [artist, title])
         con.execute("UPDATE songs SET link = ?, close_match = ? WHERE key = ?", (link, int(close), key))
 
 
@@ -468,7 +477,7 @@ def _close_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, p
         song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
         finish(run, con, dest, Want.of(song) if song else want)  # album and cover of the wanted song
     if key and dest:
-        _link(con, key, artist, title, close=True)
+        _link(con, key, artist, title, close=True, seconds=audio.probe(dest)[0])
     return f"{action} {dest.relative_to(run.paths.tracks) if dest else ''}".strip()
 
 
@@ -489,7 +498,7 @@ def _close_filed(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str) 
             dest = filing.rename(con, paths, entry, artist, title, f"close match for {d['artist']} - {d['title']}")
             result = f"renamed {dest.relative_to(paths.tracks)}"
     if key:
-        _link(con, key, artist, title, close=True)
+        _link(con, key, artist, title, close=True, seconds=entry.duration)
     return result
 
 

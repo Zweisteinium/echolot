@@ -6,6 +6,7 @@
 {% set d_artist, d_title, other = i.download -%}
 {% set goes = taken and taken.event.id != e.id and not i.decision -%}
 {% set open = not i.decision and not goes -%}
+{% set failed = card_error and error_id == e.id -%}
 {% if i.kind == 'filed' -%}
 {% set note = [e.reason|replace('back in review: ', 'Back for a check: ') if e.action == 'recheck', e.audio]|select|join(' · ') -%}
 {% set HELP = {
@@ -31,13 +32,14 @@
     <div class="facts">{{ facts(e.source, e.seconds, i.length_diff, i.quality, e.kbps, e.bytes) }}<span class="play-time"></span></div>
     {% if note %}<div class="download-why">{{ note }}</div>{% endif %}
     {% if open and 'close' in dict(i.choices) %}
-    <div class="close-line" id="close-line-{{ e.id }}" hidden>
+    <div class="close-line" id="close-line-{{ e.id }}"{% if not failed %} hidden{% endif %}>
       <label for="close-name-{{ e.id }}">Files as</label>
-      <input type="text" id="close-name-{{ e.id }}" name="name" form="close-{{ e.id }}" value="{{ i.close_name }}" required>
+      <input type="text" id="close-name-{{ e.id }}" name="name" form="close-{{ e.id }}" value="{{ tried if failed and tried else i.close_name }}" required>
       <button class="primary" form="close-{{ e.id }}">File as close match</button>
       <button type="button" data-close-cancel>Cancel</button>
     </div>
     {% endif %}
+    {% if failed %}<div class="small bad-text" role="alert">{{ card_error }}</div>{% endif %}
   </div>
   <div class="review-actions">
     {% if i.decision %}<span class="status">{{ i.label }}{% if i.name %} as “{{ i.name }}”{% endif %} · applied soon</span>

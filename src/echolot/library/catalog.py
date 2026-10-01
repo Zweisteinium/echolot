@@ -103,8 +103,9 @@ class Catalog:
         link: list[str] | None = None,
     ) -> list[Entry]:
         """Library files for a wanted song: a review link wins, then the song's artist, then its other artists
-        (a collaboration listed twice with the artists swapped)."""
-        if link and (hits := self.find(link[0], link[1])):
+        (a collaboration listed twice with the artists swapped). A link with a length (a close match) is told
+        by it from the song itself: "Megator (Original Mix)" 6:59 and "Megator" 5:30 share a title key."""
+        if link and (hits := self.find(link[0], link[1], link[2] if len(link) > 2 else 0)):
             return hits
         for a in dict.fromkeys([artist, *(artists or [])]):
             if hits := self.find(a, title, length):

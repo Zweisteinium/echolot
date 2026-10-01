@@ -23,5 +23,5 @@
   <ol class="downloads">
     {% for i in g.items %}{% include "_review_download.html" %}{% endfor %}
   </ol>
-  {% if error %}<p class="small bad-text">{{ error }}</p>{% endif %}
+  {% if card_error and error_id not in g.items|map(attribute='event.id') %}<p class="small bad-text">{{ card_error }}</p>{% endif %}
 </article>
