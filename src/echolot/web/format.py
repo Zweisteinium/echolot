@@ -58,4 +58,13 @@ def mmss(seconds: float | None) -> str:
     return f"{int(seconds) // 60}:{int(seconds) % 60:02d}" if seconds else "–"
 
 
-FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes}
+SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "spotify": "Spotify"}
+SOURCES |= {"soundcloud-search": "SoundCloud", "manual": "By hand"}  # the search fallback's downloads; added by hand
+
+
+def source(name: str | None) -> str:
+    """Where a song or download comes from, by its proper name (one spelling on every page)."""
+    return SOURCES.get(name or "", (name or "").capitalize())
+
+
+FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes, "source": source}
