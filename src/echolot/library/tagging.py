@@ -32,6 +32,16 @@ JUNK = [
     r"\s+[|•]\s.*$",
 ]
 LAST_FILED = "SELECT source, url FROM events WHERE path = ? AND action IN ('new', 'upgrade', 'linked') ORDER BY id DESC"
+# what players read beside or before the fields written (Navidrome's aliases): other spellings of the album
+# artist, an album artist list, the artist as author and the uploader's sort names; they go when tags are written
+STALE = {
+    "vorbis": [
+        *("album artist", "album_artist", "albumartists", "author", "artistsort", "artistssort"),
+        *("albumartistsort", "albumartistssort", "titlesort", "albumsort"),
+    ],
+    "id3": ["TSOP", "TSO2", "TSOT", "TSOA", "TXXX:album artists", "TXXX:albumartists", "TXXX:albumartistsort"],
+    "mp4": ["soar", "soaa", "sonm", "soal", "----:com.apple.iTunes:ALBUMARTISTS"],
+}
 FORMATS = ("flac", "ogg", "opus", "mp3", "wav", "m4a")  # what the writer handles (others keep their tags)
 
 
@@ -121,10 +131,10 @@ def _raw(path: Path) -> Any:
 
 
 def read(path: Path) -> dict[str, Any]:
-    """What a file's tags hold, in Tags terms, plus 'page': the page yt-dlp downloaded it from, and 'text':
-    every text value."""
+    """What a file's tags hold, in Tags terms, plus 'page': the page yt-dlp downloaded it from, 'stale': the
+    STALE fields it has, and 'text': every text value."""
     out: dict[str, Any] = {"artists": [], "albumartist": "", "title": "", "album": "", "sources": [], "download": ""}
-    out |= {"track": "", "page": "", "text": ""}
+    out |= {"track": "", "page": "", "stale": {}, "text": ""}
     try:
         m = _raw(path)
     except Exception:
@@ -139,6 +149,7 @@ def read(path: Path) -> dict[str, Any]:
     out["track"] = " ".join(get("TRACK"))
     out["text"] = " ".join(str(v) for v in _values(t))
     out["page"] = _page(t)
+    out["stale"] = _stale(t)
     return out
 
 
@@ -182,6 +193,17 @@ def _page(t: Any) -> str:
     return ""
 
 
+def _stale(t: Any) -> dict[str, list[str]]:
+    """The STALE fields of the tags, with their values (names compared ignoring case)."""
+    kind = _kind(t)
+    names = {k.lower() for k in STALE[kind]}
+    out = {}
+    for key in [k for k in t.keys() if k.lower() in names]:  # noqa: SIM118 (Vorbis comments iterate as pairs)
+        values = t[key].text if kind == "id3" else t[key]
+        out[key] = [bytes(v).decode("utf-8", "replace") if isinstance(v, bytes) else str(v) for v in values]
+    return out
+
+
 def _values(t: Any) -> list[Any]:
     kind = _kind(t)
     if kind == "id3":
@@ -197,7 +219,7 @@ def differs(path: Path, tags: Tags) -> list[str]:
     album = tags.album if tags.album is not None else now["album"]
     wanted = {"artists": tags.artists, "albumartist": tags.albumartist, "title": tags.title, "album": album}
     wanted |= {"sources": tags.sources, "download": tags.download or now["download"]}
-    return [name for name, value in wanted.items() if now[name] != value]
+    return [name for name, value in wanted.items() if now[name] != value] + (["stale"] if now["stale"] else [])
 
 
 def write(path: Path, tags: Tags) -> None:
@@ -208,6 +230,8 @@ def write(path: Path, tags: Tags) -> None:
     if m.tags is None:
         m.add_tags()
     t, kind = m.tags, _kind(m.tags)
+    for key in _stale(t):
+        del t[key]
     values = {"ARTIST": [tags.artist], "ARTISTS": tags.artists, "ALBUMARTIST": [tags.albumartist]}
     values |= {"TITLE": [tags.title], "SOURCE": tags.sources}
     if tags.album is not None:
