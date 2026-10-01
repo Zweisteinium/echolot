@@ -49,7 +49,10 @@ def overview(con: Connection) -> dict[str, Any]:
         "files": files,
         "in_lists": in_lists,  # files the wanted songs have (a file can be several songs of the lists)
         "size": size,
-        "tiers": [(key, label, by_tier.get(key, 0)) for key, label in QUALITY],
+        "tiers": [
+            *[(key, label, by_tier.get(key, 0)) for key, label in QUALITY],
+            ("missing", "Missing", wanted - have),
+        ],
         "lossless": by_tier.get("lossless", 0),
         "wanted": wanted,
         "have": have,
