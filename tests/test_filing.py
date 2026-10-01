@@ -514,3 +514,24 @@ def test_the_same_name_and_length_is_no_close_match(env) -> None:
     item = review.items(con, paths.music)["kept"][0]
     with pytest.raises(review.ConfigError, match="Perfect match"):
         review.decide(con, paths.music, item.event["id"], "close", "T78 - Megator (Original Mix)")
+
+
+def test_a_perfect_match_of_another_length_replaces_the_lossy_copy(env) -> None:
+    """Rave Nation: the library has a 128 kbps copy of 4:50; a FLAC of 5:41 (a longer part, the same song)
+    is taken as a Perfect match. It replaces the copy under its name, not as a second file with the
+    length appended."""
+    con, paths, run = env
+    want = add_song(con, "spotify:rn", "T78", "Rave Nation", 302)
+    lossy = paths.tracks / "T78" / "T78 - Rave Nation.mp3"
+    lossy.parent.mkdir()
+    lossy.write_bytes(b"not really audio")
+    catalog.scan(con, paths.tracks)
+    with con:
+        con.execute("UPDATE files SET duration = 290, kbps = 128")
+    catalog.match_songs(con)
+    search_hit(con, paths, download(paths, "a.wav", 341), want, "T78 - Rave Nation", "soulseek")
+    item = review.items(con, paths.music)["kept"][0]
+    assert decide(con, run, item.event["id"], "accept").endswith(": upgrade T78/T78 - Rave Nation.wav")
+    assert not lossy.exists() and list(paths.inbox("replaced").rglob("T78 - Rave Nation.mp3"))
+    catalog.match_songs(con)
+    assert song(con, "spotify:rn")["file"] == "T78/T78 - Rave Nation.wav"
