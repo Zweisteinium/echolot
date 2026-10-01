@@ -381,7 +381,7 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     paths, key = run.paths, rules.norm_key(d["song"])
     decision = d["decision"]
     if decision == "ok":
-        return "kept"
+        return _confirm(run, con, d)
     if decision == "wrong":
         _block(con, key, d)
         with filing.LOCK:
@@ -408,6 +408,18 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     if gone := _discard_rest(run, con, d, key):
         taken += f"; {gone} other download{'s' if gone != 1 else ''} of the song discarded"
     return taken
+
+
+def _confirm(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
+    """Perfect match for a library file: it stays and gets the song's tags (the uploader's may name another
+    song: why it was in review)."""
+    p = run.paths.tracks / d["path"]
+    if not p.is_file():
+        return "file gone"
+    if (tags := tagging.for_file(con, d["path"], p)) and tagging.differs(p, tags):
+        tagging.write(p, tags)
+        return "kept, tagged as the song"
+    return "kept"
 
 
 def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, p: Path) -> str:

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from echolot import db
-from echolot.library import catalog, filing, review
+from echolot.library import catalog, filing, review, tagging
 from echolot.library.filing import Paths, Want
 from echolot.library.identity import Evidence
 from echolot.settings import vault
@@ -539,14 +539,17 @@ def test_a_perfect_match_of_another_length_replaces_the_lossy_copy(env) -> None:
 
 def test_tags_naming_another_song_need_a_confirmation(env, monkeypatch) -> None:
     """Juice WRLD: the file name says "Come & Go", the tags say "I Want It". Filed only for review (Please
-    confirm), unless the audio check hears the release."""
-    con, paths, _ = env
+    confirm), unless the audio check hears the release. Confirmed, it gets the song's tags."""
+    con, paths, run = env
     want = add_song(con, "spotify:jw", "Juice WRLD", "Come & Go (with Marshmello)", 205)
     monkeypatch.setattr("echolot.library.audio.read_tags", lambda p: (["Juice WRLD"], "I Want It"))
     name = "Juice WRLD - Come & Go (with Marshmello)"
     search_hit(con, paths, download(paths, "a.wav", 205), want, name, "soulseek")
     e = events(con)[-1]
     assert (e["action"], e["matched"]) == ("new", "probable") and "tags name another song: 'I Want It'" in e["reason"]
+    catalog.match_songs(con)
+    assert decide(con, run, e["id"], "ok").endswith(": kept, tagged as the song")
+    assert tagging.read(paths.tracks / e["path"])["title"] == "Come & Go (with Marshmello)"
     same = Evidence("same", "audio of the release (0.95)")
     search_hit(con, paths, download(paths, "b.wav", 205), want, name, "soulseek", heard=same)
     assert events(con)[-1]["matched"] == "exact"
