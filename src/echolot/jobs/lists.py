@@ -116,7 +116,7 @@ def fetch_spotify(run: "Run") -> str:
         for s in sources.lists(con):
             if s.service != "spotify":
                 continue
-            run.say(f"Spotify: {s.title or s.url}")
+            run.say(f"reading {s.title or s.url}")
             try:
                 if _fetch_spotify_list(con, sp, s, known, likes):
                     read += 1
@@ -127,7 +127,7 @@ def fetch_spotify(run: "Run") -> str:
                 failed.append(f"{s.title or s.key}: {e}")
         if any(s.name == "Spotify Liked Songs" for s in sources.lists(con)):
             _greyed(con, sp)
-        return f"Spotify: {done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
+        return f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
     finally:
         con.close()
 
@@ -199,17 +199,17 @@ def soundcloud(run: "Run") -> str:
         except sc_api.SoundCloudError as e:
             log.info("soundcloud states: %s (reading every list)", e)
             states = {}
-        srcs = [s for s in srcs if _sc_changed(con, s, states)]
+        total, srcs = len(srcs), [s for s in srcs if _sc_changed(con, s, states)]
     finally:
         con.close()
     if not srcs:
-        return "SoundCloud: no changes"
+        return f"{total} lists, 0 changed"
     work = run.paths.inbox("soundcloud")
     shutil.rmtree(work, ignore_errors=True)  # what an interrupted run left
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
     listed: dict[str, list[tuple[str, str]]] = {}
     for s in srcs:
-        run.say(f"SoundCloud: listing {s.title or s.url}")
+        run.say(f"reading {s.title or s.url}")
         tracks, info = ydl.listing(s.url, run.stop)
         if tracks is None:
             continue  # keep the last listing
@@ -233,7 +233,7 @@ def soundcloud(run: "Run") -> str:
     new = [(tid, url) for tid, url in urls.items() if tid not in have and url]
     added = 0
     if new and not run.stop.is_set():
-        run.say(f"SoundCloud: downloading {len(new)} new songs")
+        run.say(f"downloading {len(new)} new songs")
         for d in ydl.download(new, work, run.stop):
             filed = _file_sc(run, d, urls[d["id"]], work)
             added += filed
@@ -266,7 +266,8 @@ def soundcloud(run: "Run") -> str:
         con.close()
     shutil.rmtree(work, ignore_errors=True)
     run.after.add("library")
-    return f"SoundCloud: {len(listed)} of {len(srcs)} lists read, {added} new files"
+    unread = f", {len(srcs) - len(listed)} not read" if len(listed) < len(srcs) else ""
+    return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs"
 
 
 def _sc_changed(con: sqlite3.Connection, s: Source, states: dict[str, str]) -> bool:

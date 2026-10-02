@@ -60,7 +60,7 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
 
 
 def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert lists.fetch_spotify(run) == "Spotify: 3 lists, 3 changed"
+    assert lists.fetch_spotify(run) == "3 lists, 3 changed"
     con = run.connect()
     likes = [
         r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = 'spotify:likes' ORDER BY position")
@@ -76,11 +76,11 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     assert tuple(row) == ("Renamed", "https://img/BBB222", "snap1")  # the name override wins
     con.close()
     FakeSpotify.calls = []
-    assert lists.fetch_spotify(run) == "Spotify: 3 lists, 0 changed"  # nothing changed: nothing read
+    assert lists.fetch_spotify(run) == "3 lists, 0 changed"  # nothing changed: nothing read
     assert FakeSpotify.calls == ["playlist BBB222"]  # only its snapshot (not in the account's library)
     FakeSpotify.calls = []
     monkeypatch.setattr(FakeSpotify, "liked", [song("s10", "Artist N", "Newest Song"), *FakeSpotify.liked])  # a like
-    assert lists.fetch_spotify(run) == "Spotify: 3 lists, 1 changed"
+    assert lists.fetch_spotify(run) == "3 lists, 1 changed"
     assert FakeSpotify.calls == ["items None", "playlist BBB222"]
 
 
@@ -160,7 +160,7 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))
     monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
     message = lists.soundcloud(run)
-    assert message == "SoundCloud: 2 of 2 lists read, 1 new files"
+    assert message == "2 lists, 2 changed; 1 new songs"
     con = run.connect()
     new = con.execute("SELECT artist, title, archived, stem FROM songs WHERE key = 'soundcloud:2002'").fetchone()
     assert tuple(new) == ("DJ Nobody", "Night Drive", 1, "DJ Nobody/DJ Nobody - Night Drive")
@@ -177,7 +177,7 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     con.close()
     library(run)
-    assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 0 new files"  # nothing downloaded twice
+    assert lists.soundcloud(run) == "2 lists, 2 changed; 0 new songs"  # nothing downloaded twice
     library(run)
     asked = len(FakeYtDlp.asked)  # the pages of the songs stored in the first run
     lists.soundcloud(run)
@@ -186,7 +186,7 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     (run.paths.tracks / con.execute("SELECT file FROM songs WHERE key = 'soundcloud:2002'").fetchone()[0]).unlink()
     con.close()
     library(run)
-    assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 1 new files"
+    assert lists.soundcloud(run) == "2 lists, 2 changed; 1 new songs"
 
 
 def library(run: Run) -> None:
@@ -222,7 +222,7 @@ def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: 
         w.setnchannels(1), w.setsampwidth(1), w.setframerate(100)
         w.writeframes(b"\x80" * 100 * 251)
     library(run)
-    assert lists.soundcloud(run) == "SoundCloud: 2 of 2 lists read, 0 new files"
+    assert lists.soundcloud(run) == "2 lists, 2 changed; 0 new songs"
     library(run)
     con = run.connect()
     assert con.execute("SELECT file FROM songs WHERE key = 'soundcloud:2002'").fetchone()[0] == (
