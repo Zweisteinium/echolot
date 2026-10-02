@@ -48,3 +48,25 @@ def sets(token: str) -> list[dict[str, Any]]:
                     "image": (p.get("artwork_url") or "").replace("-large.", "-t500x500.") or None,
                     "own": kind == "playlist"})  # fmt: skip
     return out
+
+
+def artwork(token: str, track_id: str) -> str | None:
+    """A track's artwork (500 px), else its uploader's picture; None if it has neither."""
+    d = _get(token, f"/tracks/{track_id}")
+    url = d.get("artwork_url") or (d.get("user") or {}).get("avatar_url")
+    return url.replace("-large.", "-t500x500.") if url else None
+
+
+def states(token: str) -> dict[str, str]:
+    """Per list page, what changes when the list changes (three requests): the account's likes
+    ('<count>:<newest like>:<its track>') and every set in its library ('<songs>:<last change>')."""
+    me = _get(token, "/me")
+    newest = (_get(token, f"/users/{me['id']}/track_likes?limit=1").get("collection") or [{}])[0] or {}
+    track = (newest.get("track") or {}).get("id") or ""
+    out = {
+        f"https://soundcloud.com/{me.get('permalink')}/likes": f"{me.get('likes_count')}:{newest.get('created_at')}:{track}"
+    }
+    for it in _get(token, "/me/library/all?limit=200").get("collection") or []:
+        if (p := it.get("playlist") or {}).get("permalink_url"):
+            out[p["permalink_url"]] = f"{p.get('track_count')}:{p.get('last_modified')}"
+    return out

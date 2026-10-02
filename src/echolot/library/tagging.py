@@ -81,30 +81,42 @@ def page(song: sqlite3.Row) -> str:
     return song["url"] or ""
 
 
+def _songs(con: sqlite3.Connection, rel: str, key: str = "") -> list[sqlite3.Row]:
+    """The songs a library file is (and the song `key` it was just filed for)."""
+    sql = "SELECT * FROM songs WHERE file = ? OR stem = ? OR key = ?"
+    return con.execute(sql, (rel, rel.rsplit(".", 1)[0], rules.norm_key(key))).fetchall()
+
+
+def names(s: sqlite3.Row) -> list[str]:
+    return [s["artist"], *json.loads(s["artists"] or "[]")]
+
+
+def _lead(songs: list[sqlite3.Row], rel: str) -> sqlite3.Row:
+    """The song a file's names and cover come from: a close match first, then Spotify's song named as
+    the file's folder, with the most artists."""
+    folder = rules.artist_keys(rel.partition("/")[0])
+
+    def order(s: sqlite3.Row) -> tuple:
+        named = bool(rules.artist_keys(s["artist"]) & folder)
+        return not s["close_match"], s["service"] != "spotify", not named, -len(names(s)), s["key"]
+
+    return sorted(songs, key=order)[0]
+
+
+def lead(con: sqlite3.Connection, rel: str, key: str = "") -> sqlite3.Row | None:
+    """The song whose names and cover a library file carries; None for a file no song has."""
+    songs = _songs(con, rel, key)
+    return _lead(songs, rel) if songs else None
+
+
 def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Tags | None:
     """The tags of a library file (path relative to tracks/), from the songs it is (and the song `key` it
     was just filed for); None for a file no song has. A close match is the name it was given; else
     Spotify's song, else SoundCloud's."""
-    sql = "SELECT * FROM songs WHERE file = ? OR stem = ? OR key = ?"
-    songs = con.execute(sql, (rel, rel.rsplit(".", 1)[0], rules.norm_key(key))).fetchall()
+    songs = _songs(con, rel, key)
     if not songs:
         return None
-    folder = rules.artist_keys(rel.partition("/")[0])
-
-    def names(s: sqlite3.Row) -> list[str]:
-        return [s["artist"], *json.loads(s["artists"] or "[]")]
-
-    # a close match first, then Spotify's song named as the file's folder, with the most artists
-    lead = sorted(
-        songs,
-        key=lambda s: (
-            not s["close_match"],
-            s["service"] != "spotify",
-            not rules.artist_keys(s["artist"]) & folder,
-            -len(names(s)),
-            s["key"],
-        ),
-    )[0]
+    lead = _lead(songs, rel)
     link = json.loads(lead["link"]) if lead["close_match"] and lead["link"] else None
     if link:
         artists, title, album = [link[0]], link[1], None

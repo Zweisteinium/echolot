@@ -116,7 +116,7 @@ def test_check_rejects(text: str, message: str) -> None:
 def test_schedule(con: sqlite3.Connection) -> None:
     assert schedule.rules(con)["library"] == 5
     with pytest.raises(sources.ConfigError, match="at least"):
-        schedule.save(con, {"soundcloud": 5})
+        schedule.save(con, {"soundcloud": 1})  # at least every 2 min
     schedule.save(con, {"sync": 45, "sweep": ["sat,sun 15:00", "20:00"]})
     rules = schedule.rules(con)
     assert (rules["sync"], rules["sweep"], rules["fallback"]) == (45, ["sat,sun 15:00", "20:00"], 120)
@@ -134,14 +134,14 @@ def test_parse_when(text: str, expected: object) -> None:
 @pytest.mark.parametrize("text", ["5", "25:00", "someday 10:00", "noon"])
 def test_parse_when_rejects(text: str) -> None:
     with pytest.raises(sources.ConfigError):
-        schedule.parse_when(text, schedule.BY_NAME["sync"])
+        schedule.parse_when(text, schedule.BY_NAME["fallback"])  # at least every 60 min
 
 
 def test_parse_rules() -> None:
     assert schedule.parse_rules({"sync": 20, "fallback": "off", "sweep": {"at": ["20:00"]}}) == {
         "sync": 20, "fallback": None, "sweep": ["20:00"]
     }  # fmt: skip
-    for bad in ({"nope": 5}, {"sync": 2}, {"sync": "often"}, {"upgrade": {"at": ["25:00"]}}, [1]):
+    for bad in ({"nope": 5}, {"fallback": 2}, {"sync": "often"}, {"upgrade": {"at": ["25:00"]}}, [1]):
         with pytest.raises(sources.ConfigError):
             schedule.parse_rules(bad)
 

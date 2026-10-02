@@ -37,7 +37,14 @@ class FakeSpotify:
         return FakeSpotify.liked if pid is None else [song("s1", "Artist A", "First Song")]
 
     def playlist(self, pid: str) -> dict:
+        FakeSpotify.calls.append(f"playlist {pid}")
         return {"name": f"Name {pid}", "image": f"https://img/{pid}", "snapshot": "snap1"}
+
+    def snapshots(self) -> dict[str, str]:  # BBB222 is not in the account's library: asked on its own
+        return {"AAA111": "snap1"}
+
+    def likes_state(self) -> str:
+        return f"{len(FakeSpotify.liked)}:{FakeSpotify.liked[0]['id'] if FakeSpotify.liked else ''}"
 
     def unplayable_liked(self) -> set[str]:
         return {"s9"}
@@ -52,8 +59,8 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     return r
 
 
-def test_fetch_spotify(run: Run) -> None:
-    assert lists.fetch_spotify(run) == "Spotify: 3 lists read"
+def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert lists.fetch_spotify(run) == "Spotify: 3 lists, 3 changed"
     con = run.connect()
     likes = [
         r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = 'spotify:likes' ORDER BY position")
@@ -69,8 +76,12 @@ def test_fetch_spotify(run: Run) -> None:
     assert tuple(row) == ("Renamed", "https://img/BBB222", "snap1")  # the name override wins
     con.close()
     FakeSpotify.calls = []
-    lists.fetch_spotify(run)  # the playlists did not change: only the likes are read again
-    assert FakeSpotify.calls == ["items None"]
+    assert lists.fetch_spotify(run) == "Spotify: 3 lists, 0 changed"  # nothing changed: nothing read
+    assert FakeSpotify.calls == ["playlist BBB222"]  # only its snapshot (not in the account's library)
+    FakeSpotify.calls = []
+    monkeypatch.setattr(FakeSpotify, "liked", [song("s10", "Artist N", "Newest Song"), *FakeSpotify.liked])  # a like
+    assert lists.fetch_spotify(run) == "Spotify: 3 lists, 1 changed"
+    assert FakeSpotify.calls == ["items None", "playlist BBB222"]
 
 
 def test_empty_listing_keeps_the_last(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,4 +229,31 @@ def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: 
         "Night Rider/Night Rider - Night Drive (Original Mix).wav"
     )
     assert not (run.paths.tracks / "DJ Nobody").exists()
+    con.close()
+
+
+def test_a_soundcloud_list_is_read_when_it_changed_or_hourly(run: Run) -> None:
+    from datetime import datetime, timedelta
+
+    from echolot.settings import sources
+
+    con = run.connect()
+    likes = next(s for s in sources.lists(con) if s.key == "soundcloud:someone/likes")
+    states = {likes.url: "218:2026-10-01T20:32:39Z:42"}
+    assert lists._sc_changed(con, likes, states)  # never read with this state
+    recently = (datetime.now() - timedelta(minutes=10)).isoformat(timespec="seconds")
+    with con:
+        con.execute(
+            "UPDATE lists SET snapshot = ?, fetched = 1, fetched_at = ? WHERE key = ?",
+            (states[likes.url], recently, likes.key),
+        )
+    assert not lists._sc_changed(con, likes, states)  # unchanged, read 10 min ago
+    assert lists._sc_changed(con, likes, {likes.url: "219:2026-10-02T09:00:00Z:43"})  # a new like
+    assert lists._sc_changed(con, likes, {})  # the state could not be asked
+    with con:
+        con.execute(
+            "UPDATE lists SET fetched_at = ? WHERE key = ?",
+            ((datetime.now() - timedelta(hours=2)).isoformat(), likes.key),
+        )
+    assert lists._sc_changed(con, likes, states)  # read again at least hourly
     con.close()

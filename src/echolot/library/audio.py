@@ -259,8 +259,34 @@ def has_picture(path: Path) -> bool:
         return True  # unreadable: don't touch
 
 
-def embed_cover(path: Path, jpg: bytes) -> bool:
-    """Embed a JPEG as the front cover unless the file has a picture already."""
+def picture(path: Path) -> bytes | None:
+    """The file's embedded picture (the first one), None if it has none or cannot be read."""
+    from mutagen import File
+    from mutagen.flac import FLAC, Picture
+    from mutagen.id3 import ID3
+    from mutagen.mp4 import MP4
+    from mutagen.oggopus import OggOpus
+    from mutagen.oggvorbis import OggVorbis
+
+    try:
+        a = File(path)
+        if isinstance(a, FLAC):
+            return a.pictures[0].data if a.pictures else None
+        if isinstance(a, MP4):
+            covers = (a.tags or {}).get("covr") or []
+            return bytes(covers[0]) if covers else None
+        if isinstance(a, OggOpus | OggVorbis):
+            blocks = a.get("metadata_block_picture") or []
+            return Picture(base64.b64decode(blocks[0])).data if blocks else None
+        frames = ID3(path).getall("APIC")
+        return frames[0].data if frames else None
+    except Exception:
+        return None
+
+
+def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
+    """Embed a JPEG as the front cover unless the file has a picture already (replace: instead of the
+    pictures it has)."""
     from mutagen import File
     from mutagen.flac import FLAC, Picture
     from mutagen.id3 import APIC, ID3, ID3NoHeaderError
@@ -268,13 +294,14 @@ def embed_cover(path: Path, jpg: bytes) -> bool:
     from mutagen.oggopus import OggOpus
     from mutagen.oggvorbis import OggVorbis
 
-    if not jpg or has_picture(path):
+    if not jpg or (not replace and has_picture(path)):
         return False
     try:
         a = File(path)
         pic = Picture()
         pic.type, pic.mime, pic.data = 3, "image/jpeg", jpg
         if isinstance(a, FLAC):
+            a.clear_pictures()
             a.add_picture(pic)
             a.save()
         elif isinstance(a, MP4):
@@ -290,6 +317,7 @@ def embed_cover(path: Path, jpg: bytes) -> bool:
                 t = ID3(path)
             except ID3NoHeaderError:
                 t = ID3()
+            t.delall("APIC")
             t.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=jpg))
             t.save(path)
         return True

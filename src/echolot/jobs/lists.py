@@ -15,9 +15,11 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from echolot import db
 from echolot.jobs.acquire import finish
 from echolot.library import audio, catalog, filing, recordings, rules, tagging
 from echolot.library.filing import Want
+from echolot.services import soundcloud as sc_api
 from echolot.services import spotify, ytdlp
 from echolot.settings import sources
 from echolot.settings.sources import Source
@@ -99,43 +101,64 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
 
 
 def fetch_spotify(run: "Run") -> str:
-    """Read every followed Spotify list (a playlist whose snapshot did not change is not read again)."""
+    """Read the followed Spotify lists that changed: what changed is asked first (the snapshots of the
+    playlists in the account's library and the state of the likes, a few requests), so a run without
+    changes costs next to nothing. Which songs Spotify greys out is asked once a day."""
     con = run.connect()
     try:
         sync_table(con)
         try:
             sp = spotify.Spotify(con, run.vault)
+            known, likes = sp.snapshots(), sp.likes_state()
         except spotify.SpotifyError as e:
             return str(e)
-        done, failed = 0, []
+        done, read, failed = 0, 0, []
         for s in sources.lists(con):
             if s.service != "spotify":
                 continue
             run.say(f"Spotify: {s.title or s.url}")
             try:
-                _fetch_spotify_list(con, sp, s)
+                read += _fetch_spotify_list(con, sp, s, known, likes)
                 done += 1
             except spotify.SpotifyError as e:
                 log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
                 failed.append(f"{s.title or s.key}: {e}")
-        return f"Spotify: {done} lists read" + (f", failed: {'; '.join(failed)}" if failed else "")
+        if any(s.name == "Spotify Liked Songs" for s in sources.lists(con)):
+            _greyed(con, sp)
+        return f"Spotify: {done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
     finally:
         con.close()
 
 
-def _fetch_spotify_list(con: sqlite3.Connection, sp: spotify.Spotify, s: Source) -> None:
+def _greyed(con: sqlite3.Connection, sp: spotify.Spotify) -> None:
+    """Once a day: the liked songs Spotify greys out (they are searched first)."""
+    today = datetime.date.today().isoformat()
+    if db.get_meta(con, "greyed_checked") == today:
+        return
+    grey = sp.unplayable_liked()
+    with con:
+        con.execute("UPDATE songs SET unavailable = NULL WHERE service = 'spotify' AND unavailable = ?", (GREYED_OUT,))
+        con.executemany("UPDATE songs SET unavailable = ? WHERE key = ?", [(GREYED_OUT, f"spotify:{i}") for i in grey])
+        db.set_meta(con, "greyed_checked", today)
+
+
+def _fetch_spotify_list(
+    con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, str], likes: str
+) -> bool:
+    """Read one list if it changed (its snapshot, or the likes' state); True if it was read."""
     pid = spotify.playlist_id(s.url) if s.name != "Spotify Liked Songs" else None
+    snapshot = likes if pid is None else known.get(pid) or sp.playlist(pid)["snapshot"]  # not in the library
+    row = con.execute("SELECT snapshot, fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
+    if row and row["fetched"] and snapshot and row["snapshot"] == snapshot:  # unchanged
+        with con:
+            now = datetime.datetime.now().isoformat(timespec="seconds")
+            con.execute("UPDATE lists SET fetched_at = ? WHERE key = ?", (now, s.key))
+        return False
     if pid is None:
-        title, cover, snapshot = "Liked Songs", spotify.LIKED_SONGS_IMAGE, None
+        title, cover = "Liked Songs", spotify.LIKED_SONGS_IMAGE
     else:
         meta = sp.playlist(pid)
-        title, cover, snapshot = meta["name"], meta["image"], meta["snapshot"]
-        row = con.execute("SELECT snapshot, fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
-        if row and row["fetched"] and snapshot and row["snapshot"] == snapshot:  # unchanged
-            with con:
-                con.execute("UPDATE lists SET fetched_at = ?, title = ? WHERE key = ?",
-                            (datetime.datetime.now().isoformat(timespec="seconds"), s.title or title, s.key))  # fmt: skip
-            return
+        title, cover = meta["name"], meta["image"]
     items = sp.items(pid)
     if not items and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone():
         raise spotify.SpotifyError("no songs listed although it had some (Spotify may withhold others' playlists)")
@@ -143,14 +166,8 @@ def _fetch_spotify_list(con: sqlite3.Connection, sp: spotify.Spotify, s: Source)
         for it in items:
             _song(con, f"spotify:{it['id']}", "spotify", artist=it["artist"], title=it["title"],
                   album=it["album"], length=it["length"], artists=json.dumps(it["artists"]), isrc=it["isrc"])  # fmt: skip
-    if pid is None:  # the likes tell which songs Spotify greys out
-        grey = sp.unplayable_liked()
-        with con:
-            con.execute("UPDATE songs SET unavailable = NULL WHERE service = 'spotify' AND unavailable = ?",
-                        (GREYED_OUT,))  # fmt: skip
-            con.executemany("UPDATE songs SET unavailable = ? WHERE key = ?",
-                            [(GREYED_OUT, f"spotify:{i}") for i in grey])  # fmt: skip
     _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot)
+    return True
 
 
 # ---------------------------------------------------------------- SoundCloud
@@ -165,18 +182,26 @@ SC_HAVE = (
 
 
 def soundcloud(run: "Run") -> str:
-    """Read the followed SoundCloud lists, download their new songs (originals kept lossless, streams
-    as they are) and file them. A track SoundCloud hands out to nobody (label releases) is marked and
-    left to the search fallback."""
+    """Read the followed SoundCloud lists that changed (sc_api.states, three requests; each list at least
+    hourly), download their new songs (originals kept lossless, streams as they are) and file them. A track
+    SoundCloud hands out to nobody (label releases) is marked and left to the search fallback."""
     con = run.connect()
     try:
         sync_table(con)
         token = run.vault.get(con, "soundcloud.token")
         srcs = [s for s in sources.lists(con) if s.service == "soundcloud"]
+        if not srcs:
+            return "no SoundCloud lists"
+        try:
+            states = sc_api.states(token) if token else {}
+        except sc_api.SoundCloudError as e:
+            log.info("soundcloud states: %s (reading every list)", e)
+            states = {}
+        srcs = [s for s in srcs if _sc_changed(con, s, states)]
     finally:
         con.close()
     if not srcs:
-        return "no SoundCloud lists"
+        return "SoundCloud: no changes"
     work = run.paths.inbox("soundcloud")
     shutil.rmtree(work, ignore_errors=True)  # what an interrupted run left
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
@@ -229,12 +254,22 @@ def soundcloud(run: "Run") -> str:
         for s in srcs:
             if s.key in listed:
                 row = con.execute("SELECT title FROM lists WHERE key = ?", (s.key,)).fetchone()
-                _store(con, s, [f"soundcloud:{tid}" for tid, _ in listed[s.key]], row["title"], None)
+                _store(con, s, [f"soundcloud:{tid}" for tid, _ in listed[s.key]], row["title"], None, states.get(s.url))
     finally:
         con.close()
     shutil.rmtree(work, ignore_errors=True)
     run.after.add("library")
     return f"SoundCloud: {len(listed)} of {len(srcs)} lists read, {added} new files"
+
+
+def _sc_changed(con: sqlite3.Connection, s: Source, states: dict[str, str]) -> bool:
+    """A SoundCloud list to read: its state changed or is unknown, or it was last read an hour ago (a
+    download that failed is tried again; it leaves no trace in the list's state)."""
+    row = con.execute("SELECT snapshot, fetched, fetched_at FROM lists WHERE key = ?", (s.key,)).fetchone()
+    state = states.get(s.url)
+    if not (row and row["fetched"] and state and row["snapshot"] == state and row["fetched_at"]):
+        return True
+    return datetime.datetime.fromisoformat(row["fetched_at"]) < datetime.datetime.now() - datetime.timedelta(hours=1)
 
 
 SC_PAGE = "https://soundcloud.com/"

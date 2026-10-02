@@ -158,7 +158,8 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
 
 
 def test_pausing_ends_scheduled_runs_after_their_songs(w) -> None:
-    """A pause (as a deploy does) makes the scheduled runs give way; a run started by hand goes on."""
+    """A pause (as a deploy does) makes the runs give way, also one started by hand before (the covers can
+    take hours); one started by hand while paused goes on."""
     wk, _, release, settings = w  # paused
     wk.trigger("sync")
     wk._start_due()
@@ -168,14 +169,15 @@ def test_pausing_ends_scheduled_runs_after_their_songs(w) -> None:
         options.update(con, options.Jobs, paused=False)
         con.execute("DELETE FROM jobs WHERE name != 'sync'")  # never run: due
     con.close()
+    wk.trigger("covers")
     wk._start_due()
-    wait_for(lambda: {"soundcloud", "library"} <= set(wk.runs))
+    wait_for(lambda: {"soundcloud", "library", "covers"} <= set(wk.runs))
     con = db.connect(settings.db_path)
     with con:
         options.update(con, options.Jobs, paused=True)
     con.close()
     wk._start_due()
-    assert wk.runs["soundcloud"].give_way.is_set() and wk.runs["library"].give_way.is_set()
+    assert all(wk.runs[n].give_way.is_set() for n in ("soundcloud", "library", "covers"))
     assert wk.runs["sync"].trigger == "manual" and not wk.runs["sync"].give_way.is_set()
     release.set()
 

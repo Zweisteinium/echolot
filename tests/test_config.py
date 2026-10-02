@@ -88,7 +88,7 @@ def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
     before = sources.as_config(con)
     configfile.apply(con, "schedule:\n  fallback: off\n")
     assert sources.as_config(con) == before and schedule.rules(con)["fallback"] is None
-    assert schedule.rules(con)["sync"] == 30
+    assert schedule.rules(con)["sync"] == 2
 
 
 @pytest.mark.parametrize(
@@ -98,7 +98,7 @@ def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
         ("sourcez: {}", "Unknown part"),
         ("version: 2", "format version 2"),
         ("sources:\n  spotfy: {}", "sources: Unknown setting"),
-        ("schedule:\n  sync: 1", "at least"),
+        ("schedule:\n  fallback: 1", "at least"),
         ("settings:\n  auth: {session_days: 0}", "session_days"),
         ("settings:\n  nope: {}", "unknown section"),
         ("settings:\n  sources: {}", "unknown section"),
