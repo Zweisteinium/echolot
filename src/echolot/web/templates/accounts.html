@@ -29,6 +29,12 @@
     <form method="post" action="/accounts/spotify/disconnect" onsubmit="return confirm('Disconnect Spotify? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>
   </div>
   <p class="muted small">A new login returns to <code>{{ redirect_uri }}</code>, which has to be listed under <b>Redirect URIs</b> in your app.</p>
+  {% if user.admin %}
+  <form method="post" action="/accounts/spotify/market" class="row-form">{{ csrf_input }}
+    <label class="small">Country of the catalogue <input type="text" name="market" value="{{ market }}" maxlength="2" class="short" autocomplete="off" aria-label="Country, two letters"></label>
+    <button>Save</button> <span class="muted small">the availability check asks whether the songs play there</span>
+  </form>
+  {% endif %}
   {% elif not user.admin %}
   {% if s.spotify.app %}
   <p class="muted">Echolot reads your liked songs and playlists through the Spotify app your admin set up.</p>
@@ -60,6 +66,7 @@
       <form method="post" action="/accounts/spotify/app" class="stack narrow-form">{{ csrf_input }}
         <label>Client ID <input type="text" name="client_id" value="{{ s.spotify.client_id }}" autocomplete="off" required></label>
         <label>Client secret {% if s.spotify.app %}<span class="muted small">saved; leave empty to keep it</span>{% endif %}<input type="password" name="client_secret" autocomplete="off" {% if not s.spotify.app %}required{% endif %}></label>
+        <label>Country <span class="muted small">two letters: whose catalogue the availability check asks</span><input type="text" name="market" value="{{ market }}" maxlength="2" class="short" autocomplete="off"></label>
         <p><button class="primary">Save app</button></p>
       </form></li>
     <li>Connect your account:

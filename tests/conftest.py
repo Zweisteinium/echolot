@@ -96,7 +96,7 @@ def seed(con: sqlite3.Connection) -> None:
         insert(con, "events", columns, EVENTS)
         db.set_meta(con, "playlist_files", "[]")
         options.update(con, options.Jobs, paused=True)
-        options.update(con, options.SourceOptions, soundcloud_user="someone", removed_playlists=True)
+        options.update(con, options.SourceOptions, soundcloud_user="someone")
 
 
 @pytest.fixture(autouse=True)

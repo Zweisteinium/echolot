@@ -20,7 +20,7 @@ import yaml
 
 from echolot.settings import options
 
-TOP_LEVEL = {"spotify", "soundcloud", "removed_playlists"}
+TOP_LEVEL = {"spotify", "soundcloud", "removed_playlists"}  # removed_playlists: of old files, ignored
 ENTRY_KEYS = {"url", "title", "playlist"}
 LIKES = {"Spotify Liked Songs", "SoundCloud Likes"}  # the likes lists' names
 
@@ -147,7 +147,7 @@ def check(data: Any) -> list[Source]:
     if data is None:
         data = {}
     if not isinstance(data, dict):
-        raise ConfigError("The file must be a mapping (spotify:, soundcloud:, removed_playlists:).")
+        raise ConfigError("The file must be a mapping (spotify:, soundcloud:).")
     problems += [f"Unknown setting '{k}'." for k in data if k not in TOP_LEVEL]
     if not isinstance(data.get("removed_playlists", True), bool):
         problems.append("removed_playlists must be true or false.")
@@ -250,9 +250,7 @@ def as_config(con: sqlite3.Connection, user_id: int | None) -> dict[str, Any]:
             o = _options(r)
             entry = {"url": r["url"], **o} if o else r["url"]
             sections[r["service"]].setdefault("playlists", []).append(entry)
-    config: dict[str, Any] = {name: s for name, s in sections.items() if s}
-    config["removed_playlists"] = options.get(con, options.SourceOptions).removed_playlists
-    return config
+    return {name: s for name, s in sections.items() if s}
 
 
 class _Dumper(yaml.SafeDumper):
@@ -329,8 +327,8 @@ def _insert(con: sqlite3.Connection, user_id: int | None, row: tuple, position: 
 
 
 def replace_rows(con: sqlite3.Connection, data: dict[str, Any], user_id: int | None) -> None:
-    """Replace a user's lists with those of a checked sources.yml structure (no commit); the SoundCloud
-    user is theirs, removed_playlists everyone's."""
+    """Replace a user's lists with those of a checked sources.yml structure (no commit), and their
+    SoundCloud user."""
     rows = []
     for service in ("spotify", "soundcloud"):
         section = data.get(service) or {}
@@ -354,7 +352,6 @@ def replace_rows(con: sqlite3.Connection, data: dict[str, Any], user_id: int | N
         con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (sc, user_id))
     else:
         options.update(con, options.SourceOptions, soundcloud_user=sc)
-    options.update(con, options.SourceOptions, removed_playlists=data.get("removed_playlists", True) is not False)
 
 
 def replace(con: sqlite3.Connection, data: Any, user_id: int | None) -> None:
@@ -415,11 +412,6 @@ def set_likes(con: sqlite3.Connection, user_id: int, service: str, enabled: bool
             )
 
     _change(con, user_id, change)
-
-
-def set_removed_playlists(con: sqlite3.Connection, enabled: bool) -> None:
-    with con:
-        options.update(con, options.SourceOptions, removed_playlists=enabled)
 
 
 # ---------------------------------------------------------------- the lists of before users had lists
