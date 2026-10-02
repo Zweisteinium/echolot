@@ -5,8 +5,9 @@
   <h1>Log in</h1>
   <form method="post" action="/login" class="stack">{{ csrf_input }}
     <input type="hidden" name="next" value="{{ next }}">
-    <label>User <input type="text" name="name" value="{{ name or 'admin' }}" autocomplete="username" required></label>
-    <label>Password <input type="password" name="password" autocomplete="current-password" required autofocus></label>
+    {% if navidrome %}<p class="muted small">With your Navidrome account, or Echolot's own.</p>{% endif %}
+    <label>User <input type="text" name="name" value="{{ name or ('' if navidrome else 'admin') }}" autocomplete="username" required{{ ' autofocus' if navidrome and not name }}></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required{{ '' if navidrome and not name else ' autofocus' }}></label>
     <p><button class="primary">Log in</button></p>
   </form>
 </section>
