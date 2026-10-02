@@ -26,6 +26,7 @@ from echolot.settings.sources import Source
 
 if TYPE_CHECKING:
     from echolot.jobs.worker import Run
+    from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
 GREYED_OUT = "greyed out on Spotify"
@@ -35,7 +36,7 @@ NOT_ON_SOUNDCLOUD = "not downloadable from SoundCloud"
 def sync_table(con: sqlite3.Connection) -> None:
     """The lists table follows the sources: a new source gets a row ('waiting for the first listing'),
     a removed one loses its row and current songs (its history stays), names and flags follow."""
-    srcs = sources.lists(con)
+    srcs = sources.followed(con)  # once each, as its oldest follower has it
     keys = [s.key for s in srcs]
     with con:
         for n, s in enumerate(srcs):
@@ -101,47 +102,68 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
 
 
 def fetch_spotify(run: "Run") -> str:
-    """Read the followed Spotify lists that changed: what changed is asked first (the snapshots of the
-    playlists in the account's library and the state of the likes, a few requests), so a run without
-    changes costs next to nothing. Which songs Spotify greys out is asked once a day."""
+    """Read the followed Spotify lists that changed, each user's with their own login: what changed is
+    asked first (the snapshots of the playlists in their library and the state of their likes, a few
+    requests), so a run without changes costs next to nothing. A list two users follow is read once; one
+    whose follower is not connected is read with another follower's login. Which songs Spotify greys
+    out is asked once a day per user."""
     con = run.connect()
     try:
         sync_table(con)
-        try:
-            sp = spotify.Spotify(con, run.vault)
-            known, likes = sp.snapshots(), sp.likes_state()
-        except spotify.SpotifyError as e:
-            return str(e)
-        done, read, failed = 0, 0, []
-        for s in sources.lists(con):
-            if s.service != "spotify":
+        done, read, failed, seen = 0, 0, [], set()
+        for uid in _active(con):
+            mine = [s for s in sources.user_lists(con, uid) if s.service == "spotify" and s.key not in seen]
+            if not mine:
                 continue
-            run.say(f"reading {s.title or s.url}")
             try:
-                if _fetch_spotify_list(con, sp, s, known, likes):
-                    read += 1
-                    run.note(f"Spotify: {s.title or s.url} changed, read again")
-                done += 1
+                sp = spotify.Spotify(con, run.vault, uid)
+                known, likes = sp.snapshots(), sp.likes_state()
             except spotify.SpotifyError as e:
-                log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
-                failed.append(f"{s.title or s.key}: {e}")
-        if any(s.name == "Spotify Liked Songs" for s in sources.lists(con)):
-            _greyed(con, sp)
-        return f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
+                log.info("spotify lists of user %s: %s", uid, e)
+                continue  # another follower may have a login
+            for s in mine:
+                run.say(f"reading {s.title or s.url}")
+                try:
+                    if _fetch_spotify_list(con, sp, s, known, likes):
+                        read += 1
+                        run.note(f"Spotify: {s.title or s.url} changed, read again")
+                    done += 1
+                    seen.add(s.key)
+                except spotify.SpotifyError as e:
+                    log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
+                    failed.append(f"{s.title or s.key}: {e}")
+            if any(s.name == "Spotify Liked Songs" for s in mine):
+                _greyed(con, sp, uid)
+        message = f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
+        unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in seen) - len(failed)
+        return message + (f", {unread} not read (no follower connected to Spotify)" if unread > 0 else "")
     finally:
         con.close()
 
 
-def _greyed(con: sqlite3.Connection, sp: spotify.Spotify) -> None:
-    """Once a day: the liked songs Spotify greys out (they are searched first)."""
+def _active(con: sqlite3.Connection) -> list[int]:
+    """The users whose lists are read, the oldest first (not the lists nobody owns yet, nor those of an
+    account gone from Navidrome: theirs keep the last listing)."""
+    sql = "SELECT id FROM users WHERE NOT disabled AND id IN (SELECT user_id FROM sources) ORDER BY id"
+    return [r[0] for r in con.execute(sql)]
+
+
+def _greyed(con: sqlite3.Connection, sp: spotify.Spotify, user_id: int) -> None:
+    """Once a day: the songs of a user's likes that Spotify greys out (they are searched first)."""
     today = datetime.date.today().isoformat()
-    if db.get_meta(con, "greyed_checked") == today:
+    if db.get_meta(con, f"greyed_checked:{user_id}") == today:
         return
     grey = sp.unplayable_liked()
-    with con:
-        con.execute("UPDATE songs SET unavailable = NULL WHERE service = 'spotify' AND unavailable = ?", (GREYED_OUT,))
+    likes = sources.spotify_likes_key(user_id)
+    with con:  # this user's likes and songs in nobody's likes: another user's run must not undo theirs
+        con.execute(
+            "UPDATE songs SET unavailable = NULL WHERE service = 'spotify' AND unavailable = ? AND (key IN "
+            "(SELECT song_key FROM list_songs WHERE list_key = ?) OR key NOT IN "
+            "(SELECT song_key FROM list_songs WHERE list_key LIKE 'spotify:likes:%'))",
+            (GREYED_OUT, likes),
+        )
         con.executemany("UPDATE songs SET unavailable = ? WHERE key = ?", [(GREYED_OUT, f"spotify:{i}") for i in grey])
-        db.set_meta(con, "greyed_checked", today)
+        db.set_meta(con, f"greyed_checked:{user_id}", today)
 
 
 def _fetch_spotify_list(
@@ -190,27 +212,34 @@ def soundcloud(run: "Run") -> str:
     con = run.connect()
     try:
         sync_table(con)
-        token = run.vault.get(con, "soundcloud.token")
-        srcs = [s for s in sources.lists(con) if s.service == "soundcloud"]
+        srcs = [s for s in sources.followed(con) if s.service == "soundcloud"]
         if not srcs:
             return "no SoundCloud lists"
-        try:
-            states = sc_api.states(token) if token else {}
-        except sc_api.SoundCloudError as e:
-            log.info("soundcloud states: %s (reading every list)", e)
-            states = {}
+        tokens = {s.key: _sc_token(con, run.vault, s.key) for s in srcs}  # a follower's own (a private set)
+        states: dict[str, str] = {}
+        for token in dict.fromkeys(t for t in tokens.values() if t):
+            try:
+                states |= sc_api.states(token)
+            except sc_api.SoundCloudError as e:
+                log.info("soundcloud states: %s (reading that account's lists)", e)
         total, srcs = len(srcs), [s for s in srcs if _sc_changed(con, s, states)]
+        any_token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
     if not srcs:
         return f"{total} lists, 0 changed"
     work = run.paths.inbox("soundcloud")
     shutil.rmtree(work, ignore_errors=True)  # what an interrupted run left
-    ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
+    ydls: dict[str | None, ytdlp.YtDlp] = {}
+
+    def ydl_of(token: str | None) -> ytdlp.YtDlp:
+        return ydls.setdefault(token, ytdlp.YtDlp(run.data / "ytdlp", token))
+
+    ydl = ydl_of(any_token)  # downloads: SoundCloud hands a song to any account
     listed: dict[str, list[tuple[str, str]]] = {}
     for s in srcs:
         run.say(f"reading {s.title or s.url}")
-        tracks, info = ydl.listing(s.url, run.stop)
+        tracks, info = ydl_of(tokens[s.key] or any_token).listing(s.url, run.stop)
         if tracks is None:
             continue  # keep the last listing
         listed[s.key] = tracks
@@ -268,6 +297,11 @@ def soundcloud(run: "Run") -> str:
     run.after.add("library")
     unread = f", {len(srcs) - len(listed)} not read" if len(listed) < len(srcs) else ""
     return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs"
+
+
+def _sc_token(con: sqlite3.Connection, vault: "Vault", key: str) -> str | None:
+    """The SoundCloud token of a list's oldest follower who has one (who may read it if it is private)."""
+    return next((t for uid in sources.followers(con, key) if (t := sc_api.token_of(con, vault, uid))), None)
 
 
 def _sc_changed(con: sqlite3.Connection, s: Source, states: dict[str, str]) -> bool:

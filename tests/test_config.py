@@ -71,12 +71,12 @@ def test_export_import_round_trip(con: sqlite3.Connection) -> None:
     assert set(data) == {"version", "sources", "schedule", "settings"}
     assert "sources" not in data["settings"] and data["schedule"]["fallback"] == 120
     assert configfile.preview(con, text) == ""
-    data["sources"]["spotify"]["playlists"].append("https://open.spotify.com/playlist/NEW1")
+    data["sources"]["owner"]["spotify"]["playlists"].append("https://open.spotify.com/playlist/NEW1")
     data["schedule"]["sync"] = 20
     data["settings"]["soulseek"] = {"parallel": 3}
     changed = configfile.dump(data)
     diff = configfile.preview(con, changed)
-    assert "+      - https://open.spotify.com/playlist/NEW1" in diff and "+  sync: 20" in diff
+    assert "+        - https://open.spotify.com/playlist/NEW1" in diff and "+  sync: 20" in diff
     assert configfile.preview(con, changed) == diff  # the preview stored nothing
     configfile.apply(con, changed)
     assert "spotify:playlist:NEW1" in [s.key for s in sources.lists(con)]
@@ -85,10 +85,17 @@ def test_export_import_round_trip(con: sqlite3.Connection) -> None:
 
 
 def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
-    before = sources.as_config(con)
+    before = sources.as_config(con, 1)
     configfile.apply(con, "schedule:\n  fallback: off\n")
-    assert sources.as_config(con) == before and schedule.rules(con)["fallback"] is None
+    assert sources.as_config(con, 1) == before and schedule.rules(con)["fallback"] is None
     assert schedule.rules(con)["sync"] == 2
+
+
+def test_a_file_of_format_1(con: sqlite3.Connection) -> None:
+    """From before users had lists: its one set of lists becomes the oldest admin's."""
+    old = "version: 1\nsources:\n  spotify:\n    playlists:\n      - https://open.spotify.com/playlist/OLD1\n"
+    configfile.apply(con, old)
+    assert [s.key for s in sources.user_lists(con, 1)] == ["spotify:playlist:OLD1"]
 
 
 @pytest.mark.parametrize(
@@ -96,8 +103,9 @@ def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
     [
         ("[1, 2]", "mapping"),
         ("sourcez: {}", "Unknown part"),
-        ("version: 2", "format version 2"),
-        ("sources:\n  spotfy: {}", "sources: Unknown setting"),
+        ("version: 3", "format version 3"),
+        ("sources:\n  owner:\n    spotfy: {}", "sources: Unknown setting"),
+        ("sources:\n  nobody: {}", "no user nobody"),
         ("schedule:\n  fallback: 1", "at least"),
         ("settings:\n  auth: {session_days: 0}", "session_days"),
         ("settings:\n  nope: {}", "unknown section"),

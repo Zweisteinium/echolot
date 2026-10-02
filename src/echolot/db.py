@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 18
+VERSION = 19
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -19,8 +19,8 @@ CREATE TABLE lossy_sourced (        -- FLACs the spectrum check found to be made
     source TEXT,                    -- estimated original, e.g. "~128 kbps"
     detected TEXT
 );
-CREATE TABLE lists (                -- the followed lists as last fetched
-    key TEXT PRIMARY KEY,           -- spotify:likes, spotify:playlist:<id>, soundcloud:<path>
+CREATE TABLE lists (                -- the followed lists as last fetched, once however many users follow one
+    key TEXT PRIMARY KEY,           -- spotify:likes:<user id>, spotify:playlist:<id>, soundcloud:<path>
     service TEXT NOT NULL,
     title TEXT NOT NULL,
     url TEXT,
@@ -140,8 +140,10 @@ CREATE TABLE jobs (                 -- last run of each scheduled job
     ok INTEGER,
     message TEXT
 );
-CREATE TABLE sources (              -- the lists the library follows, as configured (lists: as fetched)
-    key TEXT PRIMARY KEY,           -- the list key: spotify:likes, spotify:playlist:<id>, soundcloud:<path>
+CREATE TABLE sources (              -- the lists each user follows, as configured (lists: as fetched)
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),  -- NULL: from before users had lists, until an admin adopts it
+    key TEXT NOT NULL,              -- the list key: spotify:likes:<user id>, spotify:playlist:<id>, soundcloud:<path>
     service TEXT NOT NULL,          -- spotify, soundcloud
     likes INTEGER NOT NULL DEFAULT 0,     -- 1: the account's own likes
     url TEXT NOT NULL,
@@ -149,7 +151,8 @@ CREATE TABLE sources (              -- the lists the library follows, as configu
     playlist INTEGER NOT NULL DEFAULT 1,  -- also a playlist in the music server
     enabled INTEGER NOT NULL DEFAULT 1,   -- 0: likes switched off (the row keeps their options)
     position INTEGER NOT NULL,
-    added TEXT NOT NULL
+    added TEXT NOT NULL,
+    UNIQUE (user_id, key)
 );
 CREATE TABLE settings (             -- configuration by section (options.py), JSON
     section TEXT PRIMARY KEY,
@@ -171,7 +174,8 @@ CREATE TABLE users (               -- Navidrome's accounts that logged in (Navid
     navidrome_admin INTEGER NOT NULL DEFAULT 0,  -- as Navidrome last said (login, or its user list)
     permissions TEXT NOT NULL DEFAULT '',   -- what a user who is no admin may do besides their own: 'review,run'
     view TEXT NOT NULL DEFAULT 'mine',      -- an admin's pages: mine or everyone
-    disabled INTEGER NOT NULL DEFAULT 0     -- gone from Navidrome: no login, sessions and tokens ended
+    disabled INTEGER NOT NULL DEFAULT 0,    -- gone from Navidrome: no login, sessions and tokens ended
+    soundcloud_user TEXT NOT NULL DEFAULT ''  -- whose likes their SoundCloud likes are
 );
 CREATE TABLE sessions (             -- browser logins
     id TEXT PRIMARY KEY,            -- SHA-256 of the cookie value
@@ -219,6 +223,17 @@ MIGRATIONS = {
         "ALTER TABLE users DROP COLUMN password",
         "ALTER TABLE users DROP COLUMN source",
         "ALTER TABLE review_decisions ADD COLUMN user_id INTEGER",
+    ],
+    19: [  # lists per user: the existing ones belong to nobody until sources.adopt gives them to the oldest admin
+        "ALTER TABLE users ADD COLUMN soundcloud_user TEXT NOT NULL DEFAULT ''",
+        "CREATE TABLE sources_19 (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), key TEXT NOT NULL, "
+        "service TEXT NOT NULL, likes INTEGER NOT NULL DEFAULT 0, url TEXT NOT NULL, title TEXT, "
+        "playlist INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL, "
+        "added TEXT NOT NULL, UNIQUE (user_id, key))",
+        "INSERT INTO sources_19 (key, service, likes, url, title, playlist, enabled, position, added) "
+        "SELECT key, service, likes, url, title, playlist, enabled, position, added FROM sources ORDER BY position",
+        "DROP TABLE sources",
+        "ALTER TABLE sources_19 RENAME TO sources",
     ],
 }
 

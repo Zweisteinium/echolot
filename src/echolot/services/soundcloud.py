@@ -3,12 +3,32 @@ belongs to, and the sets in its library (own and liked) for the Sources page. Do
 """
 
 import json
+import sqlite3
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from echolot.settings.vault import Vault
 
 API = "https://api-v2.soundcloud.com"
-TOKEN = "soundcloud.token"
+TOKEN = "soundcloud.token"  # TOKEN:<user id>: one login per user
+
+
+def token_name(user_id: int) -> str:
+    """The vault name of a user's SoundCloud token."""
+    return f"{TOKEN}:{user_id}"
+
+
+def token_of(con: sqlite3.Connection, vault: "Vault", user_id: int) -> str | None:
+    return vault.get(con, token_name(user_id))
+
+
+def any_token(con: sqlite3.Connection, vault: "Vault") -> str | None:
+    """A connected user's token, the oldest user's first: for what is no one's in particular (a song's
+    artwork, a download; SoundCloud hands them to any account)."""
+    users = [r[0] for r in con.execute("SELECT id FROM users WHERE NOT disabled ORDER BY id")]
+    return next((t for uid in users if (t := vault.get(con, token_name(uid)))), None)
 
 
 class SoundCloudError(RuntimeError):

@@ -27,7 +27,13 @@ API = "https://api.spotify.com/v1"
 ACCOUNTS = "https://accounts.spotify.com"
 SCOPES = "user-library-read playlist-read-private playlist-read-collaborative"
 LIKED_SONGS_IMAGE = "https://misc.scdn.co/liked-songs/liked-songs-640.png"
-SECRET, REFRESH = "spotify.client_secret", "spotify.refresh_token"
+SECRET, REFRESH = "spotify.client_secret", "spotify.refresh_token"  # REFRESH:<user id>, one login per user
+
+
+def refresh_name(user_id: int) -> str:
+    """The vault name of a user's Spotify login."""
+    return f"{REFRESH}:{user_id}"
+
 
 _tokens: dict[str, tuple[str, float]] = {}  # refresh token hash -> (access token, expires)
 _lock = threading.Lock()
@@ -47,10 +53,12 @@ class Credentials:
     client_id: str
     client_secret: str | None
     refresh_token: str | None
+    user_id: int | None = None  # whose login (None: the app's own access, catalogue only)
 
     @classmethod
-    def load(cls, con: sqlite3.Connection, vault: Vault) -> "Credentials":
-        return cls(options.get(con, options.Spotify).client_id, vault.get(con, SECRET), vault.get(con, REFRESH))
+    def load(cls, con: sqlite3.Connection, vault: Vault, user_id: int | None = None) -> "Credentials":
+        refresh = vault.get(con, refresh_name(user_id)) if user_id is not None else None
+        return cls(options.get(con, options.Spotify).client_id, vault.get(con, SECRET), refresh, user_id)
 
     @property
     def app(self) -> bool:
@@ -86,26 +94,31 @@ def authorize_url(client_id: str, redirect_uri: str, state: str) -> str:
     return f"{ACCOUNTS}/authorize?{urllib.parse.urlencode(query)}"
 
 
-def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str) -> None:
-    """The code from the login redirect -> a refresh token, stored in the vault."""
+def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str, user_id: int) -> None:
+    """The code from a user's login redirect -> their refresh token, stored in the vault."""
     creds = Credentials.load(con, vault)
     d = _post_token(creds, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri})
     if not d.get("refresh_token"):
         raise SpotifyError("Spotify answered without a refresh token.")
     with con:
-        vault.set(con, REFRESH, d["refresh_token"])
+        vault.set(con, refresh_name(user_id), d["refresh_token"])
     with _lock:
         _tokens.clear()
 
 
 class Spotify:
-    def __init__(self, con: sqlite3.Connection, vault: Vault) -> None:
+    """Spotify's Web API as a user (their login: their lists and likes), or as the app itself (no user:
+    the catalogue only, e.g. covers and artist pictures; Spotify's client credentials)."""
+
+    def __init__(self, con: sqlite3.Connection, vault: Vault, user_id: int | None = None) -> None:
         self.con, self.vault = con, vault
-        self.creds = Credentials.load(con, vault)
-        if not self.creds.connected:
-            raise SpotifyError("Spotify is not connected.")
+        self.creds = Credentials.load(con, vault, user_id)
+        if not (self.creds.connected if user_id is not None else self.creds.app):
+            raise SpotifyError("Spotify is not connected." if user_id is not None else "No Spotify app set up.")
 
     def token(self) -> str:
+        if self.creds.user_id is None:
+            return self._app_token()
         key = str(hash(self.creds.refresh_token))
         with _lock:
             cached = _tokens.get(key)
@@ -114,9 +127,20 @@ class Spotify:
         d = _post_token(self.creds, {"grant_type": "refresh_token", "refresh_token": self.creds.refresh_token or ""})
         if (new := d.get("refresh_token")) and new != self.creds.refresh_token:  # Spotify may rotate it
             with self.con:
-                self.vault.set(self.con, REFRESH, new)
+                self.vault.set(self.con, refresh_name(self.creds.user_id), new)
             self.creds.refresh_token = new
             key = str(hash(new))
+        with _lock:
+            _tokens[key] = (d["access_token"], time.time() + int(d.get("expires_in") or 3600))
+        return d["access_token"]
+
+    def _app_token(self) -> str:
+        key = f"app:{self.creds.client_id}"
+        with _lock:
+            cached = _tokens.get(key)
+            if cached and cached[1] > time.time() + 60:
+                return cached[0]
+        d = _post_token(self.creds, {"grant_type": "client_credentials"})
         with _lock:
             _tokens[key] = (d["access_token"], time.time() + int(d.get("expires_in") or 3600))
         return d["access_token"]

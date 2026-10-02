@@ -1,7 +1,7 @@
-"""Accounts page, the welcome screen after the first login: connect Spotify (your own developer app,
-then the login: automatic when the redirect reaches Echolot, else the final address pasted back),
-SoundCloud (the web token, checked right away) and Soulseek (the account the Sockseek daemon logs in
-with; Echolot writes its login file, the daemon restarts with it)."""
+"""Accounts page: each user connects their own Spotify (the login through the Spotify app an admin set
+up: automatic when the redirect reaches Echolot, else the final address pasted back) and SoundCloud (the
+web token, checked right away). Admins also set up the Spotify app and Soulseek (the account the Sockseek
+daemon logs in with; Echolot writes its login file, the daemon restarts with it)."""
 
 import secrets
 import shutil
@@ -38,45 +38,47 @@ def redirect_uri(request: Request) -> str:
 
 
 def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> dict[str, Any]:
-    """What is connected, for this page and the overview: asks the three services at once (`cached`: a
-    result of the last CACHE_SECONDS will do)."""
-    state = request.app.state
-    last = getattr(state, "account_status", None)
+    """What the logged-in user has connected (and Soulseek), for this page and the overview: asks the
+    services at once (`cached`: a result of the last CACHE_SECONDS will do)."""
+    state, uid = request.app.state, request.state.user.id
+    if not hasattr(state, "account_status"):
+        state.account_status = {}
+    last = state.account_status.get(uid)
     if cached and last and time.monotonic() - last[0] < CACHE_SECONDS:
         return last[1]
     opts = options.get(con, options.Soulseek)
     slsk: dict[str, Any] = {"user": opts.user, "password": state.vault.has(con, "soulseek.password")}
     try:  # a secret stored with another key can't be read: shown as the account's error
-        token, token_error = state.vault.get(con, soundcloud.TOKEN), None
+        token, token_error = soundcloud.token_of(con, state.vault, uid), None
     except VaultError as e:
         token, token_error = None, str(e)
     with ThreadPoolExecutor(3) as pool:
-        sp = pool.submit(_spotify_status, state)
+        sp = pool.submit(_spotify_status, state, uid)
         sc = pool.submit(_soundcloud_status, token, token_error)
         daemon = pool.submit(_daemon_status, opts.url)
         result = {"spotify": sp.result(), "soundcloud": sc.result(), "soulseek": slsk | daemon.result()}
-    state.account_status = (time.monotonic(), result)
+    state.account_status[uid] = (time.monotonic(), result)
     return result
 
 
 def known(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
-    """What is connected, without asking the services (for pages that must not wait): the stored
-    credentials, and the account names of the last status check."""
-    last = getattr(request.app.state, "account_status", (0, {}))[1]
-    vault = request.app.state.vault
-    sp = options.get(con, options.Spotify).client_id and vault.has(con, spotify.REFRESH)
-    connected = {"spotify": bool(sp), "soundcloud": vault.has(con, soundcloud.TOKEN)}
+    """What the logged-in user has connected, without asking the services (for pages that must not
+    wait): their stored logins, and the account names of their last status check."""
+    uid, vault = request.state.user.id, request.app.state.vault
+    last = getattr(request.app.state, "account_status", {}).get(uid, (0, {}))[1]
+    sp = options.get(con, options.Spotify).client_id and vault.has(con, spotify.refresh_name(uid))
+    connected = {"spotify": bool(sp), "soundcloud": vault.has(con, soundcloud.token_name(uid))}
     return {s: {"connected": on, "name": (last.get(s) or {}).get("name")} for s, on in connected.items()}
 
 
-def _spotify_status(state: Any) -> dict[str, Any]:
+def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
     sp: dict[str, Any] = {"app": False, "connected": False, "client_id": ""}
     con = db.connect(state.settings.db_path)  # its own: the login may store a new refresh token
     try:
-        creds = spotify.Credentials.load(con, state.vault)
+        creds = spotify.Credentials.load(con, state.vault, uid)
         sp.update(app=creds.app, connected=creds.connected, client_id=creds.client_id)
         if creds.connected:
-            me = spotify.Spotify(con, state.vault).me()
+            me = spotify.Spotify(con, state.vault, uid).me()
             sp.update(name=me.get("display_name") or me.get("id"), error=None)
     except (spotify.SpotifyError, VaultError) as e:
         sp["error"] = str(e)
@@ -151,7 +153,7 @@ def spotify_login(request: Request, con: DB) -> Response:
         return back("/accounts", error="Save your Spotify app's client ID and secret first.")
     state, redirect = secrets.token_urlsafe(16), redirect_uri(request)
     with con:
-        db.set_meta(con, STATE, f"{state} {int(time.time())} {redirect}")
+        db.set_meta(con, f"{STATE}:{request.state.user.id}", f"{state} {int(time.time())} {redirect}")
     url = spotify.authorize_url(sp.client_id, redirect, state)
     return RedirectResponse(url, status_code=303)
 
@@ -159,17 +161,17 @@ def spotify_login(request: Request, con: DB) -> Response:
 def _finish_login(request: Request, con: sqlite3.Connection, query: dict[str, list[str]]) -> RedirectResponse:
     if error := (query.get("error") or [""])[0]:
         return back("/accounts", error=f"Spotify: {error.replace('_', ' ')}.")
-    code, state = (query.get("code") or [""])[0], (query.get("state") or [""])[0]
-    expected, started, redirect = ([*db.get_meta(con, STATE).split(" "), "", ""])[:3]
+    code, state, uid = (query.get("code") or [""])[0], (query.get("state") or [""])[0], request.state.user.id
+    expected, started, redirect = ([*db.get_meta(con, f"{STATE}:{uid}").split(" "), "", ""])[:3]
     if not code or not state or state != expected or not redirect or time.time() - int(started or 0) > 1800:
         return back("/accounts", error="That is not the address of the last Spotify login (or it is older "
                                        "than 30 min). Click 'Connect Spotify' again.")  # fmt: skip
     try:
-        spotify.exchange(con, request.app.state.vault, code, redirect)  # the address the login used
+        spotify.exchange(con, request.app.state.vault, code, redirect, uid)  # the address the login used
     except spotify.SpotifyError as e:
         return back("/accounts", error=str(e))
     with con:
-        db.set_meta(con, STATE, "")
+        db.set_meta(con, f"{STATE}:{uid}", "")
     return back("/accounts", ok="Spotify connected.")
 
 
@@ -190,7 +192,7 @@ def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> Red
 @router.post("/accounts/spotify/disconnect")
 def spotify_disconnect(request: Request, con: DB) -> RedirectResponse:
     with con:
-        request.app.state.vault.delete(con, spotify.REFRESH)
+        request.app.state.vault.delete(con, spotify.refresh_name(request.state.user.id))
     return back("/accounts", ok="Spotify disconnected. Your lists and songs stay.")
 
 
@@ -204,16 +206,17 @@ def soundcloud_token(request: Request, con: DB, token: Annotated[str, Form()]) -
         me = soundcloud.me(token)
     except soundcloud.SoundCloudError as e:
         return back("/accounts", error=str(e))
+    uid = request.state.user.id
     with con:
-        request.app.state.vault.set(con, soundcloud.TOKEN, token)
-        options.update(con, options.SourceOptions, soundcloud_user=me["user"])
+        request.app.state.vault.set(con, soundcloud.token_name(uid), token)
+        con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (me["user"], uid))
     return back("/accounts", ok=f"SoundCloud connected as {me['name']}.")
 
 
 @router.post("/accounts/soundcloud/disconnect")
 def soundcloud_disconnect(request: Request, con: DB) -> RedirectResponse:
     with con:
-        request.app.state.vault.delete(con, soundcloud.TOKEN)
+        request.app.state.vault.delete(con, soundcloud.token_name(request.state.user.id))
     return back("/accounts", ok="SoundCloud disconnected. Your lists and songs stay.")
 
 

@@ -33,7 +33,7 @@ class Covers:
 
     def __init__(self, con: sqlite3.Connection, run: "Run") -> None:
         self.cache: dict[str, bytes | None] = {}
-        self.token = run.vault.get(con, sc_api.TOKEN)
+        self.token = sc_api.any_token(con, run.vault)
         try:
             self.sp: spotify.Spotify | None = spotify.Spotify(con, run.vault)
         except spotify.SpotifyError:
