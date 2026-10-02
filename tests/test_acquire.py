@@ -402,17 +402,22 @@ def add_missing(run: Run, key: str, title: str, tries: int = 0, last_try: int = 
 def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only songs never searched; Gone Song (searched 3 times) is the evening search's. One Soulseek does not
-    have goes to YouTube and SoundCloud right after."""
-    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "Spotify: 0 lists read")
+    """Spotify lists starts New Spotify songs only when there is a new song (Soulseek jobs make way only
+    then). It searches only songs never searched; Gone Song (searched 3 times) is the evening search's. One
+    Soulseek does not have goes to YouTube and SoundCloud right after."""
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "Spotify: 3 lists, 0 changed")
+    assert acquire.sync(run) == "Spotify: 3 lists, 0 changed" and "search_new" not in run.after
     add_missing(run, "spotify:new", "New Song")
-    acquire.sync(run)
+    assert acquire.sync(run).endswith("; 1 new songs to search") and "search_new" in run.after
+    run.after.clear()
+    acquire.search_new(run)
     assert [s[1] for s in FakeDaemon.searches] == ["New Song"] and "fallback" in run.after
     run.after.clear()
     FakeDaemon.files["Newer Song"] = [("u1", "Music\\Artist N\\Artist N - Newer Song.flac", 200, "ok")]
     add_missing(run, "spotify:newer", "Newer Song")
-    acquire.sync(run)
+    acquire.search_new(run)
     assert "fallback" not in run.after  # found: nothing for the fallback
+    assert acquire.search_new(run) == "no new songs"
 
 
 def test_the_evening_search_takes_each_song_daily_then_weekly(run: Run) -> None:
@@ -420,8 +425,14 @@ def test_the_evening_search_takes_each_song_daily_then_weekly(run: Run) -> None:
     add_missing(run, "spotify:recent", "Recent Song", tries=1, last_try=now - 3600)  # searched an hour ago
     add_missing(run, "spotify:old", "Old Song", tries=8, last_try=now - 2 * 86400)  # weekly by now
     add_missing(run, "spotify:due", "Due Song", tries=8, last_try=now - 7 * 86400)
+    run.trigger = "schedule"
     acquire.sweep(run)
     assert sorted(s[1] for s in FakeDaemon.searches) == ["Due Song", "Gone Song"]
+    FakeDaemon.searches.clear()
+    assert "none due" in acquire.sweep(run)  # all searched just now
+    run.trigger = "manual"  # Run now: every missing song, whatever its wait
+    acquire.sweep(run)
+    assert sorted(s[1] for s in FakeDaemon.searches) == ["Due Song", "Gone Song", "Old Song", "Recent Song"]
 
 
 def test_the_fallback_takes_new_misses_first_and_the_upgrade_waits(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

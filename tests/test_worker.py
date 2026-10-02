@@ -70,9 +70,10 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
         con.execute("DELETE FROM jobs")  # never run: everything is due
     con.close()
     wk._start_due()
-    wait_for(lambda: len(started) == 3)
-    assert set(started) == {"sync", "soundcloud", "library"}  # one each of soulseek, web, local
-    assert {r.job.resource for r in wk.runs.values()} == {"soulseek", "web", "local"}
+    wait_for(lambda: {"sync", "soundcloud", "library"} <= set(started))
+    assert {"sync", "soundcloud", "library"} <= set(started)  # Spotify lists, web, local
+    assert {"spotify", "web", "local"} <= {r.job.resource for r in wk.runs.values()}
+    assert sum(r.job.resource == "soulseek" for r in wk.runs.values()) <= 1  # one at a time
     release.set()
     wait_for(lambda: not wk.runs)
     started.clear()
@@ -122,8 +123,8 @@ def test_cancel(w) -> None:
 
 
 def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
-    """A due sync does not wait for a long upgrade: the upgrade ends after its songs in progress, the sync
-    runs, then the upgrade goes on with the songs it left."""
+    """New songs do not wait for a long upgrade: the upgrade ends after its songs in progress, New Spotify
+    songs runs, then the upgrade goes on with the songs it left. Spotify lists (no Soulseek) does not stop it."""
     wk, _, _, settings = w
     con = db.connect(settings.db_path)
     with con:  # nothing due by the schedule
@@ -142,18 +143,21 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
         return "upgrade done"
 
     worker.FUNCTIONS["upgrade"] = upgrade
-    worker.FUNCTIONS["sync"] = lambda r: ran.append(("sync", r.budget)) or "sync done"
+    worker.FUNCTIONS["search_new"] = lambda r: ran.append(("search_new", r.budget)) or "searched"
     wk.trigger("upgrade")
     wk._start_due()
     wait_for(lambda: ran == [("upgrade", None)])
     wk.trigger("sync")
-    wk._start_due()  # sync is due, Soulseek busy: the upgrade gives way
+    wk._start_due()  # Spotify lists has its own queue: the upgrade goes on
+    assert not wk.runs["upgrade"].give_way.is_set()
+    wk.trigger("search_new")
+    wk._start_due()  # new songs, Soulseek busy: the upgrade gives way
     wait_for(lambda: not wk.runs)
     assert wk.resume == {"upgrade": 7}
-    wk._start_due()  # the sync first (its turn), the upgrade waits for it
+    wk._start_due()  # the new songs first (their turn), the upgrade waits
     wait_for(lambda: not wk.runs)
     wk._start_due()
-    wait_for(lambda: ran == [("upgrade", None), ("sync", None), ("upgrade", 7)])
+    wait_for(lambda: ran == [("upgrade", None), ("search_new", None), ("upgrade", 7)])
     assert wk.resume == {}
 
 
