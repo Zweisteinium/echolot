@@ -1,5 +1,6 @@
 """Reading the lists at their source (lists.py) and writing the playlists (playlists.py)."""
 
+import json
 import threading
 import wave
 from pathlib import Path
@@ -130,19 +131,21 @@ def test_playlists(run: Run) -> None:
     (folder / "spotify-GONE.m3u").write_text("#EXTM3U\n")  # looks like ours, but Echolot did not write it
     con = run.connect()
     playlists.write(con, folder)
-    likes = (folder / "Spotify Liked Songs.m3u").read_text().splitlines()
-    assert likes == ["#EXTM3U", "#PLAYLIST:Liked Songs", "../tracks/Artist A/Artist A - First Song.mp3"]
-    removed = (folder / "Spotify Liked Songs - removed.m3u").read_text().splitlines()
-    assert removed == ["#EXTM3U", "#PLAYLIST:Liked Songs – removed", "../tracks/Artist B/Artist B - Second Song.flac"]
-    assert not (folder / "spotify-BBB222.m3u").exists()  # playlist: false
+    mine = folder / "owner"  # the owner's folder
+    likes = (mine / "Spotify Liked Songs.m3u").read_text().splitlines()
+    assert likes == ["#EXTM3U", "#PLAYLIST:Liked Songs", "../../tracks/Artist A/Artist A - First Song.mp3"]
+    removed = (mine / "Spotify Liked Songs - removed.m3u").read_text().splitlines()
+    second = "../../tracks/Artist B/Artist B - Second Song.flac"
+    assert removed == ["#EXTM3U", "#PLAYLIST:Liked Songs – removed", second]
+    assert not (mine / "spotify-BBB222.m3u").exists()  # playlist: false
     # a list that is no longer followed loses its playlist file; a file Echolot did not write stays
     from echolot.settings import sources
 
     sources.remove_list(con, 1, "spotify:playlist:AAA111")
     lists.sync_table(con)
-    assert (folder / "spotify-AAA111.m3u").exists()
+    assert (mine / "spotify-AAA111.m3u").exists()
     playlists.write(con, folder)
-    assert not (folder / "spotify-AAA111.m3u").exists() and (folder / "spotify-GONE.m3u").exists()
+    assert not (mine / "spotify-AAA111.m3u").exists() and (folder / "spotify-GONE.m3u").exists()
     # with no list at all nothing is deleted
     for s in sources.lists(con):
         if s.name in sources.LIKES:
@@ -151,7 +154,7 @@ def test_playlists(run: Run) -> None:
             sources.remove_list(con, 1, s.key)
     lists.sync_table(con)
     playlists.write(con, folder)
-    assert (folder / "Spotify Liked Songs.m3u").exists()
+    assert (mine / "Spotify Liked Songs.m3u").exists()
     con.close()
 
 
@@ -299,8 +302,105 @@ def test_removed_playlists_are_off_by_default_and_their_files_go(run: Run) -> No
     folder = run.paths.playlists
     con = run.connect()
     playlists.write(con, folder)  # on (the conftest's setting): a song left the likes
-    assert (folder / "Spotify Liked Songs - removed.m3u").exists()
+    mine = folder / "owner"
+    assert (mine / "Spotify Liked Songs - removed.m3u").exists()
     options.update(con, options.SourceOptions, removed_playlists=False)
     playlists.write(con, folder)
-    assert not (folder / "Spotify Liked Songs - removed.m3u").exists() and (folder / "Spotify Liked Songs.m3u").exists()
+    assert not (mine / "Spotify Liked Songs - removed.m3u").exists() and (mine / "Spotify Liked Songs.m3u").exists()
+    con.close()
+
+
+def test_each_users_playlists(run: Run) -> None:
+    """A list two users follow as a playlist is two files, one in each user's folder; the playlists of
+    before users had folders go (remembered for Navidrome), a file Echolot did not write stays."""
+    from echolot import db
+    from echolot.settings import auth, sources
+
+    lists.fetch_spotify(run)
+    folder = run.paths.playlists
+    folder.mkdir()
+    con = run.connect()
+    for old in ("Spotify Liked Songs.m3u", "spotify-AAA111.m3u", "spotify-AAA111.jpg"):  # before: one folder
+        (folder / old).write_text("old")
+    (folder / "My own.m3u").write_text("#EXTM3U\n")
+    with con:
+        db.set_meta(con, "playlist_files", '["Spotify Liked Songs.m3u", "spotify-AAA111.m3u", "spotify-AAA111.jpg"]')
+    timon = auth.logged_in(con, "timon", "nd-timon", False).id
+    sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111")
+    lists.sync_table(con)
+    playlists.write(con, folder)
+    ours, theirs = (folder / "owner" / "spotify-AAA111.m3u", folder / "timon" / "spotify-AAA111.m3u")
+    assert ours.read_text() == theirs.read_text()
+    assert not (folder / "Spotify Liked Songs.m3u").exists() and not (folder / "spotify-AAA111.jpg").exists()
+    assert (folder / "My own.m3u").exists()
+    gone = db.get_meta(con, "playlists_gone")
+    assert gone == '["Spotify Liked Songs.m3u", "spotify-AAA111.m3u"]'
+    con.close()
+
+
+def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
+    """Navidrome imports a file as its first admin's: Echolot gives it to its user; the playlist of a
+    file Echolot removed is deleted; one made in Navidrome (no file) or not Echolot's is never touched."""
+    from echolot import db
+
+    lists.fetch_spotify(run)
+    folder = run.paths.playlists
+    con = run.connect()
+    playlists.write(con, folder)
+    with con:
+        db.set_meta(con, "playlists_gone", '["Spotify Liked Songs.m3u"]')  # moved into the owner's folder
+    written = json.loads(db.get_meta(con, "playlist_files"))
+    listed = ("owner/Spotify Liked Songs.m3u", "owner/spotify-AAA111.m3u")
+    others = [r for r in written if r.endswith(".m3u") and r not in listed]
+
+    class Navidrome:
+        calls: ClassVar[list[tuple]] = []
+
+        def playlists(self) -> list[dict]:
+            p = "/music/playlists/"
+            imported = [{"id": f"i{n}", "path": p + r, "ownerId": "nd-owner"} for n, r in enumerate(others)]
+            return [
+                {"id": "a", "path": p + "owner/Spotify Liked Songs.m3u", "ownerId": "nd-admin"},  # new: the admin's
+                {"id": "b", "path": p + "owner/spotify-AAA111.m3u", "ownerId": "nd-owner"},  # theirs already
+                {"id": "c", "path": p + "Spotify Liked Songs.m3u", "ownerId": "nd-owner"},  # the old file's
+                {"id": "d", "path": "", "ownerId": "nd-admin"},  # made in Navidrome
+                {"id": "e", "path": "/music/tracks/x/spotify-AAA111.m3u", "ownerId": "nd-admin"},  # not Echolot's
+                *imported,  # the owner's other playlists, theirs already
+            ]
+
+        def set_owner(self, pid: str, owner: str) -> None:
+            Navidrome.calls.append(("owner", pid, owner))
+
+        def delete_playlist(self, pid: str) -> None:
+            Navidrome.calls.append(("delete", pid))
+
+    message = playlists.sync_owners(con, Navidrome(), folder)
+    assert Navidrome.calls == [("owner", "a", "nd-owner"), ("delete", "c")]
+    assert message == "1 playlists given to their users, 1 old playlists deleted"
+    assert db.get_meta(con, "playlists_gone") == "[]"
+    con.close()
+
+
+def test_old_playlists_stay_until_the_new_ones_are_imported(run: Run) -> None:
+    """Moved files: Navidrome imports them a moment later; until then the old playlists stay, so their
+    user has their playlists all the time."""
+    from echolot import db
+
+    lists.fetch_spotify(run)
+    folder = run.paths.playlists
+    con = run.connect()
+    playlists.write(con, folder)
+    with con:
+        db.set_meta(con, "playlists_gone", '["Spotify Liked Songs.m3u"]')
+    deleted = []
+
+    class Navidrome:  # the new files not imported yet: only the old playlist
+        def playlists(self) -> list[dict]:
+            return [{"id": "c", "path": "/music/playlists/Spotify Liked Songs.m3u", "ownerId": "nd-owner"}]
+
+        def delete_playlist(self, pid: str) -> None:
+            deleted.append(pid)
+
+    assert playlists.sync_owners(con, Navidrome(), folder) == "" and deleted == []
+    assert db.get_meta(con, "playlists_gone") == '["Spotify Liked Songs.m3u"]'  # still to do
     con.close()

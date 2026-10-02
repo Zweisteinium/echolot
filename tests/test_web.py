@@ -363,10 +363,10 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
     run.stop = threading.Event()
     message = worker.upkeep(run)
     assert "playlists written" in message
-    likes = (playlists / "Spotify Liked Songs.m3u").read_text()
+    likes = (playlists / "owner" / "Spotify Liked Songs.m3u").read_text()
     assert likes.splitlines()[:2] == ["#EXTM3U", "#PLAYLIST:Liked Songs"]
-    assert "../tracks/Artist A/Artist A - First Song.mp3" in likes
-    assert not (playlists / "spotify-BBB222.m3u").exists()  # playlist: false
+    assert "\n../../tracks/Artist A/Artist A - First Song.mp3" in likes
+    assert not (playlists / "owner" / "spotify-BBB222.m3u").exists()  # playlist: false
     assert (playlists / "My own.m3u").exists()
 
 
