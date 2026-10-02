@@ -47,6 +47,8 @@ MAX_RESULTS = 5  # downloads tried per song and attempt
 SEARCH_SECONDS = 300  # a search waits at most this long (queued behind the rate limit included)
 TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
 FOUND = {"new", "upgrade", "duplicate", "linked"}  # linked: the library had it under other names
+SEARCHING: set[str] = set()  # the songs (or files, upgrades) searched now: a run started beside one giving way
+SEARCHING_LOCK = threading.Lock()  # (worker) skips them, so nothing is downloaded twice at once
 
 
 def stage(tries: int) -> int:
@@ -300,6 +302,18 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     lock = threading.Lock()
 
     def one(row: sqlite3.Row) -> None:
+        busy = row["file"] or row["key"]
+        with SEARCHING_LOCK:
+            if busy in SEARCHING:
+                return  # the run giving way searches it
+            SEARCHING.add(busy)
+        try:
+            search(row)
+        finally:
+            with SEARCHING_LOCK:
+                SEARCHING.discard(busy)
+
+    def search(row: sqlite3.Row) -> None:
         nonlocal done
         if run.stop.is_set() or run.give_way.is_set() or time.monotonic() > deadline:
             return
@@ -455,11 +469,7 @@ def sweep(run: "Run") -> str:
     finally:
         con.close()
     if not songs:
-        return (
-            f"{len(missing)} missing songs, none due (each daily, weekly after {WEEKLY_AFTER} searches; Run now searches all)"
-            if missing
-            else "no missing songs"
-        )
+        return f"{len(missing)} missing songs, none due" if missing else "no missing songs"
     return _search(run, songs, "search")
 
 
@@ -505,9 +515,9 @@ def _upgrade(run: "Run", everything: bool) -> str:
         if r["file"] not in seen and (by_hand or due(r["tries"], r["last_try"], *UPGRADE_WAIT, now)):
             seen.add(r["file"])
             songs.append(r)
-    run.say(f"{len(rows)} songs not genuine lossless, {len(songs[:batch])} searched now")
+    run.say(f"{len(rows)} lossy songs, {len(songs[:batch])} searched now")
     if not songs:
-        return f"{len(rows)} songs not genuine lossless, none due (each after 12 h, 1 d, 2 d, then every 3 d; Run now searches them)"
+        return f"{len(rows)} lossy songs, none due"
     return _search(run, songs[:batch], "upgrade")
 
 
@@ -534,6 +544,8 @@ def fallback(run: "Run") -> str:
         token = run.vault.get(con, "soundcloud.token")
     finally:
         con.close()
+    if not songs:
+        return "none due"
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
     added = kept = linked = 0
     for n, row in enumerate(songs, 1):
@@ -565,7 +577,7 @@ def fallback(run: "Run") -> str:
     shutil.rmtree(run.paths.inbox("fallback"), ignore_errors=True)
     run.after.add("library")
     return (
-        f"{added} of {len(songs)} songs found on YouTube or SoundCloud"
+        f"{added} of {len(songs)} songs found"
         + (f", {linked} in the library under other names" if linked else "")
         + (f", {kept} of another length kept for review" if kept else "")
         + (f"; gave way, {run.left} left" if run.left else "")

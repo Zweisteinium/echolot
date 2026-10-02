@@ -9,8 +9,9 @@
   <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
   <link rel="stylesheet" href="{{ asset('style.css') }}">
   <script src="{{ asset('htmx.min.js') }}" defer></script>
+  <script src="{{ asset('idiomorph-ext.min.js') }}" defer></script>
 </head>
-<body{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
+<body hx-ext="morph"{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
   <header>
     <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="24" height="24">Echolot</a>
     {% if user %}
@@ -35,8 +36,9 @@
     {% block content %}{% endblock %}
   </main>
   <script>
-    // info buttons (data-info="id") show or hide a text. The jobs table is reloaded every few seconds: the open
-    // ones are remembered and opened again in the new table
+    // info buttons (data-info="id") show or hide a text. The jobs table is reloaded every few seconds and morphed
+    // into the page (hx-swap="morph": only what changed is touched, so scrolling, a selection and the log's
+    // scroll position stay); the open ones are remembered and kept open, also when they appear anew
     const openInfo = new Set();
     const showInfo = (id, open) => {
       const text = document.getElementById(id);
@@ -52,6 +54,10 @@
       showInfo(b.dataset.info, open);
     });
     document.addEventListener("htmx:load", () => openInfo.forEach((id) => showInfo(id, true)));
+    document.addEventListener("DOMContentLoaded", () => {
+      Idiomorph.defaults.callbacks.beforeAttributeUpdated = (name, el) =>
+        !((name === "hidden" || name === "aria-expanded") && (openInfo.has(el.id) || openInfo.has(el.dataset?.info)));
+    });
     // copy buttons (data-copy="#id"): the clipboard API needs https; on plain http select and copy
     document.addEventListener("click", async (ev) => {
       const b = ev.target.closest("[data-copy]");

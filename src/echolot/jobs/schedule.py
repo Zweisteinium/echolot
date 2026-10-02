@@ -67,14 +67,15 @@ JOBS = [
             "release's own audio on YouTube (\"Provided to YouTube\") first, then YouTube, then a SoundCloud "
             "search; the first result that passes the same checks as a Soulseek download is filed, one of "
             "another length waits in Review. A download the library has under other names is linked instead. "
-            "Each song at most once a week, new ones first (Run now: every one). The result is lossy: the FLAC "
-            "upgrade looks for a lossless copy from 12 h later. Gives way to New SoundCloud songs.", priority=2),
+            "Each song at most once a week, new ones first (Search all now: every one). The result is lossy: "
+            "the FLAC upgrade looks for a lossless copy from 12 h later. Gives way to New SoundCloud songs.",
+            priority=2),
     JobInfo("sweep", "Missing songs", "soulseek", ["20:00", "sat,sun 15:00"], 360,
             "Searches the songs found nowhere yet again, when most Soulseek users are online.",
-            "Songs that neither Soulseek nor YouTube or SoundCloud had are searched on Soulseek again, with "
+            "Songs found neither on Soulseek nor on YouTube & SoundCloud are searched on Soulseek again, with "
             "looser terms after two misses (title without additions, first artist only, then without the "
-            "artist in the path): each song daily, weekly after 7 searches without a find (Run now: every one). "
-            "Gives way to New Spotify songs.", priority=2),
+            "artist in the path): each song daily, weekly after 7 searches without a find (Search all now: every "
+            "one). Gives way to New Spotify songs.", priority=2),
     JobInfo("upgrade", "FLAC upgrade", "soulseek", ["14:00", "20:30"], 360,
             "Looks for genuine FLACs of the songs you have lossy.",
             "FLAC-only Soulseek search for songs whose file is not genuine lossless (a FLAC made from an MP3 "
@@ -84,7 +85,7 @@ JOBS = [
             "name. A FLAC for a SoundCloud song waits in Review. Gives way to New Spotify songs and Missing "
             "songs and goes on after them.", priority=1),
     JobInfo("upgrade_all", "FLAC upgrade, all songs", "soulseek", None, 360,
-            "Every song you have lossy at once, whatever its wait. Start it with Run now.",
+            "Every song you have lossy at once, whatever its wait. Start it with All songs.",
             "Searches a FLAC for every song that is not genuine lossless, regardless of when it was last "
             "searched, the longest waiting first. Gives way to every other Soulseek job that is due and goes on "
             "after it until all songs are done (a restart of Echolot ends it). Off on the schedule.", priority=0),
@@ -131,14 +132,16 @@ TASKS = [
     Task(
         "new",
         "New songs",
-        "Checks your lists; a new song comes from Soulseek, else from YouTube or SoundCloud.",
+        "Checks your lists: a new Spotify song comes from Soulseek, else from YouTube & SoundCloud; a SoundCloud "
+        "song from SoundCloud.",
         ("sync", "search_new", "soundcloud"),
         (("Check now", ("sync", "soundcloud"), "Check the Spotify and SoundCloud lists now"),),
     ),
     Task(
         "missing",
         "Missing songs",
-        "Songs found nowhere yet: Soulseek daily, YouTube and SoundCloud weekly.",
+        "Searches the songs found nowhere yet again: each one daily on Soulseek (weekly after 7 misses), weekly "
+        "on YouTube & SoundCloud.",
         ("sweep", "fallback"),
         (("Search all now", ("sweep", "fallback"), "Search every missing song now, whatever its wait"),),
     ),

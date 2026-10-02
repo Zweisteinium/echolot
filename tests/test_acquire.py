@@ -192,6 +192,20 @@ def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:
     assert list(run.paths.inbox("replaced").rglob("*.mp3"))
 
 
+def test_a_song_another_run_searches_is_left_to_it(run: Run) -> None:
+    """The scheduled upgrade starts while the full one gives way (worker): the file the full one still
+    downloads for is not searched a second time."""
+    FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
+    acquire.SEARCHING.add("Artist A/Artist A - First Song.mp3")
+    try:
+        message = acquire.upgrade(run)
+    finally:
+        acquire.SEARCHING.clear()
+    assert message == "2 of 3 songs: 2 not found" and not FakeDaemon.downloads  # the other two: not on Soulseek
+    assert "First Song" not in str(FakeDaemon.searches)
+    assert (run.paths.tracks / "Artist A/Artist A - First Song.mp3").exists()
+
+
 def test_levels_and_due() -> None:
     assert acquire.level(0) == (False, {}) and acquire.level(2) == (True, {"desperate": True})
     assert acquire.level(7) == (True, {"desperate": True, "strict_artist": False})
@@ -405,8 +419,8 @@ def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
     """Spotify lists starts New Spotify songs only when there is a new song (Soulseek jobs make way only
     then). It searches only songs never searched; Gone Song (searched 3 times) is the evening search's. One
     Soulseek does not have goes to YouTube and SoundCloud right after."""
-    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "Spotify: 3 lists, 0 changed")
-    assert acquire.sync(run) == "Spotify: 3 lists, 0 changed" and "search_new" not in run.after
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "3 lists, 0 changed")
+    assert acquire.sync(run) == "3 lists, 0 changed" and "search_new" not in run.after
     add_missing(run, "spotify:new", "New Song")
     assert acquire.sync(run).endswith("; 1 new songs to search") and "search_new" in run.after
     run.after.clear()
