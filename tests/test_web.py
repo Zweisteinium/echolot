@@ -82,6 +82,7 @@ def test_jobs(client: TestClient) -> None:
     assert client.post("/jobs/nope/run").status_code == 404
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
     assert 'id="jobs"' in html and "Pause all" in html
+    assert "after Spotify lists" in html  # New Spotify songs: no schedule, started when there are new songs
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
     assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
     html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # shown at once, asked again every second
