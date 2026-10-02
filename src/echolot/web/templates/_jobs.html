@@ -1,6 +1,6 @@
 {# the jobs card: one row per task (schedule.TASKS) with its steps (jobs) behind ⓘ, the run going on (its line
    and progress bar) and its live log; maintenance folded away. htmx reloads it every few seconds while something
-   runs; open infos and logs stay open (base.html, data-info) -#}
+   runs and morphs it in (scrolling and a selection stay); open infos and logs stay open (base.html, data-info) -#}
 {% from "_icons.html" import icon -%}
 {% macro task_row(t) -%}
 {% set task, last = t.task, t.last -%}
@@ -13,10 +13,10 @@
     </div>
     <div class="task-actions">
       {% if t.running %}
-      <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">Stop</button></form>
+      <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">Stop</button></form>
       {% else %}
       {% for label, jobs, hint in task.buttons %}
-      <form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button{{ ' class="primary"' if loop.first and not task.maintenance }} title="{{ hint }}">{{ label }}</button></form>
+      <form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button{{ ' class="primary"' if loop.first and not task.maintenance }} title="{{ hint }}">{{ label }}</button></form>
       {% endfor %}
       {% endif %}
     </div>
@@ -46,7 +46,7 @@
   </div>
   <div class="task-meta muted small">
     {% set timed = t.steps|rejectattr('rule', 'none')|list %}
-    <span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}{{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span>
+    <span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}runs {{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span>
     {% if last and last.last.started %}<span title="{{ last.last.started }}">last {{ last.last.started|ago }}</span>{% endif %}
     {% if not t.running and t.next %}<span>{{ 'paused' if paused else 'next ' ~ (t.next|until) }}</span>{% endif %}
     {% if t.log %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
@@ -64,10 +64,10 @@
   {% endif %}
 </article>
 {%- endmacro %}
-<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="outerHTML">
+<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="morph">
   <div class="card-head">
     <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
-    <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}
+    <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}
       {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; a job started by hand still runs">Pause all</button>{% endif %}
     </form>
   </div>
