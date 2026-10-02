@@ -279,6 +279,8 @@ def file_into(
     heard: Evidence = UNKNOWN,
     url: str = "",
     confirm: bool = False,
+    same_audio: str = "",
+    replaces: str = "",
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -290,7 +292,10 @@ def file_into(
     even an exact one for review. A rejected download far off the length is deleted, not kept. `url` is
     the page it was downloaded from (YouTube, SoundCloud), kept with the event. `confirm`: a genuine
     lossless match is kept for review whatever the names say ('confirm'), a lossy or fake one deleted (a
-    SoundCloud song's FLAC: its names are an uploader's, so only you can tell)."""
+    SoundCloud song's FLAC: its names are an uploader's, so only you can tell). `same_audio` (what
+    identity.same_master found) with `replaces` (that library file): the download is the file's audio in
+    another codec, so the names only tell an exact match (filed) from a probable one (filed for review);
+    it takes over that file."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
@@ -306,7 +311,11 @@ def file_into(
             match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
             match = "exact"  # confirmed by the audio: no review needed
-        ok = match == "exact" or (match == "probable" and (probable or confirm))
+        if same_audio:  # the audio of the file it replaces: other names make it a probable match, not another song
+            info["audio"] = same_audio
+            if match != "exact":
+                match, why = "probable", f"the same audio as your copy; {why or 'the names differ'}"
+        ok = match == "exact" or (match == "probable" and (probable or confirm or bool(same_audio)))
         if match == "probable" and not probable and not confirm:
             why = f"{why} (not filed: {source} probable matches need a review)"
         if ok and is_blocked(con, key, [tag_title, file_name]):
@@ -337,7 +346,9 @@ def file_into(
     genuine = ext in audio.LOSSLESS and not fake
     with LOCK:
         cat = catalog.Catalog.from_db(con)
-        same = cat.song(want.artist, want.title, length, want.artists, song_link(con, key))
+        same = [e for e in cat.entries if e.path == replaces] or cat.song(
+            want.artist, want.title, length, want.artists, song_link(con, key)
+        )
         if same:
             best = same[0]
             if not (genuine and not best.genuine):
