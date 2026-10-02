@@ -118,7 +118,9 @@ def fetch_spotify(run: "Run") -> str:
                 continue
             run.say(f"Spotify: {s.title or s.url}")
             try:
-                read += _fetch_spotify_list(con, sp, s, known, likes)
+                if _fetch_spotify_list(con, sp, s, known, likes):
+                    read += 1
+                    run.note(f"Spotify: {s.title or s.url} changed, read again")
                 done += 1
             except spotify.SpotifyError as e:
                 log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
@@ -212,6 +214,7 @@ def soundcloud(run: "Run") -> str:
         if tracks is None:
             continue  # keep the last listing
         listed[s.key] = tracks
+        run.note(f"SoundCloud: {s.title or s.url} read, {len(tracks)} songs")
         con = run.connect()
         try:
             title, cover = _sc_meta(s, info)
@@ -232,7 +235,11 @@ def soundcloud(run: "Run") -> str:
     if new and not run.stop.is_set():
         run.say(f"SoundCloud: downloading {len(new)} new songs")
         for d in ydl.download(new, work, run.stop):
-            added += _file_sc(run, d, urls[d["id"]], work)
+            filed = _file_sc(run, d, urls[d["id"]], work)
+            added += filed
+            run.note(
+                f"SoundCloud: {d.get('uploader') or ''} – {d.get('title') or d['id']}: {'new' if filed else 'not filed'}"
+            )
         con = run.connect()
         try:
             for tid, url in new:  # not downloaded: SoundCloud's protected releases, or a hiccup (next run)

@@ -368,3 +368,30 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
     assert "../tracks/Artist A/Artist A - First Song.mp3" in likes
     assert not (playlists / "spotify-BBB222.m3u").exists()  # playlist: false
     assert (playlists / "My own.m3u").exists()
+
+
+def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: Settings) -> None:
+    """One row per task; a running job shows its line (cut, the whole on hover), its progress bar, Stop and
+    its live log; a task's button starts its jobs, Stop stops them."""
+    from echolot.jobs.worker import Run
+    from echolot.settings.vault import Vault
+
+    wk = client.app.state.worker
+    run = Run(schedule.BY_NAME["upgrade"], settings, Vault.from_env(settings.data_dir, {}), "schedule")
+    long = "Artist – A Very Long Title (Extended Mix) [https://soundcloud.com/some/very/long/link/" + "x" * 120 + "]"
+    run.say(f"12 of 250 songs: 2 upgrade, 10 not found · {long}", 12, 250)
+    run.note(f"{long}: not found")
+    wk.runs["upgrade"] = run
+    html = client.get("/jobs").text
+    for label in ("New songs", "Missing songs", "FLAC upgrade", "Maintenance (2)"):
+        assert label in html
+    assert 'aria-valuenow="12"' in html and 'style="width: 4.8%"' in html  # 12 of 250
+    assert f'title="12 of 250 songs: 2 upgrade, 10 not found · {long}"' in html  # cut in the line, whole on hover
+    assert 'name="names" value="upgrade"' in html and ">Stop</button>" in html and "Live log (1)" in html
+    assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
+    del wk.runs["upgrade"]
+    client.post("/jobs/start", data={"names": "sync,soundcloud"})
+    assert {"sync", "soundcloud"} <= wk.requested
+    assert client.post("/jobs/start", data={"names": "nope"}).status_code == 404
+    settings_html = client.get("/settings").text
+    assert "after Spotify lists" in settings_html and 'class="schedule-task"' in settings_html
