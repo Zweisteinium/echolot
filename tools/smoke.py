@@ -13,10 +13,10 @@ from yt_dlp.postprocessor.ffmpeg import FFmpegPostProcessor
 from echolot.library import audio, identity
 
 
-def hires_wav(path: Path, seconds: int = 20, rate: int = 96000) -> None:
+def hires_wav(path: Path, seconds: int = 20, rate: int = 96000, tone: float = 220, glide: float = 20) -> None:
     """24-bit stereo WAV at 96 kHz: a gliding tone with beats, enough for a fingerprint."""
     t = np.arange(seconds * rate) / rate
-    x = 0.4 * np.sin(2 * np.pi * (220 + 20 * t) * t) + 0.3 * np.sin(2 * np.pi * 660 * t) * (t % 1 < 0.4)
+    x = 0.4 * np.sin(2 * np.pi * (tone + glide * t) * t) + 0.3 * np.sin(2 * np.pi * 3 * tone * t) * (t % 1 < 0.4)
     x += 0.02 * np.random.default_rng(1).standard_normal(len(t))
     pcm = (np.clip(x, -1, 1) * (2**23 - 1)).astype("<i4")
     frames = np.repeat(pcm, 2).view(np.uint8).reshape(-1, 4)[:, :3].tobytes()  # 3 bytes per sample
@@ -60,6 +60,11 @@ def main() -> int:
         mp3 = Path(tmp) / "x.mp3"
         run("ffmpeg", "-v", "error", "-i", str(prepared.path), "-c:a", "libmp3lame", "-q:a", "2", str(mp3))
         check("MP3 encoding (yt-dlp conversions)", audio.stream(mp3, "codec_name") == "mp3")
+        same = identity.same_master(prepared.path, mp3)
+        check("same master: FLAC and its MP3", same >= identity.SAME_MASTER, f"{same:.4f}")
+        hires_wav(other := Path(tmp) / "other.wav", tone=440, glide=-15)  # no shift makes it the first
+        differ = identity.same_master(prepared.path, other)
+        check("same master: another signal is not", differ < 0.5, f"{differ:.4f}")
     print("smoke test failed: " + ", ".join(failed) if failed else "smoke test passed")
     return 1 if failed else 0
 

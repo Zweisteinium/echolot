@@ -455,3 +455,27 @@ def test_a_fallback_download_the_library_has_is_linked(run: Run, monkeypatch: py
     action, _ = acquire._fallback_song(run, con, ydl, Want("Artist C", "Gone Song", 180, "spotify:s3"), 2, True)
     con.close()
     assert action == "linked" and not (run.paths.tracks / "Artist C" / "Artist C - Gone Song.wav").exists()
+
+
+@pytest.mark.parametrize(("names", "for_review"), [("exact", False), ("probable", True)])
+def test_a_soundcloud_flac_with_the_same_audio_takes_over(
+    run: Run, monkeypatch: pytest.MonkeyPatch, names: str, for_review: bool
+) -> None:
+    """The FLAC found for Trance Tune is its M4A's audio in another codec: it replaces the M4A at once; with
+    names that differ (an artist missing) it is filed for a last look (Please confirm), not kept aside."""
+    FakeDaemon.files["Trance Tune"] = [("u1", "Music\\Uploader\\Uploader - Trance Tune.flac", 400, "ok")]
+    monkeypatch.setattr(identity, "same_master", lambda a, b: 0.999)
+    if names == "probable":
+        monkeypatch.setattr(filing, "identify", lambda *a: ("probable", "the artist is not named"))
+    con = run.connect()
+    with con:
+        con.execute("UPDATE files SET duration = 400 WHERE path = 'Uploader/Uploader - Trance Tune.m4a'")
+    con.close()
+    assert "1 upgrade" in acquire.upgrade(run)
+    con = run.connect()
+    paths = sorted(r[0] for r in con.execute("SELECT path FROM files WHERE path LIKE 'Uploader/%'"))
+    e = con.execute("SELECT matched, audio FROM events WHERE action = 'upgrade' ORDER BY id DESC").fetchone()
+    filed = review.items(con, run.paths.music)["filed"]
+    con.close()
+    assert paths == ["Uploader/Uploader - Trance Tune.flac"] and e["audio"] == "the same audio as your copy (0.999)"
+    assert (e["matched"] == "probable") is for_review and bool(filed) is for_review
