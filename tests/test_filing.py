@@ -553,3 +553,29 @@ def test_tags_naming_another_song_need_a_confirmation(env, monkeypatch) -> None:
     same = Evidence("same", "audio of the release (0.95)")
     search_hit(con, paths, download(paths, "b.wav", 205), want, name, "soulseek", heard=same)
     assert events(con)[-1]["matched"] == "exact"
+
+
+def test_review_items_are_compared_with_your_copy_once(env, monkeypatch) -> None:
+    """A FLAC kept for a song the library has lossy is compared with that copy (the hint on its card),
+    once; a download of a missing song has nothing to be compared with."""
+    con, paths, _ = env
+    want = add_song(con, "spotify:rn", "T78", "Rave Nation", 302)
+    lossy = paths.tracks / "T78" / "T78 - Rave Nation.mp3"
+    lossy.parent.mkdir()
+    lossy.write_bytes(b"not really audio")
+    catalog.scan(con, paths.tracks)
+    with con:
+        con.execute("UPDATE files SET duration = 290, kbps = 128")
+    catalog.match_songs(con)
+    search_hit(con, paths, download(paths, "a.wav", 341), want, "T78 - Rave Nation", "soulseek")
+    gone = add_song(con, "spotify:gone", "Artist C", "Gone Song", 180)
+    search_hit(con, paths, download(paths, "b.wav", 200), gone, "Artist C - Gone Song", "soulseek")
+    asked = []
+    monkeypatch.setattr("echolot.library.identity.compare", lambda a, b: asked.append(b) or "same audio")
+    assert review.compare_open(con, paths.music) == 2
+    assert asked == [lossy]
+    hints = {
+        r["song"]: r["compared"] for r in con.execute("SELECT song, compared FROM events WHERE compared IS NOT NULL")
+    }
+    assert hints == {"spotify:rn": "same audio", "spotify:gone": ""}
+    assert review.compare_open(con, paths.music) == 0  # not again

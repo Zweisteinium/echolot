@@ -187,3 +187,76 @@ def same_master(a: Path, b: Path) -> float:
             continue  # silence says nothing
         weakest = min(weakest, float(np.corrcoef(u, v)[0, 1]))
     return max(weakest, 0.0)
+
+
+def _clock(seconds: float) -> str:
+    return f"{int(seconds) // 60}:{int(seconds) % 60:02d}"
+
+
+def compare(a: Path, b: Path) -> str:
+    """What differs between a download `a` and another file of the song `b`, in a few words for review:
+    'same audio', 'same mix, differs at 0:00–0:35' (parts of the waveform agree: another export, a remix
+    of a part), 'same recording, another master' (the timing or the fingerprint agrees, the waveform
+    nowhere; with '0.8 % faster' when one plays faster), or 'another version'; then louder or quieter
+    (whole file, from 1 dB) and longer or shorter (from 2 s). Every 5 s piece of `a` is aligned on its own
+    within 3 s of the overall offset; a robust line through those offsets (Theil-Sen) is the timing: it
+    agrees when most pieces lie on it, its slope is the speed difference. '' if one cannot be read."""
+    fa, fb = fingerprint(a), fingerprint(b)
+    if fa is None or fb is None or not len(fa) or not len(fb):
+        return ""
+    x, y = _pcm(a), _pcm(b)
+    if not len(x) or not len(y):
+        return ""
+    k = _offset(fa, fb)
+    guess, span, w = round(k * -0.1238 * _RATE), 3 * _RATE, 5 * _RATE
+    pieces = []  # (start in s, offset in s, agreement)
+    for i in range(0, len(x) - w, w):
+        piece = x[i : i + w]
+        lo = max(0, i + guess - span)
+        room = y[lo : i + guess + w + span]
+        if piece.std() < 1e-3 or len(room) < w:
+            continue  # silence, or past the other file's end
+        size = 1 << int(len(room) + w).bit_length()
+        c = np.fft.irfft(np.fft.rfft(room, size) * np.conj(np.fft.rfft(piece, size)), size)[: len(room) - w + 1]
+        j = int(np.argmax(c))
+        seg = room[j:][:w]
+        r = float(np.corrcoef(piece, seg)[0, 1]) if seg.std() > 1e-6 else 0.0
+        pieces.append((i / _RATE, (lo + j - i) / _RATE, r))
+    if not pieces:
+        return ""
+    t, lag, agree = (np.array(column) for column in zip(*pieces, strict=True))
+    first, second = np.triu_indices(len(t), 1)
+    slope = float(np.median((lag[second] - lag[first]) / (t[second] - t[first]))) if len(t) > 2 else 0.0
+    on_line = (np.abs(lag - np.median(lag - slope * t) - slope * t) <= 0.03).mean() if len(t) > 2 else 0.0
+    timed = on_line >= 0.6 and abs(slope) <= 0.03  # releases of one recording differ by a few % at most
+    u, v = (fa[k:], fb) if k >= 0 else (fa, fb[-k:])
+    n = min(len(u), len(v))  # the fingerprints at their offset: the same recording from 0.85 of equal bits
+    same_recording = n > 100 and 1 - _BITS[np.bitwise_xor(u[:n], v[:n]).view(np.uint8)].sum() / (32 * n) >= 0.85
+    if agree.min() >= 0.95:
+        what = "same audio"
+    elif (agree >= 0.9).mean() >= 0.3:
+        spans, start, end = [], None, len(x) / _RATE
+        for at, _, r in pieces:
+            if r < 0.9 and start is None:
+                start = at
+            elif r >= 0.9 and start is not None:
+                spans.append((start, at))
+                start = None
+        if start is not None:
+            spans.append((start, end))
+        shown = [f"{_clock(s)}–{'end' if e >= end - 5 else _clock(e)}" for s, e in spans[:3]]
+        what = "same mix, differs at " + ", ".join(shown) + (" …" if len(spans) > 3 else "")
+    elif timed or same_recording:
+        what = "same recording, another master"
+        if timed and abs(slope) >= 0.002:  # a's offset in b grows: a plays faster
+            what += f", {abs(slope) * 100:.1f} % {'faster' if slope > 0 else 'slower'}"
+    else:
+        what = "another version"
+    level = 10 * np.log10(np.mean(x.astype(np.float64) ** 2) / max(np.mean(y.astype(np.float64) ** 2), 1e-12))
+    longer = (len(x) - len(y)) / _RATE
+    notes = [what]
+    if abs(level) >= 1:
+        notes.append(f"{abs(level):.1f} dB {'louder' if level > 0 else 'quieter'}")
+    if abs(longer) >= 2:
+        notes.append(f"{abs(longer):.0f} s {'longer' if longer > 0 else 'shorter'}")
+    return ", ".join(notes)

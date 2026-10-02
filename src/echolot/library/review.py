@@ -18,7 +18,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, rules, tagging
+from echolot.library import audio, catalog, filing, identity, rules, tagging
 from echolot.library.filing import MUSIC, Want
 from echolot.settings.sources import ConfigError
 
@@ -237,6 +237,37 @@ def groups(found: list[Item]) -> list[Group]:
     for i in found:
         by_song.setdefault(i.event["song"] or f"event {i.event['id']}", []).append(i)
     return [Group(sorted(rows, key=lambda i: i.likelihood)) for rows in by_song.values()]
+
+
+def partner(con: sqlite3.Connection, e: sqlite3.Row, music_dir: Path) -> Path | None:
+    """The other file of the song a review item is compared with: for a kept download the song's library
+    file (what accepting it would replace), for a filed upgrade the file it replaced (in replaced/)."""
+    if e["path"].startswith(KEPT):
+        return local_file(e["song_file"], music_dir) if e["song_file"] else None
+    if e["action"] != "upgrade":
+        return None
+    stem = e["path"].rsplit(".", 1)[0].lower()
+    for r in con.execute(
+        "SELECT path FROM events WHERE action = 'retired' AND reason LIKE 'replaced by genuine lossless%' "
+        "AND id BETWEEN ? AND ?",
+        (e["id"] - 4, e["id"] + 4),
+    ):
+        was = r["path"].removeprefix(MUSIC + "inbox/replaced/").partition("/")[2]  # <date>/<library path>
+        if was.rsplit(".", 1)[0].lower() == stem and (p := music_dir / r["path"].removeprefix(MUSIC)).is_file():
+            return p
+    return None
+
+
+def compare_open(con: sqlite3.Connection, music_dir: Path, limit: int = 4) -> int:
+    """Compare up to `limit` open review items with their partner file (identity.compare, about 1 s each)
+    and keep the result with the event; '' when there is nothing to compare. Returns how many."""
+    todo = [i for rows in items(con, music_dir).values() for i in rows if i.event["compared"] is None][:limit]
+    for i in todo:
+        other = partner(con, i.event, music_dir)
+        hint = identity.compare(i.file, other) if other else ""
+        with con:
+            con.execute("UPDATE events SET compared = ? WHERE id = ?", (hint, i.event["id"]))
+    return len(todo)
 
 
 def find_group(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Group | None:
