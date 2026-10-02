@@ -12,7 +12,7 @@
     <tr>
       <td>{{ job.label }}<div class="muted small">{{ job.help }}</div></td>
       <td><input type="text" name="{{ job.name }}" value="{{ when }}" aria-label="{{ job.label }}: when" size="24"></td>
-      <td class="muted small nowrap">at least every {{ job.minimum }} min</td>
+      <td class="muted small nowrap">at most every {{ job.minimum }} min</td>
     </tr>
     {% endfor %}
   </table>

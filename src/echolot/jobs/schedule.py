@@ -124,7 +124,7 @@ def parse_when(text: str, job: JobInfo) -> Rule:
         return None
     if text.isdigit():
         if int(text) < job.minimum:
-            raise ConfigError(f"{job.label}: at least {job.minimum} minutes.")
+            raise ConfigError(f"{job.label}: at least {job.minimum} minutes between runs.")
         return int(text)
     return [normalise(t) for t in text.split(";") if t.strip()]
 
@@ -193,7 +193,7 @@ def store(con: sqlite3.Connection, values: dict[str, Rule]) -> None:
     for j in JOBS:
         v = values.get(j.name)
         if isinstance(v, int) and v < j.minimum:
-            raise ConfigError(f"{j.label}: at least {j.minimum} minutes.")
+            raise ConfigError(f"{j.label}: at least {j.minimum} minutes between runs.")
         if isinstance(v, list):
             for t in v:
                 parse_time(t)
