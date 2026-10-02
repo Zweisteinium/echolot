@@ -119,6 +119,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "upgrade": acquire.upgrade,
     "upgrade_all": acquire.upgrade_all,
     "soundcloud": lists.soundcloud,
+    "youtube": lists.youtube,
     "fallback": acquire.fallback,
     "covers": covers.run,
     "availability": availability.check,

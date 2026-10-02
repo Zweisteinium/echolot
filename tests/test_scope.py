@@ -108,12 +108,12 @@ def test_search_my_missing_songs(app, login: Callable[..., TestClient], settings
     assert timon.post("/jobs/mine", data={"what": "search"}).status_code == 200
     timon.post("/jobs/mine", data={"what": "check"})
     wk = app.state.worker
-    assert wk.requested == {"sweep": {uid}, "fallback": {uid}, "sync": None, "soundcloud": None}
+    assert wk.requested == {"sweep": {uid}, "fallback": {uid}, "sync": None, "youtube": None, "soundcloud": None}
     wk.trigger("sweep")  # an admin's Run now: everyone's
     assert wk.requested["sweep"] is None
     run = type("R", (), {"only": {uid}})()
     con = db.connect(settings.db_path)
-    rows = acquire._spotify_missing(con)
+    rows = acquire._missing(con)
     assert {r["key"] for r in rows} > {r["key"] for r in acquire._for(run, con, rows)}  # s3: the owner's
     con.close()
 

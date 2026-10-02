@@ -11,7 +11,8 @@
   <script src="{{ asset('htmx.min.js') }}" defer></script>
   <script src="{{ asset('idiomorph-ext.min.js') }}" defer></script>
 </head>
-<body hx-ext="morph"{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
+<body{% block body_class %}{% endblock %} hx-ext="morph"{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
+  {% block header %}
   <header>
     <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="24" height="24">Echolot</a>
     {% if user %}
@@ -39,11 +40,14 @@
     {% endif %}
     <span class="muted version">v{{ version }}{% if commit %} · {{ commit }}{% endif %}</span>
   </header>
+  {% endblock %}
+  {% block main %}
   <main>
     {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
     {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  {% endblock %}
   <script>
     // info buttons (data-info="id") show or hide a text. The jobs table is reloaded every few seconds and morphed
     // into the page (hx-swap="morph": only what changed is touched, so scrolling, a selection and the log's

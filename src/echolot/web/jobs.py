@@ -113,7 +113,7 @@ def start_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Resp
 
 
 OWN = {  # a user's own runs (the Run permission): (job, for their songs only)
-    "check": (("sync", False), ("soundcloud", False)),  # the list jobs ask what changed: cheap for all lists
+    "check": (("sync", False), ("youtube", False), ("soundcloud", False)),  # the list jobs: cheap for all lists
     "search": (("sweep", True), ("fallback", True)),
 }
 

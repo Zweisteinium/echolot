@@ -75,6 +75,9 @@ def clean_title(title: str, artist: str) -> str:
     return t or title
 
 
+NAMED = ("spotify", "youtube", "soundcloud")  # whose names a file takes first (Spotify's, YouTube Music's)
+
+
 def page(song: sqlite3.Row) -> str:
     if song["service"] == "spotify":
         return f"https://open.spotify.com/track/{song['key'].split(':', 1)[1]}"
@@ -92,13 +95,13 @@ def names(s: sqlite3.Row) -> list[str]:
 
 
 def _lead(songs: list[sqlite3.Row], rel: str) -> sqlite3.Row:
-    """The song a file's names and cover come from: a close match first, then Spotify's song named as
-    the file's folder, with the most artists."""
+    """The song a file's names and cover come from: a close match first, then Spotify's song (then a
+    YouTube song) named as the file's folder, with the most artists."""
     folder = rules.artist_keys(rel.partition("/")[0])
 
     def order(s: sqlite3.Row) -> tuple:
         named = bool(rules.artist_keys(s["artist"]) & folder)
-        return not s["close_match"], s["service"] != "spotify", not named, -len(names(s)), s["key"]
+        return not s["close_match"], NAMED.index(s["service"]), not named, -len(names(s)), s["key"]
 
     return sorted(songs, key=order)[0]
 
@@ -120,8 +123,8 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
     link = json.loads(lead["link"]) if lead["close_match"] and lead["link"] else None
     if link:
         artists, title, album = [link[0]], link[1], None
-    elif lead["service"] == "spotify":  # Spotify songs sharing a file are one recording: all their artists
-        same = [s for s in songs if s["service"] == "spotify" and not s["close_match"]]
+    elif lead["service"] != "soundcloud":  # songs sharing a file are one recording: all their artists
+        same = [s for s in songs if s["service"] != "soundcloud" and not s["close_match"]]
         artists = list(dict.fromkeys([*names(lead), *(a for s in same for a in names(s))]))
         title, album = lead["title"], lead["album"] or None
     else:

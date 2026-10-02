@@ -79,9 +79,9 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
     started.clear()
     release.clear()
     con = db.connect(settings.db_path)
-    with con:  # sweep and upgrade run at fixed times: one may be due at this hour, so they just ran
-        now = datetime.now().isoformat(timespec="seconds")
-        ran = [(n, now, now) for n in ("sweep", "upgrade")]
+    with con:  # sweep and upgrade run at fixed times: one may be due at this hour, so they just ran; YouTube
+        now = datetime.now().isoformat(timespec="seconds")  # lists waited behind SoundCloud's: they just ran too
+        ran = [(n, now, now) for n in ("sweep", "upgrade", "youtube")]
         con.executemany("INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", ran)
     con.close()
     wk._start_due()  # the fallback is next in line

@@ -1,5 +1,6 @@
 """The followed lists as they are at their source: Spotify lists through the API, SoundCloud lists and
-their downloads through yt-dlp. A list that can't be read keeps its last known state.
+their downloads through yt-dlp, YouTube playlists through YouTube Music and yt-dlp. A list that can't be
+read keeps its last known state.
 
 Songs are never forgotten (their links, attempts and SoundCloud downloads stay); list_songs holds what a
 list has now, list_history what it ever had; the songs coming and going are recorded as changes
@@ -7,11 +8,13 @@ list has now, list_history what it ever had; the songs coming and going are reco
 """
 
 import datetime
+import hashlib
 import json
 import logging
 import re
 import shutil
 import sqlite3
+import time
 import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +25,7 @@ from echolot.library import audio, catalog, filing, recordings, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify, ytdlp
+from echolot.services import youtube as youtube_api
 from echolot.settings import sources
 from echolot.settings.sources import Source
 
@@ -181,6 +185,194 @@ def _fetch_spotify_list(
                   album=it["album"], length=it["length"], artists=json.dumps(it["artists"]), isrc=it["isrc"])  # fmt: skip
     _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot)
     return True
+
+
+# ---------------------------------------------------------------- YouTube
+
+
+def youtube(run: "Run") -> str:
+    """Read the followed YouTube playlists (public ones, without an account). YouTube tells no change in
+    advance, so each list is read: its videos in order through yt-dlp (also those that no longer play),
+    their names through YouTube Music (a request per 100 songs). A video that no longer plays stays in its
+    list, as gone or blocked (the availability tracker); one taken out of the list is removed. A new song
+    gets Spotify's names where Spotify has it (_youtube_song); one never searched starts New songs."""
+    from echolot.jobs import acquire
+
+    con = run.connect()
+    try:
+        sync_table(con)
+        srcs = [s for s in sources.followed(con) if s.service == "youtube"]
+        if not srcs:
+            return "no YouTube lists"
+        try:
+            sp: spotify.Spotify | None = spotify.Spotify(con, run.vault)  # the app's own access
+        except spotify.SpotifyError:
+            sp = None  # the songs keep YouTube Music's names
+        ydl = ytdlp.YtDlp(run.data / "ytdlp")
+        done, changed, failed = 0, 0, []
+        for n, s in enumerate(srcs):
+            if run.stop.is_set():
+                break
+            run.say(f"reading {s.title or s.url}", n, len(srcs))
+            try:
+                if _fetch_youtube_list(run, con, ydl, sp, s):
+                    changed += 1
+                    run.note(f"YouTube: {s.title or s.url} changed, read again")
+                done += 1
+                availability.list_readable(con, s.key, True)
+            except youtube_api.YouTubeError as e:
+                if run.stop.is_set():
+                    break  # paused while reading: not the list's fault
+                log.warning("youtube %s: %s (keeping the last listing)", s.key, e)
+                failed.append(f"{s.title or s.key}: {e}")
+                availability.list_readable(con, s.key, False, str(e))
+        new = sum(1 for r in acquire._missing(con) if not r["tries"])
+    finally:
+        con.close()
+    if new:
+        run.after.add("search_new")
+    message = f"{done} lists, {changed} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
+    return message + (f"; {new} new songs to search" if new else "")
+
+
+def _fetch_youtube_list(
+    run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, sp: spotify.Spotify | None, s: Source
+) -> bool:
+    """Read one list; True if its songs or their states changed. New songs get their names first, the
+    videos that no longer play their state (asked once: a known one stays as it is)."""
+    data = youtube_api.playlist(youtube_api.playlist_id(s.url) or "")
+    order = ydl.video_ids(s.url, run.stop)
+    if order is None:
+        raise youtube_api.YouTubeError("yt-dlp could not list it")
+    playing = {t["id"]: t for t in data["songs"]}
+    ids = list(dict.fromkeys(order + list(playing)))  # (YouTube Music's own songs, should yt-dlp miss one)
+    if not ids and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone():
+        raise youtube_api.YouTubeError("no songs listed although it had some")
+    snapshot = hashlib.sha1(f"{' '.join(ids)}|{' '.join(sorted(playing))}".encode()).hexdigest()[:16]
+    row = con.execute("SELECT snapshot, fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
+    if row and row["fetched"] and row["snapshot"] == snapshot:  # the same songs, the same ones playing
+        with con:
+            now = datetime.datetime.now().isoformat(timespec="seconds")
+            con.execute("UPDATE lists SET fetched_at = ? WHERE key = ?", (now, s.key))
+        return False
+    known = {r[0] for r in con.execute("SELECT key FROM songs WHERE service = 'youtube'")}
+    for vid, t in playing.items():
+        if f"youtube:{vid}" not in known and not run.stop.is_set():
+            meta = _youtube_song(con, sp, t)
+            with con:
+                if _song(con, f"youtube:{vid}", "youtube", **meta):
+                    known.add(f"youtube:{vid}")
+    if run.stop.is_set():
+        raise youtube_api.YouTubeError("stopped while reading")
+    sql = "SELECT song_key, state FROM availability WHERE song_key LIKE 'youtube:%'"
+    unplayable = {k for k, state in con.execute(sql) if state in availability.UNPLAYABLE}
+    states: dict[str, tuple[str, str | None]] = {}
+    for vid in ids:
+        key = f"youtube:{vid}"
+        if vid in playing:
+            states[key] = ("available", None)
+        elif key in known and key not in unplayable and (found := youtube_api.state(vid)):
+            states[key] = found  # (a song never seen playing has no names: left out)
+    _store(con, s, [f"youtube:{vid}" for vid in ids], data["title"], data["image"], snapshot)
+    availability.apply(con, states)
+    return True
+
+
+def _youtube_song(con: sqlite3.Connection, sp: spotify.Spotify | None, t: dict[str, Any]) -> dict[str, Any]:
+    """A YouTube song's names: YouTube Music's (without a video's decoration: _plain; an upload's from its
+    video title: _upload_names), then Spotify's where it has the song (_on_spotify), with its ISRC, album
+    and the release's length."""
+    if t["kind"] == "ugc":
+        artists, title = _upload_names((t["artists"] or [""])[0], t["title"])
+    else:
+        artists, title = t["artists"], _plain(t["title"])
+        head, *rest = PARTS.split(title)
+        if rest and rules.artist_keys(head) & {rules.artist_key(a) for a in artists}:
+            title = " - ".join(rest)  # a video's "Artist - Title (Official Video)"
+    artist = artists[0] if artists else ""
+    meta = {"artist": artist, "title": title, "album": t["album"], "length": t["length"], "isrc": None}
+    meta |= {"artists": json.dumps(artists), "url": youtube_api.watch_url(t["id"])}
+    if sp is None or not artist or not title:
+        return meta
+    try:
+        hit = _on_spotify(sp, t, artists, title)
+    except spotify.SpotifyError as e:
+        log.info("spotify lookup of %s - %s: %s", artist, title, e)
+        return meta
+    if hit is None:
+        return meta
+    names = [a["name"] for a in hit.get("artists") or [] if a.get("name")]
+    album = (hit.get("album") or {}).get("name") or t["album"]
+    found = {"artist": names[0], "title": hit["name"], "album": album, "length": hit["duration_ms"] / 1000}
+    return meta | found | {"artists": json.dumps(names), "isrc": (hit.get("external_ids") or {}).get("isrc")}
+
+
+PARTS = re.compile(r"\s+[-–—|]\s+(?![^\(\[]*[\)\]])")  # "Artist - Title": a dash between spaces, not in brackets
+VERSION = re.compile(r"\b(?:remix|mix|edit|bootleg|vip|rework|flip|extended|live|cover|remake|version)\b", re.I)
+DECORATION = re.compile(r"\s*[\(\[\{]([^\)\]\}]*)[\)\]\}]|\s+official\s+(?:music\s+)?(?:video|audio)\b", re.I)
+
+
+def _plain(text: str) -> str:
+    """A video title without decoration: brackets that name no version or featured artist ("[HQ Full]",
+    "(THER-108)"), "Official Video" (tagging.clean_title's too)."""
+    kept = re.compile(rf"{VERSION.pattern}|\b(?:feat|ft)\b", re.I)
+    text = DECORATION.sub(lambda m: m.group(0) if m.group(1) and kept.search(m.group(1)) else "", text)
+    return re.sub(r"\s+", " ", tagging.clean_title(text, "")).strip()
+
+
+def _upload_names(channel: str, video_title: str) -> tuple[list[str], str]:
+    """An upload's artists and title from its video title: "Artist - Title", also with names that have a
+    hyphen ("D-Block & S-Te-Fan - Supernova") and a label's "Label 003 - Artist - Title" (the last two
+    parts, unless the last is a version: "Artist - Title - Extended Mix"); else the channel's."""
+    parts = PARTS.split(_plain(video_title))
+    if len(parts) > 2 and not VERSION.search(rules.fold(parts[-1])):
+        parts = parts[-2:]
+    if len(parts) < 2:
+        parts = [channel.removesuffix(" - Topic"), parts[0]]
+    artists = [a for a in ytdlp.ARTISTS.split(parts[0]) if a] or [channel]
+    title = " - ".join(parts[1:])
+    return [rules.clean_name(a) for a in artists], rules.clean_name(title)
+
+
+def _on_spotify(sp: spotify.Spotify, t: dict[str, Any], artists: list[str], title: str) -> dict[str, Any] | None:
+    """Spotify's track of a YouTube song: by its artist and title, then by the words of the video (and of
+    its last two parts: a label's upload); one that is the song (_same_song) whose length fits the video's:
+    the same for the release's audio, within 5 s for an upload, an official video up to a minute longer
+    (an intro, a scene at the end)."""
+    queries = [f"track:{_plain(title)} artist:{artists[0]}", _words(t["title"])]
+    if len(parts := PARTS.split(_plain(t["title"]))) > 2:
+        queries.append(_words(" ".join(parts[-2:])))
+    words = rules.title_key(" ".join([*t["artists"], t["title"]]))
+    for q in dict.fromkeys(q for q in queries if q):
+        time.sleep(0.25)  # gently: a new list asks for each song
+        for hit in sp.search(q):
+            longer = t["length"] - (hit.get("duration_ms") or 0) / 1000
+            limit = {"atv": (-3, 3), "omv": (-3, 60)}.get(t["kind"], (-5, 5))
+            fits = not t["length"] or limit[0] <= longer <= limit[1]
+            if hit.get("artists") and hit.get("name") and fits and _same_song(hit, artists, title, words):
+                return hit
+    return None
+
+
+def _words(text: str) -> str:
+    """A search for a video's title: its words without decoration (_plain)."""
+    return " ".join(re.findall(r"[\w']+", _plain(text)))
+
+
+def _same_song(track: dict[str, Any], artists: list[str], title: str, words: str) -> bool:
+    """A Spotify track is the YouTube song: an artist and the title in common (rules.title_key: without
+    "Original Mix", a mix-cut marker), or its first artist and its title are both in the video's words
+    (`words`, title_key'd: an upload's "Label 003 - A & B - Song (HQ)"); a version the video names (a remix,
+    an extended mix) the track's title names too."""
+    theirs = [a.get("name") or "" for a in track["artists"]]
+    name = rules.title_key(rules.release_title(track["name"]))
+    if any(v not in name.split() for v in VERSION.findall(words)):
+        return False
+    ours = {rules.artist_key(a) for a in artists} - {""}
+    if name == rules.title_key(rules.release_title(title)) and {rules.artist_key(a) for a in theirs} & ours:
+        return True
+    first = rules.title_key(theirs[0])
+    return bool(name and first) and f" {first} " in f" {words} " and f" {name} " in f" {words} "
 
 
 # ---------------------------------------------------------------- SoundCloud

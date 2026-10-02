@@ -1,5 +1,6 @@
 """Sources page: the lists of the user's connected accounts (found through their APIs) as cards, each
-followed as off, songs only, or songs and a playlist in the music server; other people's lists by link.
+followed as off, songs only, or songs and a playlist in the music server; other people's lists and
+YouTube playlists by link.
 Everyone follows their own lists (a list two users follow is fetched once).
 Stopping to follow deletes nothing: the songs stay in the library, the list's history in the database,
 following it again brings it back."""
@@ -37,7 +38,7 @@ NOT_READABLE = (
 FRESH_SECONDS = 300
 _found: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}  # (service, user) -> (when, cards)
 _fetching: collections.defaultdict[tuple[str, int], threading.Lock] = collections.defaultdict(threading.Lock)
-JOB = {"spotify": "sync", "soundcloud": "soundcloud"}  # the job that reads a service's lists
+JOB = {"spotify": "sync", "soundcloud": "soundcloud", "youtube": "youtube"}  # the job that reads a service's lists
 
 
 def _state(con: sqlite3.Connection, uid: int) -> dict[str, dict[str, Any]]:
@@ -236,11 +237,7 @@ def _preview(con: sqlite3.Connection, request: Request, service: str, url: str) 
             return meta["name"], meta["image"]
         except spotify.SpotifyError:
             pass
-    endpoint = (
-        "https://open.spotify.com/oembed?url="
-        if service == "spotify"
-        else "https://soundcloud.com/oembed?format=json&url="
-    )
+    endpoint = OEMBED[service]
     try:
         req = urllib.request.Request(endpoint + urllib.parse.quote(url, safe=""), headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -248,6 +245,13 @@ def _preview(con: sqlite3.Connection, request: Request, service: str, url: str) 
         return d.get("title") or url, d.get("thumbnail_url")
     except (OSError, ValueError):
         return url, None
+
+
+OEMBED = {
+    "spotify": "https://open.spotify.com/oembed?url=",
+    "soundcloud": "https://soundcloud.com/oembed?format=json&url=",
+    "youtube": "https://www.youtube.com/oembed?format=json&url=",
+}
 
 
 @router.post("/sources/add")

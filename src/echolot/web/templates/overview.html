@@ -62,11 +62,12 @@
 
 <section class="card">
   <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
-  {% for svc, group in o.lists|groupby('service')|reverse %}
+  {% set groups = o.lists|groupby('service') %}
+  {% for svc, group in (groups|selectattr('grouper', 'equalto', 'spotify')|list) + (groups|rejectattr('grouper', 'equalto', 'spotify')|reverse|list) %}
   {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
   <details class="group" data-remember="lists-{{ svc }}" open>
     <summary>
-      <span class="group-name">{{ icon(svc) }} {{ 'Spotify' if svc == 'spotify' else 'SoundCloud' }}</span>
+      <span class="group-name">{{ icon(svc) }} {{ svc|source }}</span>
       <span class="pill">{{ group|length }} list{{ 's' if group|length != 1 }}</span>
       <span class="muted small">{{ t.songs|num }} songs{% if t.missing %} · <span class="bad-text">{{ t.missing|num }} missing</span>{% endif %}</span>
     </summary>

@@ -72,6 +72,19 @@ class YtDlp:
                 break
         return None, {}
 
+    def video_ids(self, url: str, stop: threading.Event) -> list[str] | None:
+        """The videos of a YouTube playlist in order, also those that no longer play (YouTube Music leaves
+        them out); None if listing failed."""
+        r = self.run(["--flat-playlist", "-J", url], stop, 600)
+        if r.returncode != 0:
+            log.warning("youtube: listing %s failed: %s", url, r.stderr.strip()[-300:])
+            return None
+        try:
+            entries = json.loads(r.stdout).get("entries") or []
+        except ValueError:
+            return None
+        return [str(e["id"]) for e in entries if e and e.get("id")]
+
     def download(self, tracks: list[tuple[str, str]], folder: Path, stop: threading.Event) -> list[dict[str, str]]:
         """Download SoundCloud tracks ((id, url)) into folder: [{id, uploader, artist, title, duration,
         path}] of the finished ones, each with its thumbnail as <id>.jpg. Tracks that got a 429 are tried
@@ -165,6 +178,9 @@ def _communicate(p: subprocess.Popen, stop: threading.Event, timeout: float) -> 
     return result[0] if result else ("", "(stopped)")
 
 
+ARTISTS = re.compile(r"\s*[,，;/]\s*|\s+[xX&]\s+|\s+feat\.?\s+|\s+ft\.?\s+")  # between a song's artists
+
+
 def artist_title(uploader: str, artist: str, title: str) -> tuple[str, str]:
     """A SoundCloud track's artist and title: 'Artist - Title' from the title, else the artist field,
     else the uploader; the first artist only."""
@@ -174,5 +190,5 @@ def artist_title(uploader: str, artist: str, title: str) -> tuple[str, str]:
     else:
         a = artist if artist and artist != "NA" else uploader
         t = title
-    a = re.split(r"\s*[,，;/]\s*|\s+[xX&]\s+|\s+feat\.?\s+|\s+ft\.?\s+", a or "")[0] or (uploader or "Unknown")
+    a = ARTISTS.split(a or "")[0] or (uploader or "Unknown")
     return clean_name(a), clean_name(t)

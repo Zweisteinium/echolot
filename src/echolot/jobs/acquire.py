@@ -21,6 +21,7 @@ import shutil
 import sqlite3
 import threading
 import time
+import urllib.parse
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -276,11 +277,14 @@ def _download(url: str) -> bytes:
 # ---------------------------------------------------------------- the jobs
 
 
-def _spotify_missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Wanted Spotify songs not in the library, greyed-out ones first (most at risk)."""
+SEARCHED = "s.service IN ('spotify', 'youtube')"  # the songs searched for (SoundCloud's are downloaded)
+
+
+def _missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Wanted Spotify and YouTube songs not in the library, greyed-out ones first (most at risk)."""
     return con.execute(
         "SELECT s.*, coalesce(a.tries, 0) AS tries, coalesce(a.last_try, 0) AS last_try FROM wanted s "
-        "LEFT JOIN attempts a ON a.song_key = s.key WHERE s.service = 'spotify' AND s.file IS NULL "
+        f"LEFT JOIN attempts a ON a.song_key = s.key WHERE {SEARCHED} AND s.file IS NULL "
         "ORDER BY s.unavailable IS NULL, s.artist, s.title"
     ).fetchall()
 
@@ -425,13 +429,13 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 def sync(run: "Run") -> str:
     """Spotify lists: read the followed lists that changed (a few requests when none did). A new song (never
-    searched) starts New Spotify songs (search_new), so Soulseek jobs only make way for real work."""
+    searched) starts New songs search (search_new), so Soulseek jobs only make way for real work."""
     from echolot.jobs import lists
 
     message = lists.fetch_spotify(run)
     con = run.connect()
     try:
-        new = sum(1 for r in _spotify_missing(con) if not r["tries"])
+        new = sum(1 for r in _missing(con) if not r["tries"])
     finally:
         con.close()
     if new:
@@ -440,9 +444,9 @@ def sync(run: "Run") -> str:
 
 
 def search_new(run: "Run") -> str:
-    """New Spotify songs (started by Spotify lists): the songs never searched, the library asked first (the
-    same recording under other names is linked), then Soulseek. One not found goes to the YouTube and
-    SoundCloud search right after (fallback); a later search is the evening search's."""
+    """New songs search (started by Spotify and YouTube lists): the songs never searched, the library asked
+    first (the same recording under other names is linked), then Soulseek. One not found goes to the YouTube
+    and SoundCloud search right after (fallback); a later search is the evening search's."""
     parts = []
     con = run.connect()
     try:
@@ -450,7 +454,7 @@ def search_new(run: "Run") -> str:
         if linked := recordings.link_isrc(con, run.paths):  # the library has them under other names
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
-        songs = [r for r in _spotify_missing(con) if not r["tries"]]
+        songs = [r for r in _missing(con) if not r["tries"]]
     finally:
         con.close()
     if not songs:
@@ -476,7 +480,7 @@ def sweep(run: "Run") -> str:
         catalog.refresh(con, run.paths.tracks)
         if recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
-        now, missing = time.time(), _for(run, con, _spotify_missing(con))
+        now, missing = time.time(), _for(run, con, _missing(con))
         by_hand = run.trigger == "manual"
         songs = [r for r in missing if by_hand or now >= next_search(r["tries"], r["last_try"])]
     finally:
@@ -500,16 +504,17 @@ def _upgrade(run: "Run", everything: bool) -> str:
     """FLAC-only search for wanted songs whose library copy is not genuine lossless; each song waits 12 h,
     1 d, 2 d, then every 3 d between searches; the longest waiting first, at most upgrade_batch per run (or
     what a run that gave way left). A SoundCloud song's FLAC is kept for review (Fetcher.attempt), and the
-    song is not searched while one waits there; a SoundCloud song whose file a Spotify song has is upgraded
-    as that one. Close matches are not upgraded (a FLAC found would be the song, not the version taken)."""
+    song is not searched while one waits there; a SoundCloud song whose file a Spotify (or YouTube) song has
+    is upgraded as that one. Close matches are not upgraded (a FLAC found would be the song, not the version
+    taken)."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
         rows = con.execute(
             "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
             "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
-            "WHERE f.quality != 'lossless' AND NOT s.close_match AND (s.service = 'spotify' OR NOT EXISTS "
-            "(SELECT 1 FROM wanted o WHERE o.service = 'spotify' AND o.file = s.file)) ORDER BY last_try"
+            f"WHERE f.quality != 'lossless' AND NOT s.close_match AND ({SEARCHED} OR NOT EXISTS "
+            "(SELECT 1 FROM wanted o WHERE o.service != 'soundcloud' AND o.file = s.file)) ORDER BY last_try"
         ).fetchall()
         with con:  # songs that are lossless now or left every list
             con.execute(
@@ -549,7 +554,7 @@ def fallback(run: "Run") -> str:
         catalog.refresh(con, run.paths.tracks)
         songs = con.execute(
             "SELECT s.*, coalesce(a.tries, 0) AS tries FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key "
-            "WHERE s.file IS NULL AND coalesce(a.last_fallback, 0) < ? AND ((s.service = 'spotify' "
+            f"WHERE s.file IS NULL AND coalesce(a.last_fallback, 0) < ? AND (({SEARCHED} "
             "AND a.tries >= 1) OR (s.service = 'soundcloud' AND s.unavailable IS NOT NULL)) "
             "ORDER BY coalesce(a.last_fallback, 0) > 0, s.unavailable IS NULL",
             (week,),
@@ -576,7 +581,8 @@ def fallback(run: "Run") -> str:
                     "(song_key) DO UPDATE SET last_fallback = excluded.last_fallback",
                     (want.key, int(time.time())),
                 )
-            action, report = _fallback_song(run, con, ydl, want, row["tries"], row["service"] == "spotify")
+            listed = row["url"] if row["service"] == "youtube" else None
+            action, report = _fallback_song(run, con, ydl, want, row["tries"], row["service"] != "soundcloud", listed)
             with con:
                 con.execute(
                     "UPDATE attempts SET fallback_result = ? WHERE song_key = ?", (json.dumps(report), want.key)
@@ -599,12 +605,19 @@ def fallback(run: "Run") -> str:
 
 
 def _fallback_song(
-    run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, want: Want, tries: int, strict_probable: bool
+    run: "Run",
+    con: sqlite3.Connection,
+    ydl: ytdlp.YtDlp,
+    want: Want,
+    tries: int,
+    strict_probable: bool,
+    listed: str | None = None,
 ) -> tuple[str, dict]:
-    """Search YouTube, then SoundCloud, and file the first result that passes the checks. Failing that, the
-    result closest in length that names exactly this song but is another length (an official video often
-    has its own edit) is downloaded and kept for review: only a listener can tell. One at a time; one
-    discarded in review is not kept again. Returns the action and what the search saw, per site."""
+    """Search YouTube, then SoundCloud, and file the first result that passes the checks; a YouTube song's
+    own video (`listed`) comes first, as the song (it is, by its list) when it is as long, else as a result.
+    Failing that, the result closest in length that names exactly this song but is another length (an
+    official video often has its own edit) is downloaded and kept for review: only a listener can tell. One
+    at a time; one discarded in review is not kept again. Returns the action and what the search saw, per site."""
 
     def fetch(site: str, r: dict) -> tuple[str, str]:
         got, error = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
@@ -642,8 +655,23 @@ def _fallback_song(
     before = filing.rejected_before(con, want.key)
     report: dict = {}
     others = []  # (how far off, site, result): the song by name, another length
+    own = _video(ydl, listed, run.stop) if listed else None
+    named = own | {"title": f"{want.artist} - {want.title}", "uploader": want.artist} if own else {}
+    if (
+        own
+        and (not wanted or abs(own["duration"] - wanted) <= 3)
+        and not filing.was_rejected(before, named["title"], own["duration"])
+    ):
+        action, detail = fetch("youtube", named)
+        report["listed"] = [own["title"], action, detail]
+        if action in FOUND:
+            return action, report
+        own = None  # tried
     for site in ("youtube", "soundcloud"):
-        results = list({r["url"]: r for q in queries[site] for r in ydl.search(q, site, run.stop)}.values())
+        found = [r for q in queries[site] for r in ydl.search(q, site, run.stop)]
+        results = list({_video_id(r["url"]): r for r in ([own] if own and site == "youtube" else []) + found}.values())
+        if listed and not own:
+            results = [r for r in results if _video_id(r["url"]) != _video_id(listed)]
         judged, rejected = [], collections.Counter()
         for i, r in enumerate(results):
             if filing.was_rejected(before, r["title"], r["duration"] or 0):
@@ -671,6 +699,20 @@ def _fallback_song(
             report["near"] = [site, r["title"], round(r["duration"]), action, detail]  # 'mismatch': kept for review
             return action, report
     return "not found", report
+
+
+def _video(ydl: ytdlp.YtDlp, url: str, stop: threading.Event) -> dict | None:
+    """A video as a search result: {url, title, uploader, duration}; None if it does not play."""
+    meta = ydl.meta(url, stop)
+    if not meta or not meta.get("formats"):
+        return None
+    uploader = meta.get("uploader") or meta.get("channel") or ""
+    return {"url": url, "title": meta.get("title") or "", "uploader": uploader, "duration": meta.get("duration") or 0}
+
+
+def _video_id(url: str) -> str:
+    """A result's video, however its address is written (a search lists https://www.youtube.com/watch?v=)."""
+    return (urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("v") or [url])[0]
 
 
 def _other_length(want: Want, path: str, seconds: float | None, wanted: float) -> bool:
