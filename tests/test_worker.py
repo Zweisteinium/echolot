@@ -123,8 +123,9 @@ def test_cancel(w) -> None:
 
 
 def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
-    """New songs do not wait for a long upgrade: the upgrade ends after its songs in progress, New Spotify
-    songs runs, then the upgrade goes on with the songs it left. Spotify lists (no Soulseek) does not stop it."""
+    """New songs do not wait for a long upgrade: New Spotify songs starts right away while the upgrade ends
+    its songs in progress, then the upgrade goes on with the songs it left, as started (Run now: whatever
+    their wait). Spotify lists (no Soulseek) does not stop it."""
     wk, _, _, settings = w
     con = db.connect(settings.db_path)
     with con:  # nothing due by the schedule
@@ -134,31 +135,41 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
             "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
         )
     con.close()
-    ran: list[tuple[str, int | None]] = []
+    ran: list[tuple[str, int | None, str]] = []
+    in_progress = threading.Event()
 
     def upgrade(r: worker.Run) -> str:
-        ran.append(("upgrade", r.budget))
+        ran.append(("upgrade", r.budget, r.trigger))
         if r.budget is None and r.give_way.wait(5):
+            in_progress.wait(5)  # its songs in progress end
             r.left = 7
         return "upgrade done"
 
+    def search_new(r: worker.Run) -> str:
+        ran.append(("search_new", r.budget, r.trigger))
+        return "searched"
+
     worker.FUNCTIONS["upgrade"] = upgrade
-    worker.FUNCTIONS["search_new"] = lambda r: ran.append(("search_new", r.budget)) or "searched"
+    worker.FUNCTIONS["search_new"] = search_new
     worker.FUNCTIONS["sync"] = lambda r: "lists checked"  # at once (the fixture's waits up to 5 s: a race in CI)
     wk.trigger("upgrade")
     wk._start_due()
-    wait_for(lambda: ran == [("upgrade", None)])
+    wait_for(lambda: ran == [("upgrade", None, "manual")])
     wk.trigger("sync")
     wk._start_due()  # Spotify lists has its own queue: the upgrade goes on
     assert not wk.runs["upgrade"].give_way.is_set()
     wk.trigger("search_new")
-    wk._start_due()  # new songs, Soulseek busy: the upgrade gives way
+    wk._start_due()  # new songs, Soulseek busy: the upgrade gives way, the new songs start beside its last ones
+    wait_for(lambda: ("search_new", None, "manual") in ran)
+    assert wk.runs["upgrade"].give_way.is_set()
+    wk._start_due()  # the upgrade does not start again while it ends
+    in_progress.set()
     wait_for(lambda: not wk.runs)
-    assert wk.resume == {"upgrade": 7}
-    wk._start_due()  # the new songs first (their turn), the upgrade waits
-    wait_for(lambda: not wk.runs)
+    assert wk.resume == {"upgrade": (7, "manual")}
     wk._start_due()
-    wait_for(lambda: ran == [("upgrade", None), ("search_new", None), ("upgrade", 7)])
+    wait_for(lambda: len(ran) == 3)
+    assert ran[2] == ("upgrade", 7, "manual")
+    wait_for(lambda: not wk.runs)
     assert wk.resume == {}
 
 

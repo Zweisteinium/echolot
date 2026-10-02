@@ -22,7 +22,8 @@ def status(request: Request, con: sqlite3.Connection) -> dict:
     rules = schedule.rules(con)
     last = {r["name"]: r for r in con.execute("SELECT * FROM jobs")}
     runs, requested = request.app.state.worker.state()
-    busy = {r.job.resource: r.job.label for r in runs.values()}
+    holding = sorted(runs.values(), key=lambda r: not r.give_way.is_set())  # one giving way holds it no longer
+    busy = {r.job.resource: r.job.label for r in holding}
     rows = []
     for j in schedule.JOBS:
         r, run = last.get(j.name), runs.get(j.name)

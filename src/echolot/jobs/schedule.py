@@ -4,7 +4,7 @@
 A job is due when its interval has passed since its last start, or when a fixed time has passed since
 it; a fixed-time run that could not start within LATE (Soulseek busy, Echolot down) is dropped. Jobs that
 share a resource wait for each other and do not lose their turn; a running one of a lower priority ends
-after its songs in progress when a more urgent one is due, and goes on after it.
+after its songs in progress when a more urgent one is due (which starts right away), and goes on after it.
 """
 
 import re
@@ -49,8 +49,8 @@ JOBS = [
             "same recording (ISRC), or a file with its title and length that sounds like the release, is linked "
             "instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: up to five downloads are "
             "tried, each checked by length, tags and audio; a doubtful one waits in Review. A song Soulseek does "
-            "not have goes to the YouTube & SoundCloud search right after this job. Comes first: a less urgent "
-            "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3,
+            "not have goes to the YouTube & SoundCloud search right after this job. Comes first: it starts right "
+            "away, a less urgent Soulseek job ends its songs in progress beside it and goes on afterwards.", priority=3,
             started_by="Spotify lists"),
     JobInfo("soundcloud", "New SoundCloud songs", "web", 5, 2,
             "Checks your SoundCloud lists for changes and downloads new songs from SoundCloud itself.",

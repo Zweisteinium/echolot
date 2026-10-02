@@ -1,7 +1,8 @@
 """The worker: starts the jobs when they are due (schedule.py), each in its own thread. Jobs that share a
 resource (Soulseek, the home IP, the library upkeep) run one at a time; a due job waits for the running
 one and keeps its turn, except that a running job of a lower priority (JobInfo.priority) ends after its
-songs in progress and goes on with the rest once the resource is free. The last run of each job is in the jobs table; a
+songs in progress (the more urgent one starts right away, beside them) and goes on with the rest once the
+resource is free, started the same way (a Run now goes on as one). The last run of each job is in the jobs table; a
 run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
 section jobs) stops new starts, and runs end after their songs in progress (the upgrade goes on when
 resumed); a job started by hand while paused ("Run now") runs anyway.
@@ -112,7 +113,7 @@ class Worker:
         self.settings, self.vault = settings, vault
         self.runs: dict[str, Run] = {}  # running, by job name
         self.requested: set[str] = set()
-        self.resume: dict[str, int] = {}  # jobs that gave way: the songs they left
+        self.resume: dict[str, tuple[int, str]] = {}  # jobs that gave way: the songs they left, their trigger
         self.last: dict[str, Run] = {}  # each job's last finished run (its log stays on the jobs page)
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -187,7 +188,10 @@ class Worker:
             for r in self.runs.values():
                 if paused and not r.while_paused:
                     r.give_way.set()  # ends after the songs in progress (a deploy waits for that)
-            running = {r.job.resource: r for r in self.runs.values()}
+            running: dict[str, Run] = {}  # per resource the run holding it: one giving way holds it no longer
+            for r in self.runs.values():
+                if r.job.resource not in running or running[r.job.resource].give_way.is_set():
+                    running[r.job.resource] = r
             for job in schedule.JOBS:
                 if job.name in self.runs:
                     continue
@@ -196,13 +200,16 @@ class Worker:
                 started = datetime.datetime.fromisoformat(last[job.name]) if last.get(job.name) else None
                 if not (requested or resume or (not paused and schedule.due(rules[job.name], started, now))):
                     continue
-                if other := running.get(job.resource):
-                    if other.job.priority < job.priority:
-                        other.give_way.set()  # this one starts when it has ended
+                other = running.get(job.resource)
+                if other and other.job.priority >= job.priority:
                     continue
+                if other:
+                    other.give_way.set()  # it ends after its songs in progress; this one starts now
                 self.requested.discard(job.name)
-                run = Run(job, self.settings, self.vault, "manual" if requested else "resume" if resume else "schedule")
-                run.budget = self.resume.pop(job.name, None)
+                budget, how = self.resume.pop(job.name, (None, "schedule"))
+                trigger = "manual" if requested or how == "manual" else "resume" if resume else "schedule"
+                run = Run(job, self.settings, self.vault, trigger)
+                run.budget = budget
                 run.while_paused = paused
                 self.runs[job.name] = running[job.resource] = run
                 threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
@@ -235,5 +242,5 @@ class Worker:
                 self.last[name] = run
                 self.requested |= run.after - {name}
                 if run.left:
-                    self.resume[name] = run.left
+                    self.resume[name] = (run.left, run.trigger)
             self._wake.set()
