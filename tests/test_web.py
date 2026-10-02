@@ -82,7 +82,7 @@ def test_jobs(client: TestClient) -> None:
     assert client.post("/jobs/nope/run").status_code == 404
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
     assert 'id="jobs"' in html and "Pause all" in html
-    assert "after Spotify lists" in html  # New Spotify songs: no schedule, started when there are new songs
+    assert "after Spotify and YouTube lists" in html  # New songs search: no schedule, started when there are new songs
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
     assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
     html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # shown at once, asked again every second
@@ -225,7 +225,7 @@ def test_connection_line(client: TestClient) -> None:
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
-    assert "New Spotify songs" in client.get("/settings").text
+    assert "New songs search" in client.get("/settings").text
     form = {j.name: schedule.when_text(j.default) for j in schedule.JOBS} | {
         "sync": "20",
         "fallback": "0",
@@ -398,4 +398,4 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     assert {"sync", "soundcloud"} <= set(wk.requested)
     assert client.post("/jobs/start", data={"names": "nope"}).status_code == 404
     settings_html = client.get("/settings").text
-    assert "after Spotify lists" in settings_html and 'class="schedule-task"' in settings_html
+    assert "after Spotify and YouTube lists" in settings_html and 'class="schedule-task"' in settings_html

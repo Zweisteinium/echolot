@@ -245,5 +245,10 @@ class Spotify:
         items = (self.get(f"/search?q={q}&type=track&limit=1").get("tracks") or {}).get("items") or []
         return items[0] if items else None
 
+    def search(self, q: str, limit: int = 5) -> list[dict[str, Any]]:
+        """The tracks a search finds, the best first."""
+        url = f"/search?q={urllib.parse.quote(q)}&type=track&limit={limit}"
+        return (self.get(url).get("tracks") or {}).get("items") or []
+
     def artist_image(self, artist_id: str) -> str | None:
         return ((self.get(f"/artists/{artist_id}").get("images") or [{}])[0] or {}).get("url")

@@ -96,7 +96,7 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
 def missing(run: Run) -> list:
     con = run.connect()
     try:
-        return acquire._spotify_missing(con)
+        return acquire._missing(con)
     finally:
         con.close()
 

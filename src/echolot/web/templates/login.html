@@ -1,16 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Log in · Echolot{% endblock %}
-{% block content %}
-<section class="card narrow">
-  <h1>Log in</h1>
-  {% if ready %}
-  <p class="muted small">With your Navidrome account.</p>
-  <form method="post" action="/login" class="stack">{{ csrf_input }}
-    <input type="hidden" name="next" value="{{ next }}">
-    <label>User <input type="text" name="name" value="{{ name or '' }}" autocomplete="username" required{{ ' autofocus' if not name }}></label>
-    <label>Password <input type="password" name="password" autocomplete="current-password" required{{ ' autofocus' if name }}></label>
-    <p><button class="primary">Log in</button></p>
-  </form>
-  {% endif %}
-</section>
+{% block body_class %} class="login-page"{% endblock %}
+{% block header %}{% endblock %}
+{% block main %}
+<main class="login">
+  <div class="sonar" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+  <section class="login-card">
+    <img class="login-logo" src="{{ asset('echolot.svg') }}" alt="" width="88" height="88">
+    <h1>Echolot</h1>
+    <span class="login-version">v{{ version }}{% if commit %} · {{ commit }}{% endif %}</span>
+    <p class="login-with"><img src="{{ asset('navidrome.png') }}" alt="" width="22" height="22"> With your Navidrome account</p>
+    {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
+    {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
+    {% if ready %}
+    <form method="post" action="/login" class="stack">{{ csrf_input }}
+      <input type="hidden" name="next" value="{{ next }}">
+      <label><span class="sr-only">User</span><input type="text" name="name" value="{{ name or '' }}" placeholder="User" autocomplete="username" required{{ ' autofocus' if not name }}></label>
+      <label><span class="sr-only">Password</span><input type="password" name="password" placeholder="Password" autocomplete="current-password" required{{ ' autofocus' if name }}></label>
+      <button class="primary">Log in</button>
+    </form>
+    {% endif %}
+    <p class="login-note">Echolot is German for a ship's sonar: it pings your Spotify, SoundCloud and YouTube lists, listens deep into Soulseek for the echo and surfaces with real files (lossless, if the sea allows) that no label can ever grey out.</p>
+  </section>
+</main>
 {% endblock %}

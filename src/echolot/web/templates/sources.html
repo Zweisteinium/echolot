@@ -35,9 +35,9 @@
 <section class="card">
   <details class="group" data-remember="sources-manual" open>
     <summary><h2 class="group-name">Added manually</h2>
-      <span class="muted small">anyone's public playlist, set or likes page, by its link</span></summary>
+      <span class="muted small">anyone's public Spotify playlist, SoundCloud set or likes page, or a YouTube playlist, by its link</span></summary>
     <form method="post" action="/sources/add" class="add">{{ csrf_input }}
-      <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/… or https://soundcloud.com/…/sets/…" aria-label="Link" class="grow">
+      <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/…, https://soundcloud.com/…/sets/… or https://www.youtube.com/playlist?list=…" aria-label="Link" class="grow">
       <span class="seg" role="radiogroup" aria-label="Follow as">
         <label title="Songs into the library"><input type="radio" name="mode" value="songs"> {{ use('songs', 13) }} Songs</label>
         <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> {{ use('playlist', 13) }} Playlist</label>

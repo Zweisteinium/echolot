@@ -1,8 +1,9 @@
 """Covers from your lists: a library file carries its song's cover (Spotify's album, the SoundCloud song's
-artwork), not the one its uploader embedded (a compilation, a remaster). New files get it when they are
-filed (acquire.pictures); `run` gives it to the files already there: the old picture is kept in
-<data>/cover-backups/<file>.jpg first, and the files done are noted in done.txt, so a run that stopped
-(paused, a deploy) goes on where it was. A file changed in the last 10 minutes waits for the next run.
+artwork; a YouTube song's from its recording's Spotify album), not the one its uploader embedded (a
+compilation, a remaster). New files get it when they are filed (acquire.pictures); `run` gives it to the
+files already there: the old picture is kept in <data>/cover-backups/<file>.jpg first, and the files done
+are noted in done.txt, so a run that stopped (paused, a deploy) goes on where it was. A file changed in
+the last 10 minutes waits for the next run.
 """
 
 import logging
@@ -40,8 +41,13 @@ class Covers:
             self.sp = None
 
     def of(self, song: sqlite3.Row) -> bytes | None:
-        """The song's cover: its Spotify album's, or its SoundCloud artwork; None if it has none."""
+        """The song's cover: its Spotify album's, or its SoundCloud artwork; a YouTube song's from the album
+        of the Spotify track with its ISRC; None if it has none."""
         service, _, sid = song["key"].partition(":")
+        if service == "youtube" and self.sp and song["isrc"]:
+            time.sleep(0.25)
+            hits = self.sp.search(f"isrc:{song['isrc']}", 1)
+            service, sid = ("spotify", hits[0]["id"]) if hits else ("", "")
         if service == "spotify" and self.sp:
             time.sleep(0.25)  # gently: thousands of songs, one request each
             album = self.sp.track(sid).get("album") or {}
