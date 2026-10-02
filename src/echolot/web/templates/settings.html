@@ -6,14 +6,20 @@
   <h1>Settings</h1>
   <h2 class="spaced">When the jobs run</h2>
   <p class="muted small">Minutes between starts (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Soulseek jobs share one connection: a due job waits for the running one and keeps its turn. Jobs can also be started by hand on the <a href="/">overview</a>.</p>
-  <table class="rows">
-    <thead><tr><th>Job</th><th>When</th><th></th></tr></thead>
-    {% for job, when in jobs %}
+  <table class="rows schedule">
+    <thead><tr><th>Step</th><th>When</th><th></th></tr></thead>
+    {% for task, steps in tasks %}
+    <tbody>
+    <tr class="schedule-task"><th colspan="3">{{ task.label }}</th></tr>
+    {% for job, when in steps %}
     <tr>
       <td>{{ job.label }}<div class="muted small">{{ job.help }}</div></td>
-      <td><input type="text" name="{{ job.name }}" value="{{ when }}" aria-label="{{ job.label }}: when" size="24"></td>
-      <td class="muted small nowrap">at most every {{ job.minimum }} min</td>
+      <td>{% if job.started_by and when == 'off' %}<span class="muted small">after {{ job.started_by }}</span><input type="hidden" name="{{ job.name }}" value="off">
+        {%- else %}<input type="text" name="{{ job.name }}" value="{{ when }}" aria-label="{{ job.label }}: when" size="24">{% endif %}</td>
+      <td class="muted small nowrap">{% if not (job.started_by and when == 'off') %}at most every {{ job.minimum }} min{% endif %}</td>
     </tr>
+    {% endfor %}
+    </tbody>
     {% endfor %}
   </table>
 
