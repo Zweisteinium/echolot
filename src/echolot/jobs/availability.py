@@ -6,7 +6,9 @@ Spotify, through the app's own access in one country's catalogue (options.Spotif
 nowhere (taken_down: no country has it), not in that country (blocked), or exists no more (gone).
 SoundCloud, through any user's token: a song is gone when it was deleted or made private (SoundCloud does
 not tell which), blocked in this country (policy BLOCK), or a 30-second preview without Go+ (preview); a
-label release that can't be downloaded still plays (available).
+label release that can't be downloaded still plays (available). YouTube, as its lists are read
+(lists.youtube: each reading has every video): a video plays (available), not in this country (blocked),
+or no more (gone: deleted, private, taken down; YouTube's reason as the detail).
 
 A list's songs coming and going are recorded when the list is read (record_list): added, removed, or
 replaced (a song swapped for another release: the same ISRC, or the same artist, title and length; on
@@ -116,7 +118,7 @@ def check(run: "Run") -> str:
             states |= _soundcloud(con, run, [k for k in keys if k.startswith("soundcloud:")])
         except sc_api.SoundCloudError as e:
             log.warning("availability on SoundCloud: %s", e)
-        changed = _apply(con, states)
+        changed = apply(con, states)
         explained = _why_removed(con)
     finally:
         con.close()
@@ -188,7 +190,7 @@ def _soundcloud(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[st
     return out
 
 
-def _apply(con: sqlite3.Connection, states: dict[str, tuple[str, str | None]]) -> int:
+def apply(con: sqlite3.Connection, states: dict[str, tuple[str, str | None]]) -> int:
     """Store the states (a change where one differs from the last check; a song seen for the first time is
     no change) and Spotify's greyed-out flag of the searches. Returns the number of changes."""
     known = {r["song_key"]: r for r in con.execute("SELECT * FROM availability")}

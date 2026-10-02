@@ -50,6 +50,8 @@
               {% else %}<div class="muted">Details from the next search on.</div>{% endif %}
             </dd>
             {% endif %}
+            {% set v = (s.fallback or {}).get('listed') %}
+            {% if v %}<dt>Its video</dt><dd>{{ s.last_fallback|ago }}: <span class="name" title="{{ v[0] }}">{{ v[0] }}</span>: {{ outcome(v[1], v[2]) }}</dd>{% endif %}
             {% for site, label in (('youtube', 'YouTube'), ('soundcloud', 'SoundCloud')) %}
             {% set f = (s.fallback or {}).get(site) %}
             {% if f %}

@@ -5,22 +5,24 @@
 <h1 align="center">Echolot</h1>
 
 <p align="center">
-  <b>Your Spotify and SoundCloud lists as a music library on your own server, in the best quality there is.</b><br>
+  <b>Your Spotify, SoundCloud and YouTube lists as a music library on your own server, in the best quality there is.</b><br>
   German for <i>sonar</i>: ping every source, keep only what echoes back clearly.
 </p>
 
 ---
 
-You follow playlists and likes on Spotify and SoundCloud. Echolot turns them into plain audio files,
-one per song (`Artist/Artist - Title.flac`), and keeps them in step: new songs arrive by themselves,
-better copies replace worse ones, and every list can become a playlist in
+You follow playlists and likes on Spotify and SoundCloud, and playlists on YouTube. Echolot turns them
+into plain audio files, one per song (`Artist/Artist - Title.flac`), and keeps them in step: new songs
+arrive by themselves, better copies replace worse ones, and every list can become a playlist in
 [Navidrome](https://www.navidrome.org) or any other Subsonic server. What is still missing, it tells
 you, and why.
 
 ## Highlights
 
 - **Pick your lists, done.** Connect Spotify and SoundCloud once; your playlists, likes and sets show
-  up as cards. Follow one for its songs, or for its songs and a playlist with its cover.
+  up as cards. Follow one for its songs, or for its songs and a playlist with its cover. Anyone's public
+  playlist, set or YouTube playlist follows by its link (a YouTube song gets Spotify's names where Spotify
+  has it; its own video is the first fallback).
 - **Lossless first.** Songs come from Soulseek, FLAC preferred, with YouTube and SoundCloud as the
   fallback. A lossy copy is upgraded to a genuine FLAC later, by itself.
 - **Never the wrong song.** Artist, title, version and length must agree, and the audio is compared
@@ -37,7 +39,8 @@ you, and why.
   transfers that stalled, DRM on SoundCloud, songs Spotify greys out.
 - **Nothing gets lost.** No file is ever overwritten; a replaced one waits 30 days in an inbox. Songs
   that leave a list keep their files; the Changes page tells what left which list and why, and which
-  songs Spotify or SoundCloud took down, no longer play here, or deleted.
+  songs Spotify, SoundCloud or YouTube took down, no longer play here, or deleted (a deleted video stays
+  in its list).
 - **One web app.** Guided setup, accounts, lists, schedule, activity and jobs; a JSON API and
   Prometheus metrics for dashboards.
 
@@ -79,10 +82,10 @@ Accounts page shows where.
 ## How it works
 
 ```
- Spotify, SoundCloud ──lists──▶ Echolot ──search, download──▶ Sockseek ──▶ Soulseek
-                                   │ └──── fallback ─────────▶ YouTube, SoundCloud
-                                   ▼
-                   <music>/tracks, <music>/playlists ──▶ Navidrome
+ Spotify, SoundCloud, YouTube ──lists──▶ Echolot ──search, download──▶ Sockseek ──▶ Soulseek
+                                            │ └──── fallback ─────────▶ YouTube, SoundCloud
+                                            ▼
+                            <music>/tracks, <music>/playlists ──▶ Navidrome
 ```
 
 1. **Lists.** Echolot reads the followed lists and keeps every song once, however many lists hold it.
@@ -91,7 +94,7 @@ Accounts page shows where.
    A song not found is tried again after 3 h, 6 h, 12 h, then daily, with looser terms after two
    misses; a sweep searches every missing song at fixed hours.
 3. **Fallback.** After two misses YouTube (the releases' own "Topic" uploads first) and SoundCloud
-   are searched too.
+   are searched too; a YouTube song's own video comes first.
 4. **Check.** Every download is repaired and normalised (WAV, AIFF and ALAC become FLAC, hi-res
    becomes 44.1/48 kHz 24 bit), spectrum-checked, and identified by name and by audio.
 5. **File.** `tracks/<Artist>/<Artist> - <Title>.<ext>`, one folder per artist. A genuine FLAC

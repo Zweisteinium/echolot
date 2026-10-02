@@ -1,12 +1,12 @@
 {% macro service(name) -%}
-<span class="service">{{ 'Spotify' if name == 'spotify' else 'SoundCloud' }}</span>
+<span class="service">{{ name|source }}</span>
 {%- endmacro %}
 
 {# a song's title linked to its page at the source: Spotify tries the desktop app first (base.html) #}
 {% macro song_link(key, url, text) -%}
 {% set service, _, sid = (key or '').partition(':') -%}
 {% if service == 'spotify' and sid %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ text }}</a>
-{%- elif service == 'soundcloud' and (url or '').startswith('https://soundcloud.com/') %}<a href="{{ url }}" target="_blank" rel="noopener">{{ text }}</a>
+{%- elif (service == 'soundcloud' and (url or '').startswith('https://soundcloud.com/')) or (service == 'youtube' and (url or '').startswith('https://www.youtube.com/')) %}<a href="{{ url }}" target="_blank" rel="noopener">{{ text }}</a>
 {%- else %}{{ text }}{% endif %}
 {%- endmacro %}
 

@@ -7,8 +7,8 @@
 {% set service = (w.song or '').partition(':')[0] -%}
 <article class="song-review" id="{{ g.dom_id }}">
   <div class="song-head">
-    <span class="song-source" title="{{ service|source if service in ('spotify', 'soundcloud') }}">
-      {%- if service in ('spotify', 'soundcloud') %}{{ icon(service, 22) }}{% endif %}</span>
+    <span class="song-source" title="{{ service|source if service in ('spotify', 'soundcloud', 'youtube') }}">
+      {%- if service in ('spotify', 'soundcloud', 'youtube') %}{{ icon(service, 22) }}{% endif %}</span>
     <div class="song-title">
       <div class="wanted">{{ song_link(w.song, w.song_url, lead.artists ~ ' – ' ~ w.title) }}</div>
       <div class="song-facts">{{ lead.length|mmss }}
