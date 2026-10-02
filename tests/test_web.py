@@ -83,7 +83,7 @@ def test_jobs(client: TestClient) -> None:
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
     assert 'id="jobs"' in html and "Pause all" in html
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
-    assert jobs["sync"]["schedule"] == 30 and not jobs["sync"]["running"]
+    assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
     html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # shown at once, asked again every second
     assert "starting …" in html and 'hx-trigger="every 1s"' in html
 
@@ -238,8 +238,8 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
     con.close()
     assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (20, None, ["13:00", "sat 10:00"])
     assert 'value="3"' in client.get("/settings").text
-    bad = client.post("/settings", data=form | {"sync": "2"})
-    assert "at least 10" in bad.text
+    bad = client.post("/settings", data=form | {"fallback": "2"})
+    assert "at least 60" in bad.text
 
 
 def test_review(client: TestClient, settings: Settings) -> None:

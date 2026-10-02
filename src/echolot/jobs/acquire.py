@@ -233,10 +233,20 @@ def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: P
 
 
 def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:
-    """The cover (the given file, else Spotify's) and the artist picture of a song just filed."""
-    if cover and cover.is_file():
-        audio.embed_cover(dest, cover.read_bytes())
-        return
+    """The song's cover, in place of one the uploader embedded (the given file: a SoundCloud download's
+    artwork; else covers.Covers), and the artist picture from Spotify."""
+    from echolot.jobs import covers
+    from echolot.services import soundcloud as sc_api
+
+    try:
+        song = tagging.lead(con, dest.relative_to(run.paths.tracks).as_posix(), want.key)
+        jpg = cover.read_bytes() if cover and cover.is_file() else covers.Covers(con, run).of(song) if song else None
+        if jpg:
+            audio.embed_cover(dest, jpg, replace=True)
+    except (spotify.SpotifyError, sc_api.SoundCloudError, OSError) as e:
+        log.info("cover of %s: %s", dest.name, e)
+    if cover and not want.key.startswith("spotify:"):
+        return  # a SoundCloud download: its uploader's name is no Spotify artist to look up
     try:
         sp = spotify.Spotify(con, run.vault)
         if want.key.startswith("spotify:"):
@@ -245,9 +255,6 @@ def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover:
             track = sp.find_track(want.artist, want.title)
         if not track:
             return
-        images = (track.get("album") or {}).get("images") or []
-        if images and not audio.has_picture(dest):
-            audio.embed_cover(dest, _download(images[0]["url"]))
         artist_id = ((track.get("artists") or [{}])[0] or {}).get("id")
         picture = dest.parent / "artist.jpg"
         if artist_id and not picture.exists() and (url := sp.artist_image(artist_id)):
@@ -395,6 +402,8 @@ def sync(run: "Run") -> str:
     parts = [lists.fetch_spotify(run)]
     con = run.connect()
     try:
+        if not any(not r["tries"] for r in _spotify_missing(con)):
+            return parts[0]  # no new song: nothing to search (the library job keeps the library in step)
         catalog.refresh(con, run.paths.tracks)
         if linked := recordings.link_isrc(con, run.paths):  # the library has them under other names
             catalog.match_songs(con)

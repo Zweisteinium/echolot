@@ -3,8 +3,8 @@ resource (Soulseek, the home IP, the library upkeep) run one at a time; a due jo
 one and keeps its turn, except that a running job of a lower priority (JobInfo.priority) ends after its
 songs in progress and goes on with the rest once the resource is free. The last run of each job is in the jobs table; a
 run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
-section jobs) stops new starts, and scheduled runs end after their songs in progress (the upgrade goes
-on when resumed); a job started by hand ("Run now") runs anyway.
+section jobs) stops new starts, and runs end after their songs in progress (the upgrade goes on when
+resumed); a job started by hand while paused ("Run now") runs anyway.
 """
 
 import datetime
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from echolot import db
 from echolot.config import Settings
-from echolot.jobs import acquire, lists, schedule
+from echolot.jobs import acquire, covers, lists, schedule
 from echolot.library import catalog, filing, history, playlists, review
 from echolot.settings import options
 from echolot.settings.vault import Vault
@@ -41,6 +41,7 @@ class Run:
         self.give_way = threading.Event()  # a more urgent job of the resource is due, or the jobs are paused
         self.budget: int | None = None  # songs left by the run that gave way (None: the job's own batch)
         self.left = 0  # songs this run left when it gave way
+        self.while_paused = False  # started while the jobs were paused (by hand): a pause leaves it alone
 
     @property
     def paths(self) -> filing.Paths:
@@ -91,6 +92,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "upgrade_all": acquire.upgrade_all,
     "soundcloud": lists.soundcloud,
     "fallback": acquire.fallback,
+    "covers": covers.run,
     "library": upkeep,
 }
 
@@ -167,7 +169,7 @@ class Worker:
         now = datetime.datetime.now()
         with self._lock:
             for r in self.runs.values():
-                if paused and r.trigger != "manual":
+                if paused and not r.while_paused:
                     r.give_way.set()  # ends after the songs in progress (a deploy waits for that)
             running = {r.job.resource: r for r in self.runs.values()}
             for job in schedule.JOBS:
@@ -185,6 +187,7 @@ class Worker:
                 self.requested.discard(job.name)
                 run = Run(job, self.settings, self.vault, "manual" if requested else "resume" if resume else "schedule")
                 run.budget = self.resume.pop(job.name, None)
+                run.while_paused = paused
                 self.runs[job.name] = running[job.resource] = run
                 threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
 

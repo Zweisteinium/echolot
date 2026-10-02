@@ -36,17 +36,20 @@ class JobInfo:
 
 
 JOBS = [
-    JobInfo("sync", "New Spotify songs", "soulseek", 30, 10,
-            "Reads your Spotify lists and searches new songs on Soulseek right away.",
-            "Reads the followed Spotify lists. A new song is first looked for in your library: a song with the "
+    JobInfo("sync", "New Spotify songs", "soulseek", 2, 1,
+            "Checks your Spotify lists for changes and searches new songs on Soulseek right away.",
+            "Asks Spotify what changed (a few requests: the playlists' snapshots, the state of your likes) and "
+            "reads only the lists that changed; which liked songs Spotify greys out is asked once a day. A new song is first looked for in your library: a song with the "
             "same recording (ISRC), or a file with its title and length that sounds like the release, is linked "
             "instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: up to five downloads are "
             "tried, each checked by length, tags and audio; a doubtful one waits in Review. A song Soulseek does "
             "not have goes to the YouTube & SoundCloud search right after this job. Comes first: a less urgent "
             "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3),
-    JobInfo("soundcloud", "New SoundCloud songs", "web", 30, 15,
-            "Reads your SoundCloud lists and downloads new songs from SoundCloud itself.",
-            "Reads the followed SoundCloud lists and downloads each new song from SoundCloud: the uploader's own "
+    JobInfo("soundcloud", "New SoundCloud songs", "web", 5, 2,
+            "Checks your SoundCloud lists for changes and downloads new songs from SoundCloud itself.",
+            "Asks SoundCloud what changed (three requests: your likes, the sets in your library) and reads only "
+            "the lists that changed, each at least hourly (a download that failed is tried again). Each new song "
+            "is downloaded from SoundCloud: the uploader's own "
             "file where downloads are allowed (sometimes lossless), else the stream. Before it is filed, a "
             "download is compared by audio with the library's files of the same title and length: the same "
             "recording is linked, not kept twice. A song SoundCloud hands out to nobody (label releases) goes to "
@@ -77,6 +80,12 @@ JOBS = [
             "Searches a FLAC for every song that is not genuine lossless, regardless of when it was last "
             "searched, the longest waiting first. Gives way to every other Soulseek job that is due and goes on "
             "after it until all songs are done (a restart of Echolot ends it). Off on the schedule.", priority=0),
+    JobInfo("covers", "Covers from your lists", "pictures", None, 60,
+            "Gives every file its song's cover from Spotify or SoundCloud. Start it with Run now.",
+            "New files get their song's cover when they are filed. This run gives it to the files already "
+            "there: the Spotify album's cover, or the SoundCloud song's artwork, in place of the one the "
+            "uploader embedded (a compilation, a remaster). The old picture is kept in cover-backups first; "
+            "files done are noted, so a run that stopped goes on where it was. Off on the schedule."),
     JobInfo("library", "Library upkeep", "local", 5, 1,
             "Rescans the library, applies review decisions and writes the playlists.",
             "Notices new, changed and removed files (only those are read again), applies review decisions once "
