@@ -35,7 +35,36 @@ def status(request: Request, con: sqlite3.Connection) -> dict:
         rows.append({"job": j, "rule": rules[j.name], "last": r, "run": run} | state)
     changing = any(r["starting"] or r["stopping"] for r in rows)  # the table asks again every second then
     paused = options.get(con, options.Jobs).paused
-    return {"jobs": rows, "paused": paused, "running": bool(runs), "changing": changing}
+    tasks = _tasks(rows, request.app.state.worker.finished())
+    state = {"jobs": rows, "tasks": tasks, "steps": schedule.STEPS, "paused": paused}
+    return state | {"running": bool(runs), "changing": changing}
+
+
+def _tasks(rows: list[dict], finished: dict) -> list[dict]:
+    """The jobs as the page shows them: per task its steps (job rows), the runs going on, its last run (the
+    latest of its steps'), its next start, and the log to show (of the run going on, else of the last)."""
+    by_job = {r["job"].name: r for r in rows}
+    out = []
+    for t in schedule.TASKS:
+        steps = [by_job[j] for j in t.jobs]
+        running = [s for s in steps if s["run"]]
+        done = [s for s in steps if s["last"] and s["last"]["started"]]
+        last = max(done, key=lambda s: s["last"]["started"]) if done else None
+        upcoming = [s["next"] for s in steps if s["next"] and not s["run"] and s["rule"] is not None]
+        shown = running[0]["run"] if running else finished.get(last["job"].name) if last else None
+        waiting = next((s for s in steps if s["starting"] or s["waiting"]), None)
+        out.append(
+            {
+                "task": t,
+                "steps": steps,
+                "running": running,
+                "last": last,
+                "waiting": waiting,
+                "next": min(upcoming) if upcoming else None,
+                "log": list(reversed(shown.log)) if shown else [],
+            }
+        )
+    return out
 
 
 def answer(request: Request, con: sqlite3.Connection, ok: str) -> Response:
@@ -71,6 +100,24 @@ def run_job(request: Request, con: DB, name: str) -> Response:
     if not request.app.state.worker.trigger(name):
         raise HTTPException(404, "no such job")
     return answer(request, con, f"{schedule.BY_NAME[name].label} starts in a moment.")
+
+
+@router.post("/jobs/start", include_in_schema=False)
+def start_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Response:
+    """A task's button: start its jobs (comma-separated names) as soon as their queues are free."""
+    jobs = [n for n in names.split(",") if n in schedule.BY_NAME]
+    if not jobs or not all(request.app.state.worker.trigger(n) for n in jobs):
+        raise HTTPException(404, "no such job")
+    return answer(request, con, f"{schedule.TASK_OF[jobs[0]].label} starts in a moment.")
+
+
+@router.post("/jobs/stop", include_in_schema=False)
+def stop_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Response:
+    """A task's Stop: its running jobs end after their songs in progress."""
+    stopped = [n for n in names.split(",") if request.app.state.worker.cancel(n)]
+    if not stopped:
+        raise HTTPException(404, "not running")
+    return answer(request, con, "Stopping.")
 
 
 @router.post("/jobs/{name}/cancel", tags=["jobs"])

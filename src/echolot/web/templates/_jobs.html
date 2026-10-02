@@ -1,40 +1,82 @@
-{# the jobs table: htmx reloads it every few seconds while something runs; an open info stays open (base.html) #}
+{# the jobs card: one row per task (schedule.TASKS) with its steps (jobs) behind ⓘ, the run going on (its line
+   and progress bar) and its live log; maintenance folded away. htmx reloads it every few seconds while something
+   runs; open infos and logs stay open (base.html, data-info) -#}
 {% from "_icons.html" import icon -%}
+{% macro task_row(t) -%}
+{% set task, last = t.task, t.last -%}
+{% set names = t.running|map(attribute='job.name')|join(',') -%}
+<article class="task{{ ' running' if t.running }}">
+  <div class="task-head">
+    <div class="task-title">
+      <h3>{{ task.label }} <button type="button" class="info-toggle" data-info="task-info-{{ task.name }}" aria-controls="task-info-{{ task.name }}" aria-expanded="false" aria-label="How {{ task.label }} works" title="How it works">{{ icon('info', 15) }}</button></h3>
+      <p class="muted small">{{ task.help }}</p>
+    </div>
+    <div class="task-actions">
+      {% if t.running %}
+      <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">Stop</button></form>
+      {% else %}
+      {% for label, jobs, hint in task.buttons %}
+      <form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button{{ ' class="primary"' if loop.first and not task.maintenance }} title="{{ hint }}">{{ label }}</button></form>
+      {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+  <div class="task-state small">
+    {% for s in t.running %}{% set run = s.run %}
+    <div class="task-now">
+      <span class="dot {{ 'wait' if s.stopping or run.give_way.is_set() else 'on' }}"></span>
+      {% if t.steps|length > 1 and steps[s.job.name] %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
+      <span class="task-line" title="{{ run.progress }}">
+        {%- if s.stopping %}stopping: the songs in progress end first
+        {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}
+        {%- else %}{{ run.progress or 'starting …' }}{% endif %}</span>
+    </div>
+    {% if run.total %}<div class="task-bar" role="progressbar" aria-label="{{ steps[s.job.name] or task.label }}" aria-valuemin="0" aria-valuemax="{{ run.total }}" aria-valuenow="{{ run.done }}"><span style="width: {{ (100 * run.done / run.total)|round(1) }}%"></span></div>{% endif %}
+    {% else %}
+    {% if t.waiting %}{% set w = t.waiting %}
+    <div class="task-now"><span class="dot wait"></span><span class="task-line">{{ steps[w.job.name] ~ ': ' if t.steps|length > 1 and steps[w.job.name] }}{{ 'starting' if w.starting else 'due' }}{{ ', after ' ~ w.waiting if w.waiting }} …</span></div>
+    {% elif last and last.last.ok == 0 %}
+    <div class="task-now"><span class="dot err"></span><span class="task-line bad-text" title="{{ last.last.message }}">failed: {{ last.last.message }}</span></div>
+    {% elif last %}
+    <div class="task-now"><span class="dot"></span><span class="task-line muted" title="{{ last.last.message }}">{{ steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] }}{{ last.last.message or 'done' }}</span></div>
+    {% else %}
+    <div class="task-now"><span class="dot"></span><span class="task-line muted">not run yet</span></div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <div class="task-meta muted small">
+    {% set timed = t.steps|rejectattr('rule', 'none')|list %}
+    <span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}{{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span>
+    {% if last and last.last.started %}<span title="{{ last.last.started }}">last {{ last.last.started|ago }}</span>{% endif %}
+    {% if not t.running and t.next %}<span>{{ 'paused' if paused else 'next ' ~ (t.next|until) }}</span>{% endif %}
+    {% if t.log %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
+  </div>
+  <dl class="task-info small" id="task-info-{{ task.name }}" hidden>
+    {% for s in t.steps %}
+    <dt>{{ s.job.label }} <span class="muted">· {{ 'after ' ~ s.job.started_by if s.job.started_by and s.rule is none else s.rule|minutes }}</span></dt>
+    <dd>{{ s.job.details }}</dd>
+    {% endfor %}
+  </dl>
+  {% if t.log %}
+  <ol class="task-log small" id="task-log-{{ task.name }}" hidden>
+    {% for at, line in t.log %}<li><time>{{ at }}</time><span>{{ line }}</span></li>{% endfor %}
+  </ol>
+  {% endif %}
+</article>
+{%- endmacro %}
 <div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="outerHTML">
   <div class="card-head">
     <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
     <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}
-      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; Run now still works">Pause all</button>{% endif %}
+      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; a job started by hand still runs">Pause all</button>{% endif %}
     </form>
   </div>
-  <table class="rows jobs">
-    <thead><tr><th>Job</th><th>State</th><th class="hide-narrow">Schedule</th><th>Last run</th><th>Next</th><th></th></tr></thead>
-    <tbody>
-    {% for r in jobs %}
-    {% set last = r.last %}
-    <tr>
-      <td>{{ r.job.label }} <button type="button" class="info-toggle" data-info="job-info-{{ r.job.name }}" aria-controls="job-info-{{ r.job.name }}" aria-expanded="false" aria-label="How {{ r.job.label }} works" title="How it works">{{ icon('info', 15) }}</button>
-        <div class="muted small hide-narrow">{{ r.job.help }}</div>
-        <p class="job-info small" id="job-info-{{ r.job.name }}" hidden>{{ r.job.details }}</p></td>
-      <td class="small">
-        {% if r.stopping %}<span class="dot wait"></span>stopping …<div class="muted small">songs in progress end first</div>
-        {% elif r.run and r.run.give_way.is_set() %}<span class="dot wait"></span>{{ 'pausing' if paused else 'giving way' }} …<div class="muted small">ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}</div>
-        {% elif r.run %}<span class="dot on"></span>running<div class="muted small">{{ r.run.progress }}</div>
-        {% elif r.starting %}<span class="dot wait"></span>starting …{% if r.waiting %}<div class="muted small">after {{ r.waiting }}</div>{% endif %}
-        {% elif r.waiting %}<span class="dot wait"></span>waiting for {{ r.waiting }}
-        {% elif last and last.ok == 0 %}<span class="dot err"></span><span title="{{ last.message }}">failed</span><div class="muted small">{{ last.message|truncate(90) }}</div>
-        {% elif r.rule is none and not r.job.started_by %}<span class="dot"></span><span class="muted">off</span>
-        {% else %}<span class="dot"></span><span class="muted" title="{{ last.message if last else '' }}">idle</span>{% endif %}
-      </td>
-      <td class="muted small hide-narrow nowrap">{{ 'after ' ~ r.job.started_by if r.job.started_by and r.rule is none else r.rule|minutes }}</td>
-      <td class="small nowrap" title="{{ last.message if last else '' }}">{{ last.started|ago if last and last.started else '–' }}</td>
-      <td class="small nowrap">{% if r.run or r.rule is none %}<span class="muted">–</span>{% elif paused %}<span class="muted">paused</span>{% else %}{{ r.next|until }}{% endif %}</td>
-      <td class="nowrap">
-        {% if r.run %}<form method="post" action="/jobs/{{ r.job.name }}/cancel" hx-post="/jobs/{{ r.job.name }}/cancel" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<button>Stop</button></form>
-        {% else %}<form method="post" action="/jobs/{{ r.job.name }}/run" hx-post="/jobs/{{ r.job.name }}/run" hx-target="#jobs" hx-swap="outerHTML">{{ csrf_input }}<button>Run now</button></form>{% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <div class="tasks">
+    {% for t in tasks if not t.task.maintenance %}{{ task_row(t) }}{% endfor %}
+  </div>
+  {% set kept = tasks|selectattr('task.maintenance')|list %}
+  <button type="button" class="link-button maintenance-toggle" data-info="jobs-maintenance" aria-controls="jobs-maintenance" aria-expanded="false">Maintenance ({{ kept|length }}){% if kept|selectattr('running')|list %} · running{% endif %}</button>
+  <div class="tasks" id="jobs-maintenance" hidden>
+    {% for t in kept %}{{ task_row(t) }}{% endfor %}
+  </div>
 </div>

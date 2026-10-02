@@ -101,6 +101,75 @@ JOBS = [
             "it empties the replaced and review files older than 30 days."),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
+STEPS = {  # each job's short name inside its task, for the schedule and the live state
+    "sync": "Spotify",
+    "search_new": "Soulseek search",
+    "soundcloud": "SoundCloud",
+    "sweep": "Soulseek",
+    "fallback": "YouTube & SoundCloud",
+    "upgrade": "Scheduled",
+    "upgrade_all": "All songs",
+    "library": "",
+    "covers": "",
+}
+
+
+@dataclass(frozen=True)
+class Task:
+    """What the jobs page shows: one task, done by one or more jobs (its steps), with its buttons
+    (label, the jobs they start, hover text). Maintenance tasks are folded away."""
+
+    name: str
+    label: str
+    help: str
+    jobs: tuple[str, ...]
+    buttons: tuple[tuple[str, tuple[str, ...], str], ...]
+    maintenance: bool = False
+
+
+TASKS = [
+    Task(
+        "new",
+        "New songs",
+        "Checks your lists; a new song comes from Soulseek, else from YouTube or SoundCloud.",
+        ("sync", "search_new", "soundcloud"),
+        (("Check now", ("sync", "soundcloud"), "Check the Spotify and SoundCloud lists now"),),
+    ),
+    Task(
+        "missing",
+        "Missing songs",
+        "Songs found nowhere yet: Soulseek daily, YouTube and SoundCloud weekly.",
+        ("sweep", "fallback"),
+        (("Search all now", ("sweep", "fallback"), "Search every missing song now, whatever its wait"),),
+    ),
+    Task(
+        "upgrade",
+        "FLAC upgrade",
+        "Looks for genuine FLACs of the songs you have lossy.",
+        ("upgrade", "upgrade_all"),
+        (
+            ("Run now", ("upgrade",), "The next batch, the longest waiting first, whatever their wait"),
+            ("All songs", ("upgrade_all",), "Every lossy song at once; gives way to new songs and goes on after"),
+        ),
+    ),
+    Task(
+        "library",
+        "Library upkeep",
+        "Rescans the library, applies review decisions, writes the playlists.",
+        ("library",),
+        (("Run now", ("library",), "Rescan the library now"),),
+        maintenance=True,
+    ),
+    Task(
+        "covers",
+        "Covers from your lists",
+        "Gives every file its song's cover from Spotify or SoundCloud.",
+        ("covers",),
+        (("Run now", ("covers",), "Replace the uploaders' covers with your songs' covers"),),
+        maintenance=True,
+    ),
+]
+TASK_OF = {job: t for t in TASKS for job in t.jobs}
 
 TIME = re.compile(r"(?:([a-z,\s]+?)\s+)?(\d{1,2}):(\d\d)")
 

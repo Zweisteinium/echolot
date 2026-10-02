@@ -144,6 +144,7 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
 
     worker.FUNCTIONS["upgrade"] = upgrade
     worker.FUNCTIONS["search_new"] = lambda r: ran.append(("search_new", r.budget)) or "searched"
+    worker.FUNCTIONS["sync"] = lambda r: "lists checked"  # at once (the fixture's waits up to 5 s: a race in CI)
     wk.trigger("upgrade")
     wk._start_due()
     wait_for(lambda: ran == [("upgrade", None)])

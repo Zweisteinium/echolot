@@ -7,6 +7,7 @@ section jobs) stops new starts, and runs end after their songs in progress (the 
 resumed); a job started by hand while paused ("Run now") runs anyway.
 """
 
+import collections
 import datetime
 import logging
 import sqlite3
@@ -35,7 +36,9 @@ class Run:
     def __init__(self, job: schedule.JobInfo, settings: Settings, vault: Vault, trigger: str) -> None:
         self.job, self.settings, self.vault, self.trigger = job, settings, vault, trigger
         self.stop = threading.Event()
-        self.progress = ""
+        self.progress = ""  # one line: what it does now
+        self.done = self.total = 0  # how far (songs, files), for a progress bar; total 0: unknown
+        self.log: collections.deque[tuple[str, str]] = collections.deque(maxlen=200)  # (time, line), newest last
         self.started = _now()
         self.after: set[str] = set()  # jobs to start when this one ends
         self.give_way = threading.Event()  # a more urgent job of the resource is due, or the jobs are paused
@@ -56,8 +59,14 @@ class Run:
     def connect(self) -> sqlite3.Connection:
         return db.connect(self.settings.db_path)
 
-    def say(self, progress: str) -> None:
+    def say(self, progress: str, done: int | None = None, total: int | None = None) -> None:
         self.progress = progress
+        if done is not None:
+            self.done, self.total = done, total or 0
+
+    def note(self, line: str) -> None:
+        """A line for the run's live log on the jobs page (the last 200 are kept)."""
+        self.log.append((datetime.datetime.now().strftime("%H:%M:%S"), line))
 
 
 def upkeep(run: Run) -> str:
@@ -104,6 +113,7 @@ class Worker:
         self.runs: dict[str, Run] = {}  # running, by job name
         self.requested: set[str] = set()
         self.resume: dict[str, int] = {}  # jobs that gave way: the songs they left
+        self.last: dict[str, Run] = {}  # each job's last finished run (its log stays on the jobs page)
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -142,6 +152,11 @@ class Worker:
         """The runs in progress and the jobs asked for, at one moment (no job between the two)."""
         with self._lock:
             return dict(self.runs), set(self.requested)
+
+    def finished(self) -> dict[str, Run]:
+        """Each job's last finished run since Echolot started."""
+        with self._lock:
+            return dict(self.last)
 
     def cancel(self, name: str) -> bool:
         with self._lock:
@@ -217,6 +232,7 @@ class Worker:
             con.close()
             with self._lock:
                 self.runs.pop(name, None)
+                self.last[name] = run
                 self.requested |= run.after - {name}
                 if run.left:
                     self.resume[name] = run.left

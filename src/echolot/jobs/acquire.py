@@ -324,10 +324,12 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         finally:
             con.close()
         log.info("%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail)
+        run.note(f"{want.artist} – {want.title}: {outcome.action}" + (f" · {outcome.detail}" if outcome.detail else ""))
         with lock:
             done += 1
             counts[outcome.action] = counts.get(outcome.action, 0) + 1
-            run.say(f"{done} of {len(songs)} songs: " + ", ".join(f"{n} {a}" for a, n in sorted(counts.items())))
+            summary = ", ".join(f"{n} {a}" for a, n in sorted(counts.items()))
+            run.say(f"{done} of {len(songs)} songs: {summary}", done, len(songs))
 
     with ThreadPoolExecutor(fetcher.opts.parallel, thread_name_prefix=purpose) as pool:
         list(pool.map(one, songs))
@@ -539,7 +541,7 @@ def fallback(run: "Run") -> str:
             run.left = 0 if run.stop.is_set() else len(songs) - n + 1
             break
         want = Want.of(row)
-        run.say(f"{n} of {len(songs)}: {want.artist} - {want.title}")
+        run.say(f"{n} of {len(songs)}: {want.artist} – {want.title}", n - 1, len(songs))
         con = run.connect()
         try:
             with con:
@@ -559,6 +561,7 @@ def fallback(run: "Run") -> str:
         linked += action == "linked"
         kept += action == "mismatch"
         log.info("fallback: %s - %s: %s", want.artist, want.title, action)
+        run.note(f"{want.artist} – {want.title}: {action}")
     shutil.rmtree(run.paths.inbox("fallback"), ignore_errors=True)
     run.after.add("library")
     return (

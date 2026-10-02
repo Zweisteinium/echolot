@@ -73,8 +73,10 @@ def run(run: "Run") -> str:
                 if run.stop.is_set() or run.give_way.is_set():
                     run.left = 0 if run.stop.is_set() else len(todo) - n + 1
                     break
-                run.say(f"{n} of {len(todo)}: {rel}")
+                run.say(f"{n} of {len(todo)}: {rel}", n - 1, len(todo))
                 outcome = _one(run, con, covers, rel, backups)
+                if outcome in ("replaced", "failed"):
+                    run.note(f"{rel}: {outcome}")
                 counts[outcome] = counts.get(outcome, 0) + 1
                 if outcome not in ("failed", "changed lately"):
                     log_done.write(rel + "\n")

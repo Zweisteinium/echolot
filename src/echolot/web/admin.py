@@ -23,7 +23,7 @@ def _settings_page(request: Request, con: sqlite3.Connection, status_code: int =
         "settings.html",
         status_code,
         nav="settings",
-        jobs=[(j, schedule.when_text(rules[j.name])) for j in schedule.JOBS],
+        tasks=[(t, [(schedule.BY_NAME[n], schedule.when_text(rules[n])) for n in t.jobs]) for t in schedule.TASKS],
         settings=request.app.state.settings,
         soulseek=options.get(con, options.Soulseek),
         metrics=options.get(con, options.Metrics),
