@@ -388,6 +388,10 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     assert 'aria-valuenow="12"' in html and 'style="width: 4.8%"' in html  # 12 of 250
     assert f'title="12 of 250 songs: 2 upgrade, 10 not found · {long}"' in html  # cut in the line, whole on hover
     assert 'name="names" value="upgrade"' in html and ">Stop</button>" in html and "Live log (1)" in html
+    run.say("SoundCloud: listing Likes")  # starts with its step's name: not said twice
+    wk.runs["soundcloud"] = run
+    assert "SoundCloud</span>" not in client.get("/jobs").text
+    del wk.runs["soundcloud"]
     assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
     del wk.runs["upgrade"]
     client.post("/jobs/start", data={"names": "sync,soundcloud"})
