@@ -31,6 +31,7 @@
     <div class="seek" title="Jump to"><span class="seek-done"></span></div>
     <div class="facts">{{ facts(e.source, e.seconds, i.length_diff, i.quality, e.kbps, e.bytes) }}<span class="play-time"></span></div>
     {% if note %}<div class="download-why">{{ note }}</div>{% endif %}
+    {% if e.compared %}<div class="download-why" title="Each 5 s piece compared with the other file, aligned on its own">{{ 'Against your copy' if i.kind == 'kept' else 'Against the file it replaced' }}: {{ e.compared }}</div>{% endif %}
     {% if open and 'close' in dict(i.choices) %}
     <div class="close-line" id="close-line-{{ e.id }}"{% if not failed %} hidden{% endif %}>
       <label for="close-name-{{ e.id }}">Files as</label>
