@@ -6,17 +6,11 @@
 {% set missing = o.wanted - o.have %}
 <div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
 <section class="tiles">
-{% set flac = o.song_tiers[0][2] %}
 {% set unlisted = o.files - o.in_lists %}
   <div class="tile" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists: a recording that is in them more than once (on Spotify and on SoundCloud, or as several releases) is one file.{% if unlisted %} {{ unlisted|num }} are in no followed list any more.{% endif %}">
     <div class="label">{{ 'Your files' if o.scoped else 'Library' }}</div>
     <div class="value">{{ o.files|num }}</div>
     <div class="sub">files · {{ o.size|size }}{% if o.scoped %} · of {{ o.library_files|num }} in the library{% endif %}</div>
-  </div>
-  <div class="tile" title="Files in your library, as in the chart below. Of the songs in your lists: {{ flac|num }} of {{ o.wanted|num }} ({{ pct(flac, o.wanted) }} %).">
-    <div class="label">Lossless</div>
-    <div class="value">{{ pct(o.lossless, o.files) }} %</div>
-    <div class="sub">{{ o.lossless|num }} of {{ o.files|num }} files genuine FLAC</div>
   </div>
   <div class="tile"{% if o.close %} title="{{ o.close|num }} of them {{ 'is' if o.close == 1 else 'are' }} covered by a close match: another version you took for the song in review (Missing lists them)."{% endif %}>
     <div class="label">Lists complete</div>

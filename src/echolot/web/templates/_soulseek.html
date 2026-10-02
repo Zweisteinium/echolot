@@ -1,6 +1,6 @@
 {# the Soulseek card; reloaded every few seconds while the daemon is not ready #}
 <section class="card account" id="soulseek" {% if not s.soulseek.ready %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
-  <div class="card-head">
+  <div class="section-head">
     <h2 class="group-name">Soulseek</h2>
     {% if s.soulseek.ready %}<span class="pill ok-pill">logged in as {{ s.soulseek.user }}</span>
     {% elif not s.soulseek.reachable %}<span class="pill bad-pill">daemon not reachable</span>
