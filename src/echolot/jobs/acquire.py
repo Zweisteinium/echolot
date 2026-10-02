@@ -183,10 +183,12 @@ class Fetcher:
             try:
                 heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
                 confirm = self.purpose == "upgrade" and want.key.startswith("soundcloud:")
+                same = _same_audio(self.run, con, want, prepared) if confirm else None
                 action, dest = filing.file_into(
                     con, self.run.paths, prepared.path, want, "soulseek", strict=True,
                     file_name=c.name, folders=c.folders, probable=self.purpose == "search",
-                    tries=tries, fake=prepared.fake, heard=heard, confirm=confirm,
+                    tries=tries, fake=prepared.fake, heard=heard, confirm=confirm and not same,
+                    same_audio=same[1] if same else "", replaces=same[0] if same else "",
                 )  # fmt: skip
                 if dest and action in ("new", "upgrade"):
                     finish(self.run, con, dest, want)
@@ -340,6 +342,16 @@ def _in_library(run: "Run", want: Want, index: recordings.Index) -> Outcome | No
         return None
     finally:
         con.close()
+
+
+def _same_audio(run: "Run", con: sqlite3.Connection, want: Want, prepared: audio.Prepared) -> tuple[str, str] | None:
+    """(library file, detail) when a FLAC for a SoundCloud song is the audio of the song's lossy file in
+    another codec (identity.same_master): no review needed for that, only for other names."""
+    row = con.execute("SELECT file FROM songs WHERE key = ?", (want.key,)).fetchone()
+    if prepared.fake or not row or not row[0]:
+        return None
+    share = identity.same_master(prepared.path, run.paths.tracks / row[0])
+    return (row[0], f"the same audio as your copy ({share:.3f})") if share >= identity.SAME_MASTER else None
 
 
 def _want(row: sqlite3.Row) -> Want:

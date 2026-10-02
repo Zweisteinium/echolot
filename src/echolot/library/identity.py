@@ -127,3 +127,63 @@ def alike(a: Path, b: Path) -> float:
         ref = fingerprint(piece) if piece else None
         shares.append(similarity(ref, whole) if ref is not None and len(ref) else 0.0)
     return min(shares)
+
+
+SAME_MASTER = 0.98  # same_master from here on: the same audio in another codec (measured: 0.995 and more)
+_RATE = 11025  # Hz, mono: enough to tell a mix or master from another
+
+
+def _pcm(path: Path) -> np.ndarray:
+    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-ac", "1", "-ar", str(_RATE), "-f", "f32le", "-"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=300).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return np.zeros(0, dtype="<f4")
+    return np.frombuffer(out, dtype="<f4")
+
+
+def _offset(a: np.ndarray, b: np.ndarray, frames: int = 120) -> int:
+    """The shift (fingerprint frames, up to about 15 s) at which b's fingerprint agrees best with a's."""
+    best, shift = -1.0, 0
+    for k in range(-frames, frames + 1):
+        x, y = (a[k:], b) if k >= 0 else (a, b[-k:])
+        n = min(len(x), len(y))
+        if n >= 100 and (share := 1 - _BITS[np.bitwise_xor(x[:n], y[:n]).view(np.uint8)].sum() / (32 * n)) > best:
+            best, shift = share, k
+    return shift
+
+
+def _lag(x: np.ndarray, y: np.ndarray, guess: int, span: int) -> int:
+    """The lag k (samples, guess ± span) at which y[i + k] matches x[i] best, from a 20 s piece of x."""
+    m, n = len(x) // 3, 20 * _RATE
+    lo = max(0, m + guess - span)
+    piece, room = x[m : m + n], y[lo : m + guess + n + span]
+    if len(piece) < _RATE or len(room) < len(piece):
+        return guess
+    size = 1 << int(len(room) + len(piece)).bit_length()
+    c = np.fft.irfft(np.fft.rfft(room, size) * np.conj(np.fft.rfft(piece, size)), size)[: len(room) - len(piece) + 1]
+    return int(np.argmax(c)) + lo - m
+
+
+def same_master(a: Path, b: Path) -> float:
+    """How alike two files' decoded audio is, sample by sample once aligned: the weakest correlation of
+    its 10 s windows. The same master in another codec keeps 0.995 and more; another master or mix of the
+    same recording (a remaster, a single version, a remix sharing the chorus) falls far below, though its
+    fingerprint agrees. 0.0 when the lengths differ by more than 2 s or one cannot be read."""
+    fa, fb = fingerprint(a), fingerprint(b)
+    if fa is None or fb is None or not len(fa) or not len(fb):
+        return 0.0
+    x, y = _pcm(a), _pcm(b)
+    if not len(x) or not len(y) or abs(len(x) - len(y)) > 2 * _RATE:
+        return 0.0
+    k = _lag(x, y, round(_offset(fa, fb) * -0.1238 * _RATE), _RATE // 2)
+    x, y = (x, y[k:]) if k >= 0 else (x[-k:], y)
+    n = min(len(x), len(y))
+    x, y = x[:n], y[:n]
+    weakest = 1.0
+    for i in range(0, n - 5 * _RATE, 10 * _RATE):
+        u, v = x[i : i + 10 * _RATE], y[i : i + 10 * _RATE]
+        if u.std() < 1e-3 or v.std() < 1e-3:
+            continue  # silence says nothing
+        weakest = min(weakest, float(np.corrcoef(u, v)[0, 1]))
+    return max(weakest, 0.0)
