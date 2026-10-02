@@ -17,14 +17,15 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     con = db.connect(path)
     con.executescript(
         "ALTER TABLE songs DROP COLUMN close_match; ALTER TABLE review_decisions DROP COLUMN name; "
-        "ALTER TABLE events DROP COLUMN url; ALTER TABLE events DROP COLUMN compared; PRAGMA user_version = 12;"
+        "ALTER TABLE events DROP COLUMN url; ALTER TABLE events DROP COLUMN compared; "
+        "ALTER TABLE events DROP COLUMN peer_bytes; PRAGMA user_version = 12;"
     )
     con.close()
     db.init(path)
     con = db.connect(path)
     assert con.execute("PRAGMA user_version").fetchone()[0] == db.VERSION
     assert "close_match" in columns(con, "songs") and "name" in columns(con, "review_decisions")
-    assert {"url", "compared"} <= columns(con, "events")
+    assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
     con.close()
 
 

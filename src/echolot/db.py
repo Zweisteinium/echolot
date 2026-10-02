@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 15
+VERSION = 16
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -106,7 +106,8 @@ CREATE TABLE events (               -- everything that was filed into or taken o
     wanted_seconds INTEGER,
     audio TEXT,                     -- what the audio check found
     url TEXT,                       -- the page a download came from (YouTube, SoundCloud)
-    compared TEXT                   -- review: what differs from your copy (identity.compare); '' = nothing to compare
+    compared TEXT,                  -- review: what differs from your copy (identity.compare); '' = nothing to compare
+    peer_bytes INTEGER              -- Soulseek: the size of the peer's file (it tells the same file in later searches)
 );
 CREATE INDEX events_ts ON events(ts);
 CREATE TABLE blocked (              -- downloads marked wrong in review: never taken for the song again
@@ -194,6 +195,7 @@ MIGRATIONS = {
     ],
     14: ["ALTER TABLE events ADD COLUMN url TEXT"],
     15: ["ALTER TABLE events ADD COLUMN compared TEXT"],
+    16: ["ALTER TABLE events ADD COLUMN peer_bytes INTEGER"],
 }
 
 

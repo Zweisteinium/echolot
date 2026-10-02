@@ -27,6 +27,21 @@ def hires_wav(path: Path, seconds: int = 20, rate: int = 96000, tone: float = 22
         w.writeframes(frames)
 
 
+def music_wav(path: Path, seconds: int = 30, rate: int = 44100) -> None:
+    """16-bit stereo WAV with content up to 22 kHz: noise in hits, a few gliding tones."""
+    t = np.arange(seconds * rate) / rate
+    rng = np.random.default_rng(7)
+    glides = [(f, 1 + 0.01 * np.sin(k * t)) for k, f in enumerate((110, 659, 3100, 17500))]
+    tones = sum(0.05 * np.sin(2 * np.pi * f * g * t) for f, g in glides)
+    hits = 0.25 * (0.3 + 0.7 * (t % 0.23 < 0.05))
+    pcm = np.stack([hits * rng.standard_normal(len(t)) + tones for _ in range(2)], 1)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
+
+
 def run(*args: str) -> str:
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
 
@@ -71,6 +86,17 @@ def main() -> int:
         check("compare: the same audio, louder", hint.startswith("same audio") and "dB louder" in hint, hint)
         hint = identity.compare(other, mp3)
         check("compare: another signal", hint.startswith("another version"), hint)
+        music_wav(full := Path(tmp) / "full.wav")
+        steep = Path(tmp) / "steep.flac"  # a genuine master through a steep 20 kHz filter: no encoder's traces
+        cut = "entry(0,0);entry(19800,0);entry(20000,-110);entry(22050,-110)"
+        run("ffmpeg", "-v", "error", "-i", str(full), "-af", f"firequalizer=gain_entry='{cut}':delay=0.1", str(steep))
+        s = audio.spectrum(steep)
+        check("spectrum: a steep mastering filter is not lossy", s["verdict"] == "ok" and "flicker" in s, s)
+        mp3, fake = Path(tmp) / "y.mp3", Path(tmp) / "fake.flac"
+        run("ffmpeg", "-v", "error", "-i", str(full), "-c:a", "libmp3lame", "-b:a", "192k", str(mp3))
+        run("ffmpeg", "-v", "error", "-i", str(mp3), str(fake))
+        s = audio.spectrum(fake)
+        check("spectrum: an MP3 192k as FLAC is lossy", s["verdict"] == "lossy", s)
     print("smoke test failed: " + ", ".join(failed) if failed else "smoke test passed")
     return 1 if failed else 0
 

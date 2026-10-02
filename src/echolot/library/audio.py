@@ -6,7 +6,8 @@ prepare() is what every download goes through:
   2. a FLAC mutagen cannot read (junk before the header) is remuxed, else re-encoded (lossless)
   3. WAV, AIFF and ALAC become FLAC (lossless, smaller, standard tags)
   4. hi-res FLAC (> 48 kHz) becomes 44.1 or 48 kHz, 24 bit (inaudible, about half the size)
-  5. the spectrum check: a FLAC with an encoder's low-pass edge is marked fake (made from lossy)
+  5. the spectrum check: a FLAC with an encoder's low-pass edge is marked fake (made from lossy); an edge
+     from 19 kHz up only with the encoder's traces below it (a mastering filter can cut there too)
 """
 
 import base64
@@ -121,14 +122,19 @@ def prepare(path: Path) -> Prepared:
 
 DROP_DB = 30.0  # dB fall within ~1 kHz that counts as an encoder low-pass
 MAX_LOSSY_CUT = 20400  # edges above this are ordinary anti-alias filters of genuine masters
+TRACES_FROM = 19000  # an edge from here up may be a mastering filter: lossy only with the encoder's traces
+FLICKER = 0.03  # traces: share of bins below the edge switching between hole and content from frame to frame
 
 
 def spectrum(path: Path) -> dict:
     """Is this "lossless" file made from MP3/AAC? Lossy encoders cut the spectrum with a steep
     low-pass (MP3 128k ~16 kHz, 192k ~19 kHz, V0/256k ~19.5-20 kHz); real CD audio rolls off gradually
     up to ~22 kHz. Three 15 s excerpts are averaged into a power spectrum and the steepest drop between
-    12 kHz and Nyquist is located. verdict: lossy (with the likely source), ok, or unknown (too short or
-    quiet). MP3 320k (low-pass ~20.5 kHz) can't be told apart this way; it is nearly transparent."""
+    12 kHz and Nyquist is located. An edge from TRACES_FROM up also needs the encoder's traces below it
+    (_flicker): a steep mastering or resampling filter cuts there as well, and on genuine files tested with
+    such filters (19.5 and 20 kHz) the flicker stayed under 0.027, while MP3 320/V0 transcodes were mostly
+    far above. verdict: lossy (with the likely source), ok, or unknown (too short or quiet). MP3 320k
+    without an edge, and AAC near 20 kHz, can't be told apart this way; they are nearly transparent."""
     import numpy as np
 
     r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
@@ -140,11 +146,12 @@ def spectrum(path: Path) -> dict:
         return {"verdict": "unknown", "reason": "too short or unreadable", "sr": sr}
     nfft, hop = 8192, 4096
     win = np.hanning(nfft).astype(np.float32)
-    acc, frames = np.zeros(nfft // 2 + 1), 0
+    acc, frames, pieces = np.zeros(nfft // 2 + 1), 0, []
     for pos in (0.3, 0.5, 0.7):
         raw = _run(["ffmpeg", "-v", "error", "-ss", f"{dur * pos:.1f}", "-t", "15", "-i", str(path),
                     "-ac", "1", "-f", "f32le", "-"], 120).stdout  # fmt: skip
         x = np.frombuffer(raw, dtype=np.float32)
+        pieces.append(x)
         for i in range(0, len(x) - nfft, hop):
             acc += np.abs(np.fft.rfft(x[i : i + nfft] * win)) ** 2
             frames += 1
@@ -165,9 +172,43 @@ def spectrum(path: Path) -> dict:
             best_cut, best_drop = cut, drop
     res = {"sr": sr, "cutoff_hz": best_cut, "drop_db": round(best_drop, 1), "verdict": "ok"}
     if best_drop >= DROP_DB and best_cut < MAX_LOSSY_CUT:
-        source = "~128 kbps" if best_cut < 16800 else "~160-192 kbps" if best_cut < 19300 else "~256 kbps / V0"
-        res.update(verdict="lossy", source=source)
+        flicker = _flicker(pieces, sr, best_cut) if best_cut >= TRACES_FROM else None
+        if flicker is not None:
+            res["flicker"] = flicker
+        if flicker is not None and flicker <= FLICKER:
+            res["reason"] = "a steep edge without an encoder's traces (a mastering filter)"
+        else:
+            source = "~128 kbps" if best_cut < 16800 else "~160-192 kbps" if best_cut < 19300 else "~256 kbps / V0"
+            res.update(verdict="lossy", source=source)
     return res
+
+
+def _flicker(pieces: list, sr: int, cut: int) -> float | None:
+    """An encoder's traces below its edge: it gives the bits of the highest bands to some frames (~23 ms)
+    and none to others, so there a bin switches between content and a hole (25 dB under the band) from one
+    frame to the next; a tone or noise through a filter stays as it is. The share of such switches in the
+    2.2 kHz below the edge, over loud frames whose band is well above 16-bit rounding; None when too few."""
+    import numpy as np
+
+    nfft = 1024
+    win = np.hanning(nfft).astype(np.float32)
+    f = np.fft.rfftfreq(nfft, 1 / sr)
+    band, mid = (f >= cut - 2500) & (f < cut - 300), (f >= 1000) & (f < 8000)
+    floor = 10 * np.log10(nfft / 4 * 1e-10)  # 16-bit rounding noise per bin, about
+    flips = frames = 0
+    for x in pieces:
+        if len(x) < nfft * 4:
+            continue
+        p = np.abs(np.fft.rfft(np.lib.stride_tricks.sliding_window_view(x, nfft)[:: nfft // 2] * win, axis=1)) ** 2
+        p += 1e-20
+        mid_db, b = 10 * np.log10(p[:, mid].mean(1)), p[:, band]
+        loud = (mid_db > np.percentile(mid_db, 90) - 15) & (10 * np.log10(b.mean(1)) > floor + 30)
+        if loud.sum() < 2:
+            continue
+        hole = b[loud] < b[loud].mean(1, keepdims=True) * 10**-2.5
+        flips += int((hole[1:] != hole[:-1]).sum())
+        frames += int(loud.sum()) - 1
+    return round(flips / (frames * int(band.sum())), 4) if frames >= 30 else None
 
 
 # ---------------------------------------------------------------- tags and covers

@@ -140,13 +140,13 @@ class Fetcher:
         con = self.run.connect()
         try:
             blocked = [r[0] for r in con.execute("SELECT name FROM blocked WHERE song_key = ?", (want.key,))]
-            before = filing.rejected_before(con, want.key)
+            before = filing.rejected_before(con, want.key, fakes=self.purpose == "upgrade")
         finally:
             con.close()
         wanted = 0 if rules.mix_cut(want.title) else want.length
         judged, rejected, terms = [], collections.Counter(), (wanted, opts.get("strict_artist", True), blocked, loosen)
         for c in found:
-            if filing.was_rejected(before, c.name, c.length):
+            if filing.was_rejected(before, c.name, c.length, c.size):
                 rejected["rejected before"] += 1
                 continue
             verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms)
@@ -190,7 +190,7 @@ class Fetcher:
                     con, self.run.paths, prepared.path, want, "soulseek", strict=True,
                     file_name=c.name, folders=c.folders, probable=self.purpose == "search",
                     tries=tries, fake=prepared.fake, heard=heard, confirm=confirm and not same,
-                    same_audio=same[1] if same else "", replaces=same[0] if same else "",
+                    same_audio=same[1] if same else "", replaces=same[0] if same else "", peer_bytes=c.size,
                 )  # fmt: skip
                 if dest and action in ("new", "upgrade"):
                     finish(self.run, con, dest, want)

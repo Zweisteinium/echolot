@@ -218,19 +218,24 @@ def in_review(paths: Paths, artist: str, title: str) -> bool:
     return any(paths.inbox("review").glob(f"*/{glob.escape(name)}*"))
 
 
-def rejected_before(con: sqlite3.Connection, key: str) -> list[tuple[str, int]]:
-    """(name, seconds) of the downloads the checks rejected (or kept for a confirmation) for the song in the
-    last KEEP_DAYS days. The same file would be rejected again, so it is not downloaded again (after that a
-    changed rule gets its chance)."""
+def rejected_before(con: sqlite3.Connection, key: str, fakes: bool = False) -> list[tuple[str, int, int]]:
+    """(name, seconds, peer bytes) of the downloads the checks rejected (or kept for a confirmation) for the
+    song in the last KEEP_DAYS days. The same file would be rejected again, so it is not downloaded again
+    (after that a changed rule gets its chance). With `fakes` (the FLAC upgrade) also the Soulseek FLACs
+    found made from lossy files: no upgrade, whoever shares them; told by name and exact size (peer bytes:
+    0 for the others, which go by name and length)."""
     since = (datetime.datetime.now() - datetime.timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
-    sql = "SELECT file_name, seconds FROM events WHERE song = ? AND action IN ('wrong-song', 'mismatch', 'confirm') AND ts >= ?"
-    return [(n.strip(), s or 0) for n, s in con.execute(sql, (norm_key(key), since)) if n]
+    which = "action IN ('wrong-song', 'mismatch', 'confirm')" + (" OR (fake = 1 AND peer_bytes > 0)" if fakes else "")
+    sql = f"SELECT file_name, seconds, action, peer_bytes FROM events WHERE song = ? AND ts >= ? AND ({which})"
+    rows = con.execute(sql, (norm_key(key), since))
+    return [(n.strip(), s or 0, b if a not in ("wrong-song", "mismatch", "confirm") else 0) for n, s, a, b in rows if n]
 
 
-def was_rejected(before: list[tuple[str, int]], name: str, seconds: float) -> bool:
-    """A search result is a download rejected before: the same name and, where both are known, length (±2 s)."""
+def was_rejected(before: list[tuple[str, int, int]], name: str, seconds: float, size: int = 0) -> bool:
+    """A search result is a download rejected before: the same name and the same size (a fake), else, where
+    both are known, the same length (±2 s)."""
     name = name.strip()
-    return any(n == name and (not s or not seconds or abs(s - seconds) <= 2) for n, s in before)
+    return any(n == name and (b == size if b else not s or not seconds or abs(s - seconds) <= 2) for n, s, b in before)
 
 
 def is_blocked(con: sqlite3.Connection, key: str, names: list[str]) -> bool:
@@ -281,6 +286,7 @@ def file_into(
     confirm: bool = False,
     same_audio: str = "",
     replaces: str = "",
+    peer_bytes: int = 0,
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -305,6 +311,7 @@ def file_into(
     if strict:
         tag_artists, tag_title = audio.read_tags(src)
         info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries, audio=heard.detail)
+        info["peer_bytes"] = peer_bytes or None
         tol = 3 if source == "soulseek" else 6  # videos have intros
         match, why = identify(want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol)
         if match == "exact" and tagging.conflict(tag_title, want.title):  # named the song, tagged as another
@@ -335,6 +342,7 @@ def file_into(
         info["reason"] = why
         if confirm:
             if ext not in audio.LOSSLESS or fake:
+                event(con, paths, "duplicate", src, **info)  # (a fake is remembered: rejected_before)
                 src.unlink(missing_ok=True)
                 return "duplicate", None  # no better than the copy the song has
             kept = keep(paths, src, want.artist, want.title, source)
