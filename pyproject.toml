@@ -1,6 +1,6 @@
 [project]
 name = "echolot"
-version = "0.8.0"
+version = "0.8.2"
 description = "Self-hosted music library sync: playlists and likes in, only the right songs in the best available quality out."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
