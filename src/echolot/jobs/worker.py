@@ -87,6 +87,7 @@ def upkeep(run: Run) -> str:
 
 FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "sync": acquire.sync,
+    "search_new": acquire.search_new,
     "sweep": acquire.sweep,
     "upgrade": acquire.upgrade,
     "upgrade_all": acquire.upgrade_all,

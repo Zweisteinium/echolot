@@ -395,15 +395,28 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 
 def sync(run: "Run") -> str:
-    """Fetch the Spotify lists, then search the new songs (never searched) on Soulseek. One not found goes to
-    the YouTube and SoundCloud search right after (fallback); a later search is the evening search's."""
+    """Spotify lists: read the followed lists that changed (a few requests when none did). A new song (never
+    searched) starts New Spotify songs (search_new), so Soulseek jobs only make way for real work."""
     from echolot.jobs import lists
 
-    parts = [lists.fetch_spotify(run)]
+    message = lists.fetch_spotify(run)
     con = run.connect()
     try:
-        if not any(not r["tries"] for r in _spotify_missing(con)):
-            return parts[0]  # no new song: nothing to search (the library job keeps the library in step)
+        new = sum(1 for r in _spotify_missing(con) if not r["tries"])
+    finally:
+        con.close()
+    if new:
+        run.after.add("search_new")
+    return message + (f"; {new} new songs to search" if new else "")
+
+
+def search_new(run: "Run") -> str:
+    """New Spotify songs (started by Spotify lists): the songs never searched, the library asked first (the
+    same recording under other names is linked), then Soulseek. One not found goes to the YouTube and
+    SoundCloud search right after (fallback); a later search is the evening search's."""
+    parts = []
+    con = run.connect()
+    try:
         catalog.refresh(con, run.paths.tracks)
         if linked := recordings.link_isrc(con, run.paths):  # the library has them under other names
             catalog.match_songs(con)
@@ -411,6 +424,8 @@ def sync(run: "Run") -> str:
         songs = [r for r in _spotify_missing(con) if not r["tries"]]
     finally:
         con.close()
+    if not songs:
+        return "; ".join(parts) or "no new songs"
     parts.append(_search(run, songs, "search"))
     con = run.connect()
     try:  # a miss counted a try (a find left the attempts, an interrupted search counted nothing)
@@ -426,16 +441,23 @@ def sync(run: "Run") -> str:
 
 def sweep(run: "Run") -> str:
     """Search the songs found nowhere yet again (at the hours most Soulseek users are online): each one
-    daily, weekly after WEEKLY_AFTER searches without a find."""
+    daily, weekly after WEEKLY_AFTER searches without a find; started by hand, every one now."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
         if recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
-        now = time.time()
-        songs = [r for r in _spotify_missing(con) if now >= next_search(r["tries"], r["last_try"])]
+        now, missing = time.time(), _spotify_missing(con)
+        by_hand = run.trigger == "manual"
+        songs = [r for r in missing if by_hand or now >= next_search(r["tries"], r["last_try"])]
     finally:
         con.close()
+    if not songs:
+        return (
+            f"{len(missing)} missing songs, none due (each daily, weekly after {WEEKLY_AFTER} searches; Run now searches all)"
+            if missing
+            else "no missing songs"
+        )
     return _search(run, songs, "search")
 
 
@@ -474,13 +496,16 @@ def _upgrade(run: "Run", everything: bool) -> str:
     finally:
         con.close()
     now, seen, songs = time.time(), set(), []
+    by_hand = everything or run.trigger == "manual"  # Run now: whatever their wait (the batch still counts)
     for r in rows:
         if r["service"] == "soundcloud" and filing.in_review(run.paths, r["artist"], _want(r).title):
             continue  # its FLAC waits for your answer
-        if r["file"] not in seen and (everything or due(r["tries"], r["last_try"], *UPGRADE_WAIT, now)):
+        if r["file"] not in seen and (by_hand or due(r["tries"], r["last_try"], *UPGRADE_WAIT, now)):
             seen.add(r["file"])
             songs.append(r)
     run.say(f"{len(rows)} songs not genuine lossless, {len(songs[:batch])} searched now")
+    if not songs:
+        return f"{len(rows)} songs not genuine lossless, none due (each after 12 h, 1 d, 2 d, then every 3 d; Run now searches them)"
     return _search(run, songs[:batch], "upgrade")
 
 
@@ -493,7 +518,7 @@ def fallback(run: "Run") -> str:
     ones never tried first. The first result that passes the same checks as a Soulseek download is filed;
     the rest are tried in order; a download the library has under other names (its audio) is linked instead.
     The result is lossy: the FLAC upgrade looks for a FLAC from 12 h later."""
-    week = int(time.time()) - 7 * 86400
+    week = int(time.time()) + 1 if run.trigger == "manual" else int(time.time()) - 7 * 86400  # Run now: all
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
