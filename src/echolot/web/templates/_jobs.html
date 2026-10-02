@@ -25,7 +25,7 @@
     {% for s in t.running %}{% set run = s.run %}
     <div class="task-now">
       <span class="dot {{ 'wait' if s.stopping or run.give_way.is_set() else 'on' }}"></span>
-      {% if t.steps|length > 1 and steps[s.job.name] %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
+      {% if t.steps|length > 1 and steps[s.job.name] and not run.progress.startswith(steps[s.job.name]) %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
       <span class="task-line" title="{{ run.progress }}">
         {%- if s.stopping %}stopping: the songs in progress end first
         {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}
@@ -38,7 +38,7 @@
     {% elif last and last.last.ok == 0 %}
     <div class="task-now"><span class="dot err"></span><span class="task-line bad-text" title="{{ last.last.message }}">failed: {{ last.last.message }}</span></div>
     {% elif last %}
-    <div class="task-now"><span class="dot"></span><span class="task-line muted" title="{{ last.last.message }}">{{ steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] }}{{ last.last.message or 'done' }}</span></div>
+    <div class="task-now"><span class="dot"></span><span class="task-line muted" title="{{ last.last.message }}">{{ steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] and not (last.last.message or '').startswith(steps[last.job.name]) }}{{ last.last.message or 'done' }}</span></div>
     {% else %}
     <div class="task-now"><span class="dot"></span><span class="task-line muted">not run yet</span></div>
     {% endif %}
