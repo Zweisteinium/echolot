@@ -2,20 +2,24 @@
 {% from "_icons.html" import icon %}
 {% block title %}Accounts · Echolot{% endblock %}
 {% block content %}
-<section class="card intro">
-  <h1>Connect your accounts</h1>
-  <p class="lead">Echolot follows your playlists and likes on Spotify and SoundCloud and gets the songs, in the best quality it finds, from Soulseek. Connect what you use, then <a href="/sources">choose the lists to follow</a>. These are your own accounts: everyone connects theirs. You can change everything here later.</p>
-  <ol class="steps-overview">
-    <li class="{{ 'done' if s.spotify.connected and not s.spotify.error }}">{{ icon('spotify') }} Spotify</li>
-    <li class="{{ 'done' if s.soundcloud.connected and not s.soundcloud.error }}">{{ icon('soundcloud') }} SoundCloud</li>
-    {% if user.admin %}<li class="{{ 'done' if s.soulseek.ready }}">Soulseek</li>{% endif %}
-    <li><a href="/sources">Choose lists →</a></li>
-  </ol>
-</section>
+{% macro state(ok, bad) %}<span class="dot{{ ' ok' if ok else ' err' if bad }}" aria-hidden="true"></span>{% endmacro %}
+<div class="with-rail">
+<aside class="rail">
+  <h1>Accounts</h1>
+  <p class="muted small">Echolot follows your playlists and likes on Spotify and SoundCloud (YouTube playlists need no account) and gets the songs, in the best quality it finds, from Soulseek. These are your own accounts: everyone connects theirs.</p>
+  <nav aria-label="Accounts">
+    <a href="#spotify">{{ icon('spotify') }} Spotify {{ state(s.spotify.connected and not s.spotify.error, s.spotify.error) }}</a>
+    <a href="#soundcloud">{{ icon('soundcloud') }} SoundCloud {{ state(s.soundcloud.connected and not s.soundcloud.error, s.soundcloud.error) }}</a>
+    {% if user.admin %}<a href="#soulseek">Soulseek {{ state(s.soulseek.ready, not s.soulseek.reachable) }}</a>{% endif %}
+  </nav>
+  <p class="small"><a href="/sources">Then choose the lists to follow →</a></p>
+</aside>
+
+<div class="sections">
 
 {# ------------------------------------------------------------ Spotify #}
 <section class="card account" id="spotify">
-  <div class="card-head">
+  <div class="section-head">
     <h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
     {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">connected as {{ s.spotify.name }}</span>
     {% elif s.spotify.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
@@ -82,10 +86,9 @@
   {% endif %}
 </section>
 
-<div class="grid-2">
 {# ------------------------------------------------------------ SoundCloud #}
 <section class="card account" id="soundcloud">
-  <div class="card-head">
+  <div class="section-head">
     <h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
     {% if s.soundcloud.connected %}<span class="pill ok-pill">connected as {{ s.soundcloud.name }}</span>
     {% elif s.soundcloud.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
@@ -113,5 +116,6 @@
 
 {# ------------------------------------------------------------ Soulseek #}
 {% if user.admin %}{% include "_soulseek.html" %}{% endif %}
+</div>
 </div>
 {% endblock %}

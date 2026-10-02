@@ -8,7 +8,7 @@
   <section class="login-card">
     <img class="login-logo" src="{{ asset('echolot.svg') }}" alt="" width="88" height="88">
     <h1>Echolot</h1>
-    <span class="login-version">v{{ version }}{% if commit %} · {{ commit }}{% endif %}</span>
+    <span class="login-version">v{{ version }}</span>
     <p class="login-with"><img src="{{ asset('navidrome.png') }}" alt="" width="22" height="22"> With your Navidrome account</p>
     {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
     {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
@@ -20,7 +20,6 @@
       <button class="primary">Log in</button>
     </form>
     {% endif %}
-    <p class="login-note">Echolot is German for a ship's sonar: it pings your Spotify, SoundCloud and YouTube lists, listens deep into Soulseek for the echo and surfaces with real files (lossless, if the sea allows) that no label can ever grey out.</p>
   </section>
 </main>
 {% endblock %}

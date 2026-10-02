@@ -14,7 +14,7 @@
 <body{% block body_class %}{% endblock %} hx-ext="morph"{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
   {% block header %}
   <header>
-    <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="24" height="24">Echolot</a>
+    <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
     {% if user %}
     <nav>
       <a href="/" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
@@ -38,7 +38,7 @@
       <a href="/account" class="muted small" {% if nav == 'account' %}aria-current="page"{% endif %}>{{ user.name }}</a> <button class="link">Log out</button>
     </form>
     {% endif %}
-    <span class="muted version">v{{ version }}{% if commit %} · {{ commit }}{% endif %}</span>
+    <span class="muted version"{% if commit %} title="commit {{ commit }}"{% endif %}>v{{ version }}</span>
   </header>
   {% endblock %}
   {% block main %}

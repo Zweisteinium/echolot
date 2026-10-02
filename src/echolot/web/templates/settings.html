@@ -1,13 +1,25 @@
 {% extends "base.html" %}
 {% block title %}Settings · Echolot{% endblock %}
 {% block content %}
-<form method="post" action="/settings">{{ csrf_input }}
-<section class="card">
+<div class="with-rail">
+<aside class="rail">
   <h1>Settings</h1>
-  <h2 class="spaced">When the jobs run</h2>
+  <p class="muted small">For everyone: when the jobs run, how Echolot uses Soulseek, who may log in, where the data is.</p>
+  <nav aria-label="Sections">
+    <a href="#jobs">Jobs</a>
+    <a href="#soulseek">Soulseek</a>
+    <a href="#access">Access</a>
+    <a href="#data">Data and backup</a>
+  </nav>
+</aside>
+
+<div class="sections">
+<form method="post" action="/settings">{{ csrf_input }}
+<section class="card" id="jobs">
+  <div class="section-head"><h2>When the jobs run</h2></div>
   <p class="muted small">Minutes between starts (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Soulseek jobs share one connection: a due job waits for the running one and keeps its turn. Jobs can also be started by hand on the <a href="/">overview</a>.</p>
   <table class="rows schedule">
-    <thead><tr><th>Step</th><th>When</th><th></th></tr></thead>
+    <thead><tr><th>Step</th><th>When</th><th class="hide-narrow"></th></tr></thead>
     {% for task, steps in tasks %}
     <tbody>
     <tr class="schedule-task"><th colspan="3">{{ task.label }}</th></tr>
@@ -16,61 +28,91 @@
       <td>{{ job.label }}<div class="muted small">{{ job.help }}</div></td>
       <td>{% if job.started_by and when == 'off' %}<span class="muted small">after {{ job.started_by }}</span><input type="hidden" name="{{ job.name }}" value="off">
         {%- else %}<input type="text" name="{{ job.name }}" value="{{ when }}" aria-label="{{ job.label }}: when" size="24">{% endif %}</td>
-      <td class="muted small nowrap">{% if not (job.started_by and when == 'off') %}at most every {{ job.minimum }} min{% endif %}</td>
+      <td class="muted small nowrap hide-narrow">{% if not (job.started_by and when == 'off') %}at most every {{ job.minimum }} min{% endif %}</td>
     </tr>
     {% endfor %}
     </tbody>
     {% endfor %}
   </table>
+  <div class="section-actions"><button class="primary">Save</button></div>
+</section>
 
-  <h2 class="spaced">Soulseek</h2>
-  <dl>
-    <dt><label for="parallel">Songs at a time</label></dt>
-    <dd><input id="parallel" type="number" name="parallel" value="{{ soulseek.parallel }}" min="1" max="8" class="short"> <span class="muted small">searched and downloaded in parallel (Soulseek allows about 34 searches per 220 s anyway)</span></dd>
-    <dt><label for="upgrade_batch">FLAC upgrade</label></dt>
-    <dd><input id="upgrade_batch" type="number" name="upgrade_batch" value="{{ soulseek.upgrade_batch }}" min="1" max="2000" class="short"> <span class="muted small">songs per run, the longest waiting first</span></dd>
-    <dt><label for="stall_minutes">Stuck downloads</label></dt>
-    <dd><input id="stall_minutes" type="number" name="stall_minutes" value="{{ soulseek.stall_minutes }}" min="2" max="120" class="short"> <span class="muted small">minutes without progress (queued at the peer) before the next file is tried</span></dd>
-    <dt>Library</dt><dd><code>{{ settings.library_dir or 'not configured' }}</code></dd>
-    <dt>Data</dt><dd><code>{{ settings.data_dir }}</code></dd>
-  </dl>
-  <p><button class="primary">Save</button></p>
+<section class="card" id="soulseek">
+  <div class="section-head"><h2>Soulseek</h2></div>
+  <div class="fields">
+    <div class="field">
+      <label for="parallel">Songs at a time<span class="hint">searched and downloaded in parallel (Soulseek allows about 34 searches per 220 s anyway)</span></label>
+      <div class="control"><input id="parallel" type="number" name="parallel" value="{{ soulseek.parallel }}" min="1" max="8" class="short"></div>
+    </div>
+    <div class="field">
+      <label for="upgrade_batch">FLAC upgrade<span class="hint">songs per run, the longest waiting first</span></label>
+      <div class="control"><input id="upgrade_batch" type="number" name="upgrade_batch" value="{{ soulseek.upgrade_batch }}" min="1" max="2000" class="short"></div>
+    </div>
+    <div class="field">
+      <label for="stall_minutes">Stuck downloads<span class="hint">minutes without progress (queued at the peer) before the next file is tried</span></label>
+      <div class="control"><input id="stall_minutes" type="number" name="stall_minutes" value="{{ soulseek.stall_minutes }}" min="2" max="120" class="short"></div>
+    </div>
+  </div>
+  <div class="section-actions"><button class="primary">Save</button></div>
 </section>
 </form>
 
-<div class="grid-2">
-<section class="card">
-  <h2>Configuration file</h2>
-  <p class="muted small">All lists, the schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install. It holds no secrets and no account. An import shows what it changes before anything is stored.</p>
-  <p><a href="/settings/config/export">Download echolot.yml</a></p>
-  <form method="post" action="/settings/config/import" enctype="multipart/form-data" class="row-form">{{ csrf_input }}
-    <input type="file" name="file" accept=".yml,.yaml,text/yaml" aria-label="echolot.yml to import" required>
-    <button>Preview import</button>
-  </form>
+<form method="post" action="/settings/access">{{ csrf_input }}
+<section class="card" id="access">
+  <div class="section-head"><h2>Access</h2></div>
+  <div class="fields">
+    <div class="field">
+      <label for="navidrome_url">Navidrome<span class="hint">its address: Navidrome's accounts log in to Echolot with their Navidrome password</span></label>
+      <div class="control"><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="http://192.168.1.10:4533" required></div>
+    </div>
+    <div class="field">
+      <label for="service_user">Service account<span class="hint">a Navidrome admin: Echolot reads Navidrome's users with it (who is an admin, who is gone) and sets the owners of the playlists it writes</span></label>
+      <div class="control">
+        <input id="service_user" type="text" name="service_user" value="{{ navidrome.service_user }}" class="short" autocomplete="off" aria-label="Service account name">
+        <input type="password" name="service_password" placeholder="password (empty: keep)" autocomplete="new-password" aria-label="Service account password">
+        <span class="pill {{ 'bad-pill' if navidrome_ok else 'ok-pill' }}">{{ navidrome_ok or 'works' }}</span>
+      </div>
+    </div>
+    <div class="field">
+      <label for="session_days">A login lasts<span class="hint">then Echolot asks for the password again</span></label>
+      <div class="control"><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short"> <span class="muted small">days</span></div>
+    </div>
+    <div class="field">
+      <div class="label">Metrics<span class="hint">for Prometheus; else it needs an API token</span></div>
+      <div class="control"><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label></div>
+    </div>
+  </div>
+  <div class="section-actions"><button class="primary">Save</button></div>
 </section>
+</form>
 
-<section class="card">
-  <h2>Access</h2>
-  <form method="post" action="/settings/access">{{ csrf_input }}
-    <dl>
-      <dt><label for="session_days">A login lasts (days)</label></dt>
-      <dd><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short"></dd>
-      <dt><label for="navidrome_url">Navidrome</label></dt>
-      <dd><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="http://192.168.1.10:4533" class="grow" required> <span class="muted small">its address: Navidrome's accounts log in to Echolot with their Navidrome password</span></dd>
-      <dt><label for="service_user">Service account</label></dt>
-      <dd><input id="service_user" type="text" name="service_user" value="{{ navidrome.service_user }}" class="short" autocomplete="off"> <input type="password" name="service_password" placeholder="password (empty: keep)" autocomplete="new-password" aria-label="Service account password">
-        <span class="small {{ 'bad-text' if navidrome_ok else 'ok-text' }}">{{ navidrome_ok or 'works' }}</span>
-        <span class="muted small">a Navidrome admin: Echolot reads Navidrome's users with it (who is an admin, who is gone) and sets the owners of the playlists it writes</span></dd>
-      <dt>Metrics</dt>
-      <dd><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label> <span class="muted small">for Prometheus; else it needs an API token</span></dd>
-    </dl>
-    <p><button>Save</button></p>
-  </form>
+<section class="card" id="data">
+  <div class="section-head"><h2>Data and backup</h2></div>
+  <div class="fields">
+    <div class="field">
+      <div class="label">Library<span class="hint">the music folder</span></div>
+      <div class="control"><code>{{ settings.library_dir or 'not configured' }}</code></div>
+    </div>
+    <div class="field">
+      <div class="label">Data<span class="hint">the database and Echolot's own files</span></div>
+      <div class="control"><code>{{ settings.data_dir }}</code></div>
+    </div>
+    <div class="field">
+      <div class="label">Secrets<span class="hint">the credentials of the <a href="/accounts">accounts</a>, stored encrypted and never shown again</span></div>
+      <div class="control"><span>Key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}<span class="hint">a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing</span>{% endif %}</span></div>
+    </div>
+    <div class="field">
+      <div class="label">Configuration file<span class="hint">all lists, the schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install; no secrets, no accounts. An import shows what it changes before anything is stored.</span></div>
+      <div class="control">
+        <a href="/settings/config/export">Download echolot.yml</a>
+        <form method="post" action="/settings/config/import" enctype="multipart/form-data" class="row-form">{{ csrf_input }}
+          <input type="file" name="file" accept=".yml,.yaml,text/yaml" aria-label="echolot.yml to import" required>
+          <button>Preview import</button>
+        </form>
+      </div>
+    </div>
+  </div>
 </section>
-
-<section class="card">
-  <h2>Secrets</h2>
-  <p class="muted small">The credentials of your <a href="/accounts">accounts</a> are stored encrypted with the key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}, a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing{% endif %}. They are never shown again.</p>
-</section>
+</div>
 </div>
 {% endblock %}

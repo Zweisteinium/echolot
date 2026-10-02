@@ -5,8 +5,7 @@
 <h1 align="center">Echolot</h1>
 
 <p align="center">
-  <b>Your Spotify, SoundCloud and YouTube lists as a music library on your own server, in the best quality there is.</b><br>
-  German for <i>sonar</i>: ping every source, keep only what echoes back clearly.
+  <b>Your Spotify, SoundCloud and YouTube lists as a music library on your own server, in the best quality there is.</b>
 </p>
 
 ---
