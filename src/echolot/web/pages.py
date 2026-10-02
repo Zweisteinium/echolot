@@ -14,6 +14,9 @@ router = APIRouter(include_in_schema=False)
 
 @router.get("/", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
+    if not request.state.user.admin:  # their own lists come with per-user accounts; meanwhile the library's size
+        files, songs = (con.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in ("files", "wanted"))
+        return page(request, "welcome.html", nav="overview", files=files, songs=songs)
     o, vault = stats.overview(con), request.app.state.vault
     connected = vault.has(con, "spotify.refresh_token") or vault.has(con, "soundcloud.token")
     donut, running = (

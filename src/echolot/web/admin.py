@@ -1,5 +1,6 @@
-"""Settings page (schedule, access, account, API tokens, configuration file) and /api/config."""
+"""Settings page (schedule, access, Navidrome, configuration file) and /api/config; admins only."""
 
+import os
 import sqlite3
 from datetime import date
 from typing import Annotated, Any
@@ -9,9 +10,8 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse,
 
 from echolot.jobs import schedule
 from echolot.services import navidrome
-from echolot.settings import auth, configfile, options
+from echolot.settings import configfile, options
 from echolot.settings.sources import ConfigError
-from echolot.web.access import set_session_cookie
 from echolot.web.common import DB, back, page
 
 router = APIRouter()
@@ -30,7 +30,7 @@ def _settings_page(request: Request, con: sqlite3.Connection, status_code: int =
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
         navidrome=options.get(con, options.Navidrome),
-        tokens=auth.tokens(con, request.state.user),
+        navidrome_ok=_service_state(request, con),
         vault_source=request.app.state.vault.source,
         **extra,
     )
@@ -58,69 +58,49 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
     return back("/settings", ok="Settings saved.")
 
 
+def _service_state(request: Request, con: sqlite3.Connection) -> str:
+    """'' when the service account works, else what is wrong (for the settings page)."""
+    svc = navidrome.service(con, request.app.state.vault)
+    if svc is None:
+        return "Not set up: Echolot can't read Navidrome's users or set playlist owners."
+    try:
+        svc.users()
+    except navidrome.NavidromeError as e:
+        return str(e)
+    return ""
+
+
 @router.post("/settings/access", include_in_schema=False)
 def settings_access(
+    request: Request,
     con: DB,
     session_days: Annotated[int, Form()],
     metrics_public: Annotated[bool, Form()] = False,
     navidrome_url: Annotated[str, Form()] = "",
+    service_user: Annotated[str, Form()] = "",
+    service_password: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
+    """Login length, /metrics, Navidrome's address and service account (an empty password keeps the
+    stored one). A Navidrome address that does not answer is not taken: nobody could log in."""
+    url = navidrome_url.strip().rstrip("/")
+    if not url and not os.environ.get("ECHOLOT_NAVIDROME_URL"):
+        return back("/settings", error="Not saved: without Navidrome's address nobody could log in.")
+    if url and url != options.get(con, options.Navidrome).url and not navidrome.reachable(url):
+        return back("/settings", error=f"Not saved: Navidrome does not answer at {url} (logins would fail).")
     try:
         with con:
             options.update(con, options.Auth, session_days=session_days)
             options.update(con, options.Metrics, public=metrics_public)
-            options.update(con, options.Navidrome, url=navidrome_url)
+            options.update(con, options.Navidrome, url=url, service_user=service_user.strip() or "admin")
     except options.OptionsError as err:
         return back("/settings", error=f"Not saved: {err}")
-    saved = "Access settings saved (the login length counts from the next login)."
-    url = options.get(con, options.Navidrome).url
-    if url and not navidrome.reachable(url):
-        return back("/settings", error=f"{saved} But Navidrome does not answer at {url}: Navidrome logins fail.")
-    return back("/settings", ok=saved)
-
-
-@router.post("/settings/password", include_in_schema=False)
-def settings_password(
-    request: Request,
-    con: DB,
-    current: Annotated[str, Form()],
-    password: Annotated[str, Form()],
-    repeat: Annotated[str, Form()],
-) -> RedirectResponse:
-    user: auth.User = request.state.user
-    if auth.verify(con, user.name, current) is None:
-        return back("/settings", error="The current password is wrong.")
-    try:
-        auth.check_new_password(password, repeat)
-        auth.set_password(con, user, password)
-    except auth.AuthError as err:
-        return back("/settings", error=str(err))
-    response = back("/settings", ok="Password changed. Other logins of yours have ended.")
-    set_session_cookie(request, response, con, user)  # this browser stays logged in
-    return response
-
-
-@router.post("/settings/sessions/end-others", include_in_schema=False)
-def settings_end_sessions(request: Request, con: DB) -> RedirectResponse:
-    n = auth.end_other_sessions(con, request.state.user, request.cookies.get(auth.COOKIE, ""))
-    return back("/settings", ok=f"{n} other login(s) ended.")
-
-
-@router.post("/settings/tokens", response_class=HTMLResponse, include_in_schema=False)
-def settings_token_create(request: Request, con: DB, name: Annotated[str, Form()]) -> Response:
-    try:
-        token = auth.create_token(con, request.state.user, name)
-    except auth.AuthError as err:
-        return back("/settings", error=str(err))
-    # shown once, in this response only (a redirect would put it into the URL)
-    return _settings_page(request, con, new_token=token, new_token_name=name.strip())
-
-
-@router.post("/settings/tokens/{token_id}/revoke", include_in_schema=False)
-def settings_token_revoke(request: Request, con: DB, token_id: int) -> RedirectResponse:
-    if not auth.revoke_token(con, request.state.user, token_id):
-        return back("/settings", error="No such token.")
-    return back("/settings", ok="Token revoked.")
+    if service_password:
+        with con:
+            request.app.state.vault.set(con, navidrome.SERVICE_PASSWORD, service_password)
+    problem = _service_state(request, con)
+    if problem:
+        return back("/settings", error=f"Saved. The service account does not work yet: {problem}")
+    return back("/settings", ok="Access settings saved; the service account works.")
 
 
 # ------------------------------------------------------------ echolot.yml

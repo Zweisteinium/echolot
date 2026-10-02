@@ -18,6 +18,7 @@ services:
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_DAEMON_DIR: /daemon
+      ECHOLOT_NAVIDROME_URL: http://navidrome:4533  # its accounts log in to Echolot
       TZ: ${TZ:-UTC}
     volumes:
       - ./data/echolot:/data              # database, settings, encrypted secrets

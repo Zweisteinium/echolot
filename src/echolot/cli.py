@@ -9,16 +9,9 @@ from echolot import COMMIT, __version__
 from echolot.config import Settings
 
 
-def _password(args: argparse.Namespace) -> str:
-    if args.password_stdin:
-        return sys.stdin.readline().rstrip("\n")
-    first = getpass.getpass("Password: ")
-    if first != getpass.getpass("Again: "):
-        raise SystemExit("The two passwords differ.")
-    return first
-
-
 def _user(args: argparse.Namespace, settings: Settings) -> int:
+    """The users (Navidrome's accounts that logged in), and their rights: the way back in when no admin is
+    left, since there is no password here to reset."""
     from echolot import db
     from echolot.settings import auth
 
@@ -26,18 +19,20 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.action == "list":
             for u in auth.users(con):
-                kind = "Echolot" if u["source"] == "local" else "Navidrome" if u["admin"] else "Navidrome, view only"
-                print(f"{u['name']}\t{kind}\tcreated {u['created']}\tlast login {u['last_login'] or 'never'}")
+                rights = "admin" if u["admin"] or u["navidrome_admin"] else u["permissions"] or "own lists"
+                last = u["last_login"] or "never"
+                state = "disabled (gone from Navidrome)" if u["disabled"] else f"last login {last}"
+                print(f"{u['name']}\t{rights}\t{state}")
             return 0
-        if args.action == "add":
-            auth.add_user(con, args.name, _password(args))
-            print(f"User {args.name} added.")
+        row = con.execute("SELECT id, admin, permissions FROM users WHERE name = ?", (args.name,)).fetchone()
+        if row is None:
+            raise SystemExit(f"No user {args.name} (they appear here after their first login).")
+        if args.action == "admin":
+            auth.set_rights(con, row["id"], not args.off, set(filter(None, row["permissions"].split(","))))
+            print(f"{args.name} is {'no longer ' if args.off else ''}an admin.")
         else:
-            user = auth.get_user(con, args.name)
-            if user is None:
-                raise SystemExit(f"No user {args.name}.")
-            auth.set_password(con, user, _password(args))
-            print(f"Password of {user.name} changed; its sessions ended.")
+            auth.set_rights(con, row["id"], bool(row["admin"]), set(args.permissions))
+            print(f"{args.name}: {', '.join(args.permissions) or 'no permissions'}.")
     except auth.AuthError as err:
         raise SystemExit(str(err)) from err
     finally:
@@ -183,13 +178,15 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int, help="listen port (default: ECHOLOT_PORT or 8490)")
     commands.add_parser("version", help="print the version")
 
-    user = commands.add_parser("user", help="users who can log in")
+    user = commands.add_parser("user", help="the users (Navidrome's accounts) and their rights")
     user_actions = user.add_subparsers(dest="action", required=True)
-    for action, help_ in (("add", "add a user"), ("passwd", "set a user's password")):
-        a = user_actions.add_parser(action, help=help_)
-        a.add_argument("name")
-        a.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
     user_actions.add_parser("list", help="list the users")
+    admin = user_actions.add_parser("admin", help="make a user an admin (--off: no longer)")
+    admin.add_argument("name")
+    admin.add_argument("--off", action="store_true")
+    permit = user_actions.add_parser("permit", help="set what a user who is no admin may do (none: nothing more)")
+    permit.add_argument("name")
+    permit.add_argument("permissions", nargs="*", choices=["review", "run"])
 
     config = commands.add_parser("config", help="the configuration as one YAML file (echolot.yml)")
     config_actions = config.add_subparsers(dest="action", required=True)
