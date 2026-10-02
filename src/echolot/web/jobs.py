@@ -112,6 +112,24 @@ def start_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Resp
     return answer(request, con, f"{schedule.TASK_OF[jobs[0]].label} starts in a moment.")
 
 
+OWN = {  # a user's own runs (the Run permission): (job, for their songs only)
+    "check": (("sync", False), ("soundcloud", False)),  # the list jobs ask what changed: cheap for all lists
+    "search": (("sweep", True), ("fallback", True)),
+}
+
+
+@router.post("/jobs/mine", include_in_schema=False)
+def own_jobs(request: Request, con: DB, what: Annotated[str, Form()]) -> Response:
+    """Check the user's lists now, or search their missing songs now (theirs only, whatever their wait)."""
+    if what not in OWN:
+        raise HTTPException(404, "no such run")
+    uid = request.state.user.id
+    for name, theirs in OWN[what]:
+        request.app.state.worker.trigger(name, only=uid if theirs else None)
+    done = "Your lists are checked" if what == "check" else "Your missing songs are searched"
+    return answer(request, con, f"{done} in a moment.")
+
+
 @router.post("/jobs/stop", include_in_schema=False)
 def stop_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Response:
     """A task's Stop: its running jobs end after their songs in progress."""

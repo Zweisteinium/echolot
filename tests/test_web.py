@@ -56,7 +56,7 @@ def test_list_page(client: TestClient, settings: Settings) -> None:
 
 def test_activity(client: TestClient, settings: Settings) -> None:
     html = client.get("/activity").text
-    assert "Artist A - First Song" in html and ">Added</span>" in html and ">Soulseek</span>" in html
+    assert "Artist A – First Song" in html and ">Added</span>" in html and ">Soulseek</span>" in html
     html = client.get("/activity", params={"kind": "rejected"}).text
     assert "Gone Song" in html and "First Song" not in html and ">another artist</span>" in html
     con = db.connect(settings.db_path)  # an upgrade and the file it replaced: one entry, from -> to
@@ -78,7 +78,7 @@ def test_activity(client: TestClient, settings: Settings) -> None:
 def test_jobs(client: TestClient) -> None:
     response = client.post("/jobs/library/run", follow_redirects=False)
     assert response.status_code == 303 and response.headers["location"].startswith("/?ok=")
-    assert client.app.state.worker.requested == {"library"}
+    assert set(client.app.state.worker.requested) == {"library"}
     assert client.post("/jobs/nope/run").status_code == 404
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
     assert 'id="jobs"' in html and "Pause all" in html
@@ -170,7 +170,7 @@ def test_follow_and_stop_following(client: TestClient, settings: Settings, monke
     client.post("/sources/follow", data=likes, headers={"HX-Request": "true"})
     assert con.execute("SELECT enabled FROM sources WHERE key = 'spotify:likes:1'").fetchone()[0] == 0
     con.close()
-    assert client.app.state.worker.requested == {"sync"}
+    assert set(client.app.state.worker.requested) == {"sync"}
 
 
 def test_add_by_link(client: TestClient, monkeypatch) -> None:
@@ -395,7 +395,7 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
     del wk.runs["upgrade"]
     client.post("/jobs/start", data={"names": "sync,soundcloud"})
-    assert {"sync", "soundcloud"} <= wk.requested
+    assert {"sync", "soundcloud"} <= set(wk.requested)
     assert client.post("/jobs/start", data={"names": "nope"}).status_code == 404
     settings_html = client.get("/settings").text
     assert "after Spotify lists" in settings_html and 'class="schedule-task"' in settings_html

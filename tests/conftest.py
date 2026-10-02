@@ -58,9 +58,11 @@ MEMBERS = {
     "soundcloud:someone/sets/trance": ["soundcloud:1001"],
 }
 NO_ARTIST = "artist 'Artist C' not in []"  # a rejection the review page does not show
-EVENTS = [  # ts, action, path, ext, bytes, kbps, seconds, source, artist, title, reason
-    ("2026-09-26T10:00:00", "new", "Artist A/Artist A - First Song.mp3", "mp3", 10, 320, 201, "soulseek", *[None] * 3),
-    ("2026-09-26T11:00:00", "wrong-song", "x.flac", *[None] * 4, "soulseek", "Artist C", "Gone Song", NO_ARTIST),
+GONE = (NO_ARTIST, "spotify:s3")  # reason, song
+FIRST = ("Artist A/Artist A - First Song.mp3", "mp3", 10, 320, 201)  # path, ext, bytes, kbps, seconds
+EVENTS = [  # ts, action, path, ext, bytes, kbps, seconds, source, artist, title, reason, song
+    ("2026-09-26T10:00:00", "new", *FIRST, "soulseek", "Artist A", "First Song", None, "spotify:s1"),
+    ("2026-09-26T11:00:00", "wrong-song", "x.flac", *[None] * 4, "soulseek", "Artist C", "Gone Song", *GONE),
 ]
 
 
@@ -90,7 +92,8 @@ def seed(con: sqlite3.Connection) -> None:
         insert(con, "list_history", "list_key, song_key, first_seen, last_seen", history)
         insert(con, "attempts", "song_key, tries, last_try, last_fallback", [("spotify:s3", 3, 1790000000, 0)])
         insert(con, "lossy_sourced", "stem, source", [("Artist B/Artist B - Second Song", "~128 kbps")])
-        insert(con, "events", "ts, action, path, ext, bytes, kbps, seconds, source, artist, title, reason", EVENTS)
+        columns = "ts, action, path, ext, bytes, kbps, seconds, source, artist, title, reason, song"
+        insert(con, "events", columns, EVENTS)
         db.set_meta(con, "playlist_files", "[]")
         options.update(con, options.Jobs, paused=True)
         options.update(con, options.SourceOptions, soundcloud_user="someone", removed_playlists=True)

@@ -15,6 +15,7 @@ from echolot.library.catalog import QUALITY
 
 SNAPSHOT_SECONDS = 3600
 KEEP_HOURLY_DAYS = 90
+REASONS = ("not_found", "unavailable", "waiting")  # why a song is missing
 
 # metric -> (label name, help); the label name is None for a single value
 METRICS: dict[str, tuple[str | None, str]] = {
@@ -32,6 +33,11 @@ METRICS: dict[str, tuple[str | None, str]] = {
     ),
     "songs_not_found_by_tries": ("tries", "Missing songs by searches that did not find them (any reason)"),
     "songs_by_quality": ("quality", "Wanted songs by the quality of their best library copy"),
+    "user_songs_wanted": ("user", "A user's songs: on the lists they follow"),
+    "user_songs_in_library": ("user", "A user's songs that are in the library"),
+    "user_songs_missing": ("user", "A user's songs that are not in the library"),
+    "user_songs_by_quality": ("user_quality", "A user's songs by the quality of their best copy ('<user id>:<tier>')"),
+    "user_songs_missing_by_reason": ("user_reason", "A user's missing songs by reason ('<user id>:<reason>')"),
     "songs_by_format": ("format", "Wanted songs by the format of their best library copy"),
     "list_songs": ("list", "Songs per list"),
     "list_in_library": ("list", "Songs per list that are in the library"),
@@ -82,11 +88,12 @@ def collect(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
             ("songs_in_library", service, have[service]),
             ("songs_missing", service, wanted[service] - have[service]),
         ]
-    rows += [("songs_missing_by_reason", r, reasons[r]) for r in ("not_found", "unavailable", "waiting")]
+    rows += [("songs_missing_by_reason", r, reasons[r]) for r in REASONS]
     rows += [("songs_not_found_by_tries", t, tries[t]) for t in ("1", "2-3", "4+")]
     rows += [("songs_by_quality", q, quality.get(q, 0)) for q, _ in QUALITY]
     rows += [("songs_by_format", k, v) for k, v in sorted(fmt.items())]
 
+    rows += _per_user(con)
     for key, total, in_library, lossless in con.execute(
         "SELECT ls.list_key, count(*), count(s.file), sum(f.quality = 'lossless') FROM list_songs ls "
         "JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file GROUP BY ls.list_key"
@@ -96,6 +103,27 @@ def collect(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
             ("list_in_library", key, in_library),
             ("list_lossless", key, lossless or 0),
         ]
+    return rows
+
+
+def _per_user(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
+    """Each user's songs (on the lists they follow): wanted, in the library, missing (and why), quality."""
+    rows: list[tuple[str, str, float]] = []
+    users = [r[0] for r in con.execute("SELECT DISTINCT user_id FROM sources WHERE user_id IS NOT NULL ORDER BY 1")]
+    for uid in users:
+        songs = con.execute(
+            "SELECT s.file, s.unavailable, f.quality, a.tries FROM songs s LEFT JOIN files f ON f.path = s.file "
+            "LEFT JOIN attempts a ON a.song_key = s.key WHERE s.key IN (SELECT ls.song_key FROM list_songs ls "
+            "JOIN sources src ON src.key = ls.list_key WHERE src.user_id = ? AND src.enabled)",
+            (uid,),
+        ).fetchall()
+        have = [r for r in songs if r[0]]
+        quality = Counter(r[2] or "unknown" for r in have)
+        reasons = Counter("unavailable" if r[1] else "not_found" if r[3] else "waiting" for r in songs if not r[0])
+        rows += [("user_songs_wanted", f"{uid}", len(songs)), ("user_songs_in_library", f"{uid}", len(have))]
+        rows += [("user_songs_missing", f"{uid}", len(songs) - len(have))]
+        rows += [("user_songs_by_quality", f"{uid}:{q}", quality.get(q, 0)) for q, _ in QUALITY]
+        rows += [("user_songs_missing_by_reason", f"{uid}:{r}", reasons[r]) for r in REASONS]
     return rows
 
 

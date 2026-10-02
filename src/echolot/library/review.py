@@ -37,6 +37,21 @@ def decision_id(ts: str, path: str) -> str:
     return f"{ts} {path}"
 
 
+def songs_of(con: sqlite3.Connection, uid: int) -> set[str]:
+    """The keys of a user's songs: on the lists they follow."""
+    sql = (
+        "SELECT ls.song_key FROM list_songs ls JOIN sources src ON src.key = ls.list_key "
+        "WHERE src.user_id = ? AND src.enabled"
+    )
+    return {r[0] for r in con.execute(sql, (uid,))}
+
+
+def theirs(con: sqlite3.Connection, uid: int, event_id: int) -> bool:
+    """The download is for one of the user's songs."""
+    row = con.execute("SELECT song FROM events WHERE id = ?", (event_id,)).fetchone()
+    return bool(row and row["song"]) and rules.norm_key(row["song"]) in songs_of(con, uid)
+
+
 @dataclass
 class Item:
     event: sqlite3.Row
@@ -171,7 +186,7 @@ def upgrade(e: sqlite3.Row) -> bool:
     return lossless and e["song_quality"] not in ("lossless", None)
 
 
-def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
+def items(con: sqlite3.Connection, music_dir: Path, uid: int | None = None) -> dict[str, list[Item]]:
     """What to look at: probable matches still in the library without an applied decision, and kept
     rejected downloads of songs that are still missing, or genuine lossless ones of songs the library
     has only lossy (accepting one replaces the lossy copy; a SoundCloud song's FLAC always waits here,
@@ -185,7 +200,10 @@ def items(con: sqlite3.Connection, music_dir: Path) -> dict[str, list[Item]]:
         (KEPT + "%",),
     ).fetchall()
     out: dict[str, list[Item]] = {"filed": [], "kept": []}
+    theirs = songs_of(con, uid) if uid is not None else None
     for e in rows:
+        if theirs is not None and rules.norm_key(e["song"]) not in theirs:
+            continue  # another user's song
         kind = "filed" if e["action"] in FILED else "kept"
         d = decisions.get(decision_id(e["ts"], e["path"]))
         if (d and d["applied"]) or (kind == "kept" and e["song_file"] and not upgrade(e)):
@@ -347,6 +365,76 @@ def revert(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item:
     with con:
         con.execute("DELETE FROM review_decisions WHERE id = ? AND applied IS NULL", (item.id,))
     return item
+
+
+# ---------------------------------------------------------------- decisions of users who are no admins
+
+
+OVERRIDE_DAYS = 30  # as long as replaced/ keeps a file (filing.KEEP_DAYS): an override can undo it all
+
+
+def by_others(con: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The decisions of users who are no admins in the last OVERRIDE_DAYS, newest first: for an admin to
+    look at (a song is often on several users' lists) and take back (override)."""
+    since = (datetime.datetime.now() - datetime.timedelta(days=OVERRIDE_DAYS)).isoformat(timespec="seconds")
+    return con.execute(
+        "SELECT r.*, u.name AS user, e.artist, e.title, e.song, e.path FROM review_decisions r "
+        "JOIN users u ON u.id = r.user_id JOIN events e ON e.id = r.event_id "
+        "WHERE r.decided >= ? AND NOT (u.admin OR u.navidrome_admin) ORDER BY r.decided DESC",
+        (since,),
+    ).fetchall()
+
+
+def override(con: sqlite3.Connection, paths: filing.Paths, event_id: int, admin: str) -> str:
+    """An admin takes back a user's decision (applied or not): one not applied yet is simply dropped; a
+    taken download (Perfect or Close match) goes back to Please confirm; No match is lifted: a file
+    retired by it comes back from replaced/ while it is there, otherwise the song is searched again."""
+    d = con.execute(
+        "SELECT r.*, e.song, e.path, e.found, e.file_name FROM review_decisions r JOIN events e ON e.id = r.event_id "
+        "WHERE r.event_id = ? AND r.overridden IS NULL",
+        (event_id,),
+    ).fetchone()
+    if d is None:
+        raise ConfigError("No decision to take back for this download (or it was taken back already).")
+    key, note = rules.norm_key(d["song"]), f"{admin} {_now()}"
+    if d["applied"] is None:
+        result = "dropped before it was applied"
+        with con:
+            con.execute("DELETE FROM review_decisions WHERE id = ?", (d["id"],))
+        return result
+    if d["decision"] in TAKE:
+        again = bool(key) and recheck(con, paths, key, f"taken by a user, {admin} looks again")
+        result = "back in review" if again else "nothing to look at"
+    else:
+        names = [n for n in (d["found"], d["file_name"]) if n]
+        with con:
+            con.executemany("DELETE FROM blocked WHERE song_key = ? AND name = ?", [(key, n) for n in names])
+        result = _restore(con, paths, d) if d["decision"] == "wrong" else ""
+        if not result and key:
+            _search_again(con, key, 0)
+            result = "searched again"
+    with con:
+        con.execute("UPDATE review_decisions SET overridden = ? WHERE id = ?", (note, d["id"]))
+    return result
+
+
+def _restore(con: sqlite3.Connection, paths: filing.Paths, d: sqlite3.Row) -> str:
+    """The library file a No match retired, back at its place ('' if it is no longer in replaced/, or its
+    place is taken)."""
+    retired = con.execute(
+        "SELECT * FROM events WHERE action = 'retired' AND reason = ? AND ts >= ? ORDER BY id DESC",
+        (f"no match in review (was {d['path']})", d["decided"]),
+    ).fetchone()
+    src = local_file(retired["path"], paths.music) if retired else None
+    dest = paths.tracks / d["path"]
+    if retired is None or src is None or not src.is_file() or dest.exists():
+        return ""
+    with filing.LOCK:
+        filing.place_back(con, paths, src, dest)
+    song = rules.norm_key(d["song"]) or None
+    filing.event(con, paths, "restored", dest, song=song, reason="No match taken back by an admin")
+    catalog.match_songs(con)
+    return "file back"
 
 
 # ---------------------------------------------------------------- applying

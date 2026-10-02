@@ -285,6 +285,19 @@ def _spotify_missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def _for(run: "Run", con: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+    """The songs of the users a run by hand is for ("search my missing songs now"); all for everyone's."""
+    if run.only is None:
+        return rows
+    marks = ", ".join("?" * len(run.only))
+    sql = (
+        "SELECT ls.song_key FROM list_songs ls JOIN sources src ON src.key = ls.list_key "
+        f"WHERE src.enabled AND src.user_id IN ({marks})"
+    )
+    keys = {r[0] for r in con.execute(sql, tuple(run.only))}
+    return [r for r in rows if r["key"] in keys]
+
+
 def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     """Search and download songs, several at a time; attempts are counted per song as it ends."""
     if not songs:
@@ -463,7 +476,7 @@ def sweep(run: "Run") -> str:
         catalog.refresh(con, run.paths.tracks)
         if recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
-        now, missing = time.time(), _spotify_missing(con)
+        now, missing = time.time(), _for(run, con, _spotify_missing(con))
         by_hand = run.trigger == "manual"
         songs = [r for r in missing if by_hand or now >= next_search(r["tries"], r["last_try"])]
     finally:
@@ -541,6 +554,7 @@ def fallback(run: "Run") -> str:
             "ORDER BY coalesce(a.last_fallback, 0) > 0, s.unavailable IS NULL",
             (week,),
         ).fetchall()
+        songs = _for(run, con, songs)
         token = sc_api.any_token(con, run.vault)
     finally:
         con.close()

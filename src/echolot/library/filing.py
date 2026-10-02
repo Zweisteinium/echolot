@@ -143,6 +143,16 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool) -> Non
             )
 
 
+def place_back(con: sqlite3.Connection, paths: Paths, src: Path, dest: Path) -> None:
+    """A retired file (in replaced/) back at its library place, recorded as it was filed (a FLAC made from
+    a lossy file stays marked so: the event that filed it says)."""
+    rel = dest.relative_to(paths.tracks).as_posix()
+    sql = "SELECT fake FROM events WHERE path = ? AND action IN ('new', 'upgrade') ORDER BY id DESC"
+    filed = con.execute(sql, (rel,)).fetchone()
+    _place(src, dest)
+    _add_file(con, paths, dest, bool(filed and filed["fake"]))
+
+
 def retire(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, reason: str) -> Path:
     """Take a library file out into inbox/replaced/<date>/ (kept KEEP_DAYS days)."""
     src = paths.tracks / entry.path

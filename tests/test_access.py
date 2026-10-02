@@ -82,11 +82,15 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
     """Anyone else than an admin uses only their own pages (USER); every other route is an admin's, so a
     page made later is closed until it is opened on purpose. A Navidrome admin is always an admin here."""
     timon = login(app, "timon", admin=False)
-    assert "Hello timon" in timon.get("/").text and "/users" not in timon.get("/").text
+    home = timon.get("/").text
+    assert "Your files" in home and "in the library" in home and "/users" not in home and "Mine</button>" not in home
     assert timon.get("/account").status_code == 200
-    r = timon.get("/missing", headers=HTML)
+    r = timon.get("/settings", headers=HTML)
     assert r.status_code == 403 and "for admins" in r.text and "<html" in r.text  # a page, not JSON
-    assert timon.get("/sources").status_code == 200 and timon.get("/accounts").status_code == 200  # their own
+    for path in ("/sources", "/accounts", "/missing", "/activity"):  # their own
+        assert timon.get(path).status_code == 200, path
+    r = timon.get("/review", headers=HTML)
+    assert r.status_code == 403 and "the review permission" in r.text
     assert timon.post("/sources/options", data={}).status_code == 403  # everyone's option
     assert timon.post("/accounts/spotify/app", data={"client_id": "x" * 32}).status_code == 403
     assert timon.get("/accounts/soulseek").status_code == 403
