@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 20
+VERSION = 21
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -57,7 +57,7 @@ CREATE TABLE list_songs (
 );
 CREATE INDEX list_songs_song ON list_songs(song_key);
 CREATE VIEW wanted AS SELECT * FROM songs WHERE key IN (SELECT song_key FROM list_songs);
-CREATE TABLE list_history (         -- every song a list ever had, for its "– removed" playlist
+CREATE TABLE list_history (         -- every song a list ever had (first and last seen)
     list_key TEXT NOT NULL,
     song_key TEXT NOT NULL,
     first_seen TEXT NOT NULL,       -- date
@@ -110,6 +110,24 @@ CREATE TABLE events (               -- everything that was filed into or taken o
     peer_bytes INTEGER              -- Soulseek: the size of the peer's file (it tells the same file in later searches)
 );
 CREATE INDEX events_ts ON events(ts);
+CREATE TABLE availability (         -- whether a song still plays at its source, as last checked (jobs/availability)
+    song_key TEXT PRIMARY KEY,
+    state TEXT NOT NULL,            -- available, taken_down (plays nowhere), blocked (not in this country),
+                                    -- gone (exists no more), preview (SoundCloud: 30 s without Go+), replaced
+    since TEXT NOT NULL,            -- date it came to this state (or of its first check)
+    checked TEXT NOT NULL,
+    detail TEXT                     -- replaced: the song key of the release it plays as now
+);
+CREATE TABLE changes (              -- what happened to the songs and lists of everyone (jobs/availability)
+    id INTEGER PRIMARY KEY,
+    ts TEXT NOT NULL,
+    song_key TEXT NOT NULL DEFAULT '',  -- '' for a list's own change
+    list_key TEXT,                  -- the list it happened in (added, removed, replaced, re-uploaded, unreadable)
+    change TEXT NOT NULL,           -- added, removed, replaced, re-uploaded, unreadable, readable, or a state
+    detail TEXT                     -- removed: why (filled in by the next check); replaced: the new song's key
+);
+CREATE INDEX changes_ts ON changes(ts);
+CREATE INDEX changes_song ON changes(song_key);
 CREATE TABLE blocked (              -- downloads marked wrong in review: never taken for the song again
     song_key TEXT NOT NULL,
     name TEXT NOT NULL,             -- tag title or source file name
@@ -246,6 +264,14 @@ MIGRATIONS = {
         "(SELECT min(user_id) FROM sources), sum(value) FROM snapshots WHERE metric IN "
         "('songs_wanted', 'songs_in_library', 'songs_missing') AND (SELECT min(user_id) FROM sources) IS NOT NULL "
         "GROUP BY ts, metric",
+    ],
+    21: [  # the availability tracker (replaces the "- removed" playlists)
+        "CREATE TABLE availability (song_key TEXT PRIMARY KEY, state TEXT NOT NULL, since TEXT NOT NULL, "
+        "checked TEXT NOT NULL, detail TEXT)",
+        "CREATE TABLE changes (id INTEGER PRIMARY KEY, ts TEXT NOT NULL, song_key TEXT NOT NULL DEFAULT '', "
+        "list_key TEXT, change TEXT NOT NULL, detail TEXT)",
+        "CREATE INDEX changes_ts ON changes(ts)",
+        "CREATE INDEX changes_song ON changes(song_key)",
     ],
 }
 

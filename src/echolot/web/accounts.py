@@ -105,7 +105,8 @@ def _daemon_status(url: str) -> dict[str, Any]:
 
 @router.get("/accounts", response_class=HTMLResponse)
 def accounts_page(request: Request, con: DB) -> HTMLResponse:
-    return page(request, "accounts.html", nav="accounts", s=status(request, con),
+    market = options.get(con, options.Spotify).market
+    return page(request, "accounts.html", nav="accounts", s=status(request, con), market=market,
                 redirect_uri=redirect_uri(request), automatic=request.url.scheme == "https",
                 has_daemon_dir=request.app.state.settings.daemon_dir is not None)  # fmt: skip
 
@@ -130,9 +131,15 @@ def soulseek_fragment(request: Request, con: DB) -> HTMLResponse:
 
 @router.post("/accounts/spotify/app")
 def spotify_app(
-    request: Request, con: DB, client_id: Annotated[str, Form()], client_secret: Annotated[str, Form()] = ""
+    request: Request,
+    con: DB,
+    client_id: Annotated[str, Form()],
+    client_secret: Annotated[str, Form()] = "",
+    market: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
-    client_id, client_secret = client_id.strip(), client_secret.strip()
+    client_id, client_secret, market = client_id.strip(), client_secret.strip(), market.strip().upper()
+    if market and len(market) != 2:
+        return back("/accounts", error="The country is its two letters, e.g. DE or US.")
     if len(client_id) != 32:
         return back("/accounts", error="The client ID is the 32 characters under the app's name.")
     vault = request.app.state.vault
@@ -140,9 +147,22 @@ def spotify_app(
         return back("/accounts", error="Paste the client secret too (the app's Settings, 'View client secret').")
     with con:
         options.update(con, options.Spotify, client_id=client_id)
+        if market:
+            options.update(con, options.Spotify, market=market)
         if client_secret:
             vault.set(con, spotify.SECRET, client_secret)
     return back("/accounts", ok="Spotify app saved. Now connect your account.")
+
+
+@router.post("/accounts/spotify/market")
+def spotify_market(con: DB, market: Annotated[str, Form()]) -> RedirectResponse:
+    """The country whose catalogue the availability check asks."""
+    try:
+        with con:
+            options.update(con, options.Spotify, market=market.strip().upper())
+    except options.OptionsError:
+        return back("/accounts", error="The country is its two letters, e.g. DE or US.")
+    return back("/accounts", ok="Country saved; the next availability check asks its catalogue.")
 
 
 @router.post("/accounts/spotify/login")

@@ -77,6 +77,11 @@ def artwork(token: str, track_id: str) -> str | None:
     return url.replace("-large.", "-t500x500.") if url else None
 
 
+def tracks(token: str, ids: list[str]) -> list[dict[str, Any]]:
+    """Up to 50 tracks at once (id, policy, snipped, ...); one deleted or private is left out."""
+    return list(_get(token, f"/tracks?ids={','.join(ids)}") or [])
+
+
 def states(token: str) -> dict[str, str]:
     """Per list page, what changes when the list changes (three requests): the account's likes
     ('<count>:<newest like>:<its track>') and every set in its library ('<songs>:<last change>')."""

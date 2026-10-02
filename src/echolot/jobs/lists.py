@@ -2,7 +2,8 @@
 their downloads through yt-dlp. A list that can't be read keeps its last known state.
 
 Songs are never forgotten (their links, attempts and SoundCloud downloads stay); list_songs holds what a
-list has now, list_history what it ever had (for its "– removed" playlist).
+list has now, list_history what it ever had; the songs coming and going are recorded as changes
+(jobs/availability).
 """
 
 import datetime
@@ -15,7 +16,7 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from echolot import db
+from echolot.jobs import availability
 from echolot.jobs.acquire import finish
 from echolot.library import audio, catalog, filing, recordings, rules, tagging
 from echolot.library.filing import Want
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
-GREYED_OUT = "greyed out on Spotify"
+GREYED_OUT = availability.GREYED_OUT
 NOT_ON_SOUNDCLOUD = "not downloadable from SoundCloud"
 
 
@@ -60,10 +61,16 @@ def _default_title(s: Source) -> str:
 
 def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover: str | None,
            snapshot: str | None = None) -> None:  # fmt: skip
-    """A list's current songs (keys in order; songs not yet known are left out) and its history."""
+    """A list's current songs (keys in order; songs not yet known are left out), its history, and what
+    changed since its last reading (availability.record_list)."""
     today = datetime.date.today().isoformat()
     known = {r[0] for r in con.execute(f"SELECT key FROM songs WHERE key IN ({', '.join('?' * len(ids))})", ids)}
+    sql = "SELECT song_key FROM list_songs WHERE list_key = ? ORDER BY position"
+    before = [r[0] for r in con.execute(sql, (s.key,))]
+    state = con.execute("SELECT fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
+    first = not (state and state["fetched"])  # its songs were there before Echolot knew the list
     with con:
+        availability.record_list(con, s.key, before, [k for k in ids if k in known], first)
         con.execute("DELETE FROM list_songs WHERE list_key = ?", (s.key,))
         con.executemany("INSERT INTO list_songs (list_key, position, song_key) VALUES (?, ?, ?)",
                         [(s.key, n, k) for n, k in enumerate(k for k in ids if k in known)])  # fmt: skip
@@ -106,7 +113,7 @@ def fetch_spotify(run: "Run") -> str:
     asked first (the snapshots of the playlists in their library and the state of their likes, a few
     requests), so a run without changes costs next to nothing. A list two users follow is read once; one
     whose follower is not connected is read with another follower's login. Which songs Spotify greys
-    out is asked once a day per user."""
+    out, the daily availability check finds (every list's)."""
     con = run.connect()
     try:
         sync_table(con)
@@ -129,11 +136,11 @@ def fetch_spotify(run: "Run") -> str:
                         run.note(f"Spotify: {s.title or s.url} changed, read again")
                     done += 1
                     seen.add(s.key)
+                    availability.list_readable(con, s.key, True)
                 except spotify.SpotifyError as e:
                     log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
                     failed.append(f"{s.title or s.key}: {e}")
-            if any(s.name == "Spotify Liked Songs" for s in mine):
-                _greyed(con, sp, uid)
+                    availability.list_readable(con, s.key, False, str(e))
         message = f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
         unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in seen) - len(failed)
         return message + (f", {unread} not read (no follower connected to Spotify)" if unread > 0 else "")
@@ -146,24 +153,6 @@ def _active(con: sqlite3.Connection) -> list[int]:
     account gone from Navidrome: theirs keep the last listing)."""
     sql = "SELECT id FROM users WHERE NOT disabled AND id IN (SELECT user_id FROM sources) ORDER BY id"
     return [r[0] for r in con.execute(sql)]
-
-
-def _greyed(con: sqlite3.Connection, sp: spotify.Spotify, user_id: int) -> None:
-    """Once a day: the songs of a user's likes that Spotify greys out (they are searched first)."""
-    today = datetime.date.today().isoformat()
-    if db.get_meta(con, f"greyed_checked:{user_id}") == today:
-        return
-    grey = sp.unplayable_liked()
-    likes = sources.spotify_likes_key(user_id)
-    with con:  # this user's likes and songs in nobody's likes: another user's run must not undo theirs
-        con.execute(
-            "UPDATE songs SET unavailable = NULL WHERE service = 'spotify' AND unavailable = ? AND (key IN "
-            "(SELECT song_key FROM list_songs WHERE list_key = ?) OR key NOT IN "
-            "(SELECT song_key FROM list_songs WHERE list_key LIKE 'spotify:likes:%'))",
-            (GREYED_OUT, likes),
-        )
-        con.executemany("UPDATE songs SET unavailable = ? WHERE key = ?", [(GREYED_OUT, f"spotify:{i}") for i in grey])
-        db.set_meta(con, f"greyed_checked:{user_id}", today)
 
 
 def _fetch_spotify_list(
@@ -241,7 +230,10 @@ def soundcloud(run: "Run") -> str:
         run.say(f"reading {s.title or s.url}")
         tracks, info = ydl_of(tokens[s.key] or any_token).listing(s.url, run.stop)
         if tracks is None:
+            if not run.stop.is_set():
+                _readable(run, s.key, False, "SoundCloud did not list it")
             continue  # keep the last listing
+        _readable(run, s.key, True)
         listed[s.key] = tracks
         run.note(f"SoundCloud: {s.title or s.url} read, {len(tracks)} songs")
         con = run.connect()
@@ -297,6 +289,14 @@ def soundcloud(run: "Run") -> str:
     run.after.add("library")
     unread = f", {len(srcs) - len(listed)} not read" if len(listed) < len(srcs) else ""
     return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs"
+
+
+def _readable(run: "Run", key: str, readable: bool, why: str = "") -> None:
+    con = run.connect()
+    try:
+        availability.list_readable(con, key, readable, why)
+    finally:
+        con.close()
 
 
 def _sc_token(con: sqlite3.Connection, vault: "Vault", key: str) -> str | None:

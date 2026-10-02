@@ -22,7 +22,6 @@ class Section(BaseModel):
 class SourceOptions(Section):
     SECTION = "sources"
     soundcloud_user: str = Field("", description="whose SoundCloud likes 'likes' means")
-    removed_playlists: bool = Field(False, description="songs that leave a list go to '<list> – removed'")
 
 
 class Metrics(Section):
@@ -57,6 +56,7 @@ class Jobs(Section):
 class Spotify(Section):
     SECTION = "spotify"
     client_id: str = Field("", description="of your Spotify developer app")
+    market: str = Field("DE", pattern=r"^[A-Z]{2}$", description="the country whose catalogue is checked")
 
 
 class Soulseek(Section):

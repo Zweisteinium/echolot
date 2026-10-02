@@ -21,6 +21,7 @@
       <a href="/missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
       {% if user.can('review') %}<a href="/review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}
       <a href="/activity" {% if nav == 'activity' %}aria-current="page"{% endif %}>Activity</a>
+      <a href="/changes" {% if nav == 'changes' %}aria-current="page"{% endif %}>Changes</a>
       <a href="/accounts" {% if nav == 'accounts' %}aria-current="page"{% endif %}>Accounts</a>
       {% if user.admin %}
       <a href="/users" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>

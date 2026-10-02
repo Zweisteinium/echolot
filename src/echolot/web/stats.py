@@ -354,3 +354,57 @@ def _readable(action: str, reason: str) -> str:
         text = "close match" if text.startswith("close match") else text
         text = f"{text} · was “{_stem(reason.rpartition('(was ')[2].rstrip(')'))}”"
     return text[:1].upper() + text[1:]
+
+
+# ---------------------------------------------------------------- the availability tracker (Changes page)
+
+CHANGES = {  # change -> (label, style)
+    "added": ("Added", "ok"),
+    "removed": ("Removed", "warn"),
+    "replaced": ("Another release", ""),
+    "re-uploaded": ("Re-uploaded", ""),
+    "taken_down": ("Taken down", "bad"),
+    "blocked": ("Not in this country", "bad"),
+    "gone": ("Gone", "bad"),
+    "preview": ("Preview only", "warn"),
+    "available": ("Plays again", "ok"),
+    "unreadable": ("List not readable", "bad"),
+    "readable": ("List readable again", "ok"),
+}
+CHANGE_FILTERS = {
+    "unavailable": ("taken_down", "blocked", "gone", "preview", "available", "replaced"),
+    "lists": ("added", "removed", "re-uploaded", "unreadable", "readable"),
+}
+
+
+def unavailable_now(con: Connection, uid: int | None = None) -> tuple[list[Row], int]:
+    """The songs of the lists (a user's, or everyone's) that do not play now: taken down, blocked, gone or
+    a preview only, the latest first; and how many play as another release (Spotify relinks them: they play)."""
+    mine, args = _mine(uid)
+    rows = con.execute(
+        "SELECT a.state, a.since, a.detail, s.key, s.service, s.artist, s.title, s.url, s.file FROM availability a "
+        f"JOIN wanted s ON s.key = a.song_key WHERE a.state NOT IN ('available', 'replaced') AND {mine} "
+        "ORDER BY a.state = 'preview', a.since DESC, s.artist COLLATE NOCASE",
+        args,
+    ).fetchall()
+    relinked = "FROM availability a JOIN wanted s ON s.key = a.song_key WHERE a.state = 'replaced'"
+    sql = f"SELECT count(*) {relinked} AND {mine}"
+    return rows, con.execute(sql, args).fetchone()[0]
+
+
+def changes(con: Connection, uid: int | None = None, kind: str = "", limit: int = 500) -> list[Row]:
+    """The latest changes of songs and lists (a user's: their songs, or what happened in their lists)."""
+    where, args = "1", ()
+    if uid is not None:
+        where, args = f"(c.song_key IN ({MINE}) OR c.list_key IN ({_FOLLOWS}))", (uid, uid)
+    if kinds := CHANGE_FILTERS.get(kind):
+        where += f" AND c.change IN ({', '.join('?' * len(kinds))})"
+        args = (*args, *kinds)
+    return con.execute(
+        "SELECT c.*, s.artist, s.title, s.service, s.url, s.file, l.title AS list_title, "
+        "r.artist AS new_artist, r.title AS new_title FROM changes c LEFT JOIN songs s ON s.key = c.song_key "
+        "LEFT JOIN lists l ON l.key = c.list_key "
+        "LEFT JOIN songs r ON r.key = c.detail AND c.change IN ('replaced', 're-uploaded') "
+        f"WHERE {where} ORDER BY c.id DESC LIMIT ?",
+        (*args, limit),
+    ).fetchall()

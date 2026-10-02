@@ -62,7 +62,7 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
 
 def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """A list two users follow is read once; a follower not connected to Spotify does not keep it from
-    being read (the other's login reads it); each user's greyed-out likes are their own."""
+    being read (the other's login reads it)."""
     from echolot.settings import auth, sources
 
     class Unconnected(FakeSpotify):
@@ -75,19 +75,10 @@ def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch
     timon = auth.logged_in(con, "timon", "nd-timon", False).id
     sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111")
     sources.add_list(con, timon, "https://open.spotify.com/playlist/ONLY2")
-    sources.set_likes(con, timon, "spotify", True)
-    lists.sync_table(con)
-    with con:  # timon's likes (as last read) have s2 greyed out
-        con.execute("INSERT INTO list_songs VALUES (?, 0, 'spotify:s2')", (sources.spotify_likes_key(timon),))
-        con.execute("UPDATE songs SET unavailable = ? WHERE key = 'spotify:s2'", (lists.GREYED_OUT,))
     con.close()
     message = lists.fetch_spotify(run)
     assert FakeSpotify.calls.count("items AAA111") == 1 and "items ONLY2" not in FakeSpotify.calls
-    assert message == "3 lists, 3 changed, 2 not read (no follower connected to Spotify)"  # timon's two
-    con = run.connect()
-    grey = {r[0] for r in con.execute("SELECT key FROM songs WHERE unavailable = ?", (lists.GREYED_OUT,))}
-    con.close()
-    assert grey == {"spotify:s9", "spotify:s2"}  # the owner's s9; timon's s2 stays (not read: not connected)
+    assert message == "3 lists, 3 changed, 1 not read (no follower connected to Spotify)"
 
 
 def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,9 +88,9 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     likes = [r[0] for r in con.execute(sql)]
     assert likes == ["spotify:s1", "spotify:s9", "spotify:s3"]  # s3 keeps its known name
     s3 = con.execute("SELECT artist, title, unavailable FROM songs WHERE key = 'spotify:s3'").fetchone()
-    assert tuple(s3) == ("Artist C", "Gone Song", None)  # no longer greyed out
+    assert tuple(s3) == ("Artist C", "Gone Song", "greyed out on Spotify")  # the availability check's to change
     s9 = con.execute("SELECT unavailable, isrc FROM songs WHERE key = 'spotify:s9'").fetchone()
-    assert tuple(s9) == ("greyed out on Spotify", "ISRCs9")
+    assert tuple(s9) == (None, "ISRCs9")  # new: whether it plays, the availability check tells
     assert con.execute("SELECT count(*) FROM wanted WHERE key = 'spotify:s2'").fetchone()[0] == 0  # left
     assert con.execute("SELECT count(*) FROM songs WHERE key = 'spotify:s2'").fetchone()[0] == 1  # kept
     row = con.execute("SELECT title, cover_url, snapshot FROM lists WHERE key = 'spotify:playlist:BBB222'").fetchone()
@@ -134,9 +125,7 @@ def test_playlists(run: Run) -> None:
     mine = folder / "owner"  # the owner's folder
     likes = (mine / "Spotify Liked Songs.m3u").read_text().splitlines()
     assert likes == ["#EXTM3U", "#PLAYLIST:Liked Songs", "../../tracks/Artist A/Artist A - First Song.mp3"]
-    removed = (mine / "Spotify Liked Songs - removed.m3u").read_text().splitlines()
-    second = "../../tracks/Artist B/Artist B - Second Song.flac"
-    assert removed == ["#EXTM3U", "#PLAYLIST:Liked Songs – removed", second]
+    assert not (mine / "Spotify Liked Songs - removed.m3u").exists()  # what left a list: the Changes page
     assert not (mine / "spotify-BBB222.m3u").exists()  # playlist: false
     # a list that is no longer followed loses its playlist file; a file Echolot did not write stays
     from echolot.settings import sources
@@ -294,22 +283,6 @@ def test_a_soundcloud_list_is_read_when_it_changed_or_hourly(run: Run) -> None:
     con.close()
 
 
-def test_removed_playlists_are_off_by_default_and_their_files_go(run: Run) -> None:
-    from echolot.settings import options
-
-    assert options.SourceOptions().removed_playlists is False
-    lists.fetch_spotify(run)
-    folder = run.paths.playlists
-    con = run.connect()
-    playlists.write(con, folder)  # on (the conftest's setting): a song left the likes
-    mine = folder / "owner"
-    assert (mine / "Spotify Liked Songs - removed.m3u").exists()
-    options.update(con, options.SourceOptions, removed_playlists=False)
-    playlists.write(con, folder)
-    assert not (mine / "Spotify Liked Songs - removed.m3u").exists() and (mine / "Spotify Liked Songs.m3u").exists()
-    con.close()
-
-
 def test_each_users_playlists(run: Run) -> None:
     """A list two users follow as a playlist is two files, one in each user's folder; the playlists of
     before users had folders go (remembered for Navidrome), a file Echolot did not write stays."""
@@ -404,3 +377,41 @@ def test_old_playlists_stay_until_the_new_ones_are_imported(run: Run) -> None:
     assert playlists.sync_owners(con, Navidrome(), folder) == "" and deleted == []
     assert db.get_meta(con, "playlists_gone") == '["Spotify Liked Songs.m3u"]'  # still to do
     con.close()
+
+
+def test_old_echolot_playlists_go_only_while_the_folder_is_there(run: Run) -> None:
+    """A playlist of a file Echolot wrote at the top of its folder before users had folders (a "- removed"
+    one) is deleted when that file is gone; never while the folder looks empty (not mounted)."""
+    import shutil
+
+    lists.fetch_spotify(run)
+    folder = run.paths.playlists
+    con = run.connect()
+    playlists.write(con, folder)
+    deleted: list[str] = []
+
+    class Navidrome:
+        def playlists(self) -> list[dict]:
+            p = "/music/playlists/"
+            rels = [r for r in json.loads(db_meta(con)) if r.endswith(".m3u")]
+            now = [{"id": f"i{n}", "path": p + r, "ownerId": "nd-owner"} for n, r in enumerate(rels)]
+            return [*now, {"id": "old", "path": p + "Spotify Liked Songs - removed.m3u", "ownerId": "nd-owner"}]
+
+        def set_owner(self, pid: str, owner: str) -> None:
+            pass
+
+        def delete_playlist(self, pid: str) -> None:
+            deleted.append(pid)
+
+    shutil.move(folder, folder.with_name("away"))  # the folder not there: nothing goes
+    playlists.sync_owners(con, Navidrome(), folder)
+    assert deleted == []
+    shutil.move(folder.with_name("away"), folder)
+    assert playlists.sync_owners(con, Navidrome(), folder) == "1 old playlists deleted" and deleted == ["old"]
+    con.close()
+
+
+def db_meta(con) -> str:
+    from echolot import db
+
+    return db.get_meta(con, "playlist_files", "[]")

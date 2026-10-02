@@ -36,7 +36,8 @@ you, and why.
 - **Knows why something is missing.** Every search is kept: how many results, why they did not fit,
   transfers that stalled, DRM on SoundCloud, songs Spotify greys out.
 - **Nothing gets lost.** No file is ever overwritten; a replaced one waits 30 days in an inbox. Songs
-  that leave a list stay, in a "– removed" playlist.
+  that leave a list keep their files; the Changes page tells what left which list and why, and which
+  songs Spotify or SoundCloud took down, no longer play here, or deleted.
 - **One web app.** Guided setup, accounts, lists, schedule, activity and jobs; a JSON API and
   Prometheus metrics for dashboards.
 

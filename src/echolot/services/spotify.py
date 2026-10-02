@@ -237,16 +237,6 @@ class Spotify:
             })  # fmt: skip
         return out
 
-    def unplayable_liked(self) -> set[str]:
-        """Liked songs Spotify greys out (gone from its catalogue); they are searched first."""
-        return {
-            t["id"]
-            for i in self.pages("/me/tracks?limit=50&market=from_token")
-            if (t := i.get("track")) and t.get("id") and t.get("is_playable") is False
-        }
-
-    # ------------------------------------------------------------ covers
-
     def track(self, track_id: str) -> dict[str, Any]:
         return self.get(f"/tracks/{track_id}")
 
