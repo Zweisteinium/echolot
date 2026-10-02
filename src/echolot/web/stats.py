@@ -1,4 +1,5 @@
-"""Queries behind the dashboard pages."""
+"""Queries behind the dashboard pages. Each takes a user (their songs: those on the lists they follow,
+the files those have, the events of those songs) or None (everyone's: the whole library), see scope."""
 
 import json
 from datetime import datetime, timedelta
@@ -12,38 +13,65 @@ from echolot.library.catalog import QUALITY
 from echolot.library.filing import Paths
 
 TIERS = [*QUALITY, ("missing", "Missing")]  # the quality scale of songs, best first
+# the songs of a user: on the lists they follow
+MINE = (
+    "SELECT ls.song_key FROM list_songs ls JOIN sources src ON src.key = ls.list_key "
+    "WHERE src.user_id = ? AND src.enabled"
+)
+
+
+def scope(user: Any) -> int | None:
+    """Whose songs a page shows: the user's own, or None for everyone's (an admin who chose so)."""
+    return None if user.everyone else user.id
+
+
+def _mine(uid: int | None, column: str = "s.key") -> tuple[str, tuple]:
+    """(SQL condition, its arguments) for rows of the user's songs; everything for None."""
+    return (f"{column} IN ({MINE})", (uid,)) if uid is not None else ("1", ())
+
+
 ADDED = ("new", "upgrade")
 REJECTED = ("wrong-song", "mismatch")
 
 
-def overview(con: Connection) -> dict[str, Any]:
-    files, size = con.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
-    by_tier = dict(con.execute("SELECT quality, count(*) FROM files GROUP BY quality").fetchall())
+def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
+    """The numbers of the overview, for a user's songs (their files, their events) or everyone's."""
+    mine, args = _mine(uid)
+    library = con.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
+    files_of = "1" if uid is None else f"path IN (SELECT s.file FROM songs s WHERE {mine})"
+    files, size = con.execute(f"SELECT count(*), coalesce(sum(size), 0) FROM files WHERE {files_of}", args).fetchone()
+    tiers_sql = f"SELECT quality, count(*) FROM files WHERE {files_of} GROUP BY quality"
+    by_tier = dict(con.execute(tiers_sql, args).fetchall())
     counts = "count(*), count(file), count(DISTINCT file), coalesce(sum(file IS NOT NULL AND close_match), 0)"
-    wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted").fetchone()
+    wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted s WHERE {mine}", args).fetchone()
     since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
-    day = {
-        action: (n, b or 0)
-        for action, n, b in con.execute(
-            "SELECT action, count(*), sum(bytes) FROM events WHERE ts >= ? GROUP BY action", (since,)
-        )
-    }
+    mine_events, _ = _mine(uid, "song")
+    sql = f"SELECT action, count(*), sum(bytes) FROM events WHERE ts >= ? AND {mine_events} GROUP BY action"
+    day = {action: (n, b or 0) for action, n, b in con.execute(sql, (since, *args))}
     not_found = con.execute(
-        "SELECT count(*) FROM wanted s JOIN attempts a ON a.song_key = s.key WHERE s.file IS NULL AND a.tries >= 1"
+        "SELECT count(*) FROM wanted s JOIN attempts a ON a.song_key = s.key "
+        f"WHERE s.file IS NULL AND a.tries >= 1 AND {mine}",
+        args,
     ).fetchone()[0]
     songs = con.execute(
         f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM wanted s "
-        "LEFT JOIN files f ON f.path = s.file"
+        f"LEFT JOIN files f ON f.path = s.file WHERE {mine}",
+        args,
     ).fetchone()
+    theirs = "1" if uid is None else "l.key IN (SELECT key FROM sources WHERE user_id = ? AND enabled)"
     services = {
         r[0]: {"songs": r[1], "missing": r[1] - r[2]}
         for r in con.execute(
             "SELECT l.service, count(DISTINCT s.key), count(DISTINCT CASE WHEN s.file IS NOT NULL "
             "THEN s.key END) FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
-            "JOIN songs s ON s.key = ls.song_key GROUP BY l.service"
+            f"JOIN songs s ON s.key = ls.song_key WHERE {theirs} GROUP BY l.service",
+            args,
         )
     }
     return {
+        "scoped": uid is not None,
+        "library_files": library[0],  # the whole library, whoever's songs are shown
+        "library_size": library[1],
         "services": services,  # distinct songs (and missing ones) per service
         "song_tiers": tier_counts(songs),
         "files": files,
@@ -61,7 +89,7 @@ def overview(con: Connection) -> dict[str, Any]:
         "added_24h": sum(day.get(a, (0, 0))[0] for a in ADDED),
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
         "rejected_24h": sum(day.get(a, (0, 0))[0] for a in REJECTED),
-        "lists": lists(con),
+        "lists": lists(con, uid),
     }
 
 
@@ -83,19 +111,36 @@ def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
     return [(k, label, n.get(k, 0)) for k, label in TIERS]
 
 
-def lists(con: Connection) -> list[Row]:
-    """The followed lists with song counts per quality tier (tier_counts)."""
+def lists(con: Connection, uid: int | None = None) -> list[Row]:
+    """The followed lists (a user's, with their own playlist choice; or everyone's, with who follows
+    each) with song counts per quality tier (tier_counts)."""
+    owners = (
+        "(SELECT group_concat(u.name, ', ') FROM sources src JOIN users u ON u.id = src.user_id "
+        "WHERE src.key = l.key AND src.enabled) AS owners"
+    )
+    if uid is None:
+        playlist, where, args = "l.playlist", "", ()
+    else:
+        mode = "(SELECT playlist FROM sources WHERE key = l.key AND user_id = ?)"
+        playlist, where, args = f"{mode} AS playlist", f"WHERE l.key IN ({_FOLLOWS})", (uid, uid)
     return con.execute(
-        "SELECT l.key, l.service, l.title, l.url, l.playlist, l.fetched, "
+        f"SELECT l.key, l.service, l.title, l.url, {playlist}, l.fetched, {owners}, "
         f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS} "
         "FROM lists l LEFT JOIN list_songs ls ON ls.list_key = l.key "
-        "LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
-        "GROUP BY l.key ORDER BY l.position"
+        f"LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file {where} "
+        "GROUP BY l.key ORDER BY l.position",
+        args,
     ).fetchall()
 
 
-def get_list(con: Connection, key: str) -> Row | None:
-    return con.execute("SELECT * FROM lists WHERE key = ?", (key,)).fetchone()
+_FOLLOWS = "SELECT key FROM sources WHERE user_id = ? AND enabled"
+
+
+def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:
+    """A list, if the user follows it (or anyone's, for None)."""
+    if uid is None:
+        return con.execute("SELECT * FROM lists WHERE key = ?", (key,)).fetchone()
+    return con.execute(f"SELECT * FROM lists WHERE key = ? AND key IN ({_FOLLOWS})", (key, uid)).fetchone()
 
 
 def list_songs(con: Connection, key: str) -> list[Row]:
@@ -120,10 +165,14 @@ NOTES = {  # (text, style, explanation)
 }
 
 
-def missing(con: Connection, list_key: str | None = None, paths: Paths | None = None) -> list[dict[str, Any]]:
-    """Songs of the followed lists that are not in the library: their lists, what the searches saw (Soulseek,
-    then YouTube and SoundCloud), the downloads rejected for them, and notes worth a glance."""
-    where, args = "s.file IS NULL", []
+def missing(
+    con: Connection, list_key: str | None = None, paths: Paths | None = None, uid: int | None = None
+) -> list[dict[str, Any]]:
+    """Songs of the followed lists (a user's, or everyone's) that are not in the library: their lists,
+    what the searches saw (Soulseek, then YouTube and SoundCloud), the downloads rejected for them, and
+    notes worth a glance."""
+    mine, mine_args = _mine(uid)
+    where, args = f"s.file IS NULL AND {mine}", list(mine_args)
     if list_key:
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
@@ -149,11 +198,14 @@ def missing(con: Connection, list_key: str | None = None, paths: Paths | None = 
     return [_tried(r, rejected.get(r["key"], []), paths) for r in rows]
 
 
-def close_matches(con: Connection) -> list[Row]:
-    """Wanted songs covered by a close match: another version, taken for the song in review."""
+def close_matches(con: Connection, uid: int | None = None) -> list[Row]:
+    """Wanted songs (a user's, or everyone's) covered by a close match: another version, taken in review."""
+    mine, args = _mine(uid)
     return con.execute(
         "SELECT key, service, artist, title, length, url, file, f.duration FROM wanted s "
-        "JOIN files f ON f.path = s.file WHERE s.close_match ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE"
+        f"JOIN files f ON f.path = s.file WHERE s.close_match AND {mine} "
+        "ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE",
+        args,
     ).fetchall()
 
 
@@ -204,19 +256,24 @@ MATCHED = {"probable": ("probable match", "warn"), "review": ("from review", "")
 REPLACED = "replaced by genuine lossless"  # a retired file's reason when an upgrade took its place
 
 
-def activity(con: Connection, kind: str = "", limit: int = 300) -> list[dict[str, Any]]:
-    """The latest events for the Activity page, each as one entry: what happened, to which song, and the
-    facts worth a glance. An upgrade and the file it replaced are one entry (from -> to)."""
+def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None = None) -> list[dict[str, Any]]:
+    """The latest events for the Activity page (of a user's songs, or all), each as one entry: what
+    happened, to which song, and the facts worth a glance. An upgrade and the file it replaced are one
+    entry (from -> to); a user's include the files their songs' upgrades replaced."""
     actions = (*EVENT_FILTERS[kind], "retired") if kind in EVENT_FILTERS else None
-    where = f"WHERE e.action IN ({', '.join('?' * len(actions))})" if actions else ""
-    sql = f"SELECT e.*, s.url AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song {where} ORDER BY e.id DESC"
-    rows = con.execute(f"{sql} LIMIT ?", (*(actions or ()), 2 * limit)).fetchall()
+    where, args = _mine(uid, "e.song")
+    if uid is not None:  # a replaced file's event has no song: it goes with the upgrade (found below)
+        where = f"({where} OR (e.action = 'retired' AND e.song IS NULL))"
+    if actions:
+        where += f" AND e.action IN ({', '.join('?' * len(actions))})"
+    sql = f"SELECT e.*, s.url AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song WHERE {where} "
+    rows = con.execute(f"{sql} ORDER BY e.id DESC LIMIT ?", (*args, *(actions or ()), 2 * limit)).fetchall()
     replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(REPLACED)}
     partners = {e["id"]: was for e in rows if e["action"] == "upgrade" and (was := _replaced(e, replaced))}
     taken = {was["id"] for was in partners.values()}
     out = []
     for e in rows:
-        if e["action"] == "retired" and (kind or e["id"] in taken):
+        if e["action"] == "retired" and (kind or e["id"] in taken or (uid is not None and not e["song"])):
             continue  # an upgrade's other half, or fetched only to find those
         entry = _entry(e)
         if was := partners.get(e["id"]):

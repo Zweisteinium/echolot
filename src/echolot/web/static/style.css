@@ -108,6 +108,9 @@ header nav a, .tabs a { color: var(--muted); padding: 0.25rem 0.6rem; border-rad
 header nav a:hover, .tabs a:hover { color: var(--text); background: var(--track); text-decoration: none; }
 header nav a[aria-current], .tabs a[aria-current] { color: var(--text); background: var(--track); font-weight: 600; }
 header .account { display: flex; align-items: center; gap: 0.4rem; margin: 0; }
+header .view-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin: 0; }
+header .view-switch button { border: 0; border-radius: 0; padding: 0.2rem 0.55rem; font-size: 0.8rem; background: none; color: var(--muted); }
+header .view-switch button[aria-pressed="true"] { background: var(--track); color: var(--text); font-weight: 600; }
 .version { font-size: 0.8rem; }
 .tabs { display: flex; gap: 0.25rem; }
 

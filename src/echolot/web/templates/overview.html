@@ -9,9 +9,9 @@
 {% set flac = o.song_tiers[0][2] %}
 {% set unlisted = o.files - o.in_lists %}
   <div class="tile" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists: a recording that is in them more than once (on Spotify and on SoundCloud, or as several releases) is one file.{% if unlisted %} {{ unlisted|num }} are in no followed list any more.{% endif %}">
-    <div class="label">Library</div>
+    <div class="label">{{ 'Your files' if o.scoped else 'Library' }}</div>
     <div class="value">{{ o.files|num }}</div>
-    <div class="sub">files · {{ o.size|size }}</div>
+    <div class="sub">files · {{ o.size|size }}{% if o.scoped %} · of {{ o.library_files|num }} in the library{% endif %}</div>
   </div>
   <div class="tile" title="Files in your library, as in the chart below. Of the songs in your lists: {{ flac|num }} of {{ o.wanted|num }} ({{ pct(flac, o.wanted) }} %).">
     <div class="label">Lossless</div>
@@ -41,7 +41,7 @@
 </section>
 
 <section class="card quality-card">
-  <h2>Quality of your library <span class="count">{{ o.files|num }} files{% if missing %} · {{ missing|num }} songs missing{% endif %}</span></h2>
+  <h2>{{ 'Quality of your songs' if o.scoped else 'Quality of the library' }} <span class="count">{{ o.files|num }} files{% if missing %} · {{ missing|num }} songs missing{% endif %}</span></h2>
   <div class="quality-split">
     {{ donut_chart(donut, share(o.lossless, donut.total), 'FLAC') }}
     <table class="legend-table">
@@ -61,7 +61,7 @@
 </section>
 
 <section class="card">
-  <h2>Lists <span class="count">{{ o.lists|length }}</span></h2>
+  <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
   {% for svc, group in o.lists|groupby('service')|reverse %}
   {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
   <details class="group" data-remember="lists-{{ svc }}" open>
@@ -77,7 +77,7 @@
       {% for l in group %}
       {% set m = l.songs - l.have %}
       <tr>
-        <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}</td>
+        <td>{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}{% if not o.scoped and l.owners %} <span class="muted small" title="who follows it">· {{ l.owners }}</span>{% endif %}</td>
         <td class="num hide-narrow">{{ l.songs|num }}</td>
         <td>{{ qbar(tier_counts(l)) }}</td>
         <td class="num muted hide-narrow">{{ share(l.lossless, l.songs) }}</td>

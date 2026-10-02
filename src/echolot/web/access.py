@@ -50,8 +50,21 @@ USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for th
     ("GET", "/sources/other"),
     ("POST", "/sources/follow"),
     ("POST", "/sources/add"),
+    ("GET", "/missing"),
+    ("GET", "/lists/{key:path}"),
+    ("GET", "/activity"),
+    ("GET", "/accounts/line"),
+    ("GET", "/jobs"),
 }
-PERMITTED: dict[tuple[str, str], str] = {}  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
+PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
+    ("GET", "/review"): "review",
+    ("GET", "/review/{event_id}/audio"): "review",
+    ("POST", "/review/{event_id}"): "review",
+    ("POST", "/review/{event_id}/discard-all"): "review",
+    ("POST", "/review/{event_id}/revert"): "review",
+    ("POST", "/songs/{key:path}/search"): "run",
+    ("POST", "/jobs/mine"): "run",
+}
 NO_NAVIDROME = "Echolot does not know Navidrome's address yet: set ECHOLOT_NAVIDROME_URL and restart it."
 
 

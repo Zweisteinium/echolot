@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 19
+VERSION = 20
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -123,7 +123,8 @@ CREATE TABLE review_decisions (
     decided TEXT NOT NULL,
     applied TEXT,                   -- NULL: not yet (can be reverted)
     result TEXT,
-    user_id INTEGER                 -- who decided (NULL: before users were recorded)
+    user_id INTEGER,                -- who decided (NULL: before users were recorded)
+    overridden TEXT                 -- '<admin> <time>': an admin took it back after it was applied
 );
 CREATE TABLE snapshots (            -- metrics over time (history.py), hourly
     ts TEXT NOT NULL,               -- local time, ISO 8601; all rows of one snapshot share it
@@ -234,6 +235,17 @@ MIGRATIONS = {
         "SELECT key, service, likes, url, title, playlist, enabled, position, added FROM sources ORDER BY position",
         "DROP TABLE sources",
         "ALTER TABLE sources_19 RENAME TO sources",
+    ],
+    20: [  # an admin's override of a user's decision; each user's song history (until now everything
+        # was one user's: the oldest owner's history is the library's song history so far)
+        "ALTER TABLE review_decisions ADD COLUMN overridden TEXT",
+        "INSERT OR IGNORE INTO snapshots (ts, metric, key, value) SELECT ts, 'user_' || metric, "
+        "(SELECT min(user_id) FROM sources) || ':' || key, value FROM snapshots WHERE metric IN "
+        "('songs_by_quality', 'songs_missing_by_reason') AND (SELECT min(user_id) FROM sources) IS NOT NULL",
+        "INSERT OR IGNORE INTO snapshots (ts, metric, key, value) SELECT ts, 'user_' || metric, "
+        "(SELECT min(user_id) FROM sources), sum(value) FROM snapshots WHERE metric IN "
+        "('songs_wanted', 'songs_in_library', 'songs_missing') AND (SELECT min(user_id) FROM sources) IS NOT NULL "
+        "GROUP BY ts, metric",
     ],
 }
 

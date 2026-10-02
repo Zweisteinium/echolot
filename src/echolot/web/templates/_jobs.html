@@ -12,7 +12,10 @@
       <p class="muted small">{{ task.help }}</p>
     </div>
     <div class="task-actions">
-      {% if t.running %}
+      {% if not user.admin %}
+      {% set own = {'new': ('check', 'Check my lists now'), 'missing': ('search', 'Search my missing songs now')}.get(task.name) %}
+      {% if own and user.can('run') %}<form method="post" action="/jobs/mine" hx-post="/jobs/mine" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="what" value="{{ own[0] }}"><button>{{ own[1] }}</button></form>{% endif %}
+      {% elif t.running %}
       <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">Stop</button></form>
       {% else %}
       {% for label, jobs, hint in task.buttons %}
@@ -26,17 +29,18 @@
     <div class="task-now">
       <span class="dot {{ 'wait' if s.stopping or run.give_way.is_set() else 'on' }}"></span>
       {% if t.steps|length > 1 and steps[s.job.name] and not run.progress.startswith(steps[s.job.name]) %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
-      <span class="task-line" title="{{ run.progress }}">
+      {% set progress = (run.progress or 'starting …') if user.admin else 'running' %}{# a song's name may be another user's #}
+      <span class="task-line" title="{{ progress }}">
         {%- if s.stopping %}stopping: the songs in progress end first
         {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}
-        {%- else %}{{ run.progress or 'starting …' }}{% endif %}</span>
+        {%- else %}{{ progress }}{% endif %}</span>
     </div>
     {% if run.total %}<div class="task-bar" role="progressbar" aria-label="{{ steps[s.job.name] or task.label }}" aria-valuemin="0" aria-valuemax="{{ run.total }}" aria-valuenow="{{ run.done }}"><span style="width: {{ (100 * run.done / run.total)|round(1) }}%"></span></div>{% endif %}
     {% else %}
     {% if t.waiting %}{% set w = t.waiting %}
     <div class="task-now"><span class="dot wait"></span><span class="task-line">{{ steps[w.job.name] ~ ': ' if t.steps|length > 1 and steps[w.job.name] }}{{ 'starting' if w.starting else 'due' }}{{ ', after ' ~ w.waiting if w.waiting }} …</span></div>
     {% elif last and last.last.ok == 0 %}
-    <div class="task-now"><span class="dot err"></span><span class="task-line bad-text" title="{{ last.last.message }}">failed: {{ last.last.message }}</span></div>
+    <div class="task-now"><span class="dot err"></span><span class="task-line bad-text" title="{{ last.last.message if user.admin }}">failed{{ ': ' ~ last.last.message if user.admin }}</span></div>
     {% elif last %}
     <div class="task-now"><span class="dot"></span><span class="task-line muted" title="{{ last.last.message }}">{{ steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] and not (last.last.message or '').startswith(steps[last.job.name]) }}{{ last.last.message or 'done' }}</span></div>
     {% else %}
@@ -49,7 +53,7 @@
     <span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}runs {{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span>
     {% if last and last.last.started %}<span title="{{ last.last.started }}">last {{ last.last.started|ago }}</span>{% endif %}
     {% if not t.running and t.next %}<span>{{ 'paused' if paused else 'next ' ~ (t.next|until) }}</span>{% endif %}
-    {% if t.log %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
+    {% if t.log and user.admin %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
   </div>
   <dl class="task-info small" id="task-info-{{ task.name }}" hidden>
     {% for s in t.steps %}
@@ -57,7 +61,7 @@
     <dd>{{ s.job.details }}</dd>
     {% endfor %}
   </dl>
-  {% if t.log %}
+  {% if t.log and user.admin %}
   <ol class="task-log small" id="task-log-{{ task.name }}" hidden>
     {% for at, line in t.log %}<li><time>{{ at }}</time><span>{{ line }}</span></li>{% endfor %}
   </ol>
@@ -67,9 +71,11 @@
 <div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="morph">
   <div class="card-head">
     <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
+    {% if user.admin %}
     <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}
       {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; a job started by hand still runs">Pause all</button>{% endif %}
     </form>
+    {% endif %}
   </div>
   <div class="tasks">
     {% for t in tasks if not t.task.maintenance %}{{ task_row(t) }}{% endfor %}
