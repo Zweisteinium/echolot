@@ -103,6 +103,17 @@ class Service:
         """Navidrome's accounts: id, userName, isAdmin, ..."""
         return list(self.call("GET", "/api/user") or [])
 
+    def playlists(self) -> list[dict[str, Any]]:
+        """Every user's playlists (an admin sees all): id, name, path (of an imported file), ownerId, ..."""
+        return list(self.call("GET", "/api/playlist?_start=0&_end=100000") or [])
+
+    def set_owner(self, playlist_id: str, owner_id: str) -> None:
+        """Give a playlist to another user (it stays theirs when its file is imported again)."""
+        self.call("PUT", f"/api/playlist/{playlist_id}", {"ownerId": owner_id})
+
+    def delete_playlist(self, playlist_id: str) -> None:
+        self.call("DELETE", f"/api/playlist/{playlist_id}")
+
 
 def address(con: sqlite3.Connection) -> str:
     """Navidrome's address: the setting, else ECHOLOT_NAVIDROME_URL (how a new installation gets one)."""

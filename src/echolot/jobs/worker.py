@@ -93,6 +93,12 @@ def upkeep(run: Run) -> str:
             parts.append(f"{compared} review items compared with your copy")
         parts.append(catalog.refresh(con, run.paths.tracks))
         parts.append(playlists.write(con, run.paths.playlists))
+        if svc := navidrome.service(con, run.vault):  # each user's playlists theirs in Navidrome
+            try:
+                if owners := playlists.sync_owners(con, svc, run.paths.playlists):
+                    parts.append(owners)
+            except navidrome.NavidromeError as e:
+                log.info("Navidrome's playlists: %s", e)
         if history.snapshot(con):
             parts.append("snapshot stored")
         today = datetime.date.today().isoformat()
