@@ -33,18 +33,24 @@ class JobInfo:
     details: str  # how it works, behind the info button
     priority: int = 0  # a running job of a lower one ends after its songs in progress when one of a higher
     # one of its resource is due, and goes on with the rest after it (worker.resume)
+    on_demand: bool = False  # started by another job when there is work (no schedule of its own)
 
 
 JOBS = [
-    JobInfo("sync", "New Spotify songs", "soulseek", 2, 1,
-            "Checks your Spotify lists for changes and searches new songs on Soulseek right away.",
+    JobInfo("sync", "Spotify lists", "spotify", 2, 1,
+            "Checks your Spotify lists for changes; new songs start New Spotify songs.",
             "Asks Spotify what changed (a few requests: the playlists' snapshots, the state of your likes) and "
-            "reads only the lists that changed; which liked songs Spotify greys out is asked once a day. A new song is first looked for in your library: a song with the "
+            "reads only the lists that changed; which liked songs Spotify greys out is asked once a day. It "
+            "needs no Soulseek, so it never waits for a search; only when there are new songs does New Spotify "
+            "songs start, and only then do the other Soulseek jobs make way.", priority=3),
+    JobInfo("search_new", "New Spotify songs", "soulseek", None, 1,
+            "Searches the new songs Spotify lists found, right away.",
+            "Started by Spotify lists when there are new songs. A new song is first looked for in your library: a song with the "
             "same recording (ISRC), or a file with its title and length that sounds like the release, is linked "
             "instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: up to five downloads are "
             "tried, each checked by length, tags and audio; a doubtful one waits in Review. A song Soulseek does "
             "not have goes to the YouTube & SoundCloud search right after this job. Comes first: a less urgent "
-            "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3),
+            "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3, on_demand=True),
     JobInfo("soundcloud", "New SoundCloud songs", "web", 5, 2,
             "Checks your SoundCloud lists for changes and downloads new songs from SoundCloud itself.",
             "Asks SoundCloud what changed (three requests: your likes, the sets in your library) and reads only "
@@ -60,19 +66,20 @@ JOBS = [
             "release's own audio on YouTube (\"Provided to YouTube\") first, then YouTube, then a SoundCloud "
             "search; the first result that passes the same checks as a Soulseek download is filed, one of "
             "another length waits in Review. A download the library has under other names is linked instead. "
-            "Each song at most once a week, new ones first. The result is lossy: the FLAC upgrade looks for a "
-            "lossless copy from 12 h later. Gives way to New SoundCloud songs.", priority=2),
+            "Each song at most once a week, new ones first (Run now: every one). The result is lossy: the FLAC "
+            "upgrade looks for a lossless copy from 12 h later. Gives way to New SoundCloud songs.", priority=2),
     JobInfo("sweep", "Missing songs", "soulseek", ["20:00", "sat,sun 15:00"], 360,
             "Searches the songs found nowhere yet again, when most Soulseek users are online.",
             "Songs that neither Soulseek nor YouTube or SoundCloud had are searched on Soulseek again, with "
             "looser terms after two misses (title without additions, first artist only, then without the "
-            "artist in the path): each song daily, weekly after 7 searches without a find. Gives way to New "
-            "Spotify songs.", priority=2),
+            "artist in the path): each song daily, weekly after 7 searches without a find (Run now: every one). "
+            "Gives way to New Spotify songs.", priority=2),
     JobInfo("upgrade", "FLAC upgrade", "soulseek", ["14:00", "20:30"], 360,
             "Looks for genuine FLACs of the songs you have lossy.",
             "FLAC-only Soulseek search for songs whose file is not genuine lossless (a FLAC made from an MP3 "
             "counts as lossy): each song 12 h, 1 d and 2 d after the last search, then every 3 days, the longest "
-            "waiting first, at most the batch size per run. A genuine FLAC replaces the lossy file under its "
+            "waiting first, at most the batch size per run (Run now: whatever their wait). A genuine FLAC "
+            "replaces the lossy file under its "
             "name. A FLAC for a SoundCloud song waits in Review. Gives way to New Spotify songs and Missing "
             "songs and goes on after them.", priority=1),
     JobInfo("upgrade_all", "FLAC upgrade, all songs", "soulseek", None, 360,
