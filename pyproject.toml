@@ -1,6 +1,6 @@
 [project]
 name = "echolot"
-version = "0.8.8"
+version = "0.9.0"
 description = "Self-hosted music library sync: playlists and likes in, only the right songs in the best available quality out."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -19,6 +19,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "uvicorn>=0.54.0",
     "yt-dlp[curl-cffi,default]>=2026.8.19",
+    "ytmusicapi>=1.12.3",
 ]
 
 [project.scripts]
