@@ -47,6 +47,7 @@ class Run:
         self.budget: int | None = None  # songs left by the run that gave way (None: the job's own batch)
         self.left = 0  # songs this run left when it gave way
         self.while_paused = False  # started while the jobs were paused (by hand): a pause leaves it alone
+        self.only: set[int] | None = None  # by hand for these users: only their songs (None: everyone's)
 
     @property
     def paths(self) -> filing.Paths:
@@ -122,7 +123,7 @@ class Worker:
     def __init__(self, settings: Settings, vault: Vault) -> None:
         self.settings, self.vault = settings, vault
         self.runs: dict[str, Run] = {}  # running, by job name
-        self.requested: set[str] = set()
+        self.requested: dict[str, set[int] | None] = {}  # job -> asked for these users' songs (None: all)
         self.resume: dict[str, tuple[int, str]] = {}  # jobs that gave way: the songs they left, their trigger
         self.last: dict[str, Run] = {}  # each job's last finished run (its log stays on the jobs page)
         self._lock = threading.Lock()
@@ -150,19 +151,23 @@ class Worker:
         if self._thread:
             self._thread.join(timeout=wait)
 
-    def trigger(self, name: str) -> bool:
-        """Start a job as soon as its resource is free (also while paused)."""
+    def trigger(self, name: str, only: int | None = None) -> bool:
+        """Start a job as soon as its resource is free (also while paused); `only`: for that user's songs
+        (a request for everyone's covers it)."""
         if name not in FUNCTIONS:
             return False
         with self._lock:
-            self.requested.add(name)
+            if only is None or self.requested.get(name, set()) is None:
+                self.requested[name] = None
+            else:
+                self.requested[name] = (self.requested.get(name) or set()) | {only}
         self._wake.set()
         return True
 
     def state(self) -> tuple[dict[str, Run], set[str]]:
         """The runs in progress and the jobs asked for, at one moment (no job between the two)."""
         with self._lock:
-            return dict(self.runs), set(self.requested)
+            return dict(self.runs), set(self.requested)  # (the jobs asked for, not for whom)
 
     def finished(self) -> dict[str, Run]:
         """Each job's last finished run since Echolot started."""
@@ -215,11 +220,11 @@ class Worker:
                     continue
                 if other:
                     other.give_way.set()  # it ends after its songs in progress; this one starts now
-                self.requested.discard(job.name)
+                only = self.requested.pop(job.name, None)
                 budget, how = self.resume.pop(job.name, (None, "schedule"))
                 trigger = "manual" if requested or how == "manual" else "resume" if resume else "schedule"
                 run = Run(job, self.settings, self.vault, trigger)
-                run.budget = budget
+                run.budget, run.only = budget, only if requested else None
                 run.while_paused = paused
                 self.runs[job.name] = running[job.resource] = run
                 threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
@@ -250,7 +255,8 @@ class Worker:
             with self._lock:
                 self.runs.pop(name, None)
                 self.last[name] = run
-                self.requested |= run.after - {name}
+                for after in run.after - {name}:  # what a run starts is for everyone
+                    self.requested[after] = None
                 if run.left:
                     self.resume[name] = (run.left, run.trigger)
             self._wake.set()

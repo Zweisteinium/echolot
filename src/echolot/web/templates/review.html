@@ -22,7 +22,33 @@
     {% for g in songs.kept %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}
   </div>
+  {% if hidden %}<p class="muted small">{{ hidden|num }} more kept download{{ 's' if hidden != 1 }} in <code>inbox/review</code> {{ 'is' if hidden == 1 else 'are' }} no longer up for review: {{ 'its' if hidden == 1 else 'their' }} song was found since, or {{ 'it is' if hidden == 1 else 'they are' }} far off in length. They are deleted 30 days after the download.</p>{% endif %}
 </section>
+
+{% if user.admin %}
+<section class="card">
+  <div class="card-head">
+    <h2>Decisions by others <span class="count">{{ others|length|num }}</span></h2>
+    <span class="muted small">the last 30 days, of users who are no admins</span>
+  </div>
+  <p class="muted small">A song is often on several users' lists, so their decision changes the library for everyone. <em>Take back</em> undoes one: a decision not applied yet is dropped; a Perfect or Close match goes back to Please confirm; a No match is lifted (a file it removed comes back while <code>replaced/</code> still has it, else the song is searched again).</p>
+  {% if others %}
+  <table class="rows">
+    <thead><tr><th>Song</th><th>Decision</th><th>By</th><th>When</th><th>Result</th><th></th></tr></thead>
+    {% for d in others %}
+    <tr{% if d.overridden %} class="muted"{% endif %}>
+      <td>{{ d.artist }} – {{ d.title }}</td>
+      <td>{{ labels.get(d.decision, d.decision) }}{% if d.decision == 'close' and d.name %} <span class="muted small">as {{ d.name }}</span>{% endif %}</td>
+      <td>{{ d.user }}</td>
+      <td class="small nowrap" title="{{ d.decided }}">{{ d.decided|ago }}</td>
+      <td class="small">{{ d.result or ('in a few minutes' if not d.applied else '') }}{% if d.overridden %} · taken back by {{ d.overridden.split(' ')[0] }}{% endif %}</td>
+      <td>{% if not d.overridden %}<form method="post" action="/review/{{ d.event_id }}/override" onsubmit="return confirm('Take back this decision?')">{{ csrf_input }}<button>Take back</button></form>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">None.</p>{% endif %}
+</section>
+{% endif %}
 
 <section class="card">
   <h2>The three answers</h2>
