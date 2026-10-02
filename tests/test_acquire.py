@@ -206,6 +206,25 @@ def test_a_song_another_run_searches_is_left_to_it(run: Run) -> None:
     assert (run.paths.tracks / "Artist A/Artist A - First Song.mp3").exists()
 
 
+def test_a_fake_flac_is_not_downloaded_again_for_an_upgrade(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The only FLAC of First Song is made from an MP3: no upgrade, and the next upgrade search skips that
+    file (its name and exact size) instead of downloading it again."""
+    monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, True, {"verdict": "lossy"}))
+    FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
+    con = run.connect()
+    with con:
+        con.execute("UPDATE files SET duration = 201 WHERE path = 'Artist A/Artist A - First Song.mp3'")
+    con.close()
+    acquire.upgrade(run)
+    con = run.connect()
+    fake = con.execute("SELECT file_name, fake, peer_bytes FROM events WHERE action = 'duplicate'").fetchone()
+    con.close()
+    assert tuple(fake) == ("Artist A - First Song", 1, 1) and len(FakeDaemon.downloads) == 1
+    acquire.upgrade(run)
+    assert len(FakeDaemon.downloads) == 1
+    assert (run.paths.tracks / "Artist A/Artist A - First Song.mp3").exists()
+
+
 def test_levels_and_due() -> None:
     assert acquire.level(0) == (False, {}) and acquire.level(2) == (True, {"desperate": True})
     assert acquire.level(7) == (True, {"desperate": True, "strict_artist": False})
