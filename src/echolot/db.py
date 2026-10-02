@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 16
+VERSION = 17
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -163,9 +163,11 @@ CREATE TABLE secrets (              -- credentials, encrypted (vault.py)
 CREATE TABLE users (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password TEXT NOT NULL,         -- scrypt$<n>$<r>$<p>$<salt>$<hash> (auth.hash_password)
+    password TEXT NOT NULL,         -- scrypt$<n>$<r>$<p>$<salt>$<hash> (auth.hash_password); '' for Navidrome's
     created TEXT NOT NULL,
-    last_login TEXT
+    last_login TEXT,
+    source TEXT NOT NULL DEFAULT 'local',  -- local, or navidrome: Navidrome checks the password at each login
+    admin INTEGER NOT NULL DEFAULT 1       -- may change things (a Navidrome user: as in Navidrome, at the last login)
 );
 CREATE TABLE sessions (             -- browser logins
     id TEXT PRIMARY KEY,            -- SHA-256 of the cookie value
@@ -196,6 +198,10 @@ MIGRATIONS = {
     14: ["ALTER TABLE events ADD COLUMN url TEXT"],
     15: ["ALTER TABLE events ADD COLUMN compared TEXT"],
     16: ["ALTER TABLE events ADD COLUMN peer_bytes INTEGER"],
+    17: [
+        "ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'",
+        "ALTER TABLE users ADD COLUMN admin INTEGER NOT NULL DEFAULT 1",
+    ],
 }
 
 

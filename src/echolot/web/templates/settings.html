@@ -55,6 +55,8 @@
     <dl>
       <dt><label for="session_days">A login lasts (days)</label></dt>
       <dd><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short"></dd>
+      <dt><label for="navidrome_url">Navidrome logins</label></dt>
+      <dd><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="http://192.168.1.10:4533" class="grow"> <span class="muted small">Navidrome's address: its accounts log in with their Navidrome password; only Navidrome admins may change things. Empty: only Echolot's own accounts.</span></dd>
       <dt>Metrics</dt>
       <dd><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label> <span class="muted small">for Prometheus; else it needs an API token</span></dd>
     </dl>
@@ -64,12 +66,16 @@
 
 <section class="card">
   <h2>Your account <span class="muted small">{{ user.name }}</span></h2>
+  {% if user.navidrome %}
+  <p class="muted">You log in with your Navidrome account: change its password in Navidrome.{% if not user.admin %} Changes in Echolot need a Navidrome admin.{% endif %}</p>
+  {% else %}
   <form method="post" action="/settings/password" class="stack narrow-form">{{ csrf_input }}
     <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
     <label>New password <span class="muted small">at least 10 characters</span><input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
     <label>New password again <input type="password" name="repeat" autocomplete="new-password" minlength="10" required></label>
     <p><button>Change password</button> <span class="muted small">ends your other logins</span></p>
   </form>
+  {% endif %}
   <form method="post" action="/settings/sessions/end-others">{{ csrf_input }}
     <button>Log out everywhere else</button>
   </form>

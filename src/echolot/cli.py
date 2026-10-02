@@ -26,7 +26,8 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
     try:
         if args.action == "list":
             for u in auth.users(con):
-                print(f"{u['name']}\tcreated {u['created']}\tlast login {u['last_login'] or 'never'}")
+                kind = "Echolot" if u["source"] == "local" else "Navidrome" if u["admin"] else "Navidrome, view only"
+                print(f"{u['name']}\t{kind}\tcreated {u['created']}\tlast login {u['last_login'] or 'never'}")
             return 0
         if args.action == "add":
             auth.add_user(con, args.name, _password(args))

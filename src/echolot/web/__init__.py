@@ -34,7 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         worker.stop()
 
-    csrf = [Depends(access.csrf_protect)]
+    csrf = [Depends(access.csrf_protect), Depends(access.changes_allowed)]
     docs = {"docs_url": "/api/docs", "redoc_url": None}
     app = FastAPI(title="Echolot", version=__version__, lifespan=lifespan, dependencies=csrf, **docs)
     app.state.settings, app.state.worker = settings, worker

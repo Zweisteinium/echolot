@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadF
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from echolot.jobs import schedule
+from echolot.services import navidrome
 from echolot.settings import auth, configfile, options
 from echolot.settings.sources import ConfigError
 from echolot.web.access import set_session_cookie
@@ -28,6 +29,7 @@ def _settings_page(request: Request, con: sqlite3.Connection, status_code: int =
         soulseek=options.get(con, options.Soulseek),
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
+        navidrome=options.get(con, options.Navidrome),
         tokens=auth.tokens(con, request.state.user),
         vault_source=request.app.state.vault.source,
         **extra,
@@ -58,15 +60,23 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
 
 @router.post("/settings/access", include_in_schema=False)
 def settings_access(
-    con: DB, session_days: Annotated[int, Form()], metrics_public: Annotated[bool, Form()] = False
+    con: DB,
+    session_days: Annotated[int, Form()],
+    metrics_public: Annotated[bool, Form()] = False,
+    navidrome_url: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
     try:
         with con:
             options.update(con, options.Auth, session_days=session_days)
             options.update(con, options.Metrics, public=metrics_public)
-    except options.OptionsError:
-        return back("/settings", error="A login lasts 1 to 365 days.")
-    return back("/settings", ok="Access settings saved (the login length counts from the next login).")
+            options.update(con, options.Navidrome, url=navidrome_url)
+    except options.OptionsError as err:
+        return back("/settings", error=f"Not saved: {err}")
+    saved = "Access settings saved (the login length counts from the next login)."
+    url = options.get(con, options.Navidrome).url
+    if url and not navidrome.reachable(url):
+        return back("/settings", error=f"{saved} But Navidrome does not answer at {url}: Navidrome logins fail.")
+    return back("/settings", ok=saved)
 
 
 @router.post("/settings/password", include_in_schema=False)
