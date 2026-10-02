@@ -3,12 +3,14 @@
 {% block content %}
 <section class="card narrow">
   <h1>Log in</h1>
+  {% if ready %}
+  <p class="muted small">With your Navidrome account.</p>
   <form method="post" action="/login" class="stack">{{ csrf_input }}
     <input type="hidden" name="next" value="{{ next }}">
-    {% if navidrome %}<p class="muted small">With your Navidrome account, or Echolot's own.</p>{% endif %}
-    <label>User <input type="text" name="name" value="{{ name or ('' if navidrome else 'admin') }}" autocomplete="username" required{{ ' autofocus' if navidrome and not name }}></label>
-    <label>Password <input type="password" name="password" autocomplete="current-password" required{{ '' if navidrome and not name else ' autofocus' }}></label>
+    <label>User <input type="text" name="name" value="{{ name or '' }}" autocomplete="username" required{{ ' autofocus' if not name }}></label>
+    <label>Password <input type="password" name="password" autocomplete="current-password" required{{ ' autofocus' if name }}></label>
     <p><button class="primary">Log in</button></p>
   </form>
+  {% endif %}
 </section>
 {% endblock %}

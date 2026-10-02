@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Users · Echolot{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Users</h1>
+  <p class="muted">Everyone who logged in with their Navidrome account. An admin may do everything, for everyone; a Navidrome admin always is one. Everyone else manages their own accounts and lists, and may be given more for their own songs. An account gone from Navidrome is disabled (its lists stay).</p>
+  <table class="rows">
+    <thead><tr><th>User</th><th>Admin</th>{% for p, label in permissions.items() %}<th title="{{ label }}">{{ label.split(':')[0] }}</th>{% endfor %}<th>Last login</th><th></th></tr></thead>
+    {% for u in users %}
+    {% set form_id = 'user-' ~ u.id %}
+    <tr{% if u.disabled %} class="muted"{% endif %}>
+      <td>{{ u.name }}{% if u.navidrome_admin %} <span class="pill">Navidrome admin</span>{% endif %}{% if u.disabled %} <span class="pill bad-pill">gone from Navidrome</span>{% endif %}{% if u.id == user.id %} <span class="muted small">(you)</span>{% endif %}</td>
+      <td><input type="checkbox" form="{{ form_id }}" name="admin" value="1" aria-label="{{ u.name }} is an admin" {% if u.admin or u.navidrome_admin %}checked{% endif %} {% if u.navidrome_admin or u.disabled %}disabled title="a Navidrome admin is always an admin here"{% endif %}></td>
+      {% for p, label in permissions.items() %}
+      <td><input type="checkbox" form="{{ form_id }}" name="{{ p }}" value="1" aria-label="{{ u.name }}: {{ label }}" {% if p in (u.permissions or '').split(',') %}checked{% endif %} {% if u.disabled %}disabled{% endif %}></td>
+      {% endfor %}
+      <td class="small nowrap" title="{{ u.last_login or '' }}">{{ u.last_login|ago if u.last_login else 'never' }}{% if sessions.get(u.id) %} · {{ sessions[u.id] }} login(s){% endif %}</td>
+      <td class="nowrap">
+        {% if not u.disabled %}<form id="{{ form_id }}" method="post" action="/users/{{ u.id }}" class="inline">{{ csrf_input }}<button>Save</button></form>{% endif %}
+        {% if sessions.get(u.id) %}<form method="post" action="/users/{{ u.id }}/logout" class="inline">{{ csrf_input }}<input type="hidden" name="name" value="{{ u.name }}"><button>Log out</button></form>{% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">Nobody yet.</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endblock %}

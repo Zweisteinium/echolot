@@ -55,55 +55,16 @@
     <dl>
       <dt><label for="session_days">A login lasts (days)</label></dt>
       <dd><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short"></dd>
-      <dt><label for="navidrome_url">Navidrome logins</label></dt>
-      <dd><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="http://192.168.1.10:4533" class="grow"> <span class="muted small">Navidrome's address: its accounts log in with their Navidrome password; only Navidrome admins may change things. Empty: only Echolot's own accounts.</span></dd>
+      <dt><label for="navidrome_url">Navidrome</label></dt>
+      <dd><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="http://192.168.1.10:4533" class="grow" required> <span class="muted small">its address: Navidrome's accounts log in to Echolot with their Navidrome password</span></dd>
+      <dt><label for="service_user">Service account</label></dt>
+      <dd><input id="service_user" type="text" name="service_user" value="{{ navidrome.service_user }}" class="short" autocomplete="off"> <input type="password" name="service_password" placeholder="password (empty: keep)" autocomplete="new-password" aria-label="Service account password">
+        <span class="small {{ 'bad-text' if navidrome_ok else 'ok-text' }}">{{ navidrome_ok or 'works' }}</span>
+        <span class="muted small">a Navidrome admin: Echolot reads Navidrome's users with it (who is an admin, who is gone) and sets the owners of the playlists it writes</span></dd>
       <dt>Metrics</dt>
       <dd><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label> <span class="muted small">for Prometheus; else it needs an API token</span></dd>
     </dl>
     <p><button>Save</button></p>
-  </form>
-</section>
-
-<section class="card">
-  <h2>Your account <span class="muted small">{{ user.name }}</span></h2>
-  {% if user.navidrome %}
-  <p class="muted">You log in with your Navidrome account: change its password in Navidrome.{% if not user.admin %} Changes in Echolot need a Navidrome admin.{% endif %}</p>
-  {% else %}
-  <form method="post" action="/settings/password" class="stack narrow-form">{{ csrf_input }}
-    <label>Current password <input type="password" name="current" autocomplete="current-password" required></label>
-    <label>New password <span class="muted small">at least 10 characters</span><input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
-    <label>New password again <input type="password" name="repeat" autocomplete="new-password" minlength="10" required></label>
-    <p><button>Change password</button> <span class="muted small">ends your other logins</span></p>
-  </form>
-  {% endif %}
-  <form method="post" action="/settings/sessions/end-others">{{ csrf_input }}
-    <button>Log out everywhere else</button>
-  </form>
-</section>
-
-<section class="card">
-  <h2>API tokens</h2>
-  <p class="muted small">For scripts and dashboards: send <code>Authorization: Bearer &lt;token&gt;</code>. The API is described at <a href="/api/docs">/api/docs</a>.</p>
-  {% if new_token %}
-  <div class="flash ok" role="status">Token <strong>{{ new_token_name }}</strong> created. Copy it now, it is not shown again:
-    <div class="copy-row"><input id="new-token" type="text" value="{{ new_token }}" readonly aria-label="New token"><button type="button" data-copy="#new-token">Copy</button></div></div>
-  {% endif %}
-  <table class="rows">
-    <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
-    {% for t in tokens %}
-    <tr>
-      <td>{{ t.name }}</td>
-      <td class="small nowrap" title="{{ t.created }}">{{ t.created|ago }}</td>
-      <td class="small nowrap">{{ t.last_used|ago }}</td>
-      <td><form method="post" action="/settings/tokens/{{ t.id }}/revoke" onsubmit="return confirm('Revoke this token?')">{{ csrf_input }}<button class="danger">Revoke</button></form></td>
-    </tr>
-    {% else %}
-    <tr><td colspan="4" class="muted">No tokens.</td></tr>
-    {% endfor %}
-  </table>
-  <form method="post" action="/settings/tokens" class="row-form">{{ csrf_input }}
-    <input type="text" name="name" placeholder="what uses it, e.g. grafana" aria-label="Token name" required maxlength="64">
-    <button>Create token</button>
   </form>
 </section>
 

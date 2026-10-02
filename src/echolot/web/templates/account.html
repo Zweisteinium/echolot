@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Account · Echolot{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>{{ user.name }}</h1>
+  <p class="muted">You log in with your Navidrome account; its password is changed in Navidrome.</p>
+  {% if user.admin %}
+  <p><strong>Admin</strong>: you may do everything here, for everyone. The pages show
+    <strong>{{ 'everyone\'s' if user.view == 'everyone' else 'your own' }}</strong> lists and songs (the switch at the top).</p>
+  {% else %}
+  <p>You manage your own accounts and lists.{% if user.permissions %} You may also:{% endif %}</p>
+  {% if user.permissions %}<ul>{% for p, label in permissions.items() if p in user.permissions %}<li>{{ label }}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+  <form method="post" action="/account/sessions/end-others">{{ csrf_input }}
+    <button>Log out everywhere else</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>API tokens</h2>
+  <p class="muted small">For scripts and dashboards: send <code>Authorization: Bearer &lt;token&gt;</code>. A token may do what you may. The API is described at <a href="/api/docs">/api/docs</a>.</p>
+  {% if new_token %}
+  <div class="flash ok" role="status">Token <strong>{{ new_token_name }}</strong> created. Copy it now, it is not shown again:
+    <div class="copy-row"><input id="new-token" type="text" value="{{ new_token }}" readonly aria-label="New token"><button type="button" data-copy="#new-token">Copy</button></div></div>
+  {% endif %}
+  <table class="rows">
+    <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    {% for t in tokens %}
+    <tr>
+      <td>{{ t.name }}</td>
+      <td class="small nowrap" title="{{ t.created }}">{{ t.created|ago }}</td>
+      <td class="small nowrap">{{ t.last_used|ago }}</td>
+      <td><form method="post" action="/account/tokens/{{ t.id }}/revoke" onsubmit="return confirm('Revoke this token?')">{{ csrf_input }}<button class="danger">Revoke</button></form></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">No tokens.</td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="/account/tokens" class="row-form">{{ csrf_input }}
+    <input type="text" name="name" placeholder="what uses it, e.g. grafana" aria-label="Token name" required maxlength="64">
+    <button>Create token</button>
+  </form>
+</section>
+{% endblock %}

@@ -37,7 +37,8 @@ class Auth(Section):
 
 class Navidrome(Section):
     SECTION = "navidrome"
-    url: str = Field("", description="Navidrome's address: its accounts can log in (empty: only Echolot's own)")
+    url: str = Field("", description="Navidrome's address: its accounts log in (empty: ECHOLOT_NAVIDROME_URL)")
+    service_user: str = Field("admin", description="the Navidrome admin Echolot works as (password in the vault)")
 
     @field_validator("url")
     @classmethod
