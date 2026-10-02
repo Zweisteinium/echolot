@@ -6,11 +6,12 @@ The schedule is a section too (jobs/schedule.py); the lists are in the sources t
 """
 
 import json
+import re
 import sqlite3
 from datetime import datetime
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class Section(BaseModel):
@@ -34,6 +35,19 @@ class Auth(Section):
     session_days: int = Field(30, ge=1, le=365, description="how long a login lasts")
 
 
+class Navidrome(Section):
+    SECTION = "navidrome"
+    url: str = Field("", description="Navidrome's address: its accounts can log in (empty: only Echolot's own)")
+
+    @field_validator("url")
+    @classmethod
+    def _url(cls, v: str) -> str:
+        v = v.strip().rstrip("/")
+        if v and not re.fullmatch(r"https?://[^\s/]+(/\S*)?", v):
+            raise ValueError("an address like http://192.168.1.10:4533")
+        return v
+
+
 class Jobs(Section):
     SECTION = "jobs"
     paused: bool = Field(False, description="no job starts; running ones end after their songs in progress")
@@ -54,7 +68,7 @@ class Soulseek(Section):
     stall_minutes: int = Field(10, ge=2, le=120, description="a download without progress this long is given up")
 
 
-SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Jobs, Spotify, Soulseek]
+SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Navidrome, Jobs, Spotify, Soulseek]
 BY_NAME = {s.SECTION: s for s in SECTIONS}
 
 

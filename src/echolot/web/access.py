@@ -1,5 +1,9 @@
 """Who may use Echolot: login with a session cookie (browsers) or an API token (scripts).
 
+Echolot's own accounts log in with their password here; with Navidrome's address set (settings section
+navidrome), Navidrome's accounts log in with theirs (checked by Navidrome, services/navidrome). A Navidrome
+user who is no Navidrome admin may look at everything but change nothing (changes_allowed).
+
 Every request needs one of them, except /healthz, the login page, the static files and, when the
 metrics setting allows it, /metrics. A session's changing requests (POST, PUT, ...) also need its
 CSRF token: the csrf_token form field or the X-CSRF-Token header (htmx sends it for every request).
@@ -21,6 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from starlette.concurrency import run_in_threadpool
 
 from echolot import db
+from echolot.services import navidrome
 from echolot.settings import auth, options
 from echolot.web.common import DB, page
 
@@ -29,6 +34,7 @@ router = APIRouter(include_in_schema=False)
 PUBLIC = {"/healthz", "/login", "/setup", "/favicon.ico"}
 ADMIN = "admin"  # the account the setup creates
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+VIEW_ONLY = "Your Navidrome account may look around in Echolot; changes need a Navidrome admin."
 
 
 def first_user(app: FastAPI, con: sqlite3.Connection) -> None:
@@ -100,6 +106,13 @@ async def csrf_protect(request: Request) -> None:
         raise HTTPException(403, "The page was out of date (CSRF check). Reload it and try again.")
 
 
+async def changes_allowed(request: Request) -> None:
+    """A user who is no admin (a Navidrome user, not a Navidrome admin) changes nothing; logging out is fine."""
+    user = getattr(request.state, "user", None)
+    if request.method in UNSAFE and user is not None and not user.admin and request.url.path != "/logout":
+        raise HTTPException(403, VIEW_ONLY)
+
+
 def _safe_next(target: str) -> str:
     return target if target.startswith("/") and not target.startswith("//") else "/"
 
@@ -118,7 +131,26 @@ def login_page(request: Request, con: DB, next: str = "/") -> Response:
         return RedirectResponse(_safe_next(next), status_code=303)
     if not auth.has_users(con):
         return RedirectResponse("/setup", status_code=303)
-    return page(request, "login.html", next=next)
+    return _login_page(request, con, 200, next=next)
+
+
+def _login_page(request: Request, con: sqlite3.Connection, status_code: int, **extra: object) -> Response:
+    return page(request, "login.html", status_code, navidrome=bool(options.get(con, options.Navidrome).url), **extra)
+
+
+def _navidrome_login(con: sqlite3.Connection, name: str, password: str) -> tuple[auth.User | None, str]:
+    """The Navidrome account with this name and password, when Navidrome logins are on and the name is no
+    Echolot account's; else None, with the trouble reaching Navidrome if there was some."""
+    url = options.get(con, options.Navidrome).url
+    known = auth.get_user(con, name)
+    if not url or not name.strip() or not password or (known and not known.navidrome):
+        return None, ""
+    try:
+        found = navidrome.login(url, name.strip(), password)
+    except navidrome.NavidromeError as e:
+        log.warning("Navidrome login for %r: %s", name, e)
+        return None, "Navidrome is not reachable: only Echolot's own accounts can log in now."
+    return (auth.navidrome_user(con, *found) if found else None), ""
 
 
 @router.post("/login", response_class=HTMLResponse, response_model=None)
@@ -133,13 +165,17 @@ def login(
     client = request.client.host if request.client else "?"
     wait = throttle.wait(client)
     if wait:
-        return page(request, "login.html", 429, next=next, name=name,
-                    error=f"Too many failed logins. Try again in {int(wait / 60) + 1} min.")  # fmt: skip
+        error = f"Too many failed logins. Try again in {int(wait / 60) + 1} min."
+        return _login_page(request, con, 429, next=next, name=name, error=error)
     user = auth.verify(con, name, password)
+    if user is None:
+        user, trouble = _navidrome_login(con, name, password)
+        if trouble:
+            return _login_page(request, con, 502, next=next, name=name, error=trouble)
     if user is None:
         throttle.failed(client)
         log.warning("failed login for %r from %s", name, client)
-        return page(request, "login.html", 400, next=next, name=name, error="Wrong user name or password.")
+        return _login_page(request, con, 400, next=next, name=name, error="Wrong user name or password.")
     throttle.passed(client)
     response = RedirectResponse(_safe_next(next), status_code=303)
     set_session_cookie(request, response, con, user)

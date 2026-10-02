@@ -183,3 +183,99 @@ def test_cli_users(settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys) 
     con.close()
     with pytest.raises(SystemExit, match="No user"):
         main(["user", "passwd", "nobody", "--password-stdin"])
+
+
+def test_navidrome_accounts_log_in(app, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With Navidrome's address set, its accounts log in with their Navidrome password: an admin there may
+    change things here, anyone else only look. Echolot's own accounts keep their own password, and work
+    while Navidrome is down."""
+    from echolot.services import navidrome
+
+    accounts = {"timon": ("timon's password", False), "david": ("david's password", True), "anna": ("x", True)}
+    asked: list[str] = []
+    down = False
+
+    def fake(url: str, name: str, password: str) -> tuple[str, bool] | None:
+        asked.append(name)
+        if down:
+            raise navidrome.NavidromeError("connection refused")
+        known = accounts.get(name.lower())
+        return (name.lower(), known[1]) if known and known[0] == password else None
+
+    def log_in(client: TestClient, name: str, password: str) -> int:
+        return client.post("/login", data={"name": name, "password": password}, follow_redirects=False).status_code
+
+    monkeypatch.setattr(navidrome, "login", fake)
+    con = db.connect(app.state.settings.db_path)
+    auth.add_user(con, "anna", PASSWORD)
+    with con:
+        options.update(con, options.Navidrome, url="http://navidrome.test:4533")
+    con.close()
+    assert "With your Navidrome account" in TestClient(app).get("/login").text
+    timon = TestClient(app)
+    assert log_in(timon, "Timon", "timon's password") == 303
+    page = timon.get("/settings").text
+    assert "View only" in page and "change its password in Navidrome" in page
+    csrf = page.split('name="csrf_token" value="')[1].split('"')[0]
+    r = timon.post("/sources/options", data={"csrf_token": csrf, "removed_playlists": "1"})
+    assert r.status_code == 403 and "changes need a Navidrome admin" in r.text
+    assert timon.post("/logout", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
+    david = TestClient(app)
+    assert log_in(david, "david", "david's password") == 303
+    page = david.get("/settings").text
+    csrf = page.split('name="csrf_token" value="')[1].split('"')[0]
+    assert "View only" not in page
+    assert david.post("/sources/options", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
+    assert log_in(TestClient(app), "timon", "wrong") == 400
+    asked.clear()  # an Echolot account's name: its own password only, Navidrome is not asked
+    assert log_in(TestClient(app), "anna", "x") == 400 and not asked
+    down = True
+    r = TestClient(app).post("/login", data={"name": "timon", "password": "timon's password"})
+    assert r.status_code == 502 and "Navidrome is not reachable" in r.text
+    assert log_in(TestClient(app), "anna", PASSWORD) == 303
+    down, accounts["david"] = False, ("david's password", False)  # no admin in Navidrome any more
+    log_in(TestClient(app), "david", "david's password")
+    con = db.connect(app.state.settings.db_path)
+    david_now = auth.get_user(con, "david")
+    assert david_now is not None and david_now.navidrome and not david_now.admin
+    with pytest.raises(auth.AuthError, match="change it in Navidrome"):
+        auth.set_password(con, david_now, PASSWORD)
+    con.close()
+
+
+def test_navidrome_login_asks_navidrome() -> None:
+    """The login is Navidrome's own: POST /auth/login with the name and password (JSON); 401 is a wrong one."""
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from echolot.services import navidrome
+
+    class Navidrome(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            ok = self.path == "/auth/login" and body == {"username": "Timon", "password": "secret"}
+            self.send_response(200 if ok else 401)
+            self.end_headers()
+            answer = {"username": "timon", "isAdmin": False, "token": "jwt"} if ok else {"error": "Invalid"}
+            self.wfile.write(json.dumps(answer).encode())
+
+        def do_GET(self) -> None:
+            self.send_response(200 if self.path == "/ping" else 404)
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Navidrome)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/"
+    try:
+        assert navidrome.login(url, "Timon", "secret") == ("timon", False)
+        assert navidrome.login(url, "Timon", "wrong") is None
+        assert navidrome.reachable(url)
+    finally:
+        server.shutdown()
+    with pytest.raises(navidrome.NavidromeError):
+        navidrome.login(url, "Timon", "secret")
+    assert not navidrome.reachable(url)

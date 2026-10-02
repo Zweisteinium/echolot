@@ -1,6 +1,8 @@
 """Users, browser sessions and API tokens.
 
-Passwords are hashed with scrypt (stdlib). A session is a random cookie value; the database keeps its
+A user is Echolot's own (local: the password is here) or a Navidrome account (navidrome_user: Navidrome
+checks the password at each login; its admin flag is taken over then). Passwords are hashed with scrypt
+(stdlib). A session is a random cookie value; the database keeps its
 SHA-256 only, with a CSRF token that every form and htmx request of the session sends back. API tokens
 (Authorization: Bearer <token>) are for scripts; they are stored as SHA-256 as well and shown once.
 """
@@ -70,6 +72,12 @@ def check_new_password(password: str, repeat: str | None = None) -> None:
 class User:
     id: int
     name: str
+    admin: bool = True  # may change things; a Navidrome user who is no Navidrome admin may only look
+    navidrome: bool = False  # logs in with the Navidrome password
+
+
+def _user(row: sqlite3.Row) -> User:
+    return User(row["id"], row["name"], bool(row["admin"]), row["source"] == "navidrome")
 
 
 def has_users(con: sqlite3.Connection) -> bool:
@@ -91,17 +99,32 @@ def add_user(con: sqlite3.Connection, name: str, password: str) -> User:
     return User(int(cur.lastrowid or 0), name)
 
 
+def navidrome_user(con: sqlite3.Connection, name: str, admin: bool) -> User | None:
+    """The Navidrome account that just logged in, added or with its admin flag renewed; None if the name
+    is an Echolot account's (its own password counts)."""
+    with con:
+        con.execute(
+            "INSERT INTO users (name, password, created, source, admin) VALUES (?, '', ?, 'navidrome', ?) "
+            "ON CONFLICT (name) DO UPDATE SET admin = excluded.admin WHERE source = 'navidrome'",
+            (name, _now(), int(admin)),
+        )
+    user = get_user(con, name)
+    return user if user and user.navidrome else None
+
+
 def get_user(con: sqlite3.Connection, name: str) -> User | None:
-    row = con.execute("SELECT id, name FROM users WHERE name = ?", (name.strip(),)).fetchone()
-    return User(row[0], row[1]) if row else None
+    row = con.execute("SELECT id, name, admin, source FROM users WHERE name = ?", (name.strip(),)).fetchone()
+    return _user(row) if row else None
 
 
 def users(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    return con.execute("SELECT id, name, created, last_login FROM users ORDER BY id").fetchall()
+    return con.execute("SELECT id, name, created, last_login, source, admin FROM users ORDER BY id").fetchall()
 
 
 def set_password(con: sqlite3.Connection, user: User, password: str) -> None:
     """New password; every session of the user ends (API tokens stay)."""
+    if user.navidrome:
+        raise AuthError(f"{user.name} logs in with the Navidrome password: change it in Navidrome.")
     check_new_password(password)
     with con:
         con.execute("UPDATE users SET password = ? WHERE id = ?", (hash_password(password), user.id))
@@ -109,11 +132,13 @@ def set_password(con: sqlite3.Connection, user: User, password: str) -> None:
 
 
 def verify(con: sqlite3.Connection, name: str, password: str) -> User | None:
-    row = con.execute("SELECT id, name, password FROM users WHERE name = ?", (name.strip(),)).fetchone()
+    """An Echolot account with this password (a Navidrome account's is checked by Navidrome)."""
+    sql = "SELECT id, name, password, admin, source FROM users WHERE name = ? AND source = 'local'"
+    row = con.execute(sql, (name.strip(),)).fetchone()
     if row is None:
         hash_password(password)  # same time as a wrong password: no hint which names exist
         return None
-    return User(row[0], row[1]) if check_password(password, row[2]) else None
+    return _user(row) if check_password(password, row["password"]) else None
 
 
 # ---------------------------------------------------------------- sessions
@@ -144,7 +169,7 @@ def session(con: sqlite3.Connection, token: str) -> Session | None:
     if not token:
         return None
     row = con.execute(
-        "SELECT s.id, s.csrf, s.expires, s.last_seen, u.id AS uid, u.name FROM sessions s "
+        "SELECT s.id, s.csrf, s.expires, s.last_seen, u.id AS uid, u.name, u.admin, u.source FROM sessions s "
         "JOIN users u ON u.id = s.user_id WHERE s.id = ?",
         (_sha(token),),
     ).fetchone()
@@ -154,7 +179,7 @@ def session(con: sqlite3.Connection, token: str) -> Session | None:
     if row["last_seen"] < (now - timedelta(minutes=5)).isoformat(timespec="seconds"):
         with con:
             con.execute("UPDATE sessions SET last_seen = ? WHERE id = ?", (_now(), row["id"]))
-    return Session(User(row["uid"], row["name"]), row["csrf"])
+    return Session(User(row["uid"], row["name"], bool(row["admin"]), row["source"] == "navidrome"), row["csrf"])
 
 
 def end_session(con: sqlite3.Connection, token: str) -> None:
@@ -186,7 +211,7 @@ def create_token(con: sqlite3.Connection, user: User, name: str) -> str:
 
 def token_user(con: sqlite3.Connection, token: str) -> User | None:
     row = con.execute(
-        "SELECT t.id, t.last_used, u.id AS uid, u.name FROM api_tokens t "
+        "SELECT t.id, t.last_used, u.id AS uid, u.name, u.admin, u.source FROM api_tokens t "
         "JOIN users u ON u.id = t.user_id WHERE t.token = ?",
         (_sha(token),),
     ).fetchone()
@@ -195,7 +220,7 @@ def token_user(con: sqlite3.Connection, token: str) -> User | None:
     if not row["last_used"] or row["last_used"][:16] != _now()[:16]:  # at most once a minute
         with con:
             con.execute("UPDATE api_tokens SET last_used = ? WHERE id = ?", (_now(), row["id"]))
-    return User(row["uid"], row["name"])
+    return User(row["uid"], row["name"], bool(row["admin"]), row["source"] == "navidrome")
 
 
 def tokens(con: sqlite3.Connection, user: User) -> list[sqlite3.Row]:

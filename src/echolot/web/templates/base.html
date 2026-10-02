@@ -33,6 +33,7 @@
   <main>
     {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
     {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
+    {% if user and not user.admin %}<div class="flash" role="status">View only: your Navidrome account may look around here; changes need a Navidrome admin.</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
   <script>
