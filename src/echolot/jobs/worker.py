@@ -67,6 +67,8 @@ def upkeep(run: Run) -> str:
         parts = []
         if applied := review.apply_due(run, con):
             parts.append(f"review: {'; '.join(applied)}")
+        if compared := review.compare_open(con, run.paths.music):
+            parts.append(f"{compared} review items compared with your copy")
         parts.append(catalog.refresh(con, run.paths.tracks))
         parts.append(playlists.write(con, run.paths.playlists))
         if history.snapshot(con):

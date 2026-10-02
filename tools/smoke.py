@@ -65,6 +65,12 @@ def main() -> int:
         hires_wav(other := Path(tmp) / "other.wav", tone=440, glide=-15)  # no shift makes it the first
         differ = identity.same_master(prepared.path, other)
         check("same master: another signal is not", differ < 0.5, f"{differ:.4f}")
+        louder = Path(tmp) / "louder.flac"
+        run("ffmpeg", "-v", "error", "-i", str(prepared.path), "-af", "volume=6dB:precision=double", str(louder))
+        hint = identity.compare(louder, mp3)
+        check("compare: the same audio, louder", hint.startswith("same audio") and "dB louder" in hint, hint)
+        hint = identity.compare(other, mp3)
+        check("compare: another signal", hint.startswith("another version"), hint)
     print("smoke test failed: " + ", ".join(failed) if failed else "smoke test passed")
     return 1 if failed else 0
 
