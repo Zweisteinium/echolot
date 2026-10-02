@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 17
+VERSION = 18
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -122,7 +122,8 @@ CREATE TABLE review_decisions (
     name TEXT,                      -- close: 'Artist - Title', what the download really is
     decided TEXT NOT NULL,
     applied TEXT,                   -- NULL: not yet (can be reverted)
-    result TEXT
+    result TEXT,
+    user_id INTEGER                 -- who decided (NULL: before users were recorded)
 );
 CREATE TABLE snapshots (            -- metrics over time (history.py), hourly
     ts TEXT NOT NULL,               -- local time, ISO 8601; all rows of one snapshot share it
@@ -160,14 +161,17 @@ CREATE TABLE secrets (              -- credentials, encrypted (vault.py)
     value BLOB NOT NULL,
     updated TEXT NOT NULL
 );
-CREATE TABLE users (
+CREATE TABLE users (               -- Navidrome's accounts that logged in (Navidrome checks the password)
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password TEXT NOT NULL,         -- scrypt$<n>$<r>$<p>$<salt>$<hash> (auth.hash_password); '' for Navidrome's
     created TEXT NOT NULL,
     last_login TEXT,
-    source TEXT NOT NULL DEFAULT 'local',  -- local, or navidrome: Navidrome checks the password at each login
-    admin INTEGER NOT NULL DEFAULT 1       -- may change things (a Navidrome user: as in Navidrome, at the last login)
+    admin INTEGER NOT NULL DEFAULT 0,       -- Echolot admin, given in Echolot (a Navidrome admin is one anyway)
+    navidrome_id TEXT,
+    navidrome_admin INTEGER NOT NULL DEFAULT 0,  -- as Navidrome last said (login, or its user list)
+    permissions TEXT NOT NULL DEFAULT '',   -- what a user who is no admin may do besides their own: 'review,run'
+    view TEXT NOT NULL DEFAULT 'mine',      -- an admin's pages: mine or everyone
+    disabled INTEGER NOT NULL DEFAULT 0     -- gone from Navidrome: no login, sessions and tokens ended
 );
 CREATE TABLE sessions (             -- browser logins
     id TEXT PRIMARY KEY,            -- SHA-256 of the cookie value
@@ -201,6 +205,20 @@ MIGRATIONS = {
     17: [
         "ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'",
         "ALTER TABLE users ADD COLUMN admin INTEGER NOT NULL DEFAULT 1",
+    ],
+    18: [  # Navidrome accounts only: the local ones go with their sessions and tokens
+        "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE source = 'local')",
+        "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE source = 'local')",
+        "DELETE FROM users WHERE source = 'local'",
+        "ALTER TABLE users ADD COLUMN navidrome_id TEXT",
+        "ALTER TABLE users ADD COLUMN navidrome_admin INTEGER NOT NULL DEFAULT 0",
+        "UPDATE users SET navidrome_admin = admin",
+        "ALTER TABLE users ADD COLUMN permissions TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN view TEXT NOT NULL DEFAULT 'mine'",
+        "ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE users DROP COLUMN password",
+        "ALTER TABLE users DROP COLUMN source",
+        "ALTER TABLE review_decisions ADD COLUMN user_id INTEGER",
     ],
 }
 

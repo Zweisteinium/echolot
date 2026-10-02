@@ -82,6 +82,8 @@ h1 .count, h2 .count { color: var(--muted); font-weight: 400; margin-left: 0.25r
 .nowrap { white-space: nowrap; }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bad-text { color: var(--bad); }
+.ok-text { color: var(--ok); }
+form.inline { display: inline; }
 .warn-text { color: var(--warn); }
 pre.diff { white-space: pre-wrap; background: var(--bg); padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; }
 

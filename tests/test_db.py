@@ -5,10 +5,17 @@ from pathlib import Path
 import pytest
 
 from echolot import db
+from echolot.settings import auth
 
 
 def columns(con, table: str) -> set[str]:
     return {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+
+
+V12_USERS = (
+    "id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password TEXT NOT NULL, "
+    "created TEXT NOT NULL, last_login TEXT"
+)
 
 
 def test_version_12_is_migrated(tmp_path: Path) -> None:
@@ -17,16 +24,42 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     con = db.connect(path)
     con.executescript(
         "ALTER TABLE songs DROP COLUMN close_match; ALTER TABLE review_decisions DROP COLUMN name; "
-        "ALTER TABLE events DROP COLUMN url; ALTER TABLE events DROP COLUMN compared; "
-        "ALTER TABLE events DROP COLUMN peer_bytes; ALTER TABLE users DROP COLUMN source; "
-        "ALTER TABLE users DROP COLUMN admin; PRAGMA user_version = 12;"
+        "ALTER TABLE review_decisions DROP COLUMN user_id; ALTER TABLE events DROP COLUMN url; "
+        "ALTER TABLE events DROP COLUMN compared; ALTER TABLE events DROP COLUMN peer_bytes; DROP TABLE users; "
+        f"CREATE TABLE users ({V12_USERS}); PRAGMA user_version = 12;"
     )
     con.close()
     db.init(path)
     con = db.connect(path)
     assert con.execute("PRAGMA user_version").fetchone()[0] == db.VERSION
-    assert "close_match" in columns(con, "songs") and "name" in columns(con, "review_decisions")
-    assert {"url", "compared", "peer_bytes"} <= columns(con, "events") and {"source", "admin"} <= columns(con, "users")
+    assert "close_match" in columns(con, "songs") and {"name", "user_id"} <= columns(con, "review_decisions")
+    assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
+    assert "password" not in columns(con, "users")  # Navidrome's accounts
+    assert {"navidrome_id", "navidrome_admin", "permissions", "view", "disabled"} <= columns(con, "users")
+    con.close()
+
+
+def test_the_local_accounts_go(tmp_path: Path) -> None:
+    """Version 17 to 18: the local account goes with its sessions; a Navidrome account stays, an admin."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    con.executescript(
+        "DROP TABLE users; "
+        f"CREATE TABLE users ({V12_USERS}, source TEXT NOT NULL DEFAULT 'local', admin INTEGER NOT NULL DEFAULT 1); "
+        "INSERT INTO users (id, name, password, created) VALUES (1, 'admin', 'scrypt$x', '2026-09-29'); "
+        "INSERT INTO users (id, name, password, created, source, admin) VALUES (2, 'david', '', '2026-10-02', 'navidrome', 1); "
+        "INSERT INTO sessions VALUES ('s1', 1, 'c', 'now', '2099-01-01', 'now'), ('s2', 2, 'c', 'now', '2099-01-01', 'now'); "
+        "ALTER TABLE review_decisions DROP COLUMN user_id; PRAGMA user_version = 17;"
+    )
+    con.close()
+    db.init(path)
+    con = db.connect(path)
+    rows = [tuple(r) for r in con.execute("SELECT name, admin, navidrome_admin, disabled FROM users")]
+    assert rows == [("david", 1, 1, 0)]
+    assert [r[0] for r in con.execute("SELECT user_id FROM sessions")] == [2]
+    timon = auth.logged_in(con, "timon", "nd-timon", False)  # the column's old DEFAULT 1 must not make an admin
+    assert not timon.admin and not auth.get_user(con, "timon").admin
     con.close()
 
 

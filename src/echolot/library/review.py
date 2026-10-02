@@ -297,7 +297,10 @@ def split_name(name: str) -> tuple[str, str]:
     return artist.strip(), title.strip()
 
 
-def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: str, name: str = "") -> Item:
+def decide(
+    con: sqlite3.Connection, music_dir: Path, event_id: int, decision: str, name: str = "", user_id: int | None = None
+) -> Item:
+    """Record a decision (applied when its undo time is over: apply_due) and who made it."""
     item = find(con, music_dir, event_id)
     if item is None:
         raise ConfigError("This download is no longer up for review.")
@@ -315,8 +318,9 @@ def decide(con: sqlite3.Connection, music_dir: Path, event_id: int, decision: st
             raise ConfigError(f"“{taken_by}” is already a file in your library: give this one another name.")
     with con:
         con.execute(
-            "INSERT OR REPLACE INTO review_decisions (id, event_id, decision, name, decided) VALUES (?, ?, ?, ?, ?)",
-            (item.id, event_id, decision, name if decision == "close" else None, _now()),
+            "INSERT OR REPLACE INTO review_decisions (id, event_id, decision, name, decided, user_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (item.id, event_id, decision, name if decision == "close" else None, _now(), user_id),
         )
     return item
 

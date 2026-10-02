@@ -47,7 +47,7 @@ def _answer(
 @router.post("/review/{event_id}")
 def review_decide(request: Request, con: DB, event_id: int, decision: Field, name: Field = "") -> Response:
     try:
-        item = review.decide(con, music_dir(request), event_id, decision, name)
+        item = review.decide(con, music_dir(request), event_id, decision, name, request.state.user.id)
     except ConfigError as e:
         return _answer(request, con, event_id, error=str(e), name=name)
     song, label = f"{item.event['artist']} – {item.event['title']}", review.LABELS[decision]

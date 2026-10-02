@@ -52,11 +52,13 @@ mkdir -p data/echolot data/sockseek data/navidrome /srv/music/inbox/soulseek
 docker compose up -d            # pulls Echolot, builds Sockseek on the first start (a few minutes)
 ```
 
-1. Open **http://&lt;host&gt;:8490** and set the admin password. Do this first: whoever opens
-   Echolot first sets it.
-2. **Accounts** walks you through the Spotify app, the SoundCloud login and the Soulseek account.
-3. **Sources**: pick the lists to follow. The first songs arrive within minutes.
-4. Listen in **Navidrome** at http://&lt;host&gt;:4533, or in any Subsonic app.
+1. Open **Navidrome** at http://&lt;host&gt;:4533 and create its admin account. Do this first: whoever
+   opens Navidrome first creates it. Echolot's users are Navidrome's accounts.
+2. Open **http://&lt;host&gt;:8490** and log in with that account. In **Settings**, enter it as the service
+   account too (Echolot reads Navidrome's users with it and sets the owners of its playlists).
+3. **Accounts** walks you through the Spotify app, the SoundCloud login and the Soulseek account.
+4. **Sources**: pick the lists to follow. The first songs arrive within minutes.
+5. Listen in Navidrome, or in any Subsonic app.
 
 | Service | Role |
 |---|---|
@@ -126,7 +128,7 @@ the lists, schedule and settings as one file for a backup or another install. Th
 | `ECHOLOT_DAEMON_DIR` | unset | where Echolot writes the Sockseek daemon's login |
 | `ECHOLOT_DATA_DIR` | `/data` | the database |
 | `ECHOLOT_SECRET_KEY` | unset | key for the stored credentials; unset, `data/secret.key` is created (a copy of `data/` then holds both) |
-| `ECHOLOT_ADMIN_PASSWORD` | unset | sets the admin password on the first start instead of the browser |
+| `ECHOLOT_NAVIDROME_URL` | unset | Navidrome's address until it is set in Settings (its accounts log in) |
 | `ECHOLOT_WORKER` | `on` | `off`: run no jobs (a test copy) |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | the address a reverse proxy's requests come from; Echolot then trusts its `X-Forwarded-*` headers |
 
@@ -135,8 +137,11 @@ the lists, schedule and settings as one file for a backup or another install. Th
 - **Jobs** run on their own schedule (Settings); the overview starts, stops and pauses them.
 - **Logs:** the Activity page lists every filing and rejection; `docker compose logs echolot` has every
   job and song.
-- **Back up** `data/` and the library. A lost admin password:
-  `docker compose exec echolot echolot user passwd admin`.
+- **Users** log in with their Navidrome account (Navidrome checks the password; while it is down,
+  nobody can log in to the pages, API tokens keep working). A Navidrome admin is an admin here too;
+  Users gives anyone else admin rights or permissions. No admin left:
+  `docker compose exec echolot echolot user admin <name>`.
+- **Back up** `data/` and the library.
 - **Limits:** Soulseek allows about 34 searches per 220 s, so a long list takes a while; SoundCloud
   pauses bursts (keep its job at 15 minutes or more); a Spotify developer app serves five accounts
   and cannot read Spotify's own editorial playlists.

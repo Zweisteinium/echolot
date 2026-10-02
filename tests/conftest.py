@@ -138,19 +138,29 @@ def settings(bare_settings: Settings) -> Settings:
 
 
 @pytest.fixture(autouse=True)
-def fast_passwords(monkeypatch: pytest.MonkeyPatch) -> None:
-    """scrypt at a test cost (the real one takes a good part of a second per hash)."""
-    monkeypatch.setattr(auth, "SCRYPT_N", 2**8)
+def fake_navidrome(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
+    """Navidrome's login, faked: PASSWORD is everyone's password; the returned map makes a name a
+    Navidrome admin (its id is 'nd-<name>')."""
+    from echolot.services import navidrome
+
+    admins: dict[str, bool] = {}
+
+    def login(url: str, name: str, password: str) -> tuple[str, bool, str] | None:
+        return (name, admins.get(name, False), f"nd-{name.lower()}") if password == PASSWORD else None
+
+    monkeypatch.setenv("ECHOLOT_NAVIDROME_URL", "http://navidrome.test:4533")
+    monkeypatch.setattr(navidrome, "login", login)
+    return admins
 
 
-def logged_in(app: FastAPI, name: str = "tester") -> TestClient:
-    """A client (no `with`: the scheduler thread stays off) logged in as a new user, sending the
-    session's CSRF token with every request."""
+def logged_in(app: FastAPI, name: str = "tester", admin: bool = True) -> TestClient:
+    """A client (no `with`: the scheduler thread stays off) logged in with a Navidrome account (an admin
+    in Echolot, or not), sending the session's CSRF token with every request."""
     client = TestClient(app)
     con = db.connect(app.state.settings.db_path)
     try:
-        if auth.get_user(con, name) is None:
-            auth.add_user(con, name, PASSWORD)
+        user = auth.logged_in(con, name, f"nd-{name.lower()}", False)
+        auth.set_rights(con, user.id, admin, set())
     finally:
         con.close()
     r = client.post("/login", data={"name": name, "password": PASSWORD}, follow_redirects=False)

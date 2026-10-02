@@ -5,20 +5,22 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import FileResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException
 
 from echolot import COMMIT, __version__, db
 from echolot.config import Settings
 from echolot.jobs.worker import Worker
 from echolot.settings import auth, vault
-from echolot.web import access, accounts, admin, api, jobs, pages, review, sources, stats
-from echolot.web.common import Assets, asset_urls
+from echolot.web import access, account, accounts, admin, api, jobs, pages, review, sources, stats, users
+from echolot.web.common import Assets, asset_urls, page
 from echolot.web.format import FILTERS, pct
 
 HERE = Path(__file__).parent
-ROUTERS = (access, pages, jobs, review, sources, accounts, admin, api)
+ROUTERS = (access, account, users, pages, jobs, review, sources, accounts, admin, api)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -34,16 +36,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         worker.stop()
 
-    csrf = [Depends(access.csrf_protect), Depends(access.changes_allowed)]
+    csrf = [Depends(access.csrf_protect), Depends(access.allowed)]
     docs = {"docs_url": "/api/docs", "redoc_url": None}
     app = FastAPI(title="Echolot", version=__version__, lifespan=lifespan, dependencies=csrf, **docs)
     app.state.settings, app.state.worker = settings, worker
     app.state.vault, app.state.throttle = secrets, auth.Throttle()
-    con = db.connect(settings.db_path)
-    try:
-        access.first_user(app, con)
-    finally:
-        con.close()
     app.middleware("http")(access.authenticate)
     app.mount("/static", Assets(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
@@ -54,6 +51,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.templates = templates
     for module in ROUTERS:
         app.include_router(module.router)
+
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException) -> Response:
+        """A browser gets a page with the message (not allowed, out-of-date form), scripts the JSON."""
+        if "text/html" in request.headers.get("accept", "") and exc.status_code in (400, 403, 404, 409):
+            return page(request, "error.html", exc.status_code, message=exc.detail)
+        return await http_exception_handler(request, exc)
 
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon() -> FileResponse:

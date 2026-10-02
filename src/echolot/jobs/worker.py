@@ -20,7 +20,8 @@ from echolot import db
 from echolot.config import Settings
 from echolot.jobs import acquire, covers, lists, schedule
 from echolot.library import catalog, filing, history, playlists, review
-from echolot.settings import options
+from echolot.services import navidrome
+from echolot.settings import auth, options
 from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
@@ -71,11 +72,18 @@ class Run:
 
 
 def upkeep(run: Run) -> str:
-    """Apply due review decisions, rescan the library, write the playlists, store the hourly snapshot
-    and, once a day, empty the replaced/ and review/ days older than 30 days."""
+    """Apply due review decisions, rescan the library, write the playlists, store the hourly snapshot,
+    renew the users from Navidrome's user list (admins, accounts gone) and, once a day, empty the
+    replaced/ and review/ days older than 30 days."""
     con = run.connect()
     try:
         parts = []
+        if svc := navidrome.service(con, run.vault):
+            try:
+                if changed := auth.sync_users(con, svc.users()):
+                    parts.append("users: " + "; ".join(changed))
+            except navidrome.NavidromeError as e:
+                log.info("Navidrome's users: %s", e)
         if applied := review.apply_due(run, con):
             parts.append(f"review: {'; '.join(applied)}")
         if compared := review.compare_open(con, run.paths.music):

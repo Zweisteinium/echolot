@@ -1,26 +1,24 @@
-"""Who may use Echolot: login with a session cookie (browsers) or an API token (scripts).
+"""Who may use Echolot, and what: login with a session cookie (browsers) or an API token (scripts).
 
-Echolot's own accounts log in with their password here; with Navidrome's address set (settings section
-navidrome), Navidrome's accounts log in with theirs (checked by Navidrome, services/navidrome). A Navidrome
-user who is no Navidrome admin may look at everything but change nothing (changes_allowed).
+The accounts are Navidrome's: the login form's name and password go to Navidrome (services/navidrome);
+Echolot keeps no password (settings/auth). Every request needs a session or a token, except /healthz,
+the login page, the static files and, when the metrics setting allows it, /metrics. A session's
+changing requests (POST, PUT, ...) also need its CSRF token: the csrf_token form field or the
+X-CSRF-Token header (htmx sends it for every request).
 
-Every request needs one of them, except /healthz, the login page, the static files and, when the
-metrics setting allows it, /metrics. A session's changing requests (POST, PUT, ...) also need its
-CSRF token: the csrf_token form field or the X-CSRF-Token header (htmx sends it for every request).
-As long as there is no account, every page leads to /setup, where the password of the admin account
-is set (or ECHOLOT_ADMIN_PASSWORD sets it at the start). Whoever opens Echolot first sets it: do that
-right after the first start, before Echolot is reachable from outside the home network.
+What a user may do is decided per route (allowed): an admin everything; anyone else the routes in USER
+(their own account, lists and pages, which show only their songs) and those in PERMITTED with that
+permission. A route listed nowhere is an admin's: a new page stays closed until it is opened on purpose.
 """
 
 import hmac
 import logging
-import os
 import sqlite3
 import urllib.parse
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
-from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
@@ -31,29 +29,18 @@ from echolot.web.common import DB, page
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
-PUBLIC = {"/healthz", "/login", "/setup", "/favicon.ico"}
-ADMIN = "admin"  # the account the setup creates
+PUBLIC = {"/healthz", "/login", "/favicon.ico"}
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
-VIEW_ONLY = "Your Navidrome account may look around in Echolot; changes need a Navidrome admin."
-
-
-def first_user(app: FastAPI, con: sqlite3.Connection) -> None:
-    """With no account yet: create the admin account with ECHOLOT_ADMIN_PASSWORD, if set."""
-    if auth.has_users(con):
-        return
-    if password := os.environ.get("ECHOLOT_ADMIN_PASSWORD"):
-        auth.add_user(con, ADMIN, password)
-        log.info("account %s created with ECHOLOT_ADMIN_PASSWORD", ADMIN)
-    else:
-        log.warning("No account yet: open Echolot and set the admin password.")
-
-
-def _has_users(request: Request) -> bool:
-    con = db.connect(request.app.state.settings.db_path)
-    try:
-        return auth.has_users(con)
-    finally:
-        con.close()
+USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in
+    ("GET", "/"),
+    ("GET", "/account"),
+    ("POST", "/account/tokens"),
+    ("POST", "/account/tokens/{token_id}/revoke"),
+    ("POST", "/account/sessions/end-others"),
+    ("POST", "/logout"),
+}
+PERMITTED: dict[tuple[str, str], str] = {}  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
+NO_NAVIDROME = "Echolot does not know Navidrome's address yet: set ECHOLOT_NAVIDROME_URL and restart it."
 
 
 def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
@@ -78,11 +65,9 @@ def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
 
 async def authenticate(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     user, via, csrf, public = await run_in_threadpool(_identify, request)
-    request.state.user, request.state.via, request.state.csrf = user, via, csrf
+    request.state.user, request.state.via, request.state.csrf, request.state.public = user, via, csrf, public
     if user is None and not public:
         if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
-            if not await run_in_threadpool(_has_users, request):
-                return RedirectResponse("/setup", status_code=303)
             target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
             return RedirectResponse("/login?" + urllib.parse.urlencode({"next": target}), status_code=303)
         return JSONResponse(
@@ -106,11 +91,20 @@ async def csrf_protect(request: Request) -> None:
         raise HTTPException(403, "The page was out of date (CSRF check). Reload it and try again.")
 
 
-async def changes_allowed(request: Request) -> None:
-    """A user who is no admin (a Navidrome user, not a Navidrome admin) changes nothing; logging out is fine."""
-    user = getattr(request.state, "user", None)
-    if request.method in UNSAFE and user is not None and not user.admin and request.url.path != "/logout":
-        raise HTTPException(403, VIEW_ONLY)
+async def allowed(request: Request) -> None:
+    """The route is the user's to use (see the module), else 403."""
+    user: auth.User | None = getattr(request.state, "user", None)
+    if user is None or user.admin or getattr(request.state, "public", False):
+        return  # (no user: authenticate let a public path through only)
+    route = request.scope.get("route")
+    method = "GET" if request.method == "HEAD" else request.method
+    key = (method, getattr(route, "path", request.url.path))
+    if key in USER:
+        return
+    need = PERMITTED.get(key)
+    if need and user.can(need):
+        return
+    raise HTTPException(403, f"That needs the {need} permission." if need else "That is for admins.")
 
 
 def _safe_next(target: str) -> str:
@@ -129,28 +123,13 @@ def set_session_cookie(request: Request, response: Response, con: sqlite3.Connec
 def login_page(request: Request, con: DB, next: str = "/") -> Response:
     if getattr(request.state, "user", None):
         return RedirectResponse(_safe_next(next), status_code=303)
-    if not auth.has_users(con):
-        return RedirectResponse("/setup", status_code=303)
     return _login_page(request, con, 200, next=next)
 
 
 def _login_page(request: Request, con: sqlite3.Connection, status_code: int, **extra: object) -> Response:
-    return page(request, "login.html", status_code, navidrome=bool(options.get(con, options.Navidrome).url), **extra)
-
-
-def _navidrome_login(con: sqlite3.Connection, name: str, password: str) -> tuple[auth.User | None, str]:
-    """The Navidrome account with this name and password, when Navidrome logins are on and the name is no
-    Echolot account's; else None, with the trouble reaching Navidrome if there was some."""
-    url = options.get(con, options.Navidrome).url
-    known = auth.get_user(con, name)
-    if not url or not name.strip() or not password or (known and not known.navidrome):
-        return None, ""
-    try:
-        found = navidrome.login(url, name.strip(), password)
-    except navidrome.NavidromeError as e:
-        log.warning("Navidrome login for %r: %s", name, e)
-        return None, "Navidrome is not reachable: only Echolot's own accounts can log in now."
-    return (auth.navidrome_user(con, *found) if found else None), ""
+    ready = bool(navidrome.address(con))
+    extra.setdefault("error", "" if ready else NO_NAVIDROME)
+    return page(request, "login.html", status_code, ready=ready, **extra)
 
 
 @router.post("/login", response_class=HTMLResponse, response_model=None)
@@ -161,21 +140,31 @@ def login(
     password: Annotated[str, Form()],
     next: Annotated[str, Form()] = "/",
 ) -> Response:
+    """Navidrome checks the name and password; the account it answers with is logged in here."""
     throttle: auth.Throttle = request.app.state.throttle
     client = request.client.host if request.client else "?"
-    wait = throttle.wait(client)
-    if wait:
+    if wait := throttle.wait(client):
         error = f"Too many failed logins. Try again in {int(wait / 60) + 1} min."
         return _login_page(request, con, 429, next=next, name=name, error=error)
-    user = auth.verify(con, name, password)
-    if user is None:
-        user, trouble = _navidrome_login(con, name, password)
-        if trouble:
-            return _login_page(request, con, 502, next=next, name=name, error=trouble)
-    if user is None:
+    url = navidrome.address(con)
+    if not url:
+        return _login_page(request, con, 503, next=next, name=name)
+    try:
+        found = navidrome.login(url, name.strip(), password) if name.strip() and password else None
+    except navidrome.NavidromeError as e:
+        log.warning("login of %r: %s", name, e)
+        error = "Navidrome is not reachable: try again in a moment."
+        return _login_page(request, con, 502, next=next, name=name, error=error)
+    if found is None:
         throttle.failed(client)
         log.warning("failed login for %r from %s", name, client)
         return _login_page(request, con, 400, next=next, name=name, error="Wrong user name or password.")
+    account, navidrome_admin, navidrome_id = found
+    try:
+        user = auth.logged_in(con, account, navidrome_id, navidrome_admin)
+    except sqlite3.IntegrityError:
+        error = f"Another Echolot user is called {account}: ask an admin."
+        return _login_page(request, con, 409, next=next, name=name, error=error)
     throttle.passed(client)
     response = RedirectResponse(_safe_next(next), status_code=303)
     set_session_cookie(request, response, con, user)
@@ -187,26 +176,4 @@ def logout(request: Request, con: DB) -> RedirectResponse:
     auth.end_session(con, request.cookies.get(auth.COOKIE, ""))
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(auth.COOKIE, path="/")
-    return response
-
-
-@router.get("/setup", response_class=HTMLResponse, response_model=None)
-def setup_page(request: Request, con: DB) -> Response:
-    if auth.has_users(con):
-        return RedirectResponse("/login", status_code=303)
-    return page(request, "setup.html", admin=ADMIN)
-
-
-@router.post("/setup", response_class=HTMLResponse, response_model=None)
-def setup(request: Request, con: DB, password: Annotated[str, Form()], repeat: Annotated[str, Form()]) -> Response:
-    if auth.has_users(con):
-        raise HTTPException(403, "The admin password is set already: log in.")
-    try:
-        auth.check_new_password(password, repeat)
-        user = auth.add_user(con, ADMIN, password)
-    except auth.AuthError as err:
-        return page(request, "setup.html", 400, admin=ADMIN, error=str(err))
-    log.info("account %s created", user.name)
-    response = RedirectResponse("/accounts", status_code=303)
-    set_session_cookie(request, response, con, user)
     return response
