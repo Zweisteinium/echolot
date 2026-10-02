@@ -257,3 +257,18 @@ def test_a_soundcloud_list_is_read_when_it_changed_or_hourly(run: Run) -> None:
         )
     assert lists._sc_changed(con, likes, states)  # read again at least hourly
     con.close()
+
+
+def test_removed_playlists_are_off_by_default_and_their_files_go(run: Run) -> None:
+    from echolot.settings import options
+
+    assert options.SourceOptions().removed_playlists is False
+    lists.fetch_spotify(run)
+    folder = run.paths.playlists
+    con = run.connect()
+    playlists.write(con, folder)  # on (the conftest's setting): a song left the likes
+    assert (folder / "Spotify Liked Songs - removed.m3u").exists()
+    options.update(con, options.SourceOptions, removed_playlists=False)
+    playlists.write(con, folder)
+    assert not (folder / "Spotify Liked Songs - removed.m3u").exists() and (folder / "Spotify Liked Songs.m3u").exists()
+    con.close()
