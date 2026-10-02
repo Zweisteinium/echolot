@@ -21,7 +21,7 @@ class Section(BaseModel):
 class SourceOptions(Section):
     SECTION = "sources"
     soundcloud_user: str = Field("", description="whose SoundCloud likes 'likes' means")
-    removed_playlists: bool = Field(True, description="songs that leave a list go to '<list> – removed'")
+    removed_playlists: bool = Field(False, description="songs that leave a list go to '<list> – removed'")
 
 
 class Metrics(Section):
