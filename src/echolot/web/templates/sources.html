@@ -48,13 +48,4 @@
   </details>
 </section>
 
-{% if user.admin %}
-<section class="card">
-  <h2>Options</h2>
-  <form method="post" action="/sources/options" class="options">{{ csrf_input }}
-    <label><input type="checkbox" name="removed_playlists" value="1" {% if removed_playlists %}checked{% endif %} onchange="this.form.requestSubmit()"> "– removed" playlists: songs that leave a list keep their files and go to a playlist "&lt;list&gt; – removed"</label>
-    <noscript><button>Save</button></noscript>
-  </form>
-</section>
-{% endif %}
 {% endblock %}

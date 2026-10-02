@@ -1,8 +1,8 @@
 """The playlist files the music server reads, each user's in their folder (<music>/playlists/<user>/):
 one .m3u per list they follow as a playlist, in list order, pointing at each song's best library copy,
-with the list's cover beside it (<name>.jpg/png) and, if songs have left the list, a "<list> – removed"
-playlist of those still in the library. A list two users follow as a playlist is two files: a Navidrome
-playlist has one owner (sync_owners gives each file's playlist to its user).
+with the list's cover beside it (<name>.jpg/png). A list two users follow as a playlist is two files: a
+Navidrome playlist has one owner (sync_owners gives each file's playlist to its user). What songs left a
+list, and why, the changes record (jobs/availability).
 
 File names come from the list keys (sources.Source.name) and never change: the music server would take a
 renamed file for a new playlist. Files Echolot wrote (meta playlist_files) whose list is gone or shown no
@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from echolot import db
 from echolot.library import catalog
 from echolot.library.rules import clean_name
-from echolot.settings import options, sources
+from echolot.settings import sources
 
 if TYPE_CHECKING:
     from echolot.services import navidrome
@@ -93,7 +93,6 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
     longer shown."""
     folder.mkdir(parents=True, exist_ok=True)
     cat = catalog.Catalog.from_db(con)
-    removed_lists = options.get(con, options.SourceOptions).removed_playlists
     lists = {r["key"]: r for r in con.execute("SELECT * FROM lists")}
     folders = user_folders(con)
     keep: set[str] = set()  # relative to the folder: <user>/<name>.<ext>
@@ -125,18 +124,6 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
             ).fetchall()
             written += _m3u(mine, name, row["title"], [f for r in songs if (f := best(r))])
             _cover(con, mine, name, s.key, row["cover_url"], row["cover_file"])
-            if removed_lists:
-                gone = con.execute(
-                    "SELECT s.* FROM list_history h JOIN songs s ON s.key = h.song_key WHERE h.list_key = ? "
-                    "AND h.song_key NOT IN (SELECT song_key FROM list_songs WHERE list_key = ?) "
-                    "ORDER BY h.last_seen DESC",
-                    (s.key, s.key),
-                ).fetchall()
-                files = [f for r in gone if (f := best(r))]
-                removed = f"{name} - removed"
-                if files or (mine / f"{removed}.m3u").exists():
-                    keep.add(f"{folders[uid]}/{removed}.m3u")
-                    written += _m3u(mine, removed, f"{row['title']} – removed", files)
     if not keep:  # no list to show: nothing is deleted (a missing configuration must not empty the folder)
         return f"{written} playlists written"
     ours = set(json.loads(db.get_meta(con, "playlist_files", "[]")))
@@ -153,6 +140,15 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
     return f"{written} playlists written" + (f", {len(stale)} old files removed" if stale else "")
 
 
+def _legacy(path: str, folder: Path) -> str | None:
+    """The name of a playlist file Echolot wrote at the top of its folder (before users had folders) that
+    is gone: its playlist goes too."""
+    _, sep, name = path.rpartition(f"/{folder.name}/")
+    if not sep or "/" in name or not OURS.match(name) or (folder / name).exists():
+        return None
+    return name
+
+
 def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path) -> str:
     """Navidrome's playlists of the files Echolot writes: each given to its user (the folder's), and those
     of files Echolot removed deleted. Only those: a playlist is Echolot's when its path is exactly one of
@@ -163,11 +159,15 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
     current = {r for r in json.loads(db.get_meta(con, "playlist_files", "[]")) if r.endswith(".m3u")}
     gone = set(json.loads(db.get_meta(con, "playlists_gone", "[]")))
     given = deleted = 0
-    found = {}
+    found: dict[str, list[dict]] = {}
+    present = bool(current) and all((folder / r).exists() for r in current)  # the folder is there, as written
     for p in svc.playlists():
         path = p.get("path") or ""
         if rel := next((r for r in current | gone if path.endswith(f"/{folder.name}/{r}")), None):
             found.setdefault(rel, []).append(p)
+        elif present and (old := _legacy(path, folder)):
+            found.setdefault(old, []).append(p)  # from before users had folders (a "- removed" playlist)
+            gone.add(old)
     for rel in current & set(found):
         owner = owner_of.get(rel.split("/", 1)[0]) if "/" in rel else None
         for p in found[rel]:

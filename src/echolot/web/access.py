@@ -55,6 +55,7 @@ USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for th
     ("GET", "/activity"),
     ("GET", "/accounts/line"),
     ("GET", "/jobs"),
+    ("GET", "/changes"),
 }
 PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
     ("GET", "/review"): "review",

@@ -95,6 +95,13 @@ JOBS = [
             "there: the Spotify album's cover, or the SoundCloud song's artwork, in place of the one the "
             "uploader embedded (a compilation, a remaster). The old picture is kept in cover-backups first; "
             "files done are noted, so a run that stopped goes on where it was. Off on the schedule."),
+    JobInfo("availability", "Availability check", "catalog", ["05:30"], 360,
+            "Checks whether every list's songs still play on Spotify and SoundCloud.",
+            "Asks Spotify (in the country set with the Spotify app) and SoundCloud about every song of every "
+            "user's lists, 50 at a time: whether it still plays, plays as another release, was taken down, "
+            "plays no more in this country, is gone, or is only a preview. A song whose state changed is a "
+            "change on the Changes page, with why a song left a list. The searches take a song Spotify no "
+            "longer plays first, before it is lost for good.", priority=1),
     JobInfo("library", "Library upkeep", "local", 5, 1,
             "Rescans the library, applies review decisions and writes the playlists.",
             "Notices new, changed and removed files (only those are read again), applies review decisions once "
@@ -112,6 +119,7 @@ STEPS = {  # each job's short name inside its task, for the schedule and the liv
     "upgrade_all": "All songs",
     "library": "",
     "covers": "",
+    "availability": "",
 }
 
 
@@ -161,6 +169,14 @@ TASKS = [
         "Rescans the library, applies review decisions, writes the playlists.",
         ("library",),
         (("Run now", ("library",), "Rescan the library now"),),
+        maintenance=True,
+    ),
+    Task(
+        "availability",
+        "Availability check",
+        "Whether every list's songs still play: what was taken down, is gone or plays as another release.",
+        ("availability",),
+        (("Run now", ("availability",), "Check every song now"),),
         maintenance=True,
     ),
     Task(

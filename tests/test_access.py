@@ -91,7 +91,7 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
         assert timon.get(path).status_code == 200, path
     r = timon.get("/review", headers=HTML)
     assert r.status_code == 403 and "the review permission" in r.text
-    assert timon.post("/sources/options", data={}).status_code == 403  # everyone's option
+    assert timon.post("/settings/access", data={"session_days": 1}).status_code == 403  # everyone's settings
     assert timon.post("/accounts/spotify/app", data={"client_id": "x" * 32}).status_code == 403
     assert timon.get("/accounts/soulseek").status_code == 403
     assert timon.get("/api/stats").status_code == 403
@@ -168,13 +168,13 @@ def test_a_name_freed_in_navidrome(app, login: Callable[..., TestClient]) -> Non
 def test_csrf(app, login: Callable[..., TestClient]) -> None:
     client = login(app)
     token = client.headers.pop("X-CSRF-Token")
-    r = client.post("/sources/options", data={"version": "x"})
+    r = client.post("/jobs/pause", data={"paused": "1"})
     assert r.status_code == 403 and "CSRF" in r.text
-    r = client.post("/sources/options", data={"version": "x", "csrf_token": "wrong"})
+    r = client.post("/jobs/pause", data={"paused": "1", "csrf_token": "wrong"})
     assert r.status_code == 403
-    r = client.post("/sources/options", data={"version": "x", "csrf_token": token}, follow_redirects=False)
-    assert r.status_code == 303  # passed the check (the stale version is the page's problem)
-    r = client.post("/sources/options", data={"version": "x"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
+    r = client.post("/jobs/pause", data={"paused": "1", "csrf_token": token}, follow_redirects=False)
+    assert r.status_code == 303
+    r = client.post("/jobs/pause", data={"paused": ""}, headers={"X-CSRF-Token": token}, follow_redirects=False)
     assert r.status_code == 303
 
 

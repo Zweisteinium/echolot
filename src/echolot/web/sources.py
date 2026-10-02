@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from echolot import db
 from echolot.jobs import lists
 from echolot.services import soundcloud, spotify
-from echolot.settings import options, sources
+from echolot.settings import sources
 from echolot.settings.sources import ConfigError
 from echolot.web import stats
 from echolot.web.common import DB, back, page
@@ -130,10 +130,8 @@ def _soundcloud_cards(app: FastAPI, con: sqlite3.Connection, uid: int) -> list[d
 def sources_page(request: Request, con: DB) -> HTMLResponse:
     from echolot.web.accounts import known
 
-    mine = sources.user_lists(con, request.state.user.id)
-    return page(request, "sources.html", nav="sources", s=known(request, con),
-                followed=collections.Counter(x.service for x in mine),
-                removed_playlists=options.get(con, options.SourceOptions).removed_playlists)  # fmt: skip
+    followed = collections.Counter(x.service for x in sources.user_lists(con, request.state.user.id))
+    return page(request, "sources.html", nav="sources", s=known(request, con), followed=followed)
 
 
 @router.get("/sources/found/{service}", response_class=HTMLResponse)
@@ -268,9 +266,3 @@ def add(
         con.execute("UPDATE lists SET title = ?, cover_url = ? WHERE key = ? AND NOT fetched", (name, image, key))
     request.app.state.worker.trigger(JOB[service])
     return back("/sources", ok=f"Following {name}. Its songs are fetched now.")
-
-
-@router.post("/sources/options")
-def list_options(con: DB, removed_playlists: Annotated[bool, Form()] = False) -> RedirectResponse:
-    sources.set_removed_playlists(con, removed_playlists)
-    return back("/sources", ok="Saved.")
