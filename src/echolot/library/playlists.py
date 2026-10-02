@@ -86,7 +86,10 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
         e = hits[0] if hits else cat.by_stem.get(r["stem"] or "")
         return e.path if e else None
 
-    for s in sources.lists(con):
+    # the oldest user's lists (or those nobody owns yet: never none while there are lists, or their files
+    # would go), as before users had lists: in one folder, two users' "Liked Songs" would collide
+    owners = sources.owners(con)
+    for s in sources.user_lists(con, owners[0]) if owners else []:
         row = lists.get(s.key)
         name = clean_name(s.name)
         if not row or not s.playlist:

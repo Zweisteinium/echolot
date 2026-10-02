@@ -48,6 +48,7 @@
   </details>
 </section>
 
+{% if user.admin %}
 <section class="card">
   <h2>Options</h2>
   <form method="post" action="/sources/options" class="options">{{ csrf_input }}
@@ -55,4 +56,5 @@
     <noscript><button>Save</button></noscript>
   </form>
 </section>
+{% endif %}
 {% endblock %}

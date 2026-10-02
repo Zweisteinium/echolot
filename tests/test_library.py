@@ -21,7 +21,7 @@ def con(settings: Settings):
 def test_lists_in_config_order(con) -> None:
     rows = con.execute("SELECT key, title, playlist FROM lists ORDER BY position").fetchall()
     assert [tuple(r) for r in rows] == [
-        ("spotify:likes", "Liked Songs", 1),
+        ("spotify:likes:1", "Liked Songs", 1),
         ("spotify:playlist:AAA111", "Playlist A", 1),
         ("spotify:playlist:BBB222", "Renamed", 0),
         ("soundcloud:someone/likes", "SoundCloud Likes", 1),
@@ -56,7 +56,7 @@ def test_missing_and_overview(con) -> None:
     o = stats.overview(con)
     assert (o["files"], o["wanted"], o["have"], o["not_found"]) == (3, 5, 3, 1)
     assert [(r["key"], r["songs"], r["have"]) for r in o["lists"]][:2] == [
-        ("spotify:likes", 3, 2),
+        ("spotify:likes:1", 3, 2),
         ("spotify:playlist:AAA111", 1, 1),
     ]
 

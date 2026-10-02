@@ -29,7 +29,7 @@ class FakeSpotify:
         {**song("s3", "", ""), "artists": []},
     ]  # s3: Spotify blanked its name
 
-    def __init__(self, con, vault) -> None:
+    def __init__(self, con, vault, user_id=None) -> None:
         pass
 
     def items(self, pid: str | None) -> list[dict]:
@@ -59,12 +59,41 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     return r
 
 
+def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A list two users follow is read once; a follower not connected to Spotify does not keep it from
+    being read (the other's login reads it); each user's greyed-out likes are their own."""
+    from echolot.settings import auth, sources
+
+    class Unconnected(FakeSpotify):
+        def __init__(self, con, vault, user_id=None) -> None:
+            if user_id == 2:
+                raise spotify.SpotifyError("Spotify is not connected.")
+
+    monkeypatch.setattr(spotify, "Spotify", Unconnected)
+    con = run.connect()
+    timon = auth.logged_in(con, "timon", "nd-timon", False).id
+    sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111")
+    sources.add_list(con, timon, "https://open.spotify.com/playlist/ONLY2")
+    sources.set_likes(con, timon, "spotify", True)
+    lists.sync_table(con)
+    with con:  # timon's likes (as last read) have s2 greyed out
+        con.execute("INSERT INTO list_songs VALUES (?, 0, 'spotify:s2')", (sources.spotify_likes_key(timon),))
+        con.execute("UPDATE songs SET unavailable = ? WHERE key = 'spotify:s2'", (lists.GREYED_OUT,))
+    con.close()
+    message = lists.fetch_spotify(run)
+    assert FakeSpotify.calls.count("items AAA111") == 1 and "items ONLY2" not in FakeSpotify.calls
+    assert message == "3 lists, 3 changed, 2 not read (no follower connected to Spotify)"  # timon's two
+    con = run.connect()
+    grey = {r[0] for r in con.execute("SELECT key FROM songs WHERE unavailable = ?", (lists.GREYED_OUT,))}
+    con.close()
+    assert grey == {"spotify:s9", "spotify:s2"}  # the owner's s9; timon's s2 stays (not read: not connected)
+
+
 def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     assert lists.fetch_spotify(run) == "3 lists, 3 changed"
     con = run.connect()
-    likes = [
-        r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = 'spotify:likes' ORDER BY position")
-    ]
+    sql = "SELECT song_key FROM list_songs WHERE list_key = 'spotify:likes:1' ORDER BY position"
+    likes = [r[0] for r in con.execute(sql)]
     assert likes == ["spotify:s1", "spotify:s9", "spotify:s3"]  # s3 keeps its known name
     s3 = con.execute("SELECT artist, title, unavailable FROM songs WHERE key = 'spotify:s3'").fetchone()
     assert tuple(s3) == ("Artist C", "Gone Song", None)  # no longer greyed out
@@ -87,9 +116,9 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_empty_listing_keeps_the_last(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     lists.fetch_spotify(run)
     monkeypatch.setattr(FakeSpotify, "liked", [])  # e.g. a playlist Spotify no longer hands out
-    assert "failed: spotify:likes: no songs listed" in lists.fetch_spotify(run)
+    assert "failed: spotify:likes:1: no songs listed" in lists.fetch_spotify(run)
     con = run.connect()
-    n = con.execute("SELECT count(*) FROM list_songs WHERE list_key = 'spotify:likes'").fetchone()[0]
+    n = con.execute("SELECT count(*) FROM list_songs WHERE list_key = 'spotify:likes:1'").fetchone()[0]
     assert n == 3
     con.close()
 
@@ -109,14 +138,17 @@ def test_playlists(run: Run) -> None:
     # a list that is no longer followed loses its playlist file; a file Echolot did not write stays
     from echolot.settings import sources
 
-    sources.remove_list(con, "spotify:playlist:AAA111")
+    sources.remove_list(con, 1, "spotify:playlist:AAA111")
     lists.sync_table(con)
     assert (folder / "spotify-AAA111.m3u").exists()
     playlists.write(con, folder)
     assert not (folder / "spotify-AAA111.m3u").exists() and (folder / "spotify-GONE.m3u").exists()
     # with no list at all nothing is deleted
     for s in sources.lists(con):
-        sources.remove_list(con, s.key) if s.name not in sources.LIKES else sources.set_likes(con, s.service, False)
+        if s.name in sources.LIKES:
+            sources.set_likes(con, 1, s.service, False)
+        else:
+            sources.remove_list(con, 1, s.key)
     lists.sync_table(con)
     playlists.write(con, folder)
     assert (folder / "Spotify Liked Songs.m3u").exists()

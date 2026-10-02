@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from echolot.library import filing
+from echolot.services import soundcloud, spotify
 from echolot.web import charts, jobs, stats
 from echolot.web.common import DB, page
 
@@ -18,7 +19,8 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         files, songs = (con.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in ("files", "wanted"))
         return page(request, "welcome.html", nav="overview", files=files, songs=songs)
     o, vault = stats.overview(con), request.app.state.vault
-    connected = vault.has(con, "spotify.refresh_token") or vault.has(con, "soundcloud.token")
+    uid = request.state.user.id
+    connected = vault.has(con, spotify.refresh_name(uid)) or vault.has(con, soundcloud.token_name(uid))
     donut, running = (
         charts.donut(o["tiers"]),
         jobs.status(request, con),

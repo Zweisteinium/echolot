@@ -107,7 +107,7 @@ def test_sources_page(client: TestClient) -> None:
 
 def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
     class FakeSpotify:
-        def __init__(self, con, vault) -> None:
+        def __init__(self, con, vault, user_id=None) -> None:
             pass
 
         def liked_count(self) -> int:
@@ -155,7 +155,7 @@ def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) ->
 def test_follow_and_stop_following(client: TestClient, settings: Settings, monkeypatch) -> None:
     card = {"key": "spotify:playlist:NEW1", "service": "spotify", "url": "https://open.spotify.com/playlist/NEW1"}
     found = [card | {"name": "New list", "owner": "you", "songs": 12, "image": ""}]
-    monkeypatch.setitem(sources_web._found, "spotify", (time.time(), found))
+    monkeypatch.setitem(sources_web._found, ("spotify", 1), (time.time(), found))
     html = client.post("/sources/follow", data=card | {"mode": "songs"}, headers={"HX-Request": "true"}).text
     assert 'class="src-card on"' in html and 'value="songs" checked' in html
     con = db.connect(settings.db_path)
@@ -166,9 +166,9 @@ def test_follow_and_stop_following(client: TestClient, settings: Settings, monke
     html = client.post("/sources/follow", data=card | {"mode": "off"}, headers={"HX-Request": "true"}).text
     assert 'class="src-card"' in html and 'value="off" checked' in html
     assert not con.execute("SELECT 1 FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()
-    likes = {"key": "spotify:likes", "service": "spotify", "url": "likes", "name": "Liked Songs", "mode": "off"}
+    likes = {"key": "spotify:likes:1", "service": "spotify", "url": "likes", "name": "Liked Songs", "mode": "off"}
     client.post("/sources/follow", data=likes, headers={"HX-Request": "true"})
-    assert con.execute("SELECT enabled FROM sources WHERE key = 'spotify:likes'").fetchone()[0] == 0
+    assert con.execute("SELECT enabled FROM sources WHERE key = 'spotify:likes:1'").fetchone()[0] == 0
     con.close()
     assert client.app.state.worker.requested == {"sync"}
 
@@ -212,9 +212,9 @@ def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
     query = urllib.parse.parse_qs(urllib.parse.urlparse(r.headers["location"]).query)
     assert query["redirect_uri"] == [callback]
     used = []
-    monkeypatch.setattr(spotify, "exchange", lambda con, vault, code, redirect: used.append(redirect))
+    monkeypatch.setattr(spotify, "exchange", lambda con, vault, code, redirect, uid: used.append((redirect, uid)))
     r = client.get(f"/accounts/spotify/callback?code=c&state={query['state'][0]}", follow_redirects=False)
-    assert "Spotify+connected" in r.headers["location"] and used == [callback]
+    assert "Spotify+connected" in r.headers["location"] and used == [(callback, 1)]  # the owner's own login
 
 
 def test_connection_line(client: TestClient) -> None:

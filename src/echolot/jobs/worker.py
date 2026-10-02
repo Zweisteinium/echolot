@@ -21,7 +21,7 @@ from echolot.config import Settings
 from echolot.jobs import acquire, covers, lists, schedule
 from echolot.library import catalog, filing, history, playlists, review
 from echolot.services import navidrome
-from echolot.settings import auth, options
+from echolot.settings import auth, options, sources
 from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
@@ -84,6 +84,8 @@ def upkeep(run: Run) -> str:
                     parts.append("users: " + "; ".join(changed))
             except navidrome.NavidromeError as e:
                 log.info("Navidrome's users: %s", e)
+        if adopted := sources.adopt(con):  # an admin known from Navidrome's list before any login
+            parts.append(f"adopted: {adopted}")
         if applied := review.apply_due(run, con):
             parts.append(f"review: {'; '.join(applied)}")
         if compared := review.compare_open(con, run.paths.music):

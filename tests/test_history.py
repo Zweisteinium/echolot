@@ -26,7 +26,7 @@ def test_snapshot_values(con) -> None:
     # Gone Song: greyed out on Spotify (searched 3 times too); Locked: DRM
     assert m["songs_missing_by_reason"] == {"not_found": 0, "unavailable": 2, "waiting": 0}
     assert m["songs_not_found_by_tries"]["2-3"] == 1
-    assert m["list_songs"]["spotify:likes"] == 3 and m["list_in_library"]["spotify:likes"] == 2
+    assert m["list_songs"]["spotify:likes:1"] == 3 and m["list_in_library"]["spotify:likes:1"] == 2
 
 
 def test_snapshot_at_most_hourly_and_thinned(con) -> None:
@@ -67,4 +67,4 @@ def test_prometheus(con, settings: Settings) -> None:
     assert "echolot_library_files 3\n" in text
     assert 'echolot_songs_missing{service="spotify"} 1\n' in text
     assert 'echolot_events_total{action="wrong-song",source="soulseek"} 1\n' in text
-    assert 'echolot_list_songs{list="spotify:likes"} 3\n' in text
+    assert 'echolot_list_songs{list="spotify:likes:1"} 3\n' in text

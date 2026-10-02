@@ -24,20 +24,32 @@ from starlette.concurrency import run_in_threadpool
 
 from echolot import db
 from echolot.services import navidrome
-from echolot.settings import auth, options
+from echolot.settings import auth, options, sources
 from echolot.web.common import DB, page
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 PUBLIC = {"/healthz", "/login", "/favicon.ico"}
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
-USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in
+USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for their own
     ("GET", "/"),
     ("GET", "/account"),
     ("POST", "/account/tokens"),
     ("POST", "/account/tokens/{token_id}/revoke"),
     ("POST", "/account/sessions/end-others"),
     ("POST", "/logout"),
+    ("GET", "/accounts"),
+    ("POST", "/accounts/spotify/login"),
+    ("GET", "/accounts/spotify/callback"),
+    ("POST", "/accounts/spotify/paste"),
+    ("POST", "/accounts/spotify/disconnect"),
+    ("POST", "/accounts/soundcloud"),
+    ("POST", "/accounts/soundcloud/disconnect"),
+    ("GET", "/sources"),
+    ("GET", "/sources/found/{service}"),
+    ("GET", "/sources/other"),
+    ("POST", "/sources/follow"),
+    ("POST", "/sources/add"),
 }
 PERMITTED: dict[tuple[str, str], str] = {}  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
 NO_NAVIDROME = "Echolot does not know Navidrome's address yet: set ECHOLOT_NAVIDROME_URL and restart it."
@@ -165,6 +177,8 @@ def login(
     except sqlite3.IntegrityError:
         error = f"Another Echolot user is called {account}: ask an admin."
         return _login_page(request, con, 409, next=next, name=name, error=error)
+    if user.admin and (adopted := sources.adopt(con)):  # the lists from before users had lists
+        log.info("adopted at %s's login: %s", user.name, adopted)
     throttle.passed(client)
     response = RedirectResponse(_safe_next(next), status_code=303)
     set_session_cookie(request, response, con, user)

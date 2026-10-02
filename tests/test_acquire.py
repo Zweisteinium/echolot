@@ -392,7 +392,7 @@ def test_a_song_the_library_has_under_other_names_is_linked(run: Run, monkeypatc
         sql = "INSERT INTO songs (key, service, artist, title, length, isrc) VALUES (?, 'spotify', ?, ?, 201, ?)"
         con.execute(sql, ("spotify:twin", "Artist Z", "First Song - Single Version", "QZAAA0000001"))
         con.execute(sql, ("spotify:single", "Artist Y", "First Song (Radio Edit)", "QZBBB0000002"))
-        con.executemany("INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:likes', ?, ?)",
+        con.executemany("INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:likes:1', ?, ?)",
                         [(10, "spotify:twin"), (11, "spotify:single")])  # fmt: skip
     from echolot.library import recordings
 
@@ -424,7 +424,7 @@ def add_missing(run: Run, key: str, title: str, tries: int = 0, last_try: int = 
     with con:
         sql = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', 'Artist N', ?, 200)"
         con.execute(sql, (key, title))
-        sql = "INSERT INTO list_songs (list_key, position, song_key) SELECT 'spotify:likes', max(position) + 1, ? FROM list_songs"
+        sql = "INSERT INTO list_songs SELECT 'spotify:likes:1', max(position) + 1, ? FROM list_songs"
         con.execute(sql, (key,))
         if tries or last_fallback:
             sql = "INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES (?, ?, ?, ?)"
