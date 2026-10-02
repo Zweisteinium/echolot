@@ -8,7 +8,9 @@ import yaml
 from echolot import db
 from echolot.config import Settings
 from echolot.jobs import lists, schedule
-from echolot.settings import options, sources
+from echolot.settings import auth, sources
+
+OWNER = 1  # conftest: the owner of the small collection
 
 
 @pytest.fixture
@@ -50,7 +52,7 @@ def test_parse_url_rejects(url: str) -> None:
 
 
 def test_taken_over(con: sqlite3.Connection) -> None:
-    assert keys(con) == ["spotify:likes", "spotify:playlist:AAA111", "spotify:playlist:BBB222",
+    assert keys(con) == ["spotify:likes:1", "spotify:playlist:AAA111", "spotify:playlist:BBB222",
                          "soundcloud:someone/likes", "soundcloud:someone/sets/trance"]  # fmt: skip
     names = [s.name for s in sources.lists(con)]
     assert names == ["Spotify Liked Songs", "spotify-AAA111", "spotify-BBB222", "SoundCloud Likes",
@@ -58,26 +60,73 @@ def test_taken_over(con: sqlite3.Connection) -> None:
 
 
 def test_add_playlist_flag_remove(con: sqlite3.Connection) -> None:
-    key = sources.add_list(con, "https://open.spotify.com/playlist/NEW1?si=1", "", False)
+    key = sources.add_list(con, OWNER, "https://open.spotify.com/playlist/NEW1?si=1", "", False)
     assert key == "spotify:playlist:NEW1"
     assert [k for k in keys(con) if k.startswith("spotify:")][-1] == key
     with pytest.raises(sources.ConfigError, match="already"):
-        sources.add_list(con, "https://open.spotify.com/playlist/NEW1")
+        sources.add_list(con, OWNER, "https://open.spotify.com/playlist/NEW1")
     assert not next(s for s in sources.lists(con) if s.key == key).playlist
-    sources.set_playlist(con, key, True)
+    sources.set_playlist(con, OWNER, key, True)
     assert next(s for s in sources.lists(con) if s.key == key).playlist
     lists.sync_table(con)
     assert con.execute("SELECT fetched FROM lists WHERE key = ?", (key,)).fetchone()[0] == 0
-    sources.remove_list(con, key)
+    sources.remove_list(con, OWNER, key)
     lists.sync_table(con)
     assert key not in keys(con) and not con.execute("SELECT 1 FROM lists WHERE key = ?", (key,)).fetchone()
-    with pytest.raises(sources.ConfigError, match="not in the sources"):
-        sources.remove_list(con, key)
+    with pytest.raises(sources.ConfigError, match="don't follow"):
+        sources.remove_list(con, OWNER, key)
+
+
+def test_two_users_follow_a_list(con: sqlite3.Connection) -> None:
+    """Each follows with their own options; the list is one (fetched once, its state stays while anyone
+    follows it); one user's change never touches the other's lists."""
+    timon = auth.logged_in(con, "timon", "nd-timon", False).id
+    sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111", "", False)
+    sources.set_likes(con, timon, "spotify", True)
+    assert sources.followers(con, "spotify:playlist:AAA111") == [OWNER, timon]
+    assert [s.key for s in sources.followed(con)].count("spotify:playlist:AAA111") == 1
+    mine = {s.key: s.playlist for s in sources.user_lists(con, timon)}
+    assert mine == {"spotify:likes:2": True, "spotify:playlist:AAA111": False}  # their own likes, their own mode
+    assert next(s for s in sources.user_lists(con, OWNER) if s.key == "spotify:playlist:AAA111").playlist
+    sources.remove_list(con, OWNER, "spotify:playlist:AAA111")
+    lists.sync_table(con)
+    assert con.execute("SELECT 1 FROM lists WHERE key = 'spotify:playlist:AAA111'").fetchone()  # timon's still
+    assert "spotify:playlist:AAA111" not in [s.key for s in sources.user_lists(con, OWNER)]
+    with pytest.raises(sources.ConfigError, match="don't follow"):
+        sources.remove_list(con, timon, "spotify:playlist:BBB222")  # the owner's, not timon's
+
+
+def test_adopt(con: sqlite3.Connection, settings: Settings) -> None:
+    """The lists from before users had lists go to the oldest admin with everything that was the one
+    account's; a second run changes nothing."""
+    from echolot.settings.vault import Vault
+
+    vault = Vault.from_env(settings.data_dir, {})
+    with con:  # as version 19 leaves them: nobody's, the old likes key, the one account's logins
+        con.execute("UPDATE sources SET user_id = NULL")
+        con.execute("UPDATE sources SET key = 'spotify:likes' WHERE key = 'spotify:likes:1'")
+        copy = "SELECT 'spotify:likes', service, title, position FROM lists WHERE key = 'spotify:likes:1'"
+        con.execute(f"INSERT INTO lists (key, service, title, position) {copy}")
+        con.execute("UPDATE list_songs SET list_key = 'spotify:likes' WHERE list_key = 'spotify:likes:1'")
+        con.execute("UPDATE list_history SET list_key = 'spotify:likes' WHERE list_key = 'spotify:likes:1'")
+        con.execute("DELETE FROM lists WHERE key = 'spotify:likes:1'")
+        con.execute("UPDATE users SET soundcloud_user = ''")
+        vault.set(con, "spotify.refresh_token", "refresh")
+        vault.set(con, "soundcloud.token", "token")
+    songs = con.execute("SELECT count(*) FROM list_songs").fetchone()[0]
+    assert sources.adopt(con) == "5 lists and the accounts given to owner"
+    assert keys(con)[0] == "spotify:likes:1" and sources.owners(con) == [OWNER]
+    assert con.execute("SELECT count(*) FROM list_songs WHERE list_key = 'spotify:likes:1'").fetchone()[0] == 3
+    assert con.execute("SELECT count(*) FROM list_songs").fetchone()[0] == songs
+    assert not con.execute("SELECT 1 FROM lists WHERE key = 'spotify:likes'").fetchone()
+    assert vault.get(con, "spotify.refresh_token:1") == "refresh" and vault.get(con, "soundcloud.token:1") == "token"
+    assert sources.soundcloud_user(con, OWNER) == "someone"
+    assert sources.adopt(con) is None
 
 
 def test_remove_keeps_songs_and_history(con: sqlite3.Connection) -> None:
     songs = con.execute("SELECT count(*) FROM songs").fetchone()[0]
-    sources.remove_list(con, "spotify:playlist:AAA111")
+    sources.remove_list(con, OWNER, "spotify:playlist:AAA111")
     lists.sync_table(con)
     assert con.execute("SELECT count(*) FROM songs").fetchone()[0] == songs
     assert con.execute("SELECT count(*) FROM list_history WHERE list_key = 'spotify:playlist:AAA111'").fetchone()[0]
@@ -85,16 +134,16 @@ def test_remove_keeps_songs_and_history(con: sqlite3.Connection) -> None:
 
 
 def test_likes(con: sqlite3.Connection) -> None:
-    sources.set_likes(con, "spotify", False)
-    sources.set_likes(con, "soundcloud", True, "newuser")
+    sources.set_likes(con, OWNER, "spotify", False)
+    sources.set_likes(con, OWNER, "soundcloud", True, "newuser")
     likes = dict(con.execute("SELECT service, enabled FROM sources WHERE likes = 1").fetchall())
     assert likes == {"spotify": 0, "soundcloud": 1}
-    assert options.get(con, options.SourceOptions).soundcloud_user == "newuser"
-    assert "soundcloud:newuser/likes" in keys(con) and "spotify:likes" not in keys(con)
+    assert sources.soundcloud_user(con, OWNER) == "newuser"
+    assert "soundcloud:newuser/likes" in keys(con) and "spotify:likes:1" not in keys(con)
     with pytest.raises(sources.ConfigError):
-        sources.set_likes(con, "soundcloud", True, "")
-    sources.set_likes(con, "spotify", True)
-    assert keys(con)[0] == "spotify:likes"
+        sources.set_likes(con, OWNER, "soundcloud", True, "")
+    sources.set_likes(con, OWNER, "spotify", True)
+    assert keys(con)[0] == "spotify:likes:1"
 
 
 @pytest.mark.parametrize(

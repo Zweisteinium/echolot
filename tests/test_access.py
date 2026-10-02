@@ -51,7 +51,8 @@ def test_login_with_navidrome_and_logout(app) -> None:
     assert client.post("/logout", data={"csrf_token": csrf}, follow_redirects=False).status_code == 303
     assert client.get("/account").status_code == 401
     con = db.connect(app.state.settings.db_path)
-    assert [(u["name"], u["navidrome_id"], u["admin"]) for u in auth.users(con)] == [("anna", "nd-anna", 0)]
+    anna = [(u["name"], u["navidrome_id"], u["admin"]) for u in auth.users(con) if u["name"] == "anna"]
+    assert anna == [("anna", "nd-anna", 0)]
     con.close()
 
 
@@ -83,9 +84,12 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
     timon = login(app, "timon", admin=False)
     assert "Hello timon" in timon.get("/").text and "/users" not in timon.get("/").text
     assert timon.get("/account").status_code == 200
-    r = timon.get("/sources", headers=HTML)
+    r = timon.get("/missing", headers=HTML)
     assert r.status_code == 403 and "for admins" in r.text and "<html" in r.text  # a page, not JSON
-    assert timon.post("/sources/options", data={}).status_code == 403
+    assert timon.get("/sources").status_code == 200 and timon.get("/accounts").status_code == 200  # their own
+    assert timon.post("/sources/options", data={}).status_code == 403  # everyone's option
+    assert timon.post("/accounts/spotify/app", data={"client_id": "x" * 32}).status_code == 403
+    assert timon.get("/accounts/soulseek").status_code == 403
     assert timon.get("/api/stats").status_code == 403
     assert timon.post("/jobs/start", data={"names": "sync"}).status_code == 403
     assert timon.post("/users/1", data={"admin": "1"}).status_code == 403
@@ -138,8 +142,9 @@ def test_a_migrated_user_is_found_by_name(app) -> None:
         con.execute("INSERT INTO users (name, created, admin) VALUES ('david', 'x', 1)")
     user = auth.get_user(con, "david")
     auth.create_session(con, user, 1)
-    changes = auth.sync_users(con, [{"id": "nd-42", "userName": "David", "isAdmin": False}])
-    assert changes == ["david is David in Navidrome now"]
+    accounts = [{"id": "nd-42", "userName": "David", "isAdmin": False}, {"id": "nd-owner", "userName": "owner"}]
+    changes = auth.sync_users(con, accounts)
+    assert changes == ["owner: Navidrome admin no", "david is David in Navidrome now"]
     row = con.execute("SELECT navidrome_id, disabled, admin FROM users WHERE name = 'David'").fetchone()
     assert tuple(row) == ("nd-42", 0, 1) and con.execute("SELECT count(*) FROM sessions").fetchone()[0] == 1
     con.close()

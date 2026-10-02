@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import soulseek, spotify, ytdlp
+from echolot.services import soundcloud as sc_api
 from echolot.settings import options
 
 if TYPE_CHECKING:
@@ -238,7 +239,6 @@ def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover:
     """The song's cover, in place of one the uploader embedded (the given file: a SoundCloud download's
     artwork; else covers.Covers), and the artist picture from Spotify."""
     from echolot.jobs import covers
-    from echolot.services import soundcloud as sc_api
 
     try:
         song = tagging.lead(con, dest.relative_to(run.paths.tracks).as_posix(), want.key)
@@ -541,7 +541,7 @@ def fallback(run: "Run") -> str:
             "ORDER BY coalesce(a.last_fallback, 0) > 0, s.unavailable IS NULL",
             (week,),
         ).fetchall()
-        token = run.vault.get(con, "soundcloud.token")
+        token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
     if not songs:

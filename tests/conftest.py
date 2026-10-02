@@ -15,9 +15,11 @@ from echolot.settings import auth, options
 
 PASSWORD = "correct horse battery"
 
-# a small collection: Spotify likes and two playlists, SoundCloud likes and a set
+# a small collection, all followed by OWNER (user 1, a Navidrome admin): Spotify likes and two playlists,
+# SoundCloud likes and a set
+OWNER = 1
 LISTS = [  # key, service, likes, url, title override, title, playlist
-    ("spotify:likes", "spotify", 1, "https://open.spotify.com/collection/tracks", None, "Liked Songs", 1),
+    ("spotify:likes:1", "spotify", 1, "https://open.spotify.com/collection/tracks", None, "Liked Songs", 1),
     ("spotify:playlist:AAA111", "spotify", 0, "https://open.spotify.com/playlist/AAA111", None, "Playlist A", 1),
     ("spotify:playlist:BBB222", "spotify", 0, "https://open.spotify.com/playlist/BBB222", "Renamed", "Renamed", 0),
     ("soundcloud:someone/likes", "soundcloud", 1, "https://soundcloud.com/someone/likes", None, "SoundCloud Likes", 1),
@@ -49,7 +51,7 @@ SONGS = [  # key, service, artist, title, length, unavailable, stem, artists, ar
     ("soundcloud:1002", "soundcloud", "Label", "Locked", 250, "not downloadable on SoundCloud (DRM)", None, None, 0),
 ]
 MEMBERS = {
-    "spotify:likes": ["spotify:s1", "spotify:s2", "spotify:s3"],
+    "spotify:likes:1": ["spotify:s1", "spotify:s2", "spotify:s3"],
     "spotify:playlist:AAA111": ["spotify:s1"],
     "spotify:playlist:BBB222": ["spotify:s3"],
     "soundcloud:someone/likes": ["soundcloud:1001", "soundcloud:1002"],
@@ -70,14 +72,19 @@ def seed(con: sqlite3.Connection) -> None:
     """The small collection: lists, songs (s3 greyed out and searched three times, 1002 locked on
     SoundCloud), two logged downloads, a FLAC made from a lossy file; the jobs paused."""
     today, now = datetime.date.today().isoformat(), datetime.datetime.now().isoformat(timespec="seconds")
-    sources = [(*row[:5], row[6], n, now) for n, row in enumerate(LISTS)]  # without the fetched title
+    sources = [(OWNER, *row[:5], row[6], n, now) for n, row in enumerate(LISTS)]  # without the fetched title
     lists = [(k, s, title, url, n, playlist) for n, (k, s, _, url, _, title, playlist) in enumerate(LISTS)]
     members = [(key, n, song) for key, songs in MEMBERS.items() for n, song in enumerate(songs)]
     history = [(key, song, today, today) for key, _, song in members]
     with con:
-        insert(con, "sources", "key, service, likes, url, title, playlist, position, added", sources)
+        con.execute(
+            "INSERT INTO users (id, name, created, navidrome_id, navidrome_admin, soundcloud_user) "
+            "VALUES (?, 'owner', ?, 'nd-owner', 1, 'someone')",
+            (OWNER, now),
+        )
+        insert(con, "sources", "user_id, key, service, likes, url, title, playlist, position, added", sources)
         insert(con, "lists", "key, service, title, url, position, playlist", lists)
-        con.execute("UPDATE lists SET cover_url = ? WHERE key = 'spotify:likes'", (spotify.LIKED_SONGS_IMAGE,))
+        con.execute("UPDATE lists SET cover_url = ? WHERE key = 'spotify:likes:1'", (spotify.LIKED_SONGS_IMAGE,))
         insert(con, "songs", "key, service, artist, title, length, unavailable, stem, artists, archived", SONGS)
         insert(con, "list_songs", "list_key, position, song_key", members)
         insert(con, "list_history", "list_key, song_key, first_seen, last_seen", history)
@@ -153,9 +160,10 @@ def fake_navidrome(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
     return admins
 
 
-def logged_in(app: FastAPI, name: str = "tester", admin: bool = True) -> TestClient:
+def logged_in(app: FastAPI, name: str = "owner", admin: bool = True) -> TestClient:
     """A client (no `with`: the scheduler thread stays off) logged in with a Navidrome account (an admin
-    in Echolot, or not), sending the session's CSRF token with every request."""
+    in Echolot, or not; by default the owner of the small collection), sending the session's CSRF token
+    with every request."""
     client = TestClient(app)
     con = db.connect(app.state.settings.db_path)
     try:

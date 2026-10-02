@@ -1,10 +1,11 @@
 """echolot.yml: Echolot's whole configuration as one YAML file, for backups, moving to another
-install and editing in bulk. It holds the lists, the schedule and the settings sections;
-never secrets or users.
+install and editing in bulk. It holds each user's lists (by user name), the schedule and the settings
+sections; never secrets, nor the users themselves (they come from Navidrome).
 
 An import is checked completely before anything changes, then applied in one transaction. Parts left
-out keep their current values: a missing `schedule` job or settings field stays as it is; `sources`,
-when present, replaces every list.
+out keep their current values: a missing `schedule` job or settings field stays as it is; a user under
+`sources` gets exactly the lists given there, users left out keep theirs. A file of format 1 (one set of
+lists, from before users had lists) gives its lists to the oldest admin.
 """
 
 import difflib
@@ -19,16 +20,22 @@ from echolot.jobs import schedule
 from echolot.settings import options, sources
 from echolot.settings.sources import ConfigError
 
-FORMAT = 1
+FORMAT = 2
 TOP_LEVEL = {"version", "sources", "schedule", "settings"}
 # sections that are part of `sources` in the file (the likes user, removed playlists)
 IN_SOURCES = {options.SourceOptions.SECTION}
 
 
+def _names(con: sqlite3.Connection) -> dict[int, str]:
+    return {r["id"]: r["name"] for r in con.execute("SELECT id, name FROM users")}
+
+
 def export_data(con: sqlite3.Connection) -> dict[str, Any]:
+    names = _names(con)  # (lists nobody owns yet are adopted at the start: none to export)
+    lists = {names[uid]: sources.as_config(con, uid) for uid in sources.owners(con) if uid in names}
     return {
         "version": FORMAT,
-        "sources": sources.as_config(con),
+        "sources": lists,
         "schedule": schedule.file_form(schedule.rules(con)),
         "settings": {
             s.SECTION: options.get(con, s).model_dump() for s in options.SECTIONS if s.SECTION not in IN_SOURCES
@@ -49,7 +56,7 @@ def export_text(con: sqlite3.Connection) -> str:
 
 @dataclass
 class Parsed:
-    lists: dict[str, Any] | None = None  # sources.yml structure; None: keep the lists
+    lists: dict[int | None, dict[str, Any]] | None = None  # user id -> sources.yml structure; None: keep all
     rules: dict[str, schedule.Rule] = field(default_factory=dict)
     sections: list[options.Section] = field(default_factory=list)
 
@@ -65,15 +72,12 @@ def parse(con: sqlite3.Connection, text: str) -> Parsed:
     unknown = sorted(set(data) - TOP_LEVEL)
     if unknown:
         raise ConfigError(f"Unknown part(s): {', '.join(unknown)}.")
-    if data.get("version", FORMAT) != FORMAT:
-        raise ConfigError(f"This is format version {data['version']}; Echolot reads {FORMAT}.")
+    version = data.get("version", FORMAT)
+    if version not in (1, FORMAT):
+        raise ConfigError(f"This is format version {version}; Echolot reads 1 and {FORMAT}.")
     parsed = Parsed()
     if "sources" in data:
-        try:
-            sources.check(data["sources"])
-        except ConfigError as err:
-            raise ConfigError(f"sources: {err}") from err
-        parsed.lists = data["sources"] or {}
+        parsed.lists = _lists(con, data["sources"] or {}, version)
     parsed.rules = schedule.parse_rules(data.get("schedule"))
     given = data.get("settings") or {}
     if not isinstance(given, dict):
@@ -90,6 +94,28 @@ def parse(con: sqlite3.Connection, text: str) -> Parsed:
         except options.OptionsError as err:
             raise ConfigError(str(err)) from err
     return parsed
+
+
+def _lists(con: sqlite3.Connection, given: Any, version: int) -> dict[int | None, dict[str, Any]]:
+    """The users' lists of a file: format 1 has one set (the oldest admin's), format 2 one per user name."""
+    if version == 1:
+        sql = "SELECT id FROM users WHERE (admin OR navidrome_admin) AND NOT disabled ORDER BY id LIMIT 1"
+        owner = con.execute(sql).fetchone()
+        given = {owner["id"] if owner else None: given}
+    elif not isinstance(given, dict):
+        raise ConfigError("sources: a mapping of user names to their lists.")
+    else:
+        ids = {name.casefold(): uid for uid, name in _names(con).items()}
+        unknown = sorted(n for n in given if str(n).casefold() not in ids)
+        if unknown:
+            raise ConfigError(f"sources: no user {', '.join(map(str, unknown))} here (they log in once first).")
+        given = {ids[str(n).casefold()]: v for n, v in given.items()}
+    for value in given.values():
+        try:
+            sources.check(value)
+        except ConfigError as err:
+            raise ConfigError(f"sources: {err}") from err
+    return {uid: value or {} for uid, value in given.items()}
 
 
 def preview(con: sqlite3.Connection, text: str) -> str:
@@ -110,8 +136,8 @@ def preview(con: sqlite3.Connection, text: str) -> str:
 
 
 def _apply(con: sqlite3.Connection, parsed: Parsed) -> None:
-    if parsed.lists is not None:
-        sources.replace_rows(con, parsed.lists)
+    for uid, value in (parsed.lists or {}).items():
+        sources.replace_rows(con, value, uid)
     if parsed.rules:
         schedule.store(con, parsed.rules)
     for section in parsed.sections:

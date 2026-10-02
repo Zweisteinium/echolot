@@ -1,8 +1,13 @@
-"""The lists the library follows (sources table): Spotify playlists and likes, SoundCloud sets and likes.
-Every change is checked with the same rules the configuration file import uses (check). Each list has a
-stable key and name (derive): its state and playlist file are named after it, so they never change.
+"""The lists each user follows (sources table): Spotify playlists and likes, SoundCloud sets and likes.
+Every change is checked with the same rules the configuration file import uses (check), per user. Each
+list has a stable key and name (derive): its state and playlist file are named after it, so they never
+change. A list two users follow is one list (fetched once: lists table) followed twice, each with their
+own options; a user's Spotify likes are their own list (spotify:likes:<user id>), SoundCloud likes are a
+SoundCloud account's (soundcloud:<name>/likes). Lists from before users had lists belong to nobody until
+adopt gives them to the oldest admin.
 """
 
+import dataclasses
 import re
 import sqlite3
 import urllib.parse
@@ -26,12 +31,13 @@ def slug(name: str) -> str:
 
 @dataclass(frozen=True)
 class Source:
-    key: str  # the list key: spotify:likes, spotify:playlist:<id>, soundcloud:<path>
+    key: str  # the list key: spotify:likes:<user id>, spotify:playlist:<id>, soundcloud:<path>
     name: str  # its playlist file is named after this
     service: str
     url: str
     title: str | None  # name override
     playlist: bool  # also a playlist in the music server
+    user_id: int | None = None  # who follows it (None: nobody yet, see adopt)
 
 
 def _entries(value: Any) -> list[dict[str, Any]]:
@@ -42,15 +48,19 @@ def _entry_options(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def derive(config: dict[str, Any]) -> list[Source]:
-    """The lists of a sources.yml structure, in order, with their keys and names."""
+def spotify_likes_key(user_id: int | None) -> str:
+    return f"spotify:likes:{user_id}" if user_id is not None else "spotify:likes"
+
+
+def derive(config: dict[str, Any], user_id: int | None = None) -> list[Source]:
+    """The lists of a user's sources.yml structure, in order, with their keys and names."""
     out = []
     spotify = config.get("spotify") or {}
     if likes := spotify.get("likes"):
         o = _entry_options(likes)
         out.append(
             Source(
-                "spotify:likes",
+                spotify_likes_key(user_id),
                 "Spotify Liked Songs",
                 "spotify",
                 "https://open.spotify.com/collection/tracks",
@@ -96,7 +106,7 @@ def derive(config: dict[str, Any]) -> list[Source]:
                 e.get("playlist", True) is not False,
             )
         )
-    return out
+    return [dataclasses.replace(x, user_id=user_id) for x in out]
 
 
 class ConfigError(ValueError):
@@ -213,13 +223,25 @@ def _options(r: sqlite3.Row) -> dict[str, Any]:
     return o
 
 
-def as_config(con: sqlite3.Connection) -> dict[str, Any]:
-    """The lists in the structure of sources.yml."""
-    opts = options.get(con, options.SourceOptions)
+def _rows(con: sqlite3.Connection, user_id: int | None) -> list[sqlite3.Row]:
+    sql = "SELECT * FROM sources WHERE user_id IS ? ORDER BY position, key"
+    return con.execute(sql, (user_id,)).fetchall()
+
+
+def soundcloud_user(con: sqlite3.Connection, user_id: int | None) -> str:
+    """Whose likes a user's SoundCloud likes are (nobody's lists: the old global setting)."""
+    if user_id is None:
+        return options.get(con, options.SourceOptions).soundcloud_user
+    row = con.execute("SELECT soundcloud_user FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row["soundcloud_user"] if row else ""
+
+
+def as_config(con: sqlite3.Connection, user_id: int | None) -> dict[str, Any]:
+    """A user's lists in the structure of sources.yml."""
     sections: dict[str, dict[str, Any]] = {"spotify": {}, "soundcloud": {}}
-    if opts.soundcloud_user:
-        sections["soundcloud"]["user"] = opts.soundcloud_user
-    rows = con.execute("SELECT * FROM sources ORDER BY position, key").fetchall()
+    if sc_user := soundcloud_user(con, user_id):
+        sections["soundcloud"]["user"] = sc_user
+    rows = _rows(con, user_id)
     for r in rows:
         if r["likes"]:
             sections[r["service"]]["likes"] = (_options(r) or True) if r["enabled"] else False
@@ -229,7 +251,7 @@ def as_config(con: sqlite3.Connection) -> dict[str, Any]:
             entry = {"url": r["url"], **o} if o else r["url"]
             sections[r["service"]].setdefault("playlists", []).append(entry)
     config: dict[str, Any] = {name: s for name, s in sections.items() if s}
-    config["removed_playlists"] = opts.removed_playlists
+    config["removed_playlists"] = options.get(con, options.SourceOptions).removed_playlists
     return config
 
 
@@ -242,155 +264,203 @@ def dump(data: Any) -> str:
     return yaml.dump(data, Dumper=_Dumper, sort_keys=False, allow_unicode=True, width=4096)
 
 
+def owners(con: sqlite3.Connection) -> list[int | None]:
+    """The users who follow lists, the oldest first (None: the lists nobody owns yet, last)."""
+    return [r[0] for r in con.execute("SELECT DISTINCT user_id FROM sources ORDER BY user_id IS NULL, user_id")]
+
+
+def user_lists(con: sqlite3.Connection, user_id: int | None) -> list[Source]:
+    """A user's lists in order, with their keys and names (None: the lists nobody owns yet)."""
+    return derive(as_config(con, user_id), user_id)
+
+
 def lists(con: sqlite3.Connection) -> list[Source]:
-    """The lists in order, with their keys and names."""
-    return derive(as_config(con))
+    """Every user's lists (the oldest user's first): a list two users follow is in it twice."""
+    return [s for uid in owners(con) for s in user_lists(con, uid)]
 
 
-def entries(con: sqlite3.Connection) -> list[dict[str, Any]]:
-    """The playlist entries (not the likes): key, service, url, title, playlist flag."""
-    return [
-        {"key": r["key"], "service": r["service"], "url": r["url"], "title": r["title"],
-         "playlist": bool(r["playlist"])}
-        for r in con.execute("SELECT * FROM sources WHERE likes = 0 ORDER BY position, key")
-    ]  # fmt: skip
+def followed(con: sqlite3.Connection) -> list[Source]:
+    """Every list once (as its oldest follower has it), in order: what is fetched and stored in lists."""
+    seen: set[str] = set()
+    return [s for s in lists(con) if not (s.key in seen or seen.add(s.key))]
+
+
+def followers(con: sqlite3.Connection, key: str) -> list[int]:
+    """Who follows a list, the oldest user first."""
+    sql = "SELECT user_id FROM sources WHERE key = ? AND user_id IS NOT NULL AND enabled ORDER BY user_id"
+    return [r[0] for r in con.execute(sql, (key,))]
 
 
 # ---------------------------------------------------------------- changes
 
 
-def _change(con: sqlite3.Connection, change: Callable[[], None]) -> None:
-    """Apply `change` in one transaction if the result is valid."""
+def _change(con: sqlite3.Connection, user_id: int | None, change: Callable[[], None]) -> None:
+    """Apply `change` in one transaction if the user's lists are valid then."""
     try:
         with con:
             change()
-            check(as_config(con))
+            check(as_config(con, user_id))
     except sqlite3.IntegrityError as err:
-        raise ConfigError("That list is in the sources already.") from err
+        raise ConfigError("That list is in your sources already.") from err
 
 
-def _next_position(con: sqlite3.Connection) -> int:
-    return con.execute("SELECT coalesce(max(position), -1) + 1 FROM sources").fetchone()[0]
+def _next_position(con: sqlite3.Connection, user_id: int | None) -> int:
+    sql = "SELECT coalesce(max(position), -1) + 1 FROM sources WHERE user_id IS ?"
+    return con.execute(sql, (user_id,)).fetchone()[0]
 
 
 def _key(service: str, url: str) -> str:
     return derive({service: {"playlists": [url]}})[0].key
 
 
-def _likes_key(service: str, user: str) -> tuple[str, str]:
+def _likes_key(service: str, user_id: int | None, sc_user: str) -> tuple[str, str]:
     if service == "spotify":
-        return "spotify:likes", "https://open.spotify.com/collection/tracks"
-    return f"soundcloud:{user}/likes", f"https://soundcloud.com/{user}/likes"
+        return spotify_likes_key(user_id), "https://open.spotify.com/collection/tracks"
+    return f"soundcloud:{sc_user}/likes", f"https://soundcloud.com/{sc_user}/likes"
 
 
-def replace_rows(con: sqlite3.Connection, data: dict[str, Any]) -> None:
-    """Replace every list with those of a checked sources.yml structure (no commit)."""
+def _insert(con: sqlite3.Connection, user_id: int | None, row: tuple, position: int) -> None:
+    """row: key, service, likes, url, title, playlist, enabled."""
+    con.execute(
+        "INSERT INTO sources (user_id, key, service, likes, url, title, playlist, enabled, position, added) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, *row, position, _now()),
+    )
+
+
+def replace_rows(con: sqlite3.Connection, data: dict[str, Any], user_id: int | None) -> None:
+    """Replace a user's lists with those of a checked sources.yml structure (no commit); the SoundCloud
+    user is theirs, removed_playlists everyone's."""
     rows = []
     for service in ("spotify", "soundcloud"):
         section = data.get(service) or {}
         likes = section.get("likes")
-        user = str(section.get("user") or "").strip().strip("/")
-        if likes is not None and (service == "spotify" or user):
-            key, url = _likes_key(service, user)
+        sc_user = str(section.get("user") or "").strip().strip("/")
+        if likes is not None and (service == "spotify" or sc_user):
+            key, url = _likes_key(service, user_id, sc_user)
             o = likes if isinstance(likes, dict) else {}
-            rows.append((key, service, 1, url, o.get("title") or None,
-                         int(o.get("playlist", True) is not False), int(bool(likes))))  # fmt: skip
+            playlist = int(o.get("playlist", True) is not False)
+            rows.append((key, service, 1, url, o.get("title") or None, playlist, int(bool(likes))))
         for e in section.get("playlists") or []:
             e = {"url": e} if isinstance(e, str) else e
             _, canonical = parse_url(e["url"])
-            rows.append((_key(service, canonical), service, 0, canonical, e.get("title") or None,
-                         int(e.get("playlist", True) is not False), 1))  # fmt: skip
-    con.execute("DELETE FROM sources")
-    now = _now()
-    con.executemany(
-        "INSERT INTO sources (key, service, likes, url, title, playlist, enabled, position, added) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [(*r, n, now) for n, r in enumerate(rows)],
-    )
-    sc = data.get("soundcloud") or {}
-    opts = options.SourceOptions(
-        soundcloud_user=str(sc.get("user") or "").strip().strip("/"),
-        removed_playlists=data.get("removed_playlists", True) is not False,
-    )
-    options.put(con, opts)
+            playlist = int(e.get("playlist", True) is not False)
+            rows.append((_key(service, canonical), service, 0, canonical, e.get("title") or None, playlist, 1))
+    con.execute("DELETE FROM sources WHERE user_id IS ?", (user_id,))
+    for n, row in enumerate(rows):
+        _insert(con, user_id, row, n)
+    sc = str((data.get("soundcloud") or {}).get("user") or "").strip().strip("/")
+    if user_id is not None:
+        con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (sc, user_id))
+    else:
+        options.update(con, options.SourceOptions, soundcloud_user=sc)
+    options.update(con, options.SourceOptions, removed_playlists=data.get("removed_playlists", True) is not False)
 
 
-def replace(con: sqlite3.Connection, data: Any) -> None:
-    """Replace every list with those of a checked sources.yml structure."""
+def replace(con: sqlite3.Connection, data: Any, user_id: int | None) -> None:
+    """Replace a user's lists with those of a checked sources.yml structure."""
     check(data)
-    _change(con, lambda: replace_rows(con, data or {}))
+    _change(con, user_id, lambda: replace_rows(con, data or {}, user_id))
 
 
-def add_list(con: sqlite3.Connection, url: str, title: str = "", playlist: bool = True) -> str:
+def add_list(con: sqlite3.Connection, user_id: int, url: str, title: str = "", playlist: bool = True) -> str:
     service, canonical = parse_url(url)
     key = _key(service, canonical)
-    if con.execute("SELECT 1 FROM sources WHERE key = ?", (key,)).fetchone():
-        raise ConfigError("That list is already in the sources.")
-    _change(con, lambda: con.execute(
-        "INSERT INTO sources (key, service, likes, url, title, playlist, enabled, position, added) "
-        "VALUES (?, ?, 0, ?, ?, ?, 1, ?, ?)",
-        (key, service, canonical, title.strip() or None, int(playlist), _next_position(con), _now()),
-    ))  # fmt: skip
+    if con.execute("SELECT 1 FROM sources WHERE user_id = ? AND key = ?", (user_id, key)).fetchone():
+        raise ConfigError("You follow that list already.")
+    row = (key, service, 0, canonical, title.strip() or None, int(playlist), 1)
+    _change(con, user_id, lambda: _insert(con, user_id, row, _next_position(con, user_id)))
     return key
 
 
-def _playlist(con: sqlite3.Connection, key: str) -> sqlite3.Row:
-    row = con.execute("SELECT * FROM sources WHERE key = ? AND likes = 0", (key,)).fetchone()
-    if row is None:
-        raise ConfigError("That list is not in the sources (any more).")
-    return row
-
-
-def set_playlist(con: sqlite3.Connection, key: str, playlist: bool) -> None:
+def set_playlist(con: sqlite3.Connection, user_id: int, key: str, playlist: bool) -> None:
     """Also show the list as a playlist in the music server, or not."""
-    if not con.execute("SELECT 1 FROM sources WHERE key = ?", (key,)).fetchone():
-        raise ConfigError("That list is not followed (any more).")
-    _change(con, lambda: con.execute("UPDATE sources SET playlist = ? WHERE key = ?", (int(playlist), key)))
+    if not con.execute("SELECT 1 FROM sources WHERE user_id = ? AND key = ?", (user_id, key)).fetchone():
+        raise ConfigError("You don't follow that list (any more).")
+    sql = "UPDATE sources SET playlist = ? WHERE user_id = ? AND key = ?"
+    _change(con, user_id, lambda: con.execute(sql, (int(playlist), user_id, key)))
 
 
-def remove_list(con: sqlite3.Connection, key: str) -> None:
-    _playlist(con, key)
-    _change(con, lambda: con.execute("DELETE FROM sources WHERE key = ?", (key,)))
+def remove_list(con: sqlite3.Connection, user_id: int, key: str) -> None:
+    sql = "SELECT 1 FROM sources WHERE user_id = ? AND key = ? AND likes = 0"
+    if not con.execute(sql, (user_id, key)).fetchone():
+        raise ConfigError("You don't follow that list (any more).")
+    _change(con, user_id, lambda: con.execute("DELETE FROM sources WHERE user_id = ? AND key = ?", (user_id, key)))
 
 
-def set_likes(con: sqlite3.Connection, service: str, enabled: bool, user: str | None = None) -> None:
-    """Switch the account's likes on or off; SoundCloud: `user` whose likes (kept when empty)."""
-    opts = options.get(con, options.SourceOptions)
+def set_likes(con: sqlite3.Connection, user_id: int, service: str, enabled: bool, user: str | None = None) -> None:
+    """Switch a user's likes on or off; SoundCloud: `user` whose likes (kept when empty)."""
     if service == "soundcloud" and user is not None:
         user = user.strip().strip("/")
         if enabled and not user:
             raise ConfigError("SoundCloud likes need your SoundCloud user name.")
-    name = (user or opts.soundcloud_user) if service == "soundcloud" else ""
+    name = (user or soundcloud_user(con, user_id)) if service == "soundcloud" else ""
     if service == "soundcloud" and enabled and not name:
         raise ConfigError("SoundCloud likes need your SoundCloud user name.")
 
     def change() -> None:
         if service == "soundcloud" and user:
-            options.update(con, options.SourceOptions, soundcloud_user=user)
-        row = con.execute("SELECT key FROM sources WHERE service = ? AND likes = 1", (service,)).fetchone()
-        key, url = _likes_key(service, name)
+            con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (user, user_id))
+        sql = "SELECT key FROM sources WHERE user_id = ? AND service = ? AND likes = 1"
+        row = con.execute(sql, (user_id, service)).fetchone()
+        key, url = _likes_key(service, user_id, name)
         if row is None:
             if enabled:
-                con.execute(
-                    "INSERT INTO sources (key, service, likes, url, title, playlist, enabled, "
-                    "position, added) VALUES (?, ?, 1, ?, NULL, 1, 1, ?, ?)",
-                    (key, service, url, _next_position(con), _now()),
-                )
+                _insert(con, user_id, (key, service, 1, url, None, 1, 1), _next_position(con, user_id))
         else:
-            new = (key, url) if name else (row["key"], None)
+            new = (key, url) if name or service == "spotify" else (row["key"], None)
             con.execute(
-                "UPDATE sources SET key = ?, url = coalesce(?, url), enabled = ? WHERE key = ?",
-                (new[0], new[1], int(enabled), row["key"]),
+                "UPDATE sources SET key = ?, url = coalesce(?, url), enabled = ? WHERE user_id = ? AND key = ?",
+                (new[0], new[1], int(enabled), user_id, row["key"]),
             )
 
-    _change(con, change)
+    _change(con, user_id, change)
 
 
 def set_removed_playlists(con: sqlite3.Connection, enabled: bool) -> None:
-    _change(con, lambda: options.update(con, options.SourceOptions, removed_playlists=enabled))
+    with con:
+        options.update(con, options.SourceOptions, removed_playlists=enabled)
 
 
-# ---------------------------------------------------------------- versions
+# ---------------------------------------------------------------- the lists of before users had lists
 
 
-# ---------------------------------------------------------------- files
+def adopt(con: sqlite3.Connection) -> str | None:
+    """Give the lists nobody owns (from before users had lists) to the oldest admin, with what was the
+    one account's: the Spotify likes become theirs (key spotify:likes -> spotify:likes:<id>, in every table
+    that has list keys), and so do the Spotify and SoundCloud logins and the SoundCloud user. One
+    transaction; nothing to do (no orphans, no admin yet) changes nothing. Returns what it did."""
+    owner = con.execute(
+        "SELECT id, name FROM users WHERE (admin OR navidrome_admin) AND NOT disabled ORDER BY id LIMIT 1"
+    ).fetchone()
+    orphans = con.execute("SELECT count(*) FROM sources WHERE user_id IS NULL").fetchone()[0]
+    plain = [r[0] for r in con.execute("SELECT name FROM secrets WHERE name IN (?, ?)", SINGLE_ACCOUNT)]
+    if owner is None or not (orphans or plain):
+        return None
+    uid, old, new = owner["id"], "spotify:likes", spotify_likes_key(owner["id"])
+    with con:
+        sc_user = options.get(con, options.SourceOptions).soundcloud_user
+        con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ? AND soundcloud_user = ''", (sc_user, uid))
+        con.execute("UPDATE sources SET user_id = ? WHERE user_id IS NULL", (uid,))
+        con.execute("UPDATE sources SET key = ? WHERE key = ? AND user_id = ?", (new, old, uid))
+        _rename_list(con, old, new)
+        for name in plain:  # unless they connected their own already
+            taken = con.execute("SELECT 1 FROM secrets WHERE name = ?", (f"{name}:{uid}",)).fetchone()
+            if not taken:
+                con.execute("UPDATE secrets SET name = ? WHERE name = ?", (f"{name}:{uid}", name))
+    return f"{orphans} lists and the accounts given to {owner['name']}"
+
+
+SINGLE_ACCOUNT = ("spotify.refresh_token", "soundcloud.token")  # the one account's logins, before users had lists
+
+
+def _rename_list(con: sqlite3.Connection, old: str, new: str) -> None:
+    """A list's key, everywhere (no commit): its state, songs, history and snapshots."""
+    if not con.execute("SELECT 1 FROM lists WHERE key = ?", (old,)).fetchone():
+        return
+    columns = "service, title, url, position, playlist, fetched, cover_url, cover_file, snapshot, fetched_at"
+    con.execute(f"INSERT INTO lists (key, {columns}) SELECT ?, {columns} FROM lists WHERE key = ?", (new, old))
+    con.execute("UPDATE list_songs SET list_key = ? WHERE list_key = ?", (new, old))
+    con.execute("UPDATE list_history SET list_key = ? WHERE list_key = ?", (new, old))
+    con.execute("UPDATE snapshots SET key = ? WHERE key = ? AND metric LIKE 'list_%'", (new, old))
+    con.execute("DELETE FROM lists WHERE key = ?", (old,))
