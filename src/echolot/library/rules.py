@@ -432,11 +432,11 @@ def search_title(title: str) -> str:
 
 def search_terms(artist: str, title: str, length: float = 0, loosen: bool = False) -> tuple[str, str, int]:
     """(artist, title, length) to search for. loosen: first artist, search_title. A DJ-mix cut is
-    searched as the release at any length. "/" and "\\" cannot occur in a Soulseek path, so they
-    become spaces ("AC/DC" finds AC_DC, AC DC)."""
+    searched as the release at any length. "/" and "\\" stay: Sockseek matches them against paths like
+    "_" since fiso64/sockseek#211 ("AC/DC" finds AC_DC; turned into spaces they found far fewer)."""
     cut = mix_cut(title)  # of the requested title: search_title drops a plain " - Mixed"
     if loosen:
         artist, title = first_artist(artist) or artist, search_title(title)
     if cut:
         title = release_title(title)
-    return re.sub(r"\s*[/\\]+\s*", " ", artist).strip(), title, 0 if cut else int(length or 0)
+    return artist, title, 0 if cut else int(length or 0)

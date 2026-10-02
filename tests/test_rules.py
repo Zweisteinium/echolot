@@ -205,7 +205,7 @@ def test_search_title() -> None:
 
 
 def test_search_terms() -> None:
-    assert rules.search_terms("AC/DC", "Hells Bells", 313) == ("AC DC", "Hells Bells", 313)
+    assert rules.search_terms("AC/DC", "Hells Bells", 313) == ("AC/DC", "Hells Bells", 313)  # Sockseek #211
     assert rules.search_terms("Neelix, X", "The Twenty Five - Mixed", 103, loosen=True) == (
         "Neelix",
         "The Twenty Five",
