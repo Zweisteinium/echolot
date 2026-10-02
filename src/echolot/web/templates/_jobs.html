@@ -23,10 +23,10 @@
         {% elif r.starting %}<span class="dot wait"></span>starting …{% if r.waiting %}<div class="muted small">after {{ r.waiting }}</div>{% endif %}
         {% elif r.waiting %}<span class="dot wait"></span>waiting for {{ r.waiting }}
         {% elif last and last.ok == 0 %}<span class="dot err"></span><span title="{{ last.message }}">failed</span><div class="muted small">{{ last.message|truncate(90) }}</div>
-        {% elif r.rule is none %}<span class="dot"></span><span class="muted">{{ 'when needed' if r.job.on_demand else 'off' }}</span>
+        {% elif r.rule is none and not r.job.started_by %}<span class="dot"></span><span class="muted">off</span>
         {% else %}<span class="dot"></span><span class="muted" title="{{ last.message if last else '' }}">idle</span>{% endif %}
       </td>
-      <td class="muted small hide-narrow nowrap">{{ r.rule|minutes }}</td>
+      <td class="muted small hide-narrow nowrap">{{ 'after ' ~ r.job.started_by if r.job.started_by and r.rule is none else r.rule|minutes }}</td>
       <td class="small nowrap" title="{{ last.message if last else '' }}">{{ last.started|ago if last and last.started else '–' }}</td>
       <td class="small nowrap">{% if r.run or r.rule is none %}<span class="muted">–</span>{% elif paused %}<span class="muted">paused</span>{% else %}{{ r.next|until }}{% endif %}</td>
       <td class="nowrap">

@@ -33,7 +33,7 @@ class JobInfo:
     details: str  # how it works, behind the info button
     priority: int = 0  # a running job of a lower one ends after its songs in progress when one of a higher
     # one of its resource is due, and goes on with the rest after it (worker.resume)
-    on_demand: bool = False  # started by another job when there is work (no schedule of its own)
+    started_by: str = ""  # the job that starts it when there is work (no schedule of its own)
 
 
 JOBS = [
@@ -50,7 +50,8 @@ JOBS = [
             "instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: up to five downloads are "
             "tried, each checked by length, tags and audio; a doubtful one waits in Review. A song Soulseek does "
             "not have goes to the YouTube & SoundCloud search right after this job. Comes first: a less urgent "
-            "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3, on_demand=True),
+            "Soulseek job stops after its songs in progress and goes on afterwards.", priority=3,
+            started_by="Spotify lists"),
     JobInfo("soundcloud", "New SoundCloud songs", "web", 5, 2,
             "Checks your SoundCloud lists for changes and downloads new songs from SoundCloud itself.",
             "Asks SoundCloud what changed (three requests: your likes, the sets in your library) and reads only "
