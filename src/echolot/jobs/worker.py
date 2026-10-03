@@ -7,7 +7,8 @@ its progress going on from there; also after a restart (a deploy pauses the jobs
 when Echolot is back; meta "resume"). The last run of each job is in the jobs table; a
 run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
 section jobs) stops new starts, and runs end after their songs in progress (the upgrade goes on when
-resumed); a job started by hand while paused ("Run now") runs anyway.
+resumed); a job started by hand while paused ("Run now") runs anyway, one another job starts after it
+(Run.after) waits, and runs as scheduled (trigger "after": the songs' waits count, unlike by hand).
 """
 
 import collections
@@ -156,6 +157,7 @@ class Worker:
         self.settings, self.vault = settings, vault
         self.runs: dict[str, Run] = {}  # running, by job name
         self.requested: dict[str, set[int] | None] = {}  # job -> asked for these users' songs (None: all)
+        self.followups: set[str] = set()  # of the requested, those another job started (not by hand: Run.after)
         self.resume: dict[str, tuple[int, str, frozenset[str]]] = {}  # jobs that gave way: songs left, trigger, done
         self.last: dict[str, Run] = {}  # each job's last finished run (its log stays on the jobs page)
         self._lock = threading.Lock()
@@ -191,6 +193,7 @@ class Worker:
         if name not in FUNCTIONS:
             return False
         with self._lock:
+            self.followups.discard(name)  # by hand now
             if only is None or self.requested.get(name, set()) is None:
                 self.requested[name] = None
             else:
@@ -250,6 +253,10 @@ class Worker:
                 if job.name in self.runs:
                     continue
                 requested = job.name in self.requested
+                followup = requested and job.name in self.followups  # started by another job: as scheduled
+                if followup and paused:
+                    continue  # waits for the jobs to be resumed (a deploy waits for no new work)
+                by_hand = requested and not followup
                 resume = not paused and job.name in self.resume
                 started = datetime.datetime.fromisoformat(last[job.name]) if last.get(job.name) else None
                 if not (requested or resume or (not paused and schedule.due(rules[job.name], started, now))):
@@ -260,12 +267,22 @@ class Worker:
                 if other and not job.beside:
                     other.give_way.set()  # it ends after its songs in progress; this one starts now
                 only = self.requested.pop(job.name, None)
+                self.followups.discard(job.name)
                 budget, how, skip = self.resume.pop(job.name, (None, "schedule", frozenset()))
                 if budget is not None:
                     self._save_resume()
-                trigger = "manual" if requested or how == "manual" else "resume" if resume else "schedule"
+                # manual: by hand, whatever the songs' waits; after: started by another job, with their waits
+                trigger = (
+                    "manual"
+                    if by_hand or how == "manual"
+                    else "after"
+                    if followup
+                    else "resume"
+                    if resume
+                    else "schedule"
+                )
                 run = Run(job, self.settings, self.vault, trigger)
-                run.budget, run.only, run.skip = budget, only if requested else None, skip
+                run.budget, run.only, run.skip = budget, only if by_hand else None, skip
                 run.while_paused = paused
                 run.claim_resource = self._claim
                 self.runs[job.name] = running[job.resource] = run
@@ -307,7 +324,9 @@ class Worker:
             with self._lock:
                 self.runs.pop(name, None)
                 self.last[name] = run
-                for after in run.after - {name}:  # what a run starts is for everyone
+                for after in run.after - {name}:  # what a run starts is for everyone, as scheduled
+                    if after not in self.requested:  # (one asked for by hand stays so)
+                        self.followups.add(after)
                     self.requested[after] = None
                 if run.left:
                     self.resume[name] = (run.left, run.trigger, run.skip | run.handled)
