@@ -34,6 +34,8 @@ class JobInfo:
     priority: int = 0  # a running job of a lower one ends after its songs in progress when one of a higher
     # one of its resource is due, and goes on with the rest after it (worker.resume)
     started_by: str = ""  # the job that starts it when there is work (no schedule of its own)
+    beside: bool = False  # starts beside a running job of a lower priority instead of making it give way;
+    # makes it give way only for the work that needs the resource (Run.claim: SoundCloud's downloads)
 
 
 JOBS = [
@@ -61,7 +63,8 @@ JOBS = [
             "file where downloads are allowed (sometimes lossless), else the stream. Before it is filed, a "
             "download is compared by audio with the library's files of the same title and length: the same "
             "recording is linked, not kept twice. A song SoundCloud hands out to nobody (label releases) goes to "
-            "the YouTube & SoundCloud search. Comes first on the home connection.", priority=3),
+            "the YouTube & SoundCloud search. It checks beside a running YouTube & SoundCloud search and makes it "
+            "give way only to download new songs (they come first).", priority=3, beside=True),
     JobInfo("youtube", "YouTube lists", "web", 30, 10,
             "Reads your YouTube playlists; new songs start New songs search.",
             "YouTube tells no change in advance, so each playlist is read whole: its videos through yt-dlp (also "
@@ -70,7 +73,8 @@ JOBS = [
             "Spotify has it under the same artist and title at a fitting length, else YouTube Music's (an "
             "upload's from its title). Its songs are searched like Spotify's: Soulseek first, FLAC preferred, "
             "then YouTube & SoundCloud, the listed video first. A video that no longer plays stays in its list "
-            "and shows on the Changes page.", priority=3),
+            "and shows on the Changes page. It reads beside a running YouTube & SoundCloud search, which goes on.",
+            priority=3, beside=True),
     JobInfo("fallback", "YouTube & SoundCloud search", "web", 120, 60,
             "Songs Soulseek does not have, and SoundCloud songs that cannot be downloaded.",
             "Starts right after New songs search when Soulseek had nothing, and on its schedule. Per song: the "
@@ -79,7 +83,8 @@ JOBS = [
             "search; the first result that passes the same checks as a Soulseek download is filed, one of "
             "another length waits in Review. A download the library has under other names is linked instead. "
             "Each song at most once a week, new ones first (Search all now: every one). The result is lossy: "
-            "the FLAC upgrade looks for a lossless copy from 12 h later. Gives way to New SoundCloud songs.",
+            "the FLAC upgrade looks for a lossless copy from 12 h later. Gives way when New SoundCloud songs "
+            "downloads new songs.",
             priority=2),
     JobInfo("sweep", "Missing songs", "soulseek", ["20:00", "sat,sun 15:00"], 360,
             "Searches the songs found nowhere yet again, when most Soulseek users are online.",
