@@ -296,3 +296,41 @@ def test_a_list_check_runs_beside_the_search_and_claims_only_to_download(w) -> N
     claim.set()
     assert search.give_way.wait(5)  # downloads: the search gives way after its songs in progress
     release.set()
+
+
+def test_a_follow_up_waits_while_paused_and_keeps_the_songs_waits(w) -> None:
+    """What a job starts after it (Run.after: the search after New songs search) is no run by hand: while
+    the jobs are paused (a deploy) it waits, and it runs with the songs' waits (trigger "after"), not
+    every song at once as Search all now does."""
+    wk, _, release, settings = w  # paused
+    con = db.connect(settings.db_path)
+    with con:  # nothing due by the schedule
+        now = datetime.now().isoformat(timespec="seconds")
+        con.executemany(
+            "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
+        )
+    con.close()
+    triggers: dict[str, str] = {}
+
+    def search_new(r: worker.Run) -> str:
+        r.after.add("fallback")  # a song Soulseek did not have
+        return "searched"
+
+    def fallback(r: worker.Run) -> str:
+        triggers["fallback"] = r.trigger
+        return "searched"
+
+    worker.FUNCTIONS["search_new"], worker.FUNCTIONS["fallback"] = search_new, fallback
+    wk.trigger("search_new")  # by hand: runs while paused
+    wk._start_due()
+    wait_for(lambda: "search_new" not in wk.runs and "fallback" in wk.requested)
+    wk._start_due()
+    assert "fallback" not in wk.runs and "fallback" in wk.requested  # paused: it waits
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Jobs, paused=False)
+    con.close()
+    wk._start_due()
+    wait_for(lambda: "fallback" in triggers)
+    assert triggers["fallback"] == "after"  # as scheduled: each song's wait counts
+    release.set()
