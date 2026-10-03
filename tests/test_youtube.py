@@ -208,3 +208,17 @@ def test_follow_a_youtube_list_by_its_link(settings: Settings, login, monkeypatc
     assert r.status_code == 303 and "Following+Tunes" in r.headers["location"]
     assert app.state.worker.requested == {"youtube": None}  # read now
     assert "YouTube" in client.get("/sources/other").text
+
+
+def test_a_refused_stream_is_asked_for_once_more(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """YouTube now and then refuses a stream (HTTP 403): the download is tried once more, other errors not."""
+    answers = [(None, "unable to download video data: HTTP Error 403: Forbidden"), (tmp_path / "a.opus", "")]
+    tries = []
+    monkeypatch.setattr(ytdlp.YtDlp, "_fetch", lambda self, url, dest, stop: tries.append(url) or answers.pop(0))
+    ydl = ytdlp.YtDlp(tmp_path)
+    assert ydl.fetch("https://www.youtube.com/watch?v=x", tmp_path / "a", threading.Event()) == (
+        tmp_path / "a.opus",
+        "",
+    )
+    answers[:] = [(None, "DRM-protected")]
+    assert ydl.fetch("u", tmp_path / "b", threading.Event()) == (None, "DRM-protected") and len(tries) == 3

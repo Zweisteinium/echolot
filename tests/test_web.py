@@ -13,6 +13,7 @@ from echolot.jobs import schedule
 from echolot.library import filing
 from echolot.library.filing import Paths
 from echolot.services import spotify
+from echolot.settings import options
 from echolot.web import create_app, stats
 from echolot.web import sources as sources_web
 
@@ -222,6 +223,19 @@ def test_connection_line(client: TestClient) -> None:
     html = client.get("/accounts/line").text
     assert "Spotify: not connected" in html and "SoundCloud: not connected" in html
     assert "Soulseek: daemon not reachable" in html and " free</span>" in html
+
+
+def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A daemon that dropped its Soulseek login is red on the overview, not "logs in with the next search"."""
+    from echolot.services import soulseek
+
+    con = db.connect(settings.db_path)
+    with con:
+        options.update(con, options.Soulseek, user="someone")
+    con.close()
+    state = {"ready": False, "state": "Disconnected", "flags": ["Disconnected"], "version": "", "started": ""}
+    monkeypatch.setattr(soulseek.Daemon, "status", lambda self: state)
+    assert "Soulseek: disconnected" in client.get("/accounts/line").text
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
