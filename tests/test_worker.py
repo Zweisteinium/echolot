@@ -258,3 +258,41 @@ def test_a_run_that_gave_way_goes_on_after_a_restart(w) -> None:
     finally:
         release.set()
         again.stop()
+
+
+def test_a_list_check_runs_beside_the_search_and_claims_only_to_download(w) -> None:
+    """New SoundCloud songs every few minutes does not stop the YouTube & SoundCloud search: it checks its
+    lists beside it, and only to download new songs does the search give way (Run.claim). YouTube lists,
+    due meanwhile, waits for the check (one beside is enough)."""
+    wk, started, release, settings = w
+    con = db.connect(settings.db_path)
+    with con:  # nothing due by the schedule
+        options.update(con, options.Jobs, paused=False)
+        now = datetime.now().isoformat(timespec="seconds")
+        con.executemany(
+            "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
+        )
+    con.close()
+    checking, claim = threading.Event(), threading.Event()
+
+    def soundcloud(r: worker.Run) -> str:
+        checking.set()
+        if claim.wait(5):
+            r.claim()  # new songs to download
+        return "1 new song"
+
+    worker.FUNCTIONS["soundcloud"] = soundcloud
+    wk.trigger("fallback")
+    wk._start_due()
+    wait_for(lambda: "fallback" in started)
+    search = wk.runs["fallback"]
+    wk.trigger("soundcloud")
+    wk._start_due()
+    wait_for(checking.is_set)
+    assert "soundcloud" in wk.runs and not search.give_way.is_set()  # beside, the search goes on
+    wk.trigger("youtube")
+    wk._start_due()
+    assert "youtube" not in wk.runs  # waits for the check
+    claim.set()
+    assert search.give_way.wait(5)  # downloads: the search gives way after its songs in progress
+    release.set()

@@ -446,6 +446,7 @@ def soundcloud(run: "Run") -> str:
     new = [(tid, url) for tid, url in urls.items() if tid not in have and url]
     added = 0
     if new and not run.stop.is_set():
+        run.claim()  # new songs come first: a running YouTube & SoundCloud search gives way now
         run.say(f"downloading {len(new)} new songs")
         for d in ydl.download(new, work, run.stop):
             filed = _file_sc(run, d, urls[d["id"]], work)

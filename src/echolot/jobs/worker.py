@@ -55,6 +55,7 @@ class Run:
         self.handled: set[str] = set()  # songs this run did: handed on when it gives way
         self.while_paused = False  # started while the jobs were paused (by hand): a pause leaves it alone
         self.only: set[int] | None = None  # by hand for these users: only their songs (None: everyone's)
+        self.claim_resource: Callable[[Run], None] = lambda run: None  # the worker's (Worker._claim)
 
     @property
     def paths(self) -> filing.Paths:
@@ -75,6 +76,11 @@ class Run:
         self.progress = progress
         if done is not None:
             self.done, self.total = len(self.skip) + done, len(self.skip) + total if total else 0
+
+    def claim(self) -> None:
+        """The work that needs the resource starts (a job that starts beside: JobInfo.beside): the runs of a
+        lower priority of the resource give way now, after their songs in progress."""
+        self.claim_resource(self)
 
     def todo(self, rows: list, key: Callable[[Any], str] = lambda r: r["key"]) -> list:
         """The songs (rows, or files with `key`) not done yet by the runs this one goes on from."""
@@ -230,9 +236,14 @@ class Worker:
             for r in self.runs.values():
                 if paused and not r.while_paused:
                     r.give_way.set()  # ends after the songs in progress (a deploy waits for that)
-            running: dict[str, Run] = {}  # per resource the run holding it: one giving way holds it no longer
-            for r in self.runs.values():
-                if r.job.resource not in running or running[r.job.resource].give_way.is_set():
+            running: dict[str, Run] = {}  # per resource the run holding it: the most urgent one (one started
+            for r in self.runs.values():  # beside), not one giving way
+                held = running.get(r.job.resource)
+                if (
+                    held is None
+                    or held.give_way.is_set()
+                    or (not r.give_way.is_set() and r.job.priority > held.job.priority)
+                ):
                     running[r.job.resource] = r
             for job in schedule.JOBS:
                 if job.name in self.runs:
@@ -245,7 +256,7 @@ class Worker:
                 other = running.get(job.resource)
                 if other and other.job.priority >= job.priority:
                     continue
-                if other:
+                if other and not job.beside:
                     other.give_way.set()  # it ends after its songs in progress; this one starts now
                 only = self.requested.pop(job.name, None)
                 budget, how, skip = self.resume.pop(job.name, (None, "schedule", frozenset()))
@@ -255,8 +266,16 @@ class Worker:
                 run = Run(job, self.settings, self.vault, trigger)
                 run.budget, run.only, run.skip = budget, only if requested else None, skip
                 run.while_paused = paused
+                run.claim_resource = self._claim
                 self.runs[job.name] = running[job.resource] = run
                 threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
+
+    def _claim(self, run: Run) -> None:
+        """A run started beside the others of its resource needs it now: the less urgent ones give way."""
+        with self._lock:
+            for r in self.runs.values():
+                if r is not run and r.job.resource == run.job.resource and r.job.priority < run.job.priority:
+                    r.give_way.set()
 
     def _run(self, run: Run) -> None:
         name = run.job.name
