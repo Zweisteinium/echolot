@@ -227,3 +227,34 @@ def test_only_a_more_urgent_job_makes_one_give_way(w) -> None:
     wk._start_due()
     assert wk.runs["upgrade_all"].give_way.is_set()
     release.set()
+
+
+def test_a_run_that_gave_way_goes_on_after_a_restart(w) -> None:
+    """A deploy pauses the jobs: the runs give way and Echolot restarts; the new worker goes on with them,
+    without the songs they did, once the jobs are resumed."""
+    wk, started, release, settings = w  # paused
+    wk.resume = {"fallback": (50, "manual", frozenset({"spotify:a", "spotify:b"}))}
+    wk._save_resume()
+    again = worker.Worker(settings, Vault.from_env(settings.data_dir, {}))
+    again.start()
+    try:
+        assert again.resume == wk.resume
+        again._start_due()
+        assert "fallback" not in again.runs  # paused: it waits
+        con = db.connect(settings.db_path)
+        with con:  # resumed, nothing else due
+            options.update(con, options.Jobs, paused=False)
+            now = datetime.now().isoformat(timespec="seconds")
+            ran = [(n, now, now) for n in worker.FUNCTIONS]
+            con.executemany("INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", ran)
+        con.close()
+        again._start_due()
+        wait_for(lambda: "fallback" in started)
+        run = again.runs["fallback"]
+        assert (run.trigger, run.budget, run.skip) == ("manual", 50, frozenset({"spotify:a", "spotify:b"}))
+        con = db.connect(settings.db_path)
+        assert db.get_meta(con, worker.RESUME) == "{}"  # taken up: a later restart does not run it again
+        con.close()
+    finally:
+        release.set()
+        again.stop()

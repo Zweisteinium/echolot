@@ -3,7 +3,8 @@ resource (Soulseek, the home IP, the library upkeep) run one at a time; a due jo
 one and keeps its turn, except that a running job of a lower priority (JobInfo.priority) ends after its
 songs in progress (the more urgent one starts right away, beside them) and goes on with the rest once the
 resource is free, started the same way (a Run now goes on as one), without the songs it did (Run.skip) and
-its progress going on from there. The last run of each job is in the jobs table; a
+its progress going on from there; also after a restart (a deploy pauses the jobs: they give way and go on
+when Echolot is back; meta "resume"). The last run of each job is in the jobs table; a
 run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
 section jobs) stops new starts, and runs end after their songs in progress (the upgrade goes on when
 resumed); a job started by hand while paused ("Run now") runs anyway.
@@ -11,6 +12,7 @@ resumed); a job started by hand while paused ("Run now") runs anyway.
 
 import collections
 import datetime
+import json
 import logging
 import sqlite3
 import threading
@@ -28,6 +30,7 @@ from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
 TICK = 20  # seconds between looks at the schedule
+RESUME = "resume"  # meta: the runs that gave way, to go on with (Worker.resume)
 
 
 def _now() -> str:
@@ -156,6 +159,8 @@ class Worker:
     def start(self) -> None:
         con = db.connect(self.settings.db_path)
         try:
+            saved = json.loads(db.get_meta(con, RESUME) or "{}")  # the runs that gave way before Echolot stopped
+            self.resume = {n: (left, how, frozenset(skip)) for n, (left, how, skip) in saved.items() if n in FUNCTIONS}
             with con:
                 con.execute("UPDATE jobs SET finished = ?, ok = 0, message = 'interrupted (Echolot stopped)' "
                             "WHERE finished IS NULL", (_now(),))  # fmt: skip
@@ -244,6 +249,8 @@ class Worker:
                     other.give_way.set()  # it ends after its songs in progress; this one starts now
                 only = self.requested.pop(job.name, None)
                 budget, how, skip = self.resume.pop(job.name, (None, "schedule", frozenset()))
+                if budget is not None:
+                    self._save_resume()
                 trigger = "manual" if requested or how == "manual" else "resume" if resume else "schedule"
                 run = Run(job, self.settings, self.vault, trigger)
                 run.budget, run.only, run.skip = budget, only if requested else None, skip
@@ -281,4 +288,15 @@ class Worker:
                     self.requested[after] = None
                 if run.left:
                     self.resume[name] = (run.left, run.trigger, run.skip | run.handled)
+                self._save_resume()
             self._wake.set()
+
+    def _save_resume(self) -> None:
+        """Keep the runs to go on with in the database (with the lock held), so a restart goes on too."""
+        saved = json.dumps({n: [left, how, sorted(skip)] for n, (left, how, skip) in self.resume.items()})
+        con = db.connect(self.settings.db_path)
+        try:
+            with con:
+                db.set_meta(con, RESUME, saved)
+        finally:
+            con.close()
