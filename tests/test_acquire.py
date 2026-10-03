@@ -489,6 +489,41 @@ def test_the_fallback_takes_new_misses_first_and_the_upgrade_waits(run: Run, mon
     assert tries == 1 and not acquire.due(tries, last, *acquire.UPGRADE_WAIT, time.time())
 
 
+def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Search all now (every missing song, whatever its wait) gives way after two songs, as to New
+    SoundCloud songs every few minutes: the run that goes on leaves those two out and counts on (3 of 5),
+    so a search that gives way again and again still gets through every song, each once."""
+    for n in range(4):
+        add_missing(run, f"spotify:m{n}", f"Missing {n}", tries=1)
+    searched: list[str] = []
+
+    def one_song(run_, con, ydl, want, tries, strict, listed=None):
+        searched.append(want.key)
+        if len(searched) == 2:
+            run_.give_way.set()  # a more urgent job of the home connection is due
+        return "not found", {}
+
+    monkeypatch.setattr(acquire, "_fallback_song", one_song)
+    monkeypatch.setattr(acquire.ytdlp, "YtDlp", lambda *a, **k: None)
+    run.trigger = "manual"
+    message = acquire.fallback(run)
+    total = len(searched) + run.left
+    assert len(searched) == 2 and run.left == total - 2 and message.endswith(f"gave way, {run.left} left")
+    assert run.handled == set(searched)
+
+    again = Run(BY_NAME["fallback"], run.settings, run.vault, "manual")  # as the worker goes on with it
+    again.stop, again.skip = threading.Event(), frozenset(run.handled)
+    said = []
+    monkeypatch.setattr(
+        again,
+        "say",
+        lambda text, done=None, total=None: said.append((text, done, total)) or Run.say(again, text, done, total),
+    )
+    acquire.fallback(again)
+    assert len(searched) == total and len(set(searched)) == total  # every song, each once
+    assert said[0][0].startswith(f"3 of {total}: ") and (again.done, again.total) == (total - 1, total)
+
+
 def test_a_fallback_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """Gone Song is in the library under another artist's name and sounds the same: linked, not filed."""
     monkeypatch.setattr(identity, "alike", lambda a, b: 0.95)

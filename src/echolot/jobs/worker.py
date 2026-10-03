@@ -2,7 +2,8 @@
 resource (Soulseek, the home IP, the library upkeep) run one at a time; a due job waits for the running
 one and keeps its turn, except that a running job of a lower priority (JobInfo.priority) ends after its
 songs in progress (the more urgent one starts right away, beside them) and goes on with the rest once the
-resource is free, started the same way (a Run now goes on as one). The last run of each job is in the jobs table; a
+resource is free, started the same way (a Run now goes on as one), without the songs it did (Run.skip) and
+its progress going on from there. The last run of each job is in the jobs table; a
 run that was going when Echolot stopped is marked interrupted at the next start. Pausing (settings
 section jobs) stops new starts, and runs end after their songs in progress (the upgrade goes on when
 resumed); a job started by hand while paused ("Run now") runs anyway.
@@ -15,6 +16,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from echolot import db
 from echolot.config import Settings
@@ -46,6 +48,8 @@ class Run:
         self.give_way = threading.Event()  # a more urgent job of the resource is due, or the jobs are paused
         self.budget: int | None = None  # songs left by the run that gave way (None: the job's own batch)
         self.left = 0  # songs this run left when it gave way
+        self.skip: frozenset[str] = frozenset()  # songs (files) the runs it goes on from did already
+        self.handled: set[str] = set()  # songs this run did: handed on when it gives way
         self.while_paused = False  # started while the jobs were paused (by hand): a pause leaves it alone
         self.only: set[int] | None = None  # by hand for these users: only their songs (None: everyone's)
 
@@ -63,9 +67,19 @@ class Run:
         return db.connect(self.settings.db_path)
 
     def say(self, progress: str, done: int | None = None, total: int | None = None) -> None:
+        """What the run does now and how far it is: `done` of `total` of its own songs, counted on from the
+        songs the runs it goes on from did (skip)."""
         self.progress = progress
         if done is not None:
-            self.done, self.total = done, total or 0
+            self.done, self.total = len(self.skip) + done, len(self.skip) + total if total else 0
+
+    def todo(self, rows: list, key: Callable[[Any], str] = lambda r: r["key"]) -> list:
+        """The songs (rows, or files with `key`) not done yet by the runs this one goes on from."""
+        return [r for r in rows if key(r) not in self.skip] if self.skip else rows
+
+    def of(self, n: int, total: int) -> str:
+        """'n of total' counted on from the runs this one goes on from: 14 of 63, not 1 of 50."""
+        return f"{len(self.skip) + n} of {len(self.skip) + total}"
 
     def note(self, line: str) -> None:
         """A line for the run's live log on the jobs page (the last 200 are kept)."""
@@ -132,7 +146,7 @@ class Worker:
         self.settings, self.vault = settings, vault
         self.runs: dict[str, Run] = {}  # running, by job name
         self.requested: dict[str, set[int] | None] = {}  # job -> asked for these users' songs (None: all)
-        self.resume: dict[str, tuple[int, str]] = {}  # jobs that gave way: the songs they left, their trigger
+        self.resume: dict[str, tuple[int, str, frozenset[str]]] = {}  # jobs that gave way: songs left, trigger, done
         self.last: dict[str, Run] = {}  # each job's last finished run (its log stays on the jobs page)
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -229,10 +243,10 @@ class Worker:
                 if other:
                     other.give_way.set()  # it ends after its songs in progress; this one starts now
                 only = self.requested.pop(job.name, None)
-                budget, how = self.resume.pop(job.name, (None, "schedule"))
+                budget, how, skip = self.resume.pop(job.name, (None, "schedule", frozenset()))
                 trigger = "manual" if requested or how == "manual" else "resume" if resume else "schedule"
                 run = Run(job, self.settings, self.vault, trigger)
-                run.budget, run.only = budget, only if requested else None
+                run.budget, run.only, run.skip = budget, only if requested else None, skip
                 run.while_paused = paused
                 self.runs[job.name] = running[job.resource] = run
                 threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
@@ -266,5 +280,5 @@ class Worker:
                 for after in run.after - {name}:  # what a run starts is for everyone
                     self.requested[after] = None
                 if run.left:
-                    self.resume[name] = (run.left, run.trigger)
+                    self.resume[name] = (run.left, run.trigger, run.skip | run.handled)
             self._wake.set()
