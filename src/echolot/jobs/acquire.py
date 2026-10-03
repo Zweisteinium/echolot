@@ -303,7 +303,9 @@ def _for(run: "Run", con: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[s
 
 
 def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
-    """Search and download songs, several at a time; attempts are counted per song as it ends."""
+    """Search and download songs, several at a time; attempts are counted per song as it ends. A run that
+    goes on from one that gave way leaves out the songs that one did (Run.todo)."""
+    songs = run.todo(songs)
     if not songs:
         return "nothing to search"
     fetcher = Fetcher(run, purpose)
@@ -354,13 +356,15 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
             _count(con, purpose, want.key, outcome.action, outcome.report)
         finally:
             con.close()
+        with lock:
+            run.handled.add(row["key"])
         log.info("%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail)
         run.note(f"{want.artist} – {want.title}: {outcome.action}" + (f" · {outcome.detail}" if outcome.detail else ""))
         with lock:
             done += 1
             counts[outcome.action] = counts.get(outcome.action, 0) + 1
             summary = ", ".join(f"{n} {a}" for a, n in sorted(counts.items()))
-            run.say(f"{done} of {len(songs)} songs: {summary}", done, len(songs))
+            run.say(f"{run.of(done, len(songs))} songs: {summary}", done, len(songs))
 
     with ThreadPoolExecutor(fetcher.opts.parallel, thread_name_prefix=purpose) as pool:
         list(pool.map(one, songs))
@@ -521,6 +525,7 @@ def _upgrade(run: "Run", everything: bool) -> str:
                 "DELETE FROM upgrades WHERE song_key NOT IN (SELECT s.key FROM wanted s JOIN files f "
                 "ON f.path = s.file WHERE f.quality != 'lossless')"
             )
+        rows = run.todo(rows)  # (without the songs a run that gave way did)
         # what a run that gave way left, else every song (by hand) or the batch
         batch = run.budget or (len(rows) if everything else options.get(con, options.Soulseek).upgrade_batch)
     finally:
@@ -559,7 +564,7 @@ def fallback(run: "Run") -> str:
             "ORDER BY coalesce(a.last_fallback, 0) > 0, s.unavailable IS NULL",
             (week,),
         ).fetchall()
-        songs = _for(run, con, songs)
+        songs = run.todo(_for(run, con, songs))  # (by hand: without the songs a run that gave way did)
         token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
@@ -572,7 +577,7 @@ def fallback(run: "Run") -> str:
             run.left = 0 if run.stop.is_set() else len(songs) - n + 1
             break
         want = Want.of(row)
-        run.say(f"{n} of {len(songs)}: {want.artist} – {want.title}", n - 1, len(songs))
+        run.say(f"{run.of(n, len(songs))}: {want.artist} – {want.title}", n - 1, len(songs))
         con = run.connect()
         try:
             with con:
@@ -589,6 +594,7 @@ def fallback(run: "Run") -> str:
                 )
         finally:
             con.close()
+        run.handled.add(want.key)
         added += action in ("new", "upgrade")
         linked += action == "linked"
         kept += action == "mismatch"

@@ -72,18 +72,19 @@ def run(run: "Run") -> str:
     con = run.connect()
     try:
         covers = Covers(con, run)
-        todo = [r[0] for r in con.execute("SELECT path FROM files ORDER BY path") if r[0] not in done]
+        todo = run.todo([r[0] for r in con.execute("SELECT path FROM files ORDER BY path") if r[0] not in done], str)
         counts = {"replaced": 0, "already the song's": 0, "without a song or cover": 0, "failed": 0}
         with journal.open("a", encoding="utf-8") as log_done:
             for n, rel in enumerate(todo, 1):
                 if run.stop.is_set() or run.give_way.is_set():
                     run.left = 0 if run.stop.is_set() else len(todo) - n + 1
                     break
-                run.say(f"{n} of {len(todo)}: {rel}", n - 1, len(todo))
+                run.say(f"{run.of(n, len(todo))}: {rel}", n - 1, len(todo))
                 outcome = _one(run, con, covers, rel, backups)
                 if outcome in ("replaced", "failed"):
                     run.note(f"{rel}: {outcome}")
                 counts[outcome] = counts.get(outcome, 0) + 1
+                run.handled.add(rel)
                 if outcome not in ("failed", "changed lately"):
                     log_done.write(rel + "\n")
                     log_done.flush()

@@ -135,18 +135,18 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
             "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
         )
     con.close()
-    ran: list[tuple[str, int | None, str]] = []
+    ran: list[tuple[str, int | None, str, frozenset[str]]] = []
     in_progress = threading.Event()
 
     def upgrade(r: worker.Run) -> str:
-        ran.append(("upgrade", r.budget, r.trigger))
+        ran.append(("upgrade", r.budget, r.trigger, r.skip))
         if r.budget is None and r.give_way.wait(5):
             in_progress.wait(5)  # its songs in progress end
-            r.left = 7
+            r.handled, r.left = {"spotify:a", "spotify:b"}, 7
         return "upgrade done"
 
     def search_new(r: worker.Run) -> str:
-        ran.append(("search_new", r.budget, r.trigger))
+        ran.append(("search_new", r.budget, r.trigger, r.skip))
         return "searched"
 
     worker.FUNCTIONS["upgrade"] = upgrade
@@ -154,21 +154,22 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
     worker.FUNCTIONS["sync"] = lambda r: "lists checked"  # at once (the fixture's waits up to 5 s: a race in CI)
     wk.trigger("upgrade")
     wk._start_due()
-    wait_for(lambda: ran == [("upgrade", None, "manual")])
+    wait_for(lambda: ran == [("upgrade", None, "manual", frozenset())])
     wk.trigger("sync")
     wk._start_due()  # Spotify lists has its own queue: the upgrade goes on
     assert not wk.runs["upgrade"].give_way.is_set()
     wk.trigger("search_new")
     wk._start_due()  # new songs, Soulseek busy: the upgrade gives way, the new songs start beside its last ones
-    wait_for(lambda: ("search_new", None, "manual") in ran)
+    wait_for(lambda: ("search_new", None, "manual", frozenset()) in ran)
     assert wk.runs["upgrade"].give_way.is_set()
     wk._start_due()  # the upgrade does not start again while it ends
     in_progress.set()
     wait_for(lambda: not wk.runs)
-    assert wk.resume == {"upgrade": (7, "manual")}
+    done = frozenset({"spotify:a", "spotify:b"})
+    assert wk.resume == {"upgrade": (7, "manual", done)}
     wk._start_due()
     wait_for(lambda: len(ran) == 3)
-    assert ran[2] == ("upgrade", 7, "manual")
+    assert ran[2] == ("upgrade", 7, "manual", done)  # without the songs it did
     wait_for(lambda: not wk.runs)
     assert wk.resume == {}
 
