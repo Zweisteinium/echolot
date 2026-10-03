@@ -25,7 +25,8 @@ def changes(con) -> list[tuple]:
 
 def test_a_lists_songs_coming_and_going(settings: Settings) -> None:
     """Added, removed, and a swap for another release of the same recording (the same ISRC; on SoundCloud
-    a re-upload: the same uploader, title and length) as one change; nothing at a list's first reading."""
+    a re-upload: the same uploader, title and length) as one change; nothing at a list's first reading. A
+    list that can't be read is a change once it has failed for an hour."""
     con = db.connect(settings.db_path)
     song = "INSERT INTO songs (key, service, artist, title, length, isrc) VALUES (?, ?, ?, ?, ?, ?)"
     with con:
@@ -41,6 +42,12 @@ def test_a_lists_songs_coming_and_going(settings: Settings) -> None:
         ("spotify:s3", "L", "added", None),
         ("soundcloud:1001", "S", "re-uploaded", "soundcloud:1003"),
     ]
+    availability.list_readable(con, "L", False, "giving up")
+    availability.list_readable(con, "L", True)  # a hiccup: no change
+    availability.list_readable(con, "L", False, "HTTP 404")
+    assert changes(con)[-1][2] == "re-uploaded"  # failing, not for an hour yet
+    with con:  # an hour later
+        con.execute("UPDATE meta SET value = '2000-01-01T00:00:00' WHERE key = 'failing:L'")
     availability.list_readable(con, "L", False, "HTTP 404")
     availability.list_readable(con, "L", False, "HTTP 404")  # once
     availability.list_readable(con, "L", True)

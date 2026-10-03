@@ -9,6 +9,7 @@
   {% else %}<a class="pill warn-pill" href="/accounts">SoundCloud: not connected</a>{% endif %}
   {% if sl.ready %}<a class="pill ok-pill" href="/accounts">Soulseek: logged in</a>
   {% elif not sl.reachable %}<a class="pill bad-pill" href="/accounts" title="{{ sl.error }}">Soulseek: daemon not reachable</a>
+  {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="pill bad-pill" href="/accounts" title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">Soulseek: disconnected</a>
   {% elif sl.user %}<a class="pill" href="/accounts">Soulseek: logs in with the next search</a>
   {% else %}<a class="pill warn-pill" href="/accounts">Soulseek: no account</a>{% endif %}
   {% if free is not none %}<span class="pill{{ ' bad-pill' if free < low_disk }}">{{ free|size }} free</span>{% endif %}
