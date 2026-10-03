@@ -23,6 +23,7 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
+from echolot import db
 from echolot.library import rules
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify
@@ -85,14 +86,26 @@ def _same_recording(a: sqlite3.Row | None, b: sqlite3.Row | None) -> bool:
     return same_names and abs((a["length"] or 0) - (b["length"] or 0)) <= 2
 
 
+UNREADABLE_AFTER = datetime.timedelta(hours=1)  # a list failing this long is unreadable (not a hiccup)
+
+
 def list_readable(con: sqlite3.Connection, list_key: str, readable: bool, why: str = "") -> None:
-    """A list that can't be read (gone, private) is a change once; again when it can be read."""
+    """A list that can't be read (gone, private) is a change once, when it has failed for an hour (a
+    service's hiccup, a rate limit is none: meta "failing:<list>" holds since when); again when it can
+    be read."""
     last = con.execute(
         "SELECT change FROM changes WHERE list_key = ? AND song_key = '' ORDER BY id DESC LIMIT 1", (list_key,)
     ).fetchone()
     was = last["change"] if last else "readable"
-    if readable != (was == "readable"):
-        with con:
+    failing = f"failing:{list_key}"
+    with con:
+        if readable:
+            con.execute("DELETE FROM meta WHERE key = ?", (failing,))
+        elif not db.get_meta(con, failing):
+            db.set_meta(con, failing, _now())
+        since = db.get_meta(con, failing)
+        long = bool(since) and datetime.datetime.fromisoformat(since) <= datetime.datetime.now() - UNREADABLE_AFTER
+        if (readable and was != "readable") or (not readable and was == "readable" and long):
             con.execute(
                 "INSERT INTO changes (ts, song_key, list_key, change, detail) VALUES (?, '', ?, ?, ?)",
                 (_now(), list_key, "readable" if readable else "unreadable", why[:300] or None),

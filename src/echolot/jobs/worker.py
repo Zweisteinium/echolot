@@ -24,13 +24,14 @@ from echolot import db
 from echolot.config import Settings
 from echolot.jobs import acquire, availability, covers, lists, schedule
 from echolot.library import catalog, filing, history, playlists, review
-from echolot.services import navidrome
+from echolot.services import navidrome, soulseek
 from echolot.settings import auth, options, sources
 from echolot.settings.vault import Vault
 
 log = logging.getLogger(__name__)
 TICK = 20  # seconds between looks at the schedule
 RESUME = "resume"  # meta: the runs that gave way, to go on with (Worker.resume)
+EXPECTED = (soulseek.DaemonError,)  # a job failing for these reports them in one line
 
 
 def _now() -> str:
@@ -292,6 +293,9 @@ class Worker:
                 if run.stop.is_set() and not self._stop.is_set():
                     message = f"cancelled: {message}"
                 log.info("%s: %s", name, message)
+            except EXPECTED as e:  # a service down (Soulseek not logged in): the job says so, no traceback
+                message, ok = str(e), False
+                log.warning("%s: %s", name, e)
             except Exception as e:
                 message, ok = f"{type(e).__name__}: {e}", False
                 log.exception("%s failed", name)

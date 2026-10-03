@@ -236,14 +236,53 @@ def test_levels_and_due() -> None:
 
 
 def test_login_failure_counts_no_try(run: Run) -> None:
-    """A wrong Soulseek password: nothing is found, but that is not the songs' fault."""
+    """A wrong Soulseek password, or a daemon that lost Soulseek: no search starts (the songs wait for
+    it), and that is not the songs' fault."""
     FakeDaemon.ready = False
-    rows = missing(run)
-    assert "interrupted" in acquire._search(run, rows, "search")
+    with pytest.raises(soulseek.DaemonError, match="Soulseek not logged in"):
+        acquire._search(run, missing(run), "search")
+    assert FakeDaemon.searches == []
     con = run.connect()
     assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
     con.close()
-    assert run.stop.is_set()
+
+
+def test_a_lost_login_is_waited_for(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Soulseek drops the login during a run (a server outage; the daemon's watchdog restarts it): the
+    song in progress counts no try, the run waits until the daemon can log in again and goes on with the
+    rest; one that stays out stops the run."""
+    con = run.connect()
+    with con:
+        options.update(con, options.Soulseek, parallel=1)
+    con.close()
+    monkeypatch.setattr(acquire, "SOULSEEK_POLL", 0.01)
+    looks = []
+    status = FakeDaemon.status
+
+    def flaky(self) -> dict:
+        looks.append(FakeDaemon.ready)
+        if not FakeDaemon.ready and looks.count(False) >= 3:
+            FakeDaemon.ready = True  # back (a fresh daemon: logs in with the next search)
+        return status(self)
+
+    search = FakeDaemon.search
+
+    def drops_once(self, *args):
+        if len(FakeDaemon.searches) == 0:
+            FakeDaemon.ready = False
+        return search(self, *args)
+
+    monkeypatch.setattr(FakeDaemon, "status", flaky)
+    monkeypatch.setattr(FakeDaemon, "search", drops_once)
+    rows = [r for r in missing(run) if r["key"] == "spotify:s3"] * 2
+    message = acquire._search(run, rows, "search")
+    assert "1 interrupted" in message and not run.stop.is_set() and len(FakeDaemon.searches) == 2  # went on
+    monkeypatch.setattr(acquire, "SOULSEEK_WAIT", 0)
+    monkeypatch.setattr(FakeDaemon, "status", status)
+    FakeDaemon.ready, FakeDaemon.searches[:] = True, []
+    monkeypatch.setattr(FakeDaemon, "search", lambda self, *a: setattr(FakeDaemon, "ready", False) or search(self, *a))
+    acquire._search(run, rows, "search")
+    assert run.stop.is_set() and len(FakeDaemon.searches) == 1  # stays out: the rest waits for the next run
 
 
 class FakeYtDlp:

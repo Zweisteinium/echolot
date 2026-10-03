@@ -309,7 +309,9 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     if not songs:
         return "nothing to search"
     fetcher = Fetcher(run, purpose)
-    fetcher.daemon.status()  # reachable (it logs in to Soulseek with the first search)
+    state = fetcher.daemon.status()["state"]  # reachable (it logs in to Soulseek with the first search)
+    if "Disconnected" in state:  # it tried and failed: the songs wait (the daemon is restarted after 15 min)
+        raise soulseek.DaemonError("Soulseek not logged in: the songs wait for it")
     con = run.connect()
     try:
         index = recordings.Index(catalog.Catalog.from_db(con))
@@ -318,7 +320,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     deadline = time.monotonic() + 20 * 60 + 15 * len(songs)  # a run shares Soulseek with the others
     counts: dict[str, int] = {}
     done = 0
-    lock = threading.Lock()
+    lock, waiting = threading.Lock(), threading.Lock()
 
     def one(row: sqlite3.Row) -> None:
         busy = row["file"] or row["key"]
@@ -348,9 +350,11 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
             log.exception("%s: %s - %s", purpose, want.artist, want.title)
             outcome = Outcome("failed", str(e))
         if outcome.action not in FOUND and not _logged_in(fetcher.daemon):
-            # not the song's fault: no try counted, and the rest waits for the next run
+            # not the song's fault: no try counted; the rest waits until Soulseek is back, or the next run
             outcome = Outcome("interrupted", "Soulseek not logged in")
-            run.stop.set()
+            if not _soulseek_back(run, fetcher.daemon, waiting) and not run.give_way.is_set():
+                run.note("Soulseek not logged in for 20 min: the rest waits for the next run")
+                run.stop.set()
         con = run.connect()
         try:
             _count(con, purpose, want.key, outcome.action, outcome.report)
@@ -404,6 +408,31 @@ def _want(row: sqlite3.Row) -> Want:
     if row["service"] == "soundcloud":
         want = dataclasses.replace(want, title=tagging.clean_title(want.title, want.artist))
     return want
+
+
+SOULSEEK_WAIT = 20 * 60  # seconds a run waits for a lost Soulseek login (the daemon's watchdog: 15 min)
+SOULSEEK_POLL = 15  # seconds between looks meanwhile
+
+
+def _soulseek_back(run: "Run", daemon: soulseek.Daemon, waiting: threading.Lock) -> bool:
+    """Soulseek dropped the login (a server outage, the daemon restarted): wait until the daemon is logged
+    in again or can log in (a fresh one: state None, it logs in with the next search), at most
+    SOULSEEK_WAIT, while the run is not stopped and does not give way. One song's thread waits, the
+    others behind it. True if the run can go on."""
+    with waiting:
+        end = time.monotonic() + SOULSEEK_WAIT
+        while not (run.stop.is_set() or run.give_way.is_set()):
+            try:
+                st = daemon.status()
+            except soulseek.DaemonError:
+                st = {"ready": False, "state": "daemon not reachable"}
+            if st["ready"] or st["state"] in ("", "None"):
+                return True
+            if time.monotonic() > end:
+                return False
+            run.say(f"waiting for Soulseek ({st['state']})")
+            run.stop.wait(SOULSEEK_POLL)
+        return False
 
 
 def _logged_in(daemon: soulseek.Daemon) -> bool:

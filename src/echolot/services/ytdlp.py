@@ -145,7 +145,14 @@ class YtDlp:
         return out
 
     def fetch(self, url: str, dest: Path, stop: threading.Event) -> tuple[Path | None, str]:
-        """Download a found video's or track's best audio as dest.<ext>: (path, '') or (None, why)."""
+        """Download a found video's or track's best audio as dest.<ext>: (path, '') or (None, why). YouTube
+        now and then refuses a stream (HTTP 403): asked once more, it hands out a new one."""
+        got, why = self._fetch(url, dest, stop)
+        if got is None and "403" in why and not stop.is_set():
+            got, why = self._fetch(url, dest, stop)
+        return got, why
+
+    def _fetch(self, url: str, dest: Path, stop: threading.Event) -> tuple[Path | None, str]:
         r = self.run(["-f", "bestaudio/best", "-x", "--audio-quality", "0", "--embed-metadata",
                       "--no-playlist", "-o", f"{dest}.%(ext)s", "--print", "after_move:filepath", url],
                      stop, 900)  # fmt: skip
