@@ -72,7 +72,7 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
     form = await request.form()
     songs = _songs(request, con)
     _batch(request, batch)
-    chosen = {}
+    chosen, remove = {}, {int(n[7:]) for n in form if n.startswith("remove_") and n[7:].isdigit()}
     for name, value in form.multi_items():
         if name.startswith("song_") and name[5:].isdigit() and isinstance(value, str) and value:
             if value not in songs:
@@ -82,7 +82,7 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
         upload.cancel(_paths(request), batch)
         return page(request, "_upload.html", step="done", results=[], imported=[], none=True)
     vault = request.app.state.vault  # (filing reads and writes files and asks Spotify for the cover)
-    results = await run_in_threadpool(upload.import_files, con, _paths(request), vault, batch, chosen)
+    results = await run_in_threadpool(upload.import_files, con, _paths(request), vault, batch, chosen, remove)
     imported = [key for _, key in results if key]  # (the page takes these songs off Missing)
     return page(request, "_upload.html", step="done", results=[line for line, _ in results], imported=imported)
 

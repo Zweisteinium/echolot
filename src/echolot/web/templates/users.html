@@ -3,16 +3,18 @@
 {% block content %}
 <section class="card">
   <h1>Users</h1>
-  <p class="muted">Everyone who logged in with their Navidrome account. An admin may do everything, for everyone; a Navidrome admin always is one. Everyone else manages their own accounts and lists, and may be given more for their own songs. An account gone from Navidrome is disabled (its lists stay).</p>
+  <p class="muted">Everyone who logged in with their Navidrome account. An admin may do everything, for everyone (their Review and Run show ticked; what is set for them comes back when they are no admin any more); a Navidrome admin always is one. Everyone else manages their own accounts and lists, and may be given more for their own songs. An account gone from Navidrome is disabled (its lists stay).</p>
   <table class="rows">
     <thead><tr><th>User</th><th>Admin</th>{% for p, label in permissions.items() %}<th title="{{ label }}">{{ label.split(':')[0] }}</th>{% endfor %}<th>Last login</th><th></th></tr></thead>
     {% for u in users %}
     {% set form_id = 'user-' ~ u.id %}
     <tr{% if u.disabled %} class="muted"{% endif %}>
       <td>{{ u.name }}{% if u.navidrome_admin %} <span class="pill">Navidrome admin</span>{% endif %}{% if u.disabled %} <span class="pill bad-pill">gone from Navidrome</span>{% endif %}{% if u.id == user.id %} <span class="muted small">(you)</span>{% endif %}</td>
-      <td><input type="checkbox" form="{{ form_id }}" name="admin" value="1" aria-label="{{ u.name }} is an admin" {% if u.admin or u.navidrome_admin %}checked{% endif %} {% if u.navidrome_admin or u.disabled %}disabled title="a Navidrome admin is always an admin here"{% endif %}></td>
+      {% set admin = u.admin or u.navidrome_admin %}
+      <td><input type="checkbox" form="{{ form_id }}" name="admin" value="1" data-admin aria-label="{{ u.name }} is an admin" {% if admin %}checked{% endif %} {% if u.navidrome_admin or u.disabled %}disabled title="a Navidrome admin is always an admin here"{% endif %}><input type="hidden" form="{{ form_id }}" name="locked" value="{{ 1 if admin else 0 }}" data-locked></td>
       {% for p, label in permissions.items() %}
-      <td><input type="checkbox" form="{{ form_id }}" name="{{ p }}" value="1" aria-label="{{ u.name }}: {{ label }}" {% if p in (u.permissions or '').split(',') %}checked{% endif %} {% if u.disabled %}disabled{% endif %}></td>
+      {% set has = p in (u.permissions or '').split(',') %}
+      <td><input type="checkbox" form="{{ form_id }}" name="{{ p }}" value="1" data-permission data-stored="{{ 1 if has else 0 }}" aria-label="{{ u.name }}: {{ label }}" {% if has or admin %}checked{% endif %} {% if u.disabled or admin %}disabled{% endif %}{% if admin %} title="An admin may do everything"{% endif %}></td>
       {% endfor %}
       <td class="small nowrap" title="{{ u.last_login or '' }}">{{ u.last_login|ago if u.last_login else 'never' }}{% if sessions.get(u.id) %} · {{ sessions[u.id] }} login(s){% endif %}</td>
       <td class="nowrap">
@@ -25,4 +27,18 @@
     {% endfor %}
   </table>
 </section>
+<script>
+  // an admin may do everything: their permissions show ticked and locked; unticking Admin brings back what is
+  // stored for them (being an admin never changes it)
+  document.addEventListener("change", (e) => {
+    const admin = e.target.closest("[data-admin]");
+    if (!admin) return;
+    admin.closest("tr").querySelector("[data-locked]").value = admin.checked ? "1" : "0";  // the boxes count again
+    for (const box of admin.closest("tr").querySelectorAll("[data-permission]")) {
+      box.disabled = admin.checked;
+      box.checked = admin.checked || box.dataset.stored === "1";
+      box.title = admin.checked ? "An admin may do everything" : "";
+    }
+  });
+</script>
 {% endblock %}

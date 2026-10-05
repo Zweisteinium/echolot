@@ -132,9 +132,14 @@ def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
         if not score and rules.artist_key(s["artist"]) in rules.artist_key(f"{f.artist} {stem}"):
             score = 1  # the title and the artist somewhere (never another artist's song of that title)
         if score:
-            cand = (score, not s["file"], -abs((f.seconds or 0) - (s["length"] or 0)), s["key"])
+            cand = (score, needs(s), -abs((f.seconds or 0) - (s["length"] or 0)), s["key"])
             best = max(best, cand) if best else cand
     return best[3] if best else None
+
+
+def needs(song: sqlite3.Row) -> bool:
+    """A song without its own file: missing, or covered by a close match (another version)."""
+    return not song["file"] or bool(song["close_match"])
 
 
 def copy_label(song: sqlite3.Row) -> str:
@@ -174,11 +179,12 @@ class Copy:
 
 
 def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
-    """Whether the file is a better copy than the song's in the library (None: the song has none). Genuine
+    """Whether the file is a better copy than the song's in the library (None: the song has none of its own,
+    a close match is another version). Genuine
     lossless beats a lossy or fake copy; otherwise its worth (a fake FLAC: its source's) must be a quarter
     more than the copy's, and its sound reach as high (the library copy is measured by the same spectrum
     check): a 256 kbps source made into a FLAC beats a 123 kbps Opus, a 128 kbps one does not."""
-    if not song["file"]:
+    if needs(song):  # missing, or a close match (another recording): nothing to compare with
         return None
     have = copy_label(song)
     if f.tier == "lossless":
@@ -268,11 +274,17 @@ class _Run:
 
 
 def import_files(
-    con: sqlite3.Connection, paths: Paths, vault: "Vault", batch: str, chosen: dict[int, str]
+    con: sqlite3.Connection,
+    paths: Paths,
+    vault: "Vault",
+    batch: str,
+    chosen: dict[int, str],
+    remove: set[int] = frozenset(),
 ) -> list[tuple[str, str | None]]:
-    """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file, a
-    song in the library the file in place of its copy (better, or replaced anyway: filing.file_into replace);
-    delete the batch.
+    """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file
+    (one covered by a close match too: the version stays its own file, unless n is in `remove`), a song in
+    the library the file in place of its copy (better, or replaced anyway: filing.file_into replace); delete
+    the batch.
     Returns one line per file, with the song key when the song has the file now."""
     from echolot.jobs.acquire import finish
 
@@ -283,9 +295,10 @@ def import_files(
         if f is None or f.path is None or not f.path.is_file() or song is None:
             out.append((f"{f.name if f else n}: not imported (gone)", None))
             continue
-        want, fake, have = Want.of(song), f.tier == "fake", song["file"]
+        close = song["file"] if song["close_match"] else None  # the version it was covered by: stays, or `remove`
+        want, fake, have = Want.of(song), f.tier == "fake", None if close else song["file"]
         if not have:
-            _link(con, key, want)  # this file whatever its length
+            _link(con, key, want, f.seconds if close else 0)  # this file whatever its length
         info = {
             "match": "by hand",
             "fake": fake,
@@ -297,13 +310,15 @@ def import_files(
         if dest and action in ("new", "upgrade"):
             finish(_Run(paths, vault), con, dest, want)
         if not have and action in ("new", "upgrade", "duplicate"):
-            _link(con, key, want)
+            _link(con, key, want, f.seconds if close else 0)
         elif have and dest and action == "upgrade":  # linked to its new copy, whatever that copy's length
             e = next((x for x in catalog.Catalog.from_db(con).entries if paths.tracks / x.path == dest), None)
             if e is not None:
                 link = json.dumps([e.path.partition("/")[0], e.title, round(e.duration)])
                 with con:
                     con.execute("UPDATE songs SET link = ? WHERE key = ?", (link, key))
+        if close and n in remove and dest and action in ("new", "upgrade"):
+            out.append(_remove_close(con, paths, key, close))
         where = dest.relative_to(paths.tracks).as_posix() if dest else ""
         label = {"new": "filed as", "upgrade": "replaced the copy:", "duplicate": "the library has a better copy:"}
         line = f"{want.artist} – {want.title}: {label.get(action, action)} {where}".strip()
@@ -313,13 +328,25 @@ def import_files(
     return out
 
 
-def _link(con: sqlite3.Connection, key: str, want: Want) -> None:
-    """The song is its library file <artist> - <title>, whatever the file's length (as review links it)."""
+def _remove_close(con: sqlite3.Connection, paths: Paths, key: str, path: str) -> tuple[str, None]:
+    """The close match a song was covered by, removed with its upload (kept 30 days in inbox/replaced);
+    not while another song has that file."""
+    if con.execute("SELECT 1 FROM songs WHERE file = ? AND key != ?", (path, key)).fetchone():
+        return (f"{path}: kept, another song has it", None)
+    entry = next((e for e in catalog.Catalog.from_db(con).entries if e.path == path), None)
+    if entry is None or not (paths.tracks / path).is_file():
+        return (f"{path}: already gone", None)
+    filing.retire(con, paths, entry, "close match removed by hand")
+    return (f"{path}: removed (kept 30 days in inbox/replaced)", None)
+
+
+def _link(con: sqlite3.Connection, key: str, want: Want, seconds: float = 0) -> None:
+    """The song is its library file <artist> - <title>, whatever the file's length (as review links it); with
+    `seconds`, the one of that length (a close match's version can reduce to the same title)."""
+    link = [want.artist, want.title, round(seconds)] if seconds else [want.artist, want.title]
     with con:
         con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
-        con.execute(
-            "UPDATE songs SET link = ?, close_match = 0 WHERE key = ?", (json.dumps([want.artist, want.title]), key)
-        )
+        con.execute("UPDATE songs SET link = ?, close_match = 0 WHERE key = ?", (json.dumps(link), key))
 
 
 def cancel(paths: Paths, batch: str) -> None:

@@ -134,3 +134,17 @@ def close_search(request: Request, con: DB, key: str) -> Response:
     review.search_again(con, key)
     catalog.match_songs(con)
     return back("/missing", ok=f"{song['artist']} – {song['title']}: searched again for the perfect match.")
+
+
+@router.post("/songs/{key:path}/close-remove")
+def close_remove(request: Request, con: DB, key: str) -> Response:
+    """Remove a song's close match (its file kept 30 days in inbox/replaced) and search for the song again."""
+    user = request.state.user
+    if not user.admin and key not in review.songs_of(con, user.id):
+        raise HTTPException(403, "That song is on another user's lists.")
+    try:
+        gone = review.remove_close(con, filing.Paths(music_dir(request)), key)
+    except ConfigError as e:
+        return back("/missing", error=str(e))
+    catalog.match_songs(con)
+    return back("/missing", ok=f"{gone} removed (kept 30 days in inbox/replaced); the song is searched again.")

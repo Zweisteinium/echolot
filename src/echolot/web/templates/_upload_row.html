@@ -7,7 +7,9 @@
   <td>
     {% if song %}<input type="hidden" name="song_{{ f.n }}" value="{{ song.key }}"{% if not go %} disabled{% endif %}>
     <div class="name">{{ song.artist }} – {{ song.title }}</div>
-    <div class="muted small">{% if not song.file %}missing{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}</div>
+    <div class="muted small">{% if not song.file %}missing{% elif song.close_match %}covered by a close match: <span title="{{ song.file }}">{{ song.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span>{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}</div>
+    {% if go and song.close_match %}{% if song.shared %}<span class="muted small" title="Another song has that file">the close match stays: another song has it</span>
+    {% else %}<label class="force small" title="Take the close match out of the library (kept 30 days in inbox/replaced); left unticked it stays a file of its own"><input type="checkbox" name="remove_{{ f.n }}" value="1"> Remove the close match</label>{% endif %}{% endif %}
     {% if not go and song.file and not f.error %}<label class="force small" title="Replace your copy with this file even though it is not better (yours is kept 30 days in inbox/replaced)"><input type="checkbox" data-force> Replace anyway</label>{% endif %}
     {% else %}<span class="muted">not imported</span>{% endif %}
   </td>

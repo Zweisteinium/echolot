@@ -68,6 +68,7 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permiss
     ("POST", "/missing/upload/{batch}/import"): "review",
     ("POST", "/missing/upload/{batch}/cancel"): "review",
     ("POST", "/songs/{key:path}/search"): "run",
+    ("POST", "/songs/{key:path}/close-remove"): "review",
     ("POST", "/jobs/mine"): "run",
 }
 NO_NAVIDROME = "Echolot does not know Navidrome's address yet: set ECHOLOT_NAVIDROME_URL and restart it."

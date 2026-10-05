@@ -479,6 +479,8 @@ table.missing td.tried { min-width: 18rem; }
 /* missing: upload by hand. A dialog in the card's look: pick files (a drop zone), check them in a table,
    confirm; the row's upload button is a quiet icon until the row is hovered */
 .row-action { width: 1%; text-align: right; }
+.row-actions { text-align: right; }
+.row-actions > * { vertical-align: middle; margin-left: 0.3rem; }
 .icon-button { padding: 0.3rem; line-height: 0; color: var(--muted); background: transparent; border-color: transparent; }
 .icon-button:hover, .icon-button:focus-visible { color: var(--accent); border-color: var(--border); background: var(--surface); }
 dialog.modal { width: min(56rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 1.25rem 1.4rem;
