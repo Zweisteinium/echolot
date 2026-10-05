@@ -1,8 +1,8 @@
 {# the upload dialog on the Missing page, step by step: pick files, check them, done (web/upload.py) #}
 <div class="upload" {% if step == 'check' %}data-batch="{{ batch }}"{% endif %}>
 {% if step == 'pick' %}
-  <h2>Upload {{ 'a file for ' ~ song.artist ~ ' – ' ~ song.title if song else 'files for missing songs' }}</h2>
-  <p class="muted small">Files you got elsewhere (bought, or from another tool). Echolot checks each one and shows what it sees; you decide what is imported.</p>
+  <h2>Upload {{ 'a file for ' ~ song.artist ~ ' – ' ~ song.title if song else 'files' }}</h2>
+  <p class="muted small">Files you got elsewhere (bought, or from another tool): for missing songs, or better copies of songs you have. Echolot finds each file's song, checks it and shows what it sees; you decide what is imported.</p>
   {% if upload_error %}<div class="flash error" role="alert">{{ upload_error }}</div>{% endif %}
   <form hx-post="/missing/upload" hx-encoding="multipart/form-data" hx-target="#upload-body" class="upload-pick">
     {{ csrf_input }}
@@ -23,14 +23,14 @@
 {% elif step == 'check' %}
   {% set n = importable %}
   <h2>{% if n == rows|length %}Import {{ n }} file{{ 's' if n != 1 }}?{% elif n %}Import {{ n }} of {{ rows|length }} files?{% else %}Nothing to import{% endif %}</h2>
-  <p class="muted small">Each file becomes the song shown, whatever its names or length (as Perfect match in review). Leave out a file with ×.</p>
+  <p class="muted small">Each file becomes the song shown, whatever its names or length (as Perfect match in review); for a song you have, it replaces your copy (kept 30 days in <code>inbox/replaced</code>). Leave out a file with ×.</p>
   <form hx-post="/missing/upload/{{ batch }}/import" hx-target="#upload-body">
     {{ csrf_input }}
     <div class="table-scroll">
     <table class="rows upload-table">
       <thead><tr><th>File</th><th>Song</th><th>Check</th><th></th></tr></thead>
       <tbody>
-      {% for f, song, labels, fit in rows %}{% include "_upload_row.html" %}{% endfor %}
+      {% for f, song, labels, fit, go in rows %}{% include "_upload_row.html" %}{% endfor %}
       </tbody>
     </table>
     </div>

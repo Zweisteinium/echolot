@@ -73,8 +73,8 @@ def test_cancel_and_scope(settings: Settings, login: Callable[..., TestClient]) 
     one = [("files", ("x.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
     batch = batch_of(client.post("/missing/upload", files=one, data={"song": "spotify:s3"}).text)
     assert (
-        client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:s1"}).status_code == 403
-    )  # not missing
+        client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:nobody"}).status_code == 403
+    )  # none of the user's songs
     assert client.post(f"/missing/upload/{batch}/cancel").status_code == 200
     assert not (filing.Paths(settings.library_dir.parent).inbox("upload") / batch).exists()
     viewer = login(app, "timon", admin=False)
@@ -84,8 +84,8 @@ def test_cancel_and_scope(settings: Settings, login: Callable[..., TestClient]) 
 
 def test_guess_by_title_and_length() -> None:
     songs = [
-        {"key": "a", "artist": "Hurts", "title": "2 More - Radio Edit", "length": 211},
-        {"key": "b", "artist": "Hurts", "title": "Wonderful Life", "length": 220},
+        {"key": "a", "artist": "Hurts", "title": "2 More - Radio Edit", "length": 211, "file": None},
+        {"key": "b", "artist": "Hurts", "title": "Wonderful Life", "length": 220, "file": None},
     ]
     f = upload.File(1, "02 - 2 More.flac", seconds=211.2, artist="Hurts", title="2 More - Radio Edit")
     assert upload.guess(f, songs) == "a"
@@ -95,7 +95,7 @@ def test_guess_by_title_and_length() -> None:
 
 
 def test_labels() -> None:
-    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211}
+    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211, "file": None}
     f = upload.File(1, "x.flac", seconds=212, tier="lossless")
     assert upload.labels(f, song, upload.Fit(1, 0.95, 0.99))[0][:2] == ("Looks right", "ok")
     assert upload.labels(f, song, upload.Fit(1))[0][:2] == ("Looks right", "ok")  # no preview: the length
@@ -103,4 +103,32 @@ def test_labels() -> None:
     assert [t for t, _, _ in off] == ["2:15 longer", "Sounds different", "Fake FLAC"]
     master = upload.labels(f, song, upload.Fit(0, 0.96, 0.72))  # SpotiFLAC's other version under the ISRC
     assert [t for t, _, _ in master] == ["Other master or mix"]
-    assert upload.labels(f, None, None)[0][0] == "No missing song found"
+    assert upload.labels(f, None, None)[0][0] == "No song found"
+    have = song | {"file": "Hurts/Hurts - 2 More.mp3", "quality": "lossy-mid", "kbps": 160}
+    assert upload.labels(f, have, upload.Fit(0, 0.95, 0.99))[0][:2] == ("Better than your 160 kbps", "ok")
+    flac = have | {"quality": "lossless"}
+    assert upload.labels(f, flac, None)[0][:2] == ("Not better than your FLAC", "bad") and not upload.importable(
+        f, flac
+    )
+    assert upload.better(upload.File(1, "x.mp3", tier="lossy-high", kbps=320), have)
+    assert not upload.better(upload.File(1, "x.mp3", tier="lossy-mid", kbps=170), have)  # barely more
+
+
+def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """First Song is an MP3 in the library: a FLAC of it uploaded on its list page takes over its name."""
+    client = login(create_app(settings))
+    assert 'hx-get="/missing/upload?song=spotify%3As1"' in client.get("/lists/spotify:playlist:AAA111").text
+    one = [("files", ("Artist A - First Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
+    html = client.post("/missing/upload", files=one).text
+    assert '<input type="hidden" name="song_1" value="spotify:s1">' in html and "you have it" in html
+    assert "Better than your" in html
+    done = client.post(f"/missing/upload/{batch_of(html)}/import", data={"song_1": "spotify:s1"}).text
+    assert "Artist A – First Song: replaced the copy: Artist A/Artist A - First Song.flac" in done
+    assert (settings.library_dir / "Artist A" / "Artist A - First Song.flac").is_file()
+    assert not (settings.library_dir / "Artist A" / "Artist A - First Song.mp3").exists()  # retired
+    con = db.connect(settings.db_path)
+    assert (
+        con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
+        == "Artist A/Artist A - First Song.flac"
+    )
+    con.close()

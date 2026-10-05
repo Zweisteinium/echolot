@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import legend, qbar, quality, service, song_link %}
+{% from "_icons.html" import use %}
 {% block title %}{{ lst.title }} · Echolot{% endblock %}
 {% block content %}
 {% set missing = tiers[-1][2] %}
@@ -15,7 +16,8 @@
 
 <section class="card">
   <table class="rows">
-    <thead><tr><th class="num">#</th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Quality</th><th class="hide-narrow">File</th></tr></thead>
+    {% set upload = user.can('review') %}
+    <thead><tr><th class="num">#</th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Quality</th><th class="hide-narrow">File</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}
     <tr{% if not s.file %} class="missing"{% endif %}>
@@ -25,9 +27,11 @@
       <td class="num muted">{{ s.length|mmss }}</td>
       <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}</td>
       <td class="hide-narrow">{% if s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>
+      {% if upload %}<td class="row-action">{% if not s.file or s.quality != 'lossless' %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="{{ 'Upload a file for this song' if not s.file else 'Upload a better copy of this song' }}" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
     </tr>
     {% endfor %}
     </tbody>
   </table>
 </section>
+{% if upload %}{% include "_upload_dialog.html" %}{% endif %}
 {% endblock %}

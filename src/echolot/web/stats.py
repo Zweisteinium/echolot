@@ -198,12 +198,14 @@ def missing(
     return [_tried(r, rejected.get(r["key"], []), paths) for r in rows]
 
 
-def missing_songs(con: Connection, uid: int | None = None) -> list[Row]:
-    """The missing songs (a user's, or everyone's) with what a file of one is checked against."""
+def upload_songs(con: Connection, uid: int | None = None) -> list[Row]:
+    """The songs (a user's, or everyone's) a file uploaded by hand can be: the missing ones, and those in the
+    library with what their copy is (quality, kbps); with what a file is checked against."""
     mine, args = _mine(uid)
     return con.execute(
-        "SELECT key, service, artist, title, length, isrc FROM wanted s "
-        f"WHERE s.file IS NULL AND {mine} ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE",
+        "SELECT s.key, s.service, s.artist, s.artists, s.title, s.length, s.isrc, s.file, f.quality, f.kbps "
+        f"FROM wanted s LEFT JOIN files f ON f.path = s.file WHERE {mine} "
+        "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
     ).fetchall()
 

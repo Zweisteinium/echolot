@@ -1,9 +1,11 @@
-"""Files uploaded by hand for missing songs (Missing page). Uploaded files wait in inbox/upload/<batch>/,
-each checked once (audio.prepare: repaired, converted, spectrum-checked; its length, quality and tags kept
-next to it as <file>.json). Echolot guesses each file's song among the missing ones; what it sees (length
-against the song's, quality, the audio against the release's) is shown for information only. Imported,
-a file is the song you chose, whatever its names or length (as Perfect match in review): filed with the
-download source "by hand"; the rest of the batch is deleted, as is a batch left alone for a day."""
+"""Files uploaded by hand: for missing songs, or better copies of songs in the library (the upload dialog on
+Missing, the Overview and the list pages). Uploaded files wait in inbox/upload/<batch>/, each checked once
+(audio.prepare: repaired, converted, spectrum-checked; its length, quality and tags kept next to it as
+<file>.json). Echolot finds each file's song among the user's songs, a missing one first; what it sees (length
+against the song's, quality, the audio against the release's) is shown for information. Imported, a file is
+that song whatever its names or length (as Perfect match in review): a missing song gets it, a song in the
+library takes it in place of its copy only when it is better (`better`); the download source is "by hand".
+The rest of the batch is deleted, as is a batch left alone for a day."""
 
 import dataclasses
 import json
@@ -109,23 +111,47 @@ def _save(d: Path, f: File) -> None:
 
 
 def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
-    """The missing song a file most likely is: by its tags and file name (rules.identify), then by its
-    title and artist anywhere in them; the closest in length among equals. None when nothing names one."""
+    """The song a file most likely is: by its tags and file name (rules.identify), then by its title and
+    artist anywhere in them; a missing song before one in the library, then the closest in length. None
+    when nothing names one. Only songs whose core title is in the file's names are compared."""
     if f.error:
         return None
     stem = re.sub(r"^\d{2} ", "", Path(f.path).stem if f.path else f.name)
-    best: tuple[float, float, str] | None = None
+    text = f" {rules.title_key(f.title)} {rules.title_key(stem)} "
+    best: tuple[float, bool, float, str] | None = None
     for s in songs:
+        core = rules.title_key(rules.segments(s["title"])[0])
+        if not core or f" {core} " not in text:
+            continue
         match, _ = rules.identify(s["artist"], s["title"], [f.artist], f.title, stem, [], f.seconds, s["length"], 6)
         score = {"exact": 3, "probable": 2}.get(match or "", 0)
-        core = rules.title_key(rules.segments(s["title"])[0])
-        named = f" {core} " in f" {rules.title_key(f.title)} {rules.title_key(stem)} " if core else False
-        if not score and named and rules.artist_key(s["artist"]) in rules.artist_key(f"{f.artist} {stem}"):
+        if not score and rules.artist_key(s["artist"]) in rules.artist_key(f"{f.artist} {stem}"):
             score = 1  # the title and the artist somewhere (never another artist's song of that title)
         if score:
-            cand = (score, -abs((f.seconds or 0) - (s["length"] or 0)), s["key"])
+            cand = (score, not s["file"], -abs((f.seconds or 0) - (s["length"] or 0)), s["key"])
             best = max(best, cand) if best else cand
-    return best[2] if best else None
+    return best[3] if best else None
+
+
+def copy_label(song: sqlite3.Row) -> str:
+    """What the library has of a song: "FLAC", "fake FLAC", "160 kbps"."""
+    return {"lossless": "FLAC", "fake": "fake FLAC"}.get(song["quality"] or "", f"{song['kbps'] or '?'} kbps")
+
+
+def better(f: File, song: sqlite3.Row) -> bool:
+    """The file is a better copy than the song's in the library: genuine lossless for a lossy or fake one, or a
+    lossy one of a clearly higher bitrate (a quarter more) than a lossy one."""
+    if f.tier == "lossless":
+        return song["quality"] != "lossless"
+    if song["quality"] in ("lossless",) or f.tier == "fake":
+        return False
+    have = 0 if song["quality"] == "fake" else (song["kbps"] or 0)
+    return f.kbps >= max(have * 1.25, have + 1)
+
+
+def importable(f: File, song: sqlite3.Row | None) -> bool:
+    """A file is imported for a missing song, or as a better copy of one in the library."""
+    return song is not None and not f.error and (not song["file"] or better(f, song))
 
 
 def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | None:
@@ -147,12 +173,19 @@ def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | Non
 
 
 def labels(f: File, song: sqlite3.Row | None, fit: Fit | None) -> list[tuple[str, str, str]]:
-    """Short labels for a file as its song: "Looks right", or what is off; (text, style ok|warn|bad, detail)."""
+    """Short labels for a file as its song: "Looks right" (a song you have: "Better than your 160 kbps"), or
+    what is off; a copy no better than yours is "Not better than your FLAC". (text, style ok|warn|bad, detail)"""
     if f.error:
         return [("Not audio", "bad", f.error)]
     if song is None:
-        return [("No missing song found", "bad", "Neither its tags nor its name name one of your missing songs")]
-    out = []
+        return [("No song found", "bad", "Neither its tags nor its name name one of your songs")]
+    if song["file"] and not better(f, song):
+        return [(f"Not better than your {copy_label(song)}", "bad", "Your copy stays; this file is not imported")]
+    out = (
+        [(f"Better than your {copy_label(song)}", "ok", "Replaces your copy (kept 30 days in inbox/replaced)")]
+        if song["file"]
+        else []
+    )
     if fit and fit.diff is not None and abs(fit.diff) > 3:
         n = abs(int(fit.diff))
         amount = f"{n // 60}:{n % 60:02d}" if n >= 60 else f"{n} s"
@@ -188,7 +221,8 @@ class _Run:
 def import_files(
     con: sqlite3.Connection, paths: Paths, vault: "Vault", batch: str, chosen: dict[int, str]
 ) -> list[tuple[str, str | None]]:
-    """File the chosen files (n -> song key) as their songs, as by Perfect match; delete the batch.
+    """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file, a
+    song in the library a better copy in place of its own (filing.file_into outrank); delete the batch.
     Returns one line per file, with the song key when the song has the file now."""
     from echolot.jobs.acquire import finish
 
@@ -199,14 +233,21 @@ def import_files(
         if f is None or f.path is None or not f.path.is_file() or song is None:
             out.append((f"{f.name if f else n}: not imported (gone)", None))
             continue
-        want = Want.of(song)
-        _link(con, key, want)  # this file whatever its length
-        fake = f.tier == "fake"
-        action, dest = filing.file_into(con, paths, f.path, want, "manual", match="by hand", fake=fake)
+        want, fake, have = Want.of(song), f.tier == "fake", song["file"]
+        if not have:
+            _link(con, key, want)  # this file whatever its length
+        info = {"match": "by hand", "fake": fake, "replaces": have or "", "outrank": bool(have)}
+        action, dest = filing.file_into(con, paths, f.path, want, "manual", **info)  # a better copy takes over
         if dest and action in ("new", "upgrade"):
             finish(_Run(paths, vault), con, dest, want)
-        if action in ("new", "upgrade", "duplicate"):
+        if not have and action in ("new", "upgrade", "duplicate"):
             _link(con, key, want)
+        elif have and dest and action == "upgrade":  # linked to its new copy, whatever that copy's length
+            e = next((x for x in catalog.Catalog.from_db(con).entries if paths.tracks / x.path == dest), None)
+            if e is not None:
+                link = json.dumps([e.path.partition("/")[0], e.title, round(e.duration)])
+                with con:
+                    con.execute("UPDATE songs SET link = ? WHERE key = ?", (link, key))
         where = dest.relative_to(paths.tracks).as_posix() if dest else ""
         label = {"new": "filed as", "upgrade": "replaced the copy:", "duplicate": "the library has a better copy:"}
         line = f"{want.artist} – {want.title}: {label.get(action, action)} {where}".strip()

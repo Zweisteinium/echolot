@@ -35,7 +35,10 @@
 </section>
 
 <section class="card quality-card">
-  <h2>{{ 'Quality of your songs' if o.scoped else 'Quality of the library' }} <span class="count">{{ o.files|num }} files{% if missing %} · {{ missing|num }} songs missing{% endif %}</span></h2>
+  <div class="card-head">
+    <h2>{{ 'Quality of your songs' if o.scoped else 'Quality of the library' }} <span class="count">{{ o.files|num }} files{% if missing %} · {{ missing|num }} songs missing{% endif %}</span></h2>
+    {% if user.can('review') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: better copies of songs you have, or missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
+  </div>
   <div class="quality-split">
     {{ donut_chart(donut, share(o.lossless, donut.total), 'FLAC') }}
     <table class="legend-table">
@@ -90,4 +93,5 @@
 <section class="card">
   {% include "_jobs.html" %}
 </section>
+{% if user.can('review') %}{% include "_upload_dialog.html" %}{% endif %}
 {% endblock %}
