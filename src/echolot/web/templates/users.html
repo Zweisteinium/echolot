@@ -3,7 +3,7 @@
 {% block content %}
 <section class="card">
   <h1>Users</h1>
-  <p class="muted">Everyone who logged in with their Navidrome account. An admin may do everything, for everyone (their Review and Run show ticked; what is set for them comes back when they are no admin any more); a Navidrome admin always is one. Everyone else manages their own accounts and lists, and may be given more for their own songs. An account gone from Navidrome is disabled (its lists stay).</p>
+  <p class="muted">Everyone who logged in with their Navidrome account. Admins may do everything, and a Navidrome admin always is one. Everyone else manages their own accounts and lists, and may review or run searches for their own songs. An account gone from Navidrome is disabled; its lists stay.</p>
   <table class="rows">
     <thead><tr><th>User</th><th>Admin</th>{% for p, label in permissions.items() %}<th title="{{ label }}">{{ label.split(':')[0] }}</th>{% endfor %}<th>Last login</th><th></th></tr></thead>
     {% for u in users %}

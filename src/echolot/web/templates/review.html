@@ -11,7 +11,7 @@
       <span class="volume-value small muted">100 %</span>
     </div>
   </div>
-  <p class="lead small">Very probably the right song, and already in your library: the same core title and version words, no other featured artist, the length within a few seconds. Give it a final listen; if you do nothing, it stays.</p>
+  <p class="lead small">Very probably the right song, and already in your library. Give it a last listen; if you do nothing, it stays.</p>
   <div class="review-list">
     {% for g in songs.filed %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to confirm.</p>{% endfor %}
@@ -23,7 +23,7 @@
     <h1>Worth a look <span class="count">{{ songs.kept|length|num }}</span></h1>
     {% if items.kept|length > songs.kept|length %}<span class="muted small">{{ items.kept|length|num }} downloads</span>{% endif %}
   </div>
-  <p class="lead small">Downloads that did not pass the automatic check (another title, version, length or artist), so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have only lossy, where <em>Perfect match</em> replaces the lossy copy and <em>Close match</em> keeps both.</p>
+  <p class="lead small">Downloads that failed the automatic check, so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have lossy; <em>Perfect match</em> replaces your copy, <em>Close match</em> keeps both.</p>
   <div class="review-list">
     {% for g in songs.kept %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}

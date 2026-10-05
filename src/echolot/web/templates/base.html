@@ -17,16 +17,16 @@
     <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
     {% if user %}
     <nav>
-      <a href="/" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
-      <a href="/sources" {% if nav == 'sources' %}aria-current="page"{% endif %}>Sources</a>
-      <a href="/missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
-      {% if user.can('review') %}<a href="/review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}
-      <a href="/activity" {% if nav == 'activity' %}aria-current="page"{% endif %}>Activity</a>
-      <a href="/changes" {% if nav == 'changes' %}aria-current="page"{% endif %}>Changes</a>
-      <a href="/accounts" {% if nav == 'accounts' %}aria-current="page"{% endif %}>Accounts</a>
+      <a href="/" data-label="Overview" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="/sources" data-label="Sources" {% if nav == 'sources' %}aria-current="page"{% endif %}>Sources</a>
+      <a href="/missing" data-label="Missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
+      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}
+      <a href="/activity" data-label="Activity" {% if nav == 'activity' %}aria-current="page"{% endif %}>Activity</a>
+      <a href="/changes" data-label="Changes" {% if nav == 'changes' %}aria-current="page"{% endif %}>Changes</a>
+      <a href="/accounts" data-label="Accounts" {% if nav == 'accounts' %}aria-current="page"{% endif %}>Accounts</a>
       {% if user.admin %}
-      <a href="/users" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
-      <a href="/settings" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+      <a href="/users" data-label="Users" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
+      <a href="/settings" data-label="Settings" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
       {% endif %}
     </nav>
     {% if user.admin %}

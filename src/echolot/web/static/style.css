@@ -65,6 +65,7 @@
 
 /* ------------------------------------------------------------------ base */
 * { box-sizing: border-box; }
+html { scrollbar-gutter: stable; }  /* a page with a scrollbar does not shift the header against one without */
 
 body {
   margin: 0;
@@ -118,7 +119,10 @@ header::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; h
 .logo span { background: var(--brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
 header nav { display: flex; gap: 0.25rem; flex: 1; flex-wrap: wrap; }
 header nav a, .tabs a { color: var(--muted); padding: 0.3rem 0.65rem; border-radius: var(--radius-sm);
-  transition: color 0.15s, background 0.15s; }
+  transition: color 0.15s, background 0.15s; display: inline-grid; justify-items: center; }
+/* each link as wide as its bold self (data-label): the current one turning bold moves nothing beside it */
+header nav a[data-label]::after, .tabs a[data-label]::after { content: attr(data-label); font-weight: 600;
+  height: 0; overflow: hidden; visibility: hidden; user-select: none; pointer-events: none; }
 header nav a:hover, .tabs a:hover { color: var(--text); background: var(--track); text-decoration: none; }
 header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-weight: 600;
   background: color-mix(in srgb, var(--accent) 11%, transparent); }
@@ -150,6 +154,9 @@ main { max-width: var(--page); margin: 1.5rem auto 3rem; padding: 0 1.5rem; disp
 }
 .card { overflow-x: auto; }
 .card > p:last-child { margin-bottom: 0; }
+/* explanations: lines of a readable length, broken where it reads naturally (no single word left over) */
+p.lead, .card > p.muted, .card > p.small, .rail > p, .task-title p, .section-head + p { max-width: 72ch; text-wrap: pretty; }
+h1, h2, h3 { text-wrap: balance; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
   margin-bottom: 0.5rem; }
 .card-head h1, .card-head h2 { margin: 0; }
@@ -183,14 +190,19 @@ a.pill { text-decoration: none; }
 .task-title h3 { margin: 0; font-size: 1rem; }
 .task-title p { margin: 0.1rem 0 0; }
 .task-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-.task-state { display: grid; gap: 0.3rem; min-width: 0; }
+/* a task's facts, the same rows for every task: Now (while it runs), Last, Schedule, Next */
+.task-facts { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 0.25rem 0.75rem; margin: 0.15rem 0 0; }
+.task-facts dt { color: var(--muted); font-weight: 600; }
+.task-facts dd { margin: 0; min-width: 0; display: grid; gap: 0.3rem; }
 .task-now { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
 .task-now .dot { flex: none; }
 .task-step { flex: none; font-weight: 600; }
-.task-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.task-line { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-when { flex: none; color: var(--muted); }
+.task-when::before { content: "·"; margin-right: 0.5rem; }
+.task-bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; max-width: 40rem; }
 .task-bar > span { display: block; height: 100%; background: var(--brand); transition: width 0.4s; }
-.task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.15rem 1rem; }
+.task-facts .link-button { justify-self: start; }
 .task-info { margin: 0.2rem 0 0; padding: 0.6rem 0.8rem; border-radius: var(--radius); background: var(--track); max-width: 70ch; }
 .task-info dt { font-weight: 600; margin-top: 0.4rem; }
 .task-info dt:first-child { margin-top: 0; }
@@ -221,6 +233,8 @@ dt { color: var(--muted); }
 dd { margin: 0; overflow-wrap: anywhere; }
 
 .icon { flex: none; vertical-align: -3px; }
+.icon-mask { display: inline-block; background: currentColor; -webkit-mask: var(--mask) center / contain no-repeat;
+  mask: var(--mask) center / contain no-repeat; }
 .loading { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 .cards.htmx-added, .song-review.htmx-added { opacity: 0; }  /* loaded lists and decisions fade in */
