@@ -30,7 +30,7 @@
     <table class="rows upload-table">
       <thead><tr><th>File</th><th>Song</th><th>Check</th><th></th></tr></thead>
       <tbody>
-      {% for f, song, labels in rows %}{% include "_upload_row.html" %}{% endfor %}
+      {% for f, song, labels, fit in rows %}{% include "_upload_row.html" %}{% endfor %}
       </tbody>
     </table>
     </div>

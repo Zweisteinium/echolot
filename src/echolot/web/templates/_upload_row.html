@@ -12,6 +12,10 @@
   <td class="upload-facts">
     {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text }}</span>{% endfor %}
     {% if not f.error %}<span class="small">{{ quality(f.tier, f.kbps) }}</span>{% endif %}
+    {% if fit and fit.fingerprint is not none %}<div class="scores muted small">
+      <span title="Fingerprint against the release's preview: the same recording from 80 %, another song about 55 %">Fingerprint {{ (fit.fingerprint * 100)|round|int }} %</span>
+      {% if fit.waveform is not none %}<span title="Waveform against the release's preview, sample by sample: the same master and mix from 90 %, another master or mix lower, another song near 0">Waveform {{ (fit.waveform * 100)|round|int }} %</span>{% endif %}
+    </div>{% elif fit %}<div class="scores muted small" title="Deezer has no preview of the release to compare with">audio not compared</div>{% endif %}
   </td>
   <td class="row-action"><button type="button" class="icon-button" data-drop-row title="Leave this file out" aria-label="Leave {{ f.name }} out">×</button></td>
 </tr>

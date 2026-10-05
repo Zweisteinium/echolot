@@ -37,13 +37,12 @@ class Evidence:
 UNKNOWN = Evidence("")
 
 
-def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False, tag: bool = True) -> Evidence:
+def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False) -> Evidence:
     """What the audio of `path` says about the recording `isrc`. any_length: a DJ-mix cut, whose transitions
-    may blur the audio: only a match counts. tag=False: the audio only, not a file's ISRC tag (a tool that
-    fetched the file by the ISRC writes it whatever it found)."""
+    may blur the audio: only a match counts."""
     if not isrc:
         return UNKNOWN
-    if tag and (isrc_tag := audio.read_isrc(path)) and isrc_tag.replace("-", "").upper() == isrc.upper():
+    if (tag := audio.read_isrc(path)) and tag.replace("-", "").upper() == isrc.upper():
         return Evidence("same", "ISRC tag of the release")
     ref = reference(con, isrc)
     cand = fingerprint(path) if ref is not None else None
@@ -130,6 +129,9 @@ def alike(a: Path, b: Path) -> float:
     return min(shares)
 
 
+WAVE_SAME = (
+    0.9  # waveform from here on: the release's audio (measured: 0.94-1.0; other masters 0.71-0.82, other songs < 0.1)
+)
 SAME_MASTER = 0.98  # same_master from here on: the same audio in another codec (measured: 0.995 and more)
 _RATE = 11025  # Hz, mono: enough to tell a mix or master from another
 
@@ -188,6 +190,61 @@ def same_master(a: Path, b: Path) -> float:
             continue  # silence says nothing
         weakest = min(weakest, float(np.corrcoef(u, v)[0, 1]))
     return max(weakest, 0.0)
+
+
+def preview(isrc: str) -> bytes | None:
+    """The release's 30 s preview (MP3) from Deezer, fetched afresh (its address expires); None if none."""
+    try:
+        track = _get(f"https://api.deezer.com/track/isrc:{isrc}")
+        return _get(track["preview"], raw=True) if track.get("preview") else None
+    except (OSError, ValueError, KeyError) as e:
+        log.info("deezer preview %s: %s", isrc, e)
+        return None
+
+
+def _pcm_of(data: bytes) -> np.ndarray:
+    cmd = ["ffmpeg", "-v", "error", "-i", "pipe:0", "-ac", "1", "-ar", str(_RATE), "-f", "f32le", "-"]
+    try:
+        out = subprocess.run(cmd, input=data, capture_output=True, timeout=120).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return np.zeros(0, dtype="<f4")
+    return np.frombuffer(out, dtype="<f4")
+
+
+def waveform(path: Path, clip: bytes) -> float | None:
+    """How alike a file's decoded audio is to the release's preview `clip`, sample by sample: the clip is
+    found in the file by its fingerprint, then each of its 5 s windows (without the clip's fades) at its
+    best place within 0.1 s of there (the MP3 preview starts some 25 ms early); the median correlation is
+    the score. The same master and mix keeps about 0.95 and more; another master, mix or version of the
+    recording falls below, though its fingerprint agrees; another song stays near 0. None when it cannot be
+    told (unreadable, too short, silent)."""
+    fc, ff = fingerprint(clip), fingerprint(path)
+    if fc is None or ff is None or len(fc) < 50 or len(ff) < len(fc):
+        return None
+    windows = np.lib.stride_tricks.sliding_window_view(ff, len(fc))
+    at = int(_BITS[np.bitwise_xor(windows, fc).view(np.uint8)].reshape(len(windows), -1).sum(axis=1).argmin())
+    y, x = _pcm_of(clip), _pcm(path)
+    if len(y) < 10 * _RATE or len(x) < len(y):
+        return None
+    pad = 2 * _RATE  # room before the file's start
+    x = np.concatenate([np.zeros(pad, dtype=x.dtype), x, np.zeros(pad, dtype=x.dtype)])
+    base, near, n = pad + round(at * 0.1238 * _RATE), _RATE // 10, 5 * _RATE
+    scores = []
+    for i in range(
+        2 * _RATE, len(y) - n - 2 * _RATE + 1, n
+    ):  # the clip fades in and out: its first and last 2 s left out
+        u = y[i : i + n]
+        room = x[base + i - _RATE : base + i + n + _RATE]  # a second either side for the window's place
+        if u.std() < 1e-3 or len(room) < n + 2 * _RATE:
+            continue
+        size = 1 << int(len(room) + n).bit_length()
+        c = np.fft.irfft(np.fft.rfft(room, size) * np.conj(np.fft.rfft(u, size)), size)[: len(room) - n + 1]
+        lo = _RATE - near  # within 0.1 s of the fingerprint's place
+        k = lo + int(np.argmax(c[lo : _RATE + near + 1]))
+        v = room[k : k + n]
+        if v.std() > 1e-3:
+            scores.append(float(np.corrcoef(u, v)[0, 1]))
+    return max(float(np.median(scores)), 0.0) if scores else None
 
 
 def _clock(seconds: float) -> str:
