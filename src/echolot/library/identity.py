@@ -37,12 +37,13 @@ class Evidence:
 UNKNOWN = Evidence("")
 
 
-def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False) -> Evidence:
+def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False, tag: bool = True) -> Evidence:
     """What the audio of `path` says about the recording `isrc`. any_length: a DJ-mix cut, whose transitions
-    may blur the audio: only a match counts."""
+    may blur the audio: only a match counts. tag=False: the audio only, not a file's ISRC tag (a tool that
+    fetched the file by the ISRC writes it whatever it found)."""
     if not isrc:
         return UNKNOWN
-    if (tag := audio.read_isrc(path)) and tag.replace("-", "").upper() == isrc.upper():
+    if tag and (isrc_tag := audio.read_isrc(path)) and isrc_tag.replace("-", "").upper() == isrc.upper():
         return Evidence("same", "ISRC tag of the release")
     ref = reference(con, isrc)
     cand = fingerprint(path) if ref is not None else None

@@ -198,6 +198,16 @@ def missing(
     return [_tried(r, rejected.get(r["key"], []), paths) for r in rows]
 
 
+def missing_songs(con: Connection, uid: int | None = None) -> list[Row]:
+    """The missing songs (a user's, or everyone's) with what a file of one is checked against."""
+    mine, args = _mine(uid)
+    return con.execute(
+        "SELECT key, service, artist, title, length, isrc FROM wanted s "
+        f"WHERE s.file IS NULL AND {mine} ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE",
+        args,
+    ).fetchall()
+
+
 def close_matches(con: Connection, uid: int | None = None) -> list[Row]:
     """Wanted songs (a user's, or everyone's) covered by a close match: another version, taken in review."""
     mine, args = _mine(uid)

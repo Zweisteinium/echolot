@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import song_link %}
+{% from "_icons.html" import icon, sprite, use %}
 {% block title %}Missing · Echolot{% endblock %}
 {% set STAGES = [
   ('as listed', 'Artist and title as listed; the artist must be in the file path.'),
@@ -22,9 +23,12 @@
       </select>
       <noscript><button>Show</button></noscript>
     </form>
+    {% set upload = user.can('review') and songs %}
+    {% if upload %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere for missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
   </div>
+  {% if upload %}{{ sprite(['upload']) }}{% endif %}
   <table class="rows missing">
-    <thead><tr><th>Artist</th><th>Title</th><th class="num">Length</th><th class="hide-narrow" title="#: the song's place in the list, as Spotify and SoundCloud order it (Liked Songs: newest first)">Lists</th><th>What was tried</th></tr></thead>
+    <thead><tr><th>Artist</th><th>Title</th><th class="num">Length</th><th class="hide-narrow" title="#: the song's place in the list, as Spotify and SoundCloud order it (Liked Songs: newest first)">Lists</th><th>What was tried</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}
     <tr>
@@ -71,13 +75,49 @@
         </details>
         {% elif s.unavailable is none %}<span class="muted">{{ 'downloaded again with the next SoundCloud run' if s.service == 'soundcloud' else 'waiting for the first search' }}</span>{% endif %}
       </td>
+      {% if upload %}<td class="row-action"><button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload a file for this song" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button></td>{% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="5" class="muted">Nothing missing.</td></tr>
+    <tr><td colspan="6" class="muted">Nothing missing.</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </section>
+
+{% if upload %}
+<dialog id="upload" class="modal" aria-label="Upload files"><div id="upload-body"></div></dialog>
+<script>
+  // the upload dialog (web/upload.py): opens with its first step, shows the upload's progress, and a batch
+  // left by closing it (Esc, Cancel) is deleted; Close after an import reloads the page
+  (() => {
+    const dialog = document.getElementById("upload");
+    const body = document.getElementById("upload-body");
+    const csrf = () => JSON.parse(document.body.getAttribute("hx-headers") || "{}")["X-CSRF-Token"] || "";
+    document.addEventListener("htmx:afterSwap", (e) => {
+      if (e.target === body && !dialog.open && body.firstElementChild) dialog.showModal();
+      if (e.target === body && !body.firstElementChild) dialog.close();
+    });
+    document.addEventListener("htmx:xhr:progress", (e) => {
+      const bar = document.getElementById("upload-progress");
+      if (!bar || !e.detail.lengthComputable) return;
+      bar.hidden = false;
+      bar.value = Math.round((e.detail.loaded / e.detail.total) * 100);
+      if (bar.value >= 100) document.getElementById("upload-busy").hidden = false;
+    });
+    body.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-close]");
+      if (!b) return;
+      dialog.close();
+      if (b.hasAttribute("data-reload")) location.reload();
+    });
+    dialog.addEventListener("close", () => {
+      const open = body.querySelector("[data-batch]");
+      if (open) fetch(`/missing/upload/${open.dataset.batch}/cancel`, { method: "POST", headers: { "X-CSRF-Token": csrf() } });
+      body.replaceChildren();
+    });
+  })();
+</script>
+{% endif %}
 
 {% if close %}
 <section class="card" id="close">

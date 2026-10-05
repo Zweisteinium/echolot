@@ -1,0 +1,28 @@
+{% from "_macros.html" import facts %}
+<tr class="upload-row" id="upload-{{ f.n }}">
+  <td class="upload-file">
+    <div class="name" title="{{ f.name }}">{{ f.name }}</div>
+    {% if f.artist or f.title %}<div class="muted small" title="The file's tags">{{ f.artist or '?' }} – {{ f.title or '?' }}</div>{% endif %}
+  </td>
+  <td>
+    {% if f.error %}<span class="pill bad-pill" title="{{ f.error }}">not audio Echolot can use</span>
+    {% else %}
+    <select name="song_{{ f.n }}" aria-label="{{ f.name }}: the song it is" hx-get="/missing/upload/{{ batch }}/{{ f.n }}"
+            hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML" hx-include="this">
+      <option value="">Don't import</option>
+      {% for s in songs %}<option value="{{ s.key }}" {% if s.key == key %}selected{% endif %}>{{ s.artist }} – {{ s.title }}</option>{% endfor %}
+    </select>
+    {% endif %}
+  </td>
+  <td class="upload-facts small">
+    {% if not f.error %}
+    <div class="facts">{{ facts(seconds=f.seconds, diff=fit.diff if fit else none, tier=f.tier, kbps=f.kbps) }}</div>
+    {% if fit %}
+      {% if fit.heard == 'same' %}<span class="pill ok-pill" title="{{ fit.heard_detail }}">sounds like the release</span>
+      {% elif fit.heard == 'other' %}<span class="pill bad-pill" title="{{ fit.heard_detail }}">sounds unlike the release</span>
+      {% elif fit.heard_detail %}<span class="pill" title="{{ fit.heard_detail }}">audio unclear</span>
+      {% else %}<span class="muted" title="No preview of the release to compare with">audio not compared</span>{% endif %}
+    {% elif not key %}<span class="muted">no song chosen</span>{% endif %}
+    {% endif %}
+  </td>
+</tr>

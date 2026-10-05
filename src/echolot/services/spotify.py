@@ -43,8 +43,9 @@ def release_facts(t: dict[str, Any]) -> dict[str, Any]:
     """A track's place on its release, for the tags: released (its date as precise as Spotify knows it),
     track (number), tracks (on the release), disc; None where unknown."""
     album = t.get("album") or {}
-    return {"released": album.get("release_date") or None, "track": t.get("track_number") or None,
-            "tracks": album.get("total_tracks") or None, "disc": t.get("disc_number") or None}  # fmt: skip
+    facts = {"released": album.get("release_date"), "track": t.get("track_number")}
+    facts |= {"tracks": album.get("total_tracks"), "disc": t.get("disc_number")}
+    return {k: v or None for k, v in facts.items()}
 
 
 class SpotifyError(RuntimeError):
