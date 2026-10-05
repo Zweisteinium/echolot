@@ -22,7 +22,7 @@ def users_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.post("/users/{user_id}")
 async def users_save(request: Request, con: DB, user_id: int) -> RedirectResponse:
-    """An admin or not, and the permissions (the checked boxes of the form)."""
+    """An admin or not, and the permissions (the checked boxes of the form; an admin's stay as stored)."""
     row = con.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if row is None:
         return back("/users", error="No such user.")
@@ -31,8 +31,13 @@ async def users_save(request: Request, con: DB, user_id: int) -> RedirectRespons
     explicit = bool(row["admin"]) if row["navidrome_admin"] else form.get("admin") == "1"
     if user_id == request.state.user.id and not (explicit or row["navidrome_admin"]):
         return back("/users", error="You can't take your own admin rights away (another admin can).")
+    stored = {p for p in (row["permissions"] or "").split(",") if p in auth.PERMISSIONS}
+    # an admin's permissions are locked on the page (an admin may do everything): what is stored stays, for
+    # when they are no admin any more
+    locked = explicit or row["navidrome_admin"] or form.get("locked") == "1"  # (boxes not shown as editable)
+    permissions = stored if locked else {p for p in auth.PERMISSIONS if form.get(p) == "1"}
     try:
-        auth.set_rights(con, user_id, explicit, {p for p in auth.PERMISSIONS if form.get(p) == "1"})
+        auth.set_rights(con, user_id, explicit, permissions)
     except auth.AuthError as err:
         return back("/users", error=str(err))
     return back("/users", ok=f"Saved for {row['name']}.")

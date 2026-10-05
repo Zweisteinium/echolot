@@ -488,6 +488,24 @@ def search_again(con: sqlite3.Connection, key: str) -> None:
     _search_again(con, key, 0)
 
 
+def remove_close(con: sqlite3.Connection, paths: filing.Paths, key: str) -> str:
+    """Remove the close match a song is covered by: its file goes to inbox/replaced (30 days), and the song
+    itself is searched again. Not while another song has that file (ConfigError)."""
+    song = con.execute("SELECT * FROM songs WHERE key = ? AND close_match AND file IS NOT NULL", (key,)).fetchone()
+    if song is None:
+        raise ConfigError("That song is not covered by a close match.")
+    others = con.execute("SELECT count(*) FROM songs WHERE file = ? AND key != ?", (song["file"], key)).fetchone()[0]
+    if others:
+        raise ConfigError(
+            f"{song['file']} is also the file of {others} other song{'s' if others != 1 else ''}: it stays."
+        )
+    entry = next((e for e in catalog.Catalog.from_db(con).entries if e.path == song["file"]), None)
+    if entry is not None and (paths.tracks / entry.path).is_file():
+        filing.retire(con, paths, entry, "close match removed by hand")
+    search_again(con, key)
+    return song["file"]
+
+
 def _unlink(con: sqlite3.Connection, key: str) -> None:
     with con:
         con.execute("UPDATE songs SET link = NULL, close_match = 0 WHERE key = ?", (key,))

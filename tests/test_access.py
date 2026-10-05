@@ -115,6 +115,21 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
     assert timon_now and timon_now.permissions == {"review"} and not timon_now.admin and timon_now.can("review")
     assert boss_now and boss_now.admin  # a Navidrome admin's box is locked
     assert david_now and david_now.admin and david_now.view == "mine"
+    # timon made an admin: Review and Run show ticked and locked, what is stored ("review") stays; no admin
+    # any more, he has just that again (an admin form sends no permissions: its boxes are locked)
+    assert david.post(f"/users/{ids['timon']}", data={"admin": "1"}, follow_redirects=False).status_code == 303
+    page = david.get("/users").text
+    row = page[page.index(">timon<") :][:1500]
+    assert (
+        row.count("data-permission data-stored") == 2
+        and 'data-stored="1"' in row
+        and row.count('disabled title="An admin') == 2
+    )
+    assert david.post(f"/users/{ids['timon']}", data={"locked": "1"}, follow_redirects=False).status_code == 303
+    con = db.connect(app.state.settings.db_path)
+    again = auth.get_user(con, "timon")
+    con.close()
+    assert again and not again.admin and again.permissions == {"review"}
     assert david.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
     assert timon.post("/account/view", data={"view": "everyone"}).status_code == 403  # a view is an admin's
 

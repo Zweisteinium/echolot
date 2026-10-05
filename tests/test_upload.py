@@ -85,8 +85,8 @@ def test_cancel_and_scope(settings: Settings, login: Callable[..., TestClient]) 
 
 def test_guess_by_title_and_length() -> None:
     songs = [
-        {"key": "a", "artist": "Hurts", "title": "2 More - Radio Edit", "length": 211, "file": None},
-        {"key": "b", "artist": "Hurts", "title": "Wonderful Life", "length": 220, "file": None},
+        {"key": "a", "artist": "Hurts", "title": "2 More - Radio Edit", "length": 211, "file": None, "close_match": 0},
+        {"key": "b", "artist": "Hurts", "title": "Wonderful Life", "length": 220, "file": None, "close_match": 0},
     ]
     f = upload.File(1, "02 - 2 More.flac", seconds=211.2, artist="Hurts", title="2 More - Radio Edit")
     assert upload.guess(f, songs) == "a"
@@ -96,7 +96,7 @@ def test_guess_by_title_and_length() -> None:
 
 
 def test_labels() -> None:
-    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211, "file": None}
+    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211, "file": None, "close_match": 0}
     f = upload.File(1, "x.flac", seconds=212, tier="lossless")
     assert upload.labels(f, song, upload.Fit(1, 0.95, 0.99))[0][:2] == ("Looks right", "ok")
     assert upload.labels(f, song, upload.Fit(1))[0][:2] == ("Looks right", "ok")  # no preview: the length
@@ -121,7 +121,13 @@ def test_a_fake_flac_counts_by_its_source(monkeypatch: pytest.MonkeyPatch, tmp_p
     (paths.tracks / "Enmity").mkdir(parents=True)
     (paths.tracks / "Enmity/Enmity - Sex.opus").write_bytes(b"x")
     monkeypatch.setattr(audio, "spectrum", lambda p: {"verdict": "ok", "cutoff_hz": 20000, "drop_db": 46.0})
-    opus = {"file": "Enmity/Enmity - Sex.opus", "quality": "lossy-low", "kbps": 123, "fake_source": None}
+    opus = {
+        "file": "Enmity/Enmity - Sex.opus",
+        "quality": "lossy-low",
+        "kbps": 123,
+        "fake_source": None,
+        "close_match": 0,
+    }
     fake = upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=20000)
     assert upload.compare(paths, fake, opus).better
     assert upload.compare(
@@ -153,5 +159,54 @@ def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., T
     assert (
         con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
         == "Artist A/Artist A - First Song.flac"
+    )
+    con.close()
+
+
+def test_a_close_match_song_gets_its_own_file(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """Gone Song covered by a close match (another version): an upload of the song itself is filed under its own
+    name, the song is no close match any more; the version stays a file of its own, or goes when ticked."""
+    con = db.connect(settings.db_path)
+    version = settings.library_dir / "Artist C" / "Artist C - Gone Song (Club Mix).flac"
+    version.parent.mkdir(parents=True, exist_ok=True)
+    version.write_bytes(b"0123456789")
+    with con:
+        con.execute(
+            "INSERT INTO files VALUES ('Artist C/Artist C - Gone Song (Club Mix).flac', 10, 0, 300, 900, 'lossless')"
+        )
+        con.execute("""UPDATE songs SET file = 'Artist C/Artist C - Gone Song (Club Mix).flac', close_match = 1,
+                       link = '["Artist C", "Gone Song (Club Mix)", 300]' WHERE key = 'spotify:s3'""")
+    con.close()
+    client = login(create_app(settings))
+    one = [("files", ("Artist C - Gone Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
+    html = client.post("/missing/upload", files=one).text
+    assert "covered by a close match" in html and 'name="remove_1"' in html and "Not better" not in html
+    done = client.post(f"/missing/upload/{batch_of(html)}/import", data={"song_1": "spotify:s3", "remove_1": "1"}).text
+    assert "Artist C – Gone Song: filed as Artist C/Artist C - Gone Song.flac" in done
+    assert "Gone Song (Club Mix).flac: removed" in done and not version.exists()
+    con = db.connect(settings.db_path)
+    row = con.execute("SELECT file, close_match FROM songs WHERE key = 'spotify:s3'").fetchone()
+    assert tuple(row) == ("Artist C/Artist C - Gone Song.flac", 0)  # its playlists play the song itself now
+    con.close()
+
+
+def test_remove_a_close_match(settings: Settings, login: Callable[..., TestClient]) -> None:
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "UPDATE songs SET close_match = 1, link = '[\"Artist A\", \"First Song\", 201]' WHERE key = 'spotify:s1'"
+        )
+    con.close()
+    client = login(create_app(settings))
+    page = client.get("/missing").text
+    assert 'action="/songs/spotify:s1/close-remove"' in page
+    r = client.post("/songs/spotify:s1/close-remove", follow_redirects=False)
+    assert "removed" in r.headers["location"]
+    assert not (settings.library_dir / "Artist A" / "Artist A - First Song.mp3").exists()
+    con = db.connect(settings.db_path)
+    assert tuple(con.execute("SELECT file, close_match, link FROM songs WHERE key = 'spotify:s1'").fetchone()) == (
+        None,
+        0,
+        None,
     )
     con.close()
