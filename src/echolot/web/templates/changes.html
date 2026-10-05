@@ -16,7 +16,7 @@
     <tr>
       <td>{{ song_link(r.key, r.url, r.artist ~ ' – ' ~ r.title) }}</td>
       <td><span class="pill{{ ' warn-pill' if r.state == 'preview' else ' bad-pill' }}">{{ states.get(r.state, r.state) }}</span></td>
-      <td class="small nowrap">{{ r.since }}</td>
+      <td class="small nowrap">{% if r.since %}{{ r.since }}{% else %}<span class="muted" title="It was so at the first check: since when is not known">unknown</span>{% endif %}</td>
       <td class="small">{% if r.file %}<span class="ok-text">yes</span>{% else %}<a href="/missing" class="bad-text">missing</a>{% endif %}</td>
     </tr>
     {% else %}

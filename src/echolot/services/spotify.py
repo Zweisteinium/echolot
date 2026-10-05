@@ -39,6 +39,14 @@ _tokens: dict[str, tuple[str, float]] = {}  # refresh token hash -> (access toke
 _lock = threading.Lock()
 
 
+def release_facts(t: dict[str, Any]) -> dict[str, Any]:
+    """A track's place on its release, for the tags: released (its date as precise as Spotify knows it),
+    track (number), tracks (on the release), disc; None where unknown."""
+    album = t.get("album") or {}
+    return {"released": album.get("release_date") or None, "track": t.get("track_number") or None,
+            "tracks": album.get("total_tracks") or None, "disc": t.get("disc_number") or None}  # fmt: skip
+
+
 class SpotifyError(RuntimeError):
     """Spotify is not connected or refused (message for the user)."""
 
@@ -221,7 +229,7 @@ class Spotify:
 
     def items(self, pid: str | None) -> list[dict[str, Any]]:
         """Songs of a playlist (None: Liked Songs) in list order: id, artist (first), artists, title,
-        album, length (s), isrc. Local files and podcast episodes are left out."""
+        album, length (s), isrc and the release_facts. Local files and podcast episodes are left out."""
         url = "/me/tracks?limit=50" if pid is None else f"/playlists/{pid}/items?limit=50"
         out = []
         for it in self.pages(url):
@@ -233,7 +241,7 @@ class Spotify:
                 "id": t["id"], "artist": artists[0] if artists else "", "artists": artists,
                 "title": t.get("name") or "", "album": (t.get("album") or {}).get("name") or "",
                 "length": round((t.get("duration_ms") or 0) / 1000),
-                "isrc": (t.get("external_ids") or {}).get("isrc"),
+                "isrc": (t.get("external_ids") or {}).get("isrc"), **release_facts(t),
             })  # fmt: skip
         return out
 

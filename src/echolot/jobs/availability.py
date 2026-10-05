@@ -142,12 +142,14 @@ def check(run: "Run") -> str:
 
 
 def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, tuple[str, str | None]]:
-    """The Spotify songs' states, in the market's catalogue (the app's own access: no user needed)."""
+    """The Spotify songs' states, in the market's catalogue (the app's own access: no user needed); their
+    release facts are stored on the way (the tags: tagging.for_file)."""
     if not keys:
         return {}
     sp = spotify.Spotify(con, run.vault)
     market = options.get(con, options.Spotify).market
     out: dict[str, tuple[str, str | None]] = {}
+    facts = []  # each song's place on its release (spotify.release_facts), for the tags
     for n in range(0, len(keys), BATCH):
         if run.stop.is_set():
             break
@@ -156,6 +158,9 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
         tracks = sp.get(f"/tracks?ids={','.join(ids)}&market={market}").get("tracks") or []
         unplayable = []
         for sid, t in zip(ids, tracks, strict=False):
+            if t and t.get("id") == sid:  # (a relinked one is another release)
+                f = spotify.release_facts(t)
+                facts.append((f["released"], f["track"], f["tracks"], f["disc"], f"spotify:{sid}"))
             if t is None:
                 out[f"spotify:{sid}"] = ("gone", None)
             elif t.get("is_playable") is False and _restriction(t) not in ("explicit", "product"):
@@ -169,6 +174,9 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
             for sid, t in zip(unplayable, everywhere, strict=False):
                 markets = (t or {}).get("available_markets") or []
                 out[f"spotify:{sid}"] = ("blocked" if markets else "taken_down", None)
+    with con:
+        sql = "UPDATE songs SET released = ?, track = ?, tracks = ?, disc = ? WHERE key = ?"
+        con.executemany(sql, facts)
     return out
 
 
@@ -205,14 +213,14 @@ def _soundcloud(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[st
 
 def apply(con: sqlite3.Connection, states: dict[str, tuple[str, str | None]]) -> int:
     """Store the states (a change where one differs from the last check; a song seen for the first time is
-    no change) and Spotify's greyed-out flag of the searches. Returns the number of changes."""
+    no change, and since when its state holds is unknown) and Spotify's greyed-out flag of the searches. Returns the number of changes."""
     known = {r["song_key"]: r for r in con.execute("SELECT * FROM availability")}
     now, today, changes = _now(), datetime.date.today().isoformat(), 0
     with con:
         for key, (state, detail) in states.items():
             old = known.get(key)
-            if old is None:
-                con.execute("INSERT INTO availability VALUES (?, ?, ?, ?, ?)", (key, state, today, now, detail))
+            if old is None:  # since when it is so: unknown
+                con.execute("INSERT INTO availability VALUES (?, ?, '', ?, ?)", (key, state, now, detail))
             elif (old["state"], old["detail"]) != (state, detail):
                 sql = "UPDATE availability SET state = ?, since = ?, checked = ?, detail = ? WHERE song_key = ?"
                 con.execute(sql, (state, today, now, detail, key))

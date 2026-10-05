@@ -283,3 +283,22 @@ def test_named() -> None:
     assert rules.named("HK", "07 - HK - Was") and rules.named("HK", "GRiNGO, HK") and rules.named("HK", "01 HK")
     assert not rules.named("HK", "HK Gruber, Kurt Prihoda") and not rules.named("Scooter", "Scooter Discography")
     assert rules.named("Vegas (Brazil)", "Vegas - Mandala") and rules.named("Above & Beyond", "Above & Beyond - Sun")
+
+
+def test_own_artist_credit_is_the_song_for_review() -> None:
+    """High Tekk's "Irgendwie Irgendwo Irgendwann" is uploaded as "... - HIGH TEKK REMIX": the song as its
+    artist released it (Spotify leaves the word out). A search result is taken, and the download is probable
+    (Review: only a listener can tell); another remixer, the artist's VIP or a request naming a version stay
+    apart."""
+    title, sc = "Irgendwie Irgendwo Irgendwann", "Irgendwie Irgendwo Irgendwann - HIGH TEKK REMIX"
+    assert rules.prejudge("High Tekk", title, f"High Tekk (Offiziell)/{sc}", 170, 170)[0] == "accept"
+    match, why = rules.identify(
+        "High Tekk", title, ["High Tekk (Offiziell)"], sc, sc, ["High Tekk (Offiziell)"], 170, 170, 6
+    )
+    assert match == "probable" and "own artist" in why
+    assert rules.identify("High Tekk", title, ["High Tekk"], sc, sc, [], 150, 170, 6)[0] is None  # another length
+    other = f"High Tekk/{title} (DJ Foo Remix)"
+    assert rules.prejudge("High Tekk", title, other, 170, 170)[0] == "reject"
+    assert rules.prejudge("High Tekk", title, f"High Tekk/{title} (High Tekk VIP)", 170, 170)[0] == "reject"
+    assert rules.prejudge("Tekk", "Song", "Tekk/Song (High Tekk Remix)", 170, 170)[0] == "reject"  # a longer name
+    assert rules.identify("Bar", "Song - Foo Remix", ["Bar"], "Song - Bar Remix", "", [], 170, 170)[0] is None

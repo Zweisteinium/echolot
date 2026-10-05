@@ -1,6 +1,7 @@
 """The availability tracker (jobs/availability.py): the lists' songs coming and going, a list that can't be
 read, the daily check of every song's state at Spotify and SoundCloud, the Changes page."""
 
+import datetime
 import threading
 from collections.abc import Callable
 
@@ -76,6 +77,9 @@ class FakeSpotify:
                 out.append({"id": sid, "available_markets": [] if sid == "s2" else ["US"]})
             elif sid == "s7":
                 out.append({"id": "s7b", "is_playable": True, "linked_from": {"id": "s7"}})
+            elif sid == "s1":  # with its place on its release
+                album = {"release_date": "2020-07-21", "total_tracks": 4}
+                out.append({"id": sid, "is_playable": True, "track_number": 2, "disc_number": 1, "album": album})
             else:
                 out.append({"id": sid, "is_playable": True})
         return {"tracks": out}
@@ -113,12 +117,18 @@ def test_the_daily_check(run: Run) -> None:
     flags = dict(con.execute("SELECT key, unavailable FROM songs WHERE service = 'spotify'").fetchall())
     assert flags["spotify:s2"] == flags["spotify:s3"] == availability.GREYED_OUT and flags["spotify:s1"] is None
     assert flags["spotify:s7"] is None  # it plays (as another release)
+    assert {r[0] for r in con.execute("SELECT since FROM availability")} == {""}  # so at the first check: unknown
+    facts = "SELECT released, track, tracks, disc FROM songs WHERE key = ?"
+    assert tuple(con.execute(facts, ("spotify:s1",)).fetchone()) == ("2020-07-21", 2, 4, 1)
+    assert tuple(con.execute(facts, ("spotify:s7",)).fetchone()) == (None,) * 4  # relinked: another release's
     with con:  # s2 plays again: a change
         con.execute("UPDATE availability SET state = 'available' WHERE song_key = 'spotify:s2'")
     con.close()
     availability.check(run)
     con = run.connect()
     assert [c[2] for c in changes(con)] == ["removed", "taken_down"]
+    since = "SELECT since FROM availability WHERE song_key = 'spotify:s2'"
+    assert con.execute(since).fetchone()[0] == datetime.date.today().isoformat()
     con.close()
 
 
@@ -131,10 +141,12 @@ def test_the_changes_page(settings: Settings, login: Callable[..., TestClient]) 
     change = "INSERT INTO changes (ts, song_key, list_key, change) VALUES (?, ?, ?, ?)"
     with con:
         con.execute("INSERT INTO availability VALUES ('spotify:s3', 'taken_down', '2026-10-01', 'x', NULL)")
+        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'blocked', '', 'x', NULL)")  # first check
         con.execute(change, ("2026-10-01T00:00:00", "spotify:s3", "spotify:likes:1", "taken_down"))
         con.execute(change, ("2026-10-02T00:00:00", "spotify:s2", "spotify:playlist:AAA111", "removed"))
     con.close()
     owner = login(app).get("/changes").text
-    assert "Taken down" in owner and "Gone Song" in owner and 'playable <span class="count">1</span>' in owner
+    assert "Taken down" in owner and "Gone Song" in owner and 'playable <span class="count">2</span>' in owner
+    assert "2026-10-01</td>" in owner and ">unknown</span>" in owner  # since when it was so: not known
     timon = login(app, "timon", admin=False).get("/changes").text
     assert "Gone Song" not in timon and "Second Song" in timon  # removed from timon's list

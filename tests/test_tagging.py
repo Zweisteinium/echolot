@@ -206,3 +206,30 @@ def test_songs_sharing_a_file_give_it_all_their_artists(env) -> None:
     add_song(con, "spotify:c", "Pbb Yea", "Komm mit", artists='["Pbb Yea", "TheDoDo"]', file=rel)
     tags = tagging.for_file(con, rel, copy(paths, "flac", "TheDoDo/TheDoDo - Komm mit"))
     assert (tags.artists, tags.albumartist, tags.title) == (["TheDoDo", "Pbb Yea"], "TheDoDo", "Komm mit")
+
+
+@pytest.mark.parametrize("ext", FORMATS)
+def test_a_spotify_songs_release_facts(env, ext: str) -> None:
+    """A Spotify song's file gets its release's date, track and disc number and the ISRC; the uploader's
+    other spellings of them (another release's) go. A close match or a SoundCloud song gets none."""
+    con, paths = env
+    rel = f"Inner Voice/Inner Voice - Celestial.{ext}"
+    facts = {"released": "2020-07-21", "track": 2, "tracks": 4, "disc": 1, "isrc": "qzhn92089013"}
+    add_song(con, "spotify:iv", "Inner Voice", "Celestial", album="Sphere", file=rel, **facts)
+    p = copy(paths, ext, "Inner Voice/Inner Voice - Celestial")
+    if ext == "flac":
+        m = File(p)
+        m.tags["year"], m.tags["totaltracks"], m.tags["tracknumber"] = ["1999"], ["12"], ["7"]
+        m.save()
+    tags = tagging.for_file(con, rel, p)
+    assert tags.facts == {"isrc": "QZHN92089013", "date": "2020-07-21", "track": "2/4", "disc": "1"}
+    assert set(tagging.differs(p, tags)) >= {"isrc", "date", "track", "disc"}
+    tagging.write(p, tags)
+    assert tagging.read(p)["facts"] == tags.facts and not tagging.differs(p, tags)
+    if ext == "flac":
+        assert "year" not in File(p).tags and "totaltracks" not in File(p).tags
+    with con:
+        con.execute('UPDATE songs SET close_match = 1, link = \'["Inner Voice", "Celestial (Edit)", 200]\'')
+    assert tagging.for_file(con, rel, p).facts == {}
+    add_song(con, "soundcloud:5", "Inner Voice", "Celestial", released="2020")
+    assert tagging.facts(con.execute("SELECT * FROM songs WHERE key = 'soundcloud:5'").fetchone()) == {}
