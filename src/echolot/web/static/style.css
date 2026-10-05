@@ -492,17 +492,26 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .drop { position: relative; display: grid; gap: 0.25rem; place-items: center; text-align: center; padding: 2rem 1rem;
   border: 1.5px dashed var(--border); border-radius: var(--radius-sm); background: var(--track); cursor: pointer;
   transition: border-color 0.15s, background 0.15s; }
-.drop:hover, .drop:focus-within { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--track)); }
+.drop:hover, .drop:focus-within, .drop.drag { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--track)); }
+.drop.drag { border-style: solid; }
+.picked { margin: 0.6rem 0 0; padding: 0; list-style: none; display: grid; gap: 0.15rem; font-size: 0.85rem; }
+.picked li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picked li::before { content: "♪"; color: var(--accent); margin-right: 0.4rem; }
+.dialog-actions .busy { margin-right: auto; align-self: center; }
+.busy::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4rem; vertical-align: -1px;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }  /* the whole zone takes files and drops */
 .drop-text b { color: var(--accent); }
 .upload progress { width: 100%; margin-top: 0.75rem; accent-color: var(--accent); }
 .upload-pick #upload-busy { margin: 0.4rem 0 0; }
 .table-scroll { max-height: 55vh; overflow: auto; margin: 0 -0.2rem; }
 .upload-table td { vertical-align: top; }
-.upload-table select { width: 100%; max-width: 22rem; }
 .upload-file { max-width: 16rem; }
 .upload-file .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upload-facts { display: grid; gap: 0.3rem; justify-items: start; min-width: 12rem; }
+.upload-facts { min-width: 11rem; }
+.upload-facts > * { margin: 0 0.3rem 0.25rem 0; }
+.upload-table .name { font-weight: 600; }
 .upload-results { margin: 0.5rem 0 0.75rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 

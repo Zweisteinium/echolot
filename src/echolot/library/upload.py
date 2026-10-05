@@ -137,6 +137,33 @@ def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | Non
     return Fit(diff, heard.verdict, heard.detail)
 
 
+def labels(f: File, song: sqlite3.Row | None, fit: Fit | None) -> list[tuple[str, str, str]]:
+    """Short labels for a file as its song: "Looks right", or what is off; (text, style ok|warn|bad, detail)."""
+    if f.error:
+        return [("Not audio", "bad", f.error)]
+    if song is None:
+        return [("No missing song found", "bad", "Neither its tags nor its name name one of your missing songs")]
+    out = []
+    if fit and fit.diff is not None and abs(fit.diff) > 3:
+        n = abs(int(fit.diff))
+        amount = f"{n // 60}:{n % 60:02d}" if n >= 60 else f"{n} s"
+        detail = f"{_mmss(f.seconds)}, the song {_mmss(song['length'])}"
+        out.append((f"{amount} {'longer' if fit.diff > 0 else 'shorter'}", "warn", detail))
+    if fit and fit.heard == "other":
+        out.append(("Sounds different", "bad", f"Not the release's audio ({fit.heard_detail})"))
+    if f.tier == "fake":
+        out.append(("Fake FLAC", "warn", "A FLAC made from a lossy file (spectrum check)"))
+    if not out:
+        why = "Length fits" + (", sounds like the release" if fit and fit.heard == "same" else "")
+        out.append(("Looks right", "ok", why + (f" ({fit.heard_detail})" if fit and fit.heard_detail else "")))
+    return out
+
+
+def _mmss(seconds: float) -> str:
+    n = round(seconds or 0)
+    return f"{n // 60}:{n % 60:02d}"
+
+
 @dataclass
 class _Run:
     """What filing a song needs of a job run (acquire.finish: tags, cover, artist picture)."""
@@ -148,9 +175,9 @@ class _Run:
 
 def import_files(
     con: sqlite3.Connection, paths: Paths, vault: "Vault", batch: str, chosen: dict[int, str]
-) -> list[str]:
+) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match; delete the batch.
-    Returns one line per file."""
+    Returns one line per file, with the song key when the song has the file now."""
     from echolot.jobs.acquire import finish
 
     by_n = {f.n: f for f in files(paths, batch)}
@@ -158,7 +185,7 @@ def import_files(
     for n, key in sorted(chosen.items()):
         f, song = by_n.get(n), con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone()
         if f is None or f.path is None or not f.path.is_file() or song is None:
-            out.append(f"{f.name if f else n}: not imported (gone)")
+            out.append((f"{f.name if f else n}: not imported (gone)", None))
             continue
         want = Want.of(song)
         _link(con, key, want)  # this file whatever its length
@@ -170,7 +197,8 @@ def import_files(
             _link(con, key, want)
         where = dest.relative_to(paths.tracks).as_posix() if dest else ""
         label = {"new": "filed as", "upgrade": "replaced the copy:", "duplicate": "the library has a better copy:"}
-        out.append(f"{want.artist} – {want.title}: {label.get(action, action)} {where}".strip())
+        line = f"{want.artist} – {want.title}: {label.get(action, action)} {where}".strip()
+        out.append((line, key if action in ("new", "upgrade", "duplicate") else None))
     catalog.match_songs(con)
     cancel(paths, batch)
     return out

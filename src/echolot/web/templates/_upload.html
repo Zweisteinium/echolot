@@ -12,35 +12,38 @@
       <span class="drop-text"><b>Choose files</b> or drop them here</span>
       <span class="muted small">FLAC, MP3, M4A, Opus, Ogg, WAV, AIFF</span>
     </label>
+    <ul class="picked" hidden></ul>
     <progress id="upload-progress" max="100" value="0" hidden></progress>
-    <p id="upload-busy" class="muted small" hidden>Checking the files (quality, length, audio)…</p>
+    <p id="upload-busy" class="muted small busy" hidden>Uploading…</p>
     <div class="dialog-actions">
       <button type="button" data-close>Cancel</button>
-      <button class="primary">Check files</button>
+      <button class="primary" disabled data-check>Check files</button>
     </div>
   </form>
 {% elif step == 'check' %}
-  <h2>Import {{ rows|length }} file{{ 's' if rows|length != 1 }}?</h2>
-  <p class="muted small">Each file becomes the song you pick, whatever its names or length (as Perfect match in review). Length, quality and the audio check are for your information.</p>
+  {% set n = importable %}
+  <h2>{% if n == rows|length %}Import {{ n }} file{{ 's' if n != 1 }}?{% elif n %}Import {{ n }} of {{ rows|length }} files?{% else %}Nothing to import{% endif %}</h2>
+  <p class="muted small">Each file becomes the song shown, whatever its names or length (as Perfect match in review). Leave out a file with ×.</p>
   <form hx-post="/missing/upload/{{ batch }}/import" hx-target="#upload-body">
     {{ csrf_input }}
     <div class="table-scroll">
     <table class="rows upload-table">
-      <thead><tr><th>File</th><th>Is the song</th><th>What Echolot sees</th></tr></thead>
+      <thead><tr><th>File</th><th>Song</th><th>Check</th><th></th></tr></thead>
       <tbody>
-      {% for f, key, fit in rows %}{% include "_upload_row.html" %}{% endfor %}
+      {% for f, song, labels in rows %}{% include "_upload_row.html" %}{% endfor %}
       </tbody>
     </table>
     </div>
     <div class="dialog-actions">
+      <span class="muted small busy" hidden>Importing…</span>
       <button type="button" hx-post="/missing/upload/{{ batch }}/cancel" hx-target="#upload-body" data-cancel>Cancel</button>
-      <button class="primary">Import</button>
+      <button class="primary" data-import {% if not n %}disabled{% endif %}>Import</button>
     </div>
   </form>
 {% else %}
   <h2>{{ 'Nothing imported' if none else 'Imported' }}</h2>
-  {% if results %}<ul class="upload-results">{% for line in results %}<li>{{ line }}</li>{% endfor %}</ul>
-  <p class="muted small">The songs leave Missing now; playlists and Navidrome follow within a few minutes.</p>{% endif %}
-  <div class="dialog-actions"><button class="primary" type="button" data-close data-reload>Close</button></div>
+  {% if results %}<ul class="upload-results" data-imported="{{ imported|tojson|forceescape }}">{% for line in results %}<li>{{ line }}</li>{% endfor %}</ul>
+  <p class="muted small">Playlists and Navidrome follow within a few minutes.</p>{% endif %}
+  <div class="dialog-actions"><button class="primary" type="button" data-close>Close</button></div>
 {% endif %}
 </div>

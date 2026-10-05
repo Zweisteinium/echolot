@@ -47,7 +47,7 @@ def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
 def upload_files(
     request: Request, con: DB, files: Annotated[list[UploadFile], File()], song: Annotated[str, Form()] = ""
 ) -> HTMLResponse:
-    """The files are saved and checked; each one's guessed song and how it fits, for confirmation."""
+    """The files are saved and checked; each one's song as detected and how it fits, for confirmation."""
     songs = _songs(request, con)
     picked = [f for f in files if f.filename]
     if not picked:
@@ -55,26 +55,17 @@ def upload_files(
     batch = upload.stage(_paths(request), [(f.filename or "", f.file) for f in picked])
     found = upload.files(_paths(request), batch)
     rows = []
-    for f in found:
+    for f in found:  # each file's song: the one asked for, else the one it names (no song: not imported)
         key = song if song in songs else upload.guess(f, list(songs.values()))
-        rows.append((f, key, upload.fit(con, f, songs.get(key or ""))))
-    return page(request, "_upload.html", step="check", batch=batch, rows=rows, songs=list(songs.values()))
-
-
-@router.get("/missing/upload/{batch}/{n}", response_class=HTMLResponse)
-def upload_row(request: Request, con: DB, batch: str, n: int) -> HTMLResponse:
-    """One file's row again, as another song (its select, song_<n>, changed)."""
-    songs, song = _songs(request, con), request.query_params.get(f"song_{n}", "")
-    f = next((f for f in _batch(request, batch) if f.n == n), None)
-    if f is None:
-        raise HTTPException(404, "No such file in that upload.")
-    fit = upload.fit(con, f, songs.get(song))
-    return page(request, "_upload_row.html", batch=batch, f=f, key=song or None, fit=fit, songs=list(songs.values()))
+        match = songs.get(key or "") if not f.error else None
+        rows.append((f, match, upload.labels(f, match, upload.fit(con, f, match))))
+    n = sum(1 for _, match, _ in rows if match)
+    return page(request, "_upload.html", step="check", batch=batch, rows=rows, importable=n)
 
 
 @router.post("/missing/upload/{batch}/import", response_class=HTMLResponse)
 async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
-    """File every file that has a song chosen; the others go."""
+    """File every file that has a song (song_<n>, those left in the dialog); the others go."""
     form = await request.form()
     songs = _songs(request, con)
     _batch(request, batch)
@@ -86,10 +77,11 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
             chosen[int(name[5:])] = value
     if not chosen:
         upload.cancel(_paths(request), batch)
-        return page(request, "_upload.html", step="done", results=[], none=True)
+        return page(request, "_upload.html", step="done", results=[], imported=[], none=True)
     vault = request.app.state.vault  # (filing reads and writes files and asks Spotify for the cover)
     results = await run_in_threadpool(upload.import_files, con, _paths(request), vault, batch, chosen)
-    return page(request, "_upload.html", step="done", results=results)
+    imported = [key for _, key in results if key]  # (the page takes these songs off Missing)
+    return page(request, "_upload.html", step="done", results=[line for line, _ in results], imported=imported)
 
 
 @router.post("/missing/upload/{batch}/cancel")
