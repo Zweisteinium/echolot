@@ -97,7 +97,10 @@ def test_guess_by_title_and_length() -> None:
 def test_labels() -> None:
     song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211}
     f = upload.File(1, "x.flac", seconds=212, tier="lossless")
-    assert upload.labels(f, song, upload.Fit(1, "same", "audio of the release (0.95)"))[0][:2] == ("Looks right", "ok")
-    off = upload.labels(upload.File(1, "x.flac", seconds=346, tier="fake"), song, upload.Fit(135, "other", "0.10"))
+    assert upload.labels(f, song, upload.Fit(1, 0.95, 0.99))[0][:2] == ("Looks right", "ok")
+    assert upload.labels(f, song, upload.Fit(1))[0][:2] == ("Looks right", "ok")  # no preview: the length
+    off = upload.labels(upload.File(1, "x.flac", seconds=346, tier="fake"), song, upload.Fit(135, 0.55, 0.02))
     assert [t for t, _, _ in off] == ["2:15 longer", "Sounds different", "Fake FLAC"]
+    master = upload.labels(f, song, upload.Fit(0, 0.96, 0.72))  # SpotiFLAC's other version under the ISRC
+    assert [t for t, _, _ in master] == ["Other master or mix"]
     assert upload.labels(f, None, None)[0][0] == "No missing song found"

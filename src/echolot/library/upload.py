@@ -45,12 +45,13 @@ class File:
 
 @dataclass
 class Fit:
-    """What a file looks like as a song: its length off the song's (s), the audio against the release
-    (identity.Evidence verdict and detail: same, other, '' unclear)."""
+    """What a file looks like as a song: its length off the song's (s), and its audio against the release's
+    preview: the fingerprint's share of equal bits (the recording: identity.SAME on; about 0.55 another
+    song) and the waveform's correlation (the same master and mix: identity.WAVE_SAME on); None: not known."""
 
     diff: float | None
-    heard: str
-    heard_detail: str
+    fingerprint: float | None = None
+    waveform: float | None = None
 
 
 def folder(paths: Paths, batch: str) -> Path:
@@ -128,13 +129,21 @@ def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
 
 
 def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | None:
-    """How the file fits the song: length and audio (the audio only: a tool that fetched the file by the
-    song's ISRC tags it so whatever it found)."""
+    """How the file fits the song: its length, and its audio against the release's preview (the audio only:
+    a tool that fetched the file by the song's ISRC tags it so whatever it found)."""
     if song is None or f.error or f.path is None:
         return None
     diff = round(f.seconds - song["length"]) if f.seconds and song["length"] else None
-    heard = identity.check(con, song["isrc"] or "", f.path, bool(rules.mix_cut(song["title"])), tag=False)
-    return Fit(diff, heard.verdict, heard.detail)
+    out = Fit(diff)
+    isrc = song["isrc"] or ""
+    ref = identity.reference(con, isrc) if isrc else None
+    cand = identity.fingerprint(f.path) if ref is not None else None
+    if ref is not None and cand is not None and len(cand):
+        out.fingerprint = round(identity.similarity(ref, cand), 2)
+        clip = identity.preview(isrc)
+        wave = identity.waveform(f.path, clip) if clip else None
+        out.waveform = round(wave, 2) if wave is not None else None
+    return out
 
 
 def labels(f: File, song: sqlite3.Row | None, fit: Fit | None) -> list[tuple[str, str, str]]:
@@ -149,13 +158,16 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None) -> list[tuple[str
         amount = f"{n // 60}:{n % 60:02d}" if n >= 60 else f"{n} s"
         detail = f"{_mmss(f.seconds)}, the song {_mmss(song['length'])}"
         out.append((f"{amount} {'longer' if fit.diff > 0 else 'shorter'}", "warn", detail))
-    if fit and fit.heard == "other":
-        out.append(("Sounds different", "bad", f"Not the release's audio ({fit.heard_detail})"))
+    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
+    if fp is not None and (fp <= identity.OTHER or (fp < identity.SAME and wave is not None and wave < 0.3)):
+        out.append(("Sounds different", "bad", "Another recording than the release's (its fingerprint)"))
+    elif wave is not None and wave < identity.WAVE_SAME:
+        out.append(("Other master or mix", "warn", "The same recording, but its waveform is not the release's"))
     if f.tier == "fake":
         out.append(("Fake FLAC", "warn", "A FLAC made from a lossy file (spectrum check)"))
     if not out:
-        why = "Length fits" + (", sounds like the release" if fit and fit.heard == "same" else "")
-        out.append(("Looks right", "ok", why + (f" ({fit.heard_detail})" if fit and fit.heard_detail else "")))
+        why = "Length fits" + (", the release's audio" if wave is not None else ", audio not compared (no preview)")
+        out.append(("Looks right", "ok", why))
     return out
 
 
