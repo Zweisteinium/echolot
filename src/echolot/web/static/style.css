@@ -513,6 +513,8 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .upload-facts > * { margin: 0 0.3rem 0.25rem 0; }
 .upload-table .name { font-weight: 600; }
 .upload-facts .scores { display: flex; flex-wrap: wrap; gap: 0 0.75rem; }
+.upload-table .force { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; cursor: pointer; color: var(--muted); }
+.upload-table .force:has(input:checked) { color: var(--warn); font-weight: 600; }
 .upload-results { margin: 0.5rem 0 0.75rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 

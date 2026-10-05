@@ -200,11 +200,13 @@ def missing(
 
 def upload_songs(con: Connection, uid: int | None = None) -> list[Row]:
     """The songs (a user's, or everyone's) a file uploaded by hand can be: the missing ones, and those in the
-    library with what their copy is (quality, kbps); with what a file is checked against."""
+    library with what their copy is (quality, kbps, a fake FLAC's lossy source); with what a file is checked
+    against."""
     mine, args = _mine(uid)
     return con.execute(
-        "SELECT s.key, s.service, s.artist, s.artists, s.title, s.length, s.isrc, s.file, f.quality, f.kbps "
-        f"FROM wanted s LEFT JOIN files f ON f.path = s.file WHERE {mine} "
+        "SELECT s.key, s.service, s.artist, s.artists, s.title, s.length, s.isrc, s.file, s.link, f.quality, f.kbps, "
+        "(SELECT source FROM lossy_sourced l WHERE s.file LIKE l.stem || '.%' AND length(s.file) - length(l.stem) <= 5) "
+        f"AS fake_source FROM wanted s LEFT JOIN files f ON f.path = s.file WHERE {mine} "
         "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
     ).fetchall()

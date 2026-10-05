@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from echolot import db
 from echolot.config import Settings
 from echolot.library import audio, filing, upload
+from echolot.library.filing import Paths
 from echolot.web import create_app
 
 AUDIO = Path(__file__).parent / "fixtures" / "audio"
@@ -104,14 +105,33 @@ def test_labels() -> None:
     master = upload.labels(f, song, upload.Fit(0, 0.96, 0.72))  # SpotiFLAC's other version under the ISRC
     assert [t for t, _, _ in master] == ["Other master or mix"]
     assert upload.labels(f, None, None)[0][0] == "No song found"
-    have = song | {"file": "Hurts/Hurts - 2 More.mp3", "quality": "lossy-mid", "kbps": 160}
-    assert upload.labels(f, have, upload.Fit(0, 0.95, 0.99))[0][:2] == ("Better than your 160 kbps", "ok")
+    have = song | {"file": "Hurts/Hurts - 2 More.mp3", "quality": "lossy-mid", "kbps": 160, "fake_source": None}
+    copy = upload.compare(Paths(Path("/nowhere")), f, have)
+    assert upload.labels(f, have, upload.Fit(0, 0.95, 0.99), copy)[0][:2] == ("Better than your 160 kbps", "ok")
     flac = have | {"quality": "lossless"}
-    assert upload.labels(f, flac, None)[0][:2] == ("Not better than your FLAC", "bad") and not upload.importable(
-        f, flac
-    )
-    assert upload.better(upload.File(1, "x.mp3", tier="lossy-high", kbps=320), have)
-    assert not upload.better(upload.File(1, "x.mp3", tier="lossy-mid", kbps=170), have)  # barely more
+    copy = upload.compare(Paths(Path("/nowhere")), f, flac)
+    assert upload.labels(f, flac, None, copy)[0][:2] == ("Not better than your FLAC", "bad")
+    assert not upload.importable(f, flac, copy)
+
+
+def test_a_fake_flac_counts_by_its_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Enmity's FLAC made from a ~256 kbps file beats a 123 kbps Opus of the same reach (20 kHz); one made from
+    ~128 kbps does not, nor one whose sound stops lower than the copy's; a lossy file needs a quarter more."""
+    paths = Paths(tmp_path)
+    (paths.tracks / "Enmity").mkdir(parents=True)
+    (paths.tracks / "Enmity/Enmity - Sex.opus").write_bytes(b"x")
+    monkeypatch.setattr(audio, "spectrum", lambda p: {"verdict": "ok", "cutoff_hz": 20000, "drop_db": 46.0})
+    opus = {"file": "Enmity/Enmity - Sex.opus", "quality": "lossy-low", "kbps": 123, "fake_source": None}
+    fake = upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=20000)
+    assert upload.compare(paths, fake, opus).better
+    assert not upload.compare(paths, upload.File(1, "x.flac", tier="fake", source="~128 kbps", band=16000), opus).better
+    assert not upload.compare(
+        paths, upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=19000), opus
+    ).better
+    assert upload.compare(paths, upload.File(1, "x.mp3", tier="lossy-high", kbps=320), opus).better
+    assert not upload.compare(paths, upload.File(1, "x.mp3", tier="lossy-mid", kbps=150), opus).better  # barely more
+    fake_copy = opus | {"quality": "fake", "kbps": 1100, "fake_source": "~128 kbps"}
+    assert upload.compare(paths, upload.File(1, "x.mp3", tier="lossy-high", kbps=320), fake_copy).better
 
 
 def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., TestClient]) -> None:

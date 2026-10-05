@@ -54,13 +54,22 @@
     });
     for (const type of ["dragenter", "dragover"]) body.addEventListener(type, (e) => e.target.closest(".drop")?.classList.add("drag"));
     for (const type of ["dragleave", "drop"]) body.addEventListener(type, (e) => e.target.closest(".drop")?.classList.remove("drag"));
+    const recount = () => {  // the files that will be imported: a song, not left out, not refused (or forced)
+      const left = body.querySelectorAll("input[name^='song_']:not([disabled])").length;
+      const go = body.querySelector("[data-import]");
+      if (go) { go.disabled = !left; go.textContent = left ? `Import ${left}` : "Import"; }
+    };
+    body.addEventListener("change", (e) => {
+      const force = e.target.closest("[data-force]");
+      if (!force) return;
+      force.closest("tr").querySelector("input[name^='song_']").disabled = !force.checked;
+      recount();
+    });
     body.addEventListener("click", (e) => {
       const drop = e.target.closest("[data-drop-row]");
       if (drop) {
         drop.closest("tr").remove();
-        const left = body.querySelectorAll("input[name^='song_']").length;
-        const go = body.querySelector("[data-import]");
-        if (go) { go.disabled = !left; go.textContent = left ? `Import ${left}` : "Import"; }
+        recount();
         return;
       }
       if (e.target.closest("[data-close]")) dialog.close();

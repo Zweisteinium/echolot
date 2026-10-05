@@ -32,7 +32,8 @@ BATCH = re.compile(r"[0-9a-f]{16}")
 @dataclass
 class File:
     """An uploaded file as checked: n (its place in the batch), name (as uploaded), path (after prepare),
-    seconds, kbps, tier (catalog.QUALITY), tags (artist, title) and error (not usable audio)."""
+    seconds, kbps, tier (catalog.QUALITY), tags (artist, title), error (not usable audio) and what the
+    spectrum check saw (source, band)."""
 
     n: int
     name: str
@@ -43,6 +44,8 @@ class File:
     artist: str = ""
     title: str = ""
     error: str = ""
+    source: str = ""  # a fake FLAC: the lossy file it was made from, as the spectrum check estimates it
+    band: int = 0  # Hz up to which it has sound (a lossy encoder's edge; 0: none, its full range)
 
 
 @dataclass
@@ -80,6 +83,7 @@ def stage(paths: Paths, uploads: list[tuple[str, Any]]) -> str:
             f.path = prepared.path
             f.seconds, f.kbps = audio.probe(prepared.path)
             f.tier = tier(prepared.path, f.kbps, prepared.fake)
+            f.source, f.band = (prepared.spectrum or {}).get("source", ""), _band(prepared.spectrum)
             artists, f.title = audio.read_tags(prepared.path)
             f.artist = ", ".join(dict.fromkeys(artists))
         except audio.Rejected as e:
@@ -138,20 +142,67 @@ def copy_label(song: sqlite3.Row) -> str:
     return {"lossless": "FLAC", "fake": "fake FLAC"}.get(song["quality"] or "", f"{song['kbps'] or '?'} kbps")
 
 
-def better(f: File, song: sqlite3.Row) -> bool:
-    """The file is a better copy than the song's in the library: genuine lossless for a lossy or fake one, or a
-    lossy one of a clearly higher bitrate (a quarter more) than a lossy one."""
+# what a lossy file's quality is worth in kbps, for a fake FLAC by the source the spectrum check estimates
+SOURCE_KBPS = {"~128 kbps": 128, "~160-192 kbps": 176, "~256 kbps / V0": 256}
+MORE = 1.25  # a better lossy copy has a quarter more
+SLACK = 300  # Hz: a band this much lower is the same
+
+
+def worth(tier: str, kbps: int, source: str = "") -> float:
+    """A copy's quality as kbps: genuine lossless beyond any, a fake FLAC its source's (unknown: 128)."""
+    if tier == "lossless":
+        return float("inf")
+    if tier == "fake":
+        return SOURCE_KBPS.get(source, 128)
+    return kbps or 0
+
+
+def _band(spectrum: dict | None) -> int:
+    """Hz up to which a file has sound: a steep edge's (a lossy encoder's), else 0 (its full range)."""
+    s = spectrum or {}
+    steep = s.get("verdict") == "lossy" or (s.get("drop_db") or 0) >= 20
+    return int(s.get("cutoff_hz") or 0) if steep else 0
+
+
+@dataclass
+class Copy:
+    """An upload against the song's copy in the library: better (really: by its quality and its sound's
+    range) and why, in a few words."""
+
+    better: bool
+    why: str
+
+
+def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
+    """Whether the file is a better copy than the song's in the library (None: the song has none). Genuine
+    lossless beats a lossy or fake copy; otherwise its worth (a fake FLAC: its source's) must be a quarter
+    more than the copy's, and its sound reach as high (the library copy is measured by the same spectrum
+    check): a 256 kbps source made into a FLAC beats a 123 kbps Opus, a 128 kbps one does not."""
+    if not song["file"]:
+        return None
+    have = copy_label(song)
     if f.tier == "lossless":
-        return song["quality"] != "lossless"
-    if song["quality"] in ("lossless",) or f.tier == "fake":
-        return False
-    have = 0 if song["quality"] == "fake" else (song["kbps"] or 0)
-    return f.kbps >= max(have * 1.25, have + 1)
+        ok = song["quality"] != "lossless"
+        return Copy(ok, "genuine lossless" + ("" if ok else f", like your {have}"))
+    if song["quality"] == "lossless":
+        return Copy(False, "your copy is genuine lossless")
+    mine = worth(f.tier, f.kbps, f.source)
+    theirs = worth(song["quality"], song["kbps"] or 0, song["fake_source"] or "")
+    what = f"{f.source} source" if f.tier == "fake" and f.source else f"{f.kbps} kbps"
+    if mine < max(theirs * MORE, theirs + 1):
+        return Copy(False, f"{what}, your copy {have}")
+    lib = paths.tracks / song["file"]
+    band = f.band or 22050
+    theirs_band = (_band(audio.spectrum(lib)) or 22050) if lib.is_file() else 22050
+    khz = f"sound up to {band / 1000:.1f} kHz (yours {theirs_band / 1000:.1f})"
+    if band < theirs_band - SLACK:
+        return Copy(False, f"{what}, but {khz}")
+    return Copy(True, f"{what} against your {have}, {khz}")
 
 
-def importable(f: File, song: sqlite3.Row | None) -> bool:
+def importable(f: File, song: sqlite3.Row | None, copy: Copy | None) -> bool:
     """A file is imported for a missing song, or as a better copy of one in the library."""
-    return song is not None and not f.error and (not song["file"] or better(f, song))
+    return song is not None and not f.error and (copy is None or copy.better)
 
 
 def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | None:
@@ -172,20 +223,18 @@ def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | Non
     return out
 
 
-def labels(f: File, song: sqlite3.Row | None, fit: Fit | None) -> list[tuple[str, str, str]]:
+def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None = None) -> list[tuple[str, str, str]]:
     """Short labels for a file as its song: "Looks right" (a song you have: "Better than your 160 kbps"), or
     what is off; a copy no better than yours is "Not better than your FLAC". (text, style ok|warn|bad, detail)"""
     if f.error:
         return [("Not audio", "bad", f.error)]
     if song is None:
         return [("No song found", "bad", "Neither its tags nor its name name one of your songs")]
-    if song["file"] and not better(f, song):
-        return [(f"Not better than your {copy_label(song)}", "bad", "Your copy stays; this file is not imported")]
-    out = (
-        [(f"Better than your {copy_label(song)}", "ok", "Replaces your copy (kept 30 days in inbox/replaced)")]
-        if song["file"]
-        else []
-    )
+    if copy is not None and not copy.better:
+        why = f"{copy.why}: your copy stays unless you replace it anyway"
+        return [(f"Not better than your {copy_label(song)}", "bad", why)]
+    why = f"{copy.why if copy else ''}; your copy is kept 30 days in inbox/replaced"
+    out = [(f"Better than your {copy_label(song)}", "ok", why)] if copy else []
     if fit and fit.diff is not None and abs(fit.diff) > 3:
         n = abs(int(fit.diff))
         amount = f"{n // 60}:{n % 60:02d}" if n >= 60 else f"{n} s"
@@ -222,7 +271,8 @@ def import_files(
     con: sqlite3.Connection, paths: Paths, vault: "Vault", batch: str, chosen: dict[int, str]
 ) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file, a
-    song in the library a better copy in place of its own (filing.file_into outrank); delete the batch.
+    song in the library the file in place of its copy (better, or replaced anyway: filing.file_into replace);
+    delete the batch.
     Returns one line per file, with the song key when the song has the file now."""
     from echolot.jobs.acquire import finish
 
@@ -236,7 +286,13 @@ def import_files(
         want, fake, have = Want.of(song), f.tier == "fake", song["file"]
         if not have:
             _link(con, key, want)  # this file whatever its length
-        info = {"match": "by hand", "fake": fake, "replaces": have or "", "outrank": bool(have)}
+        info = {
+            "match": "by hand",
+            "fake": fake,
+            "fake_source": f.source,
+            "replaces": have or "",
+            "replace": bool(have),
+        }
         action, dest = filing.file_into(con, paths, f.path, want, "manual", **info)  # a better copy takes over
         if dest and action in ("new", "upgrade"):
             finish(_Run(paths, vault), con, dest, want)
