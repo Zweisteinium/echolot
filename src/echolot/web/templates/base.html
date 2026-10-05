@@ -135,6 +135,26 @@
       player.src = row.querySelector("[data-play]").dataset.play;
     };
     for (const e of ["play", "pause", "timeupdate", "loadedmetadata", "ended"]) player.addEventListener(e, paint);
+    // its volume: one slider on the page, a mute button beside it, both remembered in this browser
+    const volume = document.querySelector("[data-volume]");
+    if (volume) {
+      const mute = document.querySelector("[data-mute]");
+      const show = () => {
+        volume.value = Math.round(player.volume * 100);
+        volume.nextElementSibling.textContent = player.muted ? "muted" : `${volume.value} %`;
+        mute.firstElementChild.hidden = player.muted;
+        mute.lastElementChild.hidden = !player.muted;
+        mute.setAttribute("aria-label", player.muted ? "Unmute" : "Mute");
+      };
+      try {
+        const saved = JSON.parse(localStorage.getItem("echolot:volume") || "null");
+        if (saved) { player.volume = Math.min(Math.max(saved.level, 0), 1); player.muted = !!saved.muted; }
+      } catch (e) {}
+      const save = () => { try { localStorage.setItem("echolot:volume", JSON.stringify({ level: player.volume, muted: player.muted })); } catch (e) {} };
+      volume.addEventListener("input", () => { player.volume = volume.value / 100; player.muted = false; save(); show(); });
+      mute.addEventListener("click", () => { player.muted = !player.muted; save(); show(); });
+      show();
+    }
     document.addEventListener("htmx:afterSwap", paint);
     document.addEventListener("click", (ev) => {
       const play = ev.target.closest("[data-play]");

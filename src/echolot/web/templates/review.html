@@ -1,9 +1,15 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Review · Echolot{% endblock %}
 {% block content %}
 <section class="card">
   <div class="card-head">
     <h1>Please confirm <span class="count">{{ songs.filed|length|num }}</span></h1>
+    <div class="volume" title="The player's volume, for every download on this page">
+      <button type="button" class="icon-button" data-mute aria-label="Mute"><span>{{ icon('volume', 18) }}</span><span hidden>{{ icon('volume-off', 18) }}</span></button>
+      <input type="range" min="0" max="100" step="1" value="100" data-volume aria-label="Volume">
+      <span class="volume-value small muted">100 %</span>
+    </div>
   </div>
   <p class="lead small">Very probably the right song, and already in your library: the same core title and version words, no other featured artist, the length within a few seconds. Give it a final listen; if you do nothing, it stays.</p>
   <div class="review-list">
