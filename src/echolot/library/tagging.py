@@ -105,12 +105,14 @@ def names(s: sqlite3.Row) -> list[str]:
 
 def _lead(songs: list[sqlite3.Row], rel: str) -> sqlite3.Row:
     """The song a file's names and cover come from: a close match first, then Spotify's song (then a
-    YouTube song) named as the file's folder, with the most artists."""
+    YouTube song) named as the file's folder, with the most artists, of the earliest release (the album
+    before its compilations and anniversary editions)."""
     folder = rules.artist_keys(rel.partition("/")[0])
 
     def order(s: sqlite3.Row) -> tuple:
         named = bool(rules.artist_keys(s["artist"]) & folder)
-        return not s["close_match"], NAMED.index(s["service"]), not named, -len(names(s)), s["key"]
+        first = s["released"] or "9999"
+        return not s["close_match"], NAMED.index(s["service"]), not named, -len(names(s)), first, s["key"]
 
     return sorted(songs, key=order)[0]
 
