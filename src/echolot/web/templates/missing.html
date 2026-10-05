@@ -13,7 +13,7 @@
 {% block content %}
 <section class="card">
   <div class="card-head">
-    <h1>Missing <span class="count">{{ songs|length|num }}</span></h1>
+    <h1>Missing <span class="count" id="missing-count">{{ songs|length|num }}</span></h1>
     <form method="get" action="/missing">
       <select name="list" onchange="this.form.submit()" aria-label="List">
         <option value="">All lists</option>
@@ -31,7 +31,7 @@
     <thead><tr><th>Artist</th><th>Title</th><th class="num">Length</th><th class="hide-narrow" title="#: the song's place in the list, as Spotify and SoundCloud order it (Liked Songs: newest first)">Lists</th><th>What was tried</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}
-    <tr>
+    <tr data-song="{{ s.key }}">
       <td>{{ s.artist }}</td>
       <td>{{ song_link(s.key, s.url, s.title) }}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
@@ -87,28 +87,63 @@
 {% if upload %}
 <dialog id="upload" class="modal" aria-label="Upload files"><div id="upload-body"></div></dialog>
 <script>
-  // the upload dialog (web/upload.py): opens with its first step, shows the upload's progress, and a batch
-  // left by closing it (Esc, Cancel) is deleted; Close after an import reloads the page
+  // the upload dialog (web/upload.py): opens with its first step; lists the files picked or dropped; shows
+  // that it works (uploading, checking, importing); takes the imported songs off the page; a batch left by
+  // closing the dialog (Esc, Cancel) is deleted
   (() => {
     const dialog = document.getElementById("upload");
     const body = document.getElementById("upload-body");
     const csrf = () => JSON.parse(document.body.getAttribute("hx-headers") || "{}")["X-CSRF-Token"] || "";
+    const busy = (text) => {
+      body.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      const note = body.querySelector(".busy");
+      if (note) { note.hidden = false; if (text) note.textContent = text; }
+    };
     document.addEventListener("htmx:afterSwap", (e) => {
-      if (e.target === body && !dialog.open && body.firstElementChild) dialog.showModal();
-      if (e.target === body && !body.firstElementChild) dialog.close();
+      if (e.target !== body) return;
+      if (!body.firstElementChild) return dialog.close();
+      if (!dialog.open) dialog.showModal();
+      const done = body.querySelector("[data-imported]");
+      if (!done) return;
+      for (const key of JSON.parse(done.dataset.imported)) {
+        document.querySelectorAll(`tr[data-song="${CSS.escape(key)}"]`).forEach((tr) => tr.remove());
+      }
+      const count = document.getElementById("missing-count");
+      if (count) count.textContent = document.querySelectorAll("table.missing tbody tr[data-song]").length.toLocaleString("en");
+    });
+    document.addEventListener("htmx:beforeRequest", (e) => {
+      if (!body.contains(e.detail.elt) || e.detail.elt.hasAttribute("data-cancel")) return;
+      busy(e.detail.elt.matches("[hx-post$='/import']") ? "Importing…" : "Uploading…");
     });
     document.addEventListener("htmx:xhr:progress", (e) => {
       const bar = document.getElementById("upload-progress");
       if (!bar || !e.detail.lengthComputable) return;
       bar.hidden = false;
       bar.value = Math.round((e.detail.loaded / e.detail.total) * 100);
-      if (bar.value >= 100) document.getElementById("upload-busy").hidden = false;
+      if (bar.value >= 100) busy("Checking the files (quality, length, audio)…");
     });
+    body.addEventListener("change", (e) => {
+      const input = e.target.closest("input[type=file]");
+      if (!input) return;
+      const list = body.querySelector(".picked"), names = [...input.files].map((f) => f.name);
+      list.replaceChildren(...names.slice(0, 8).map((n) => Object.assign(document.createElement("li"), { textContent: n })));
+      if (names.length > 8) list.append(Object.assign(document.createElement("li"), { textContent: `and ${names.length - 8} more`, className: "muted" }));
+      list.hidden = !names.length;
+      body.querySelector(".drop-text").innerHTML = names.length ? `<b>${names.length} file${names.length > 1 ? "s" : ""}</b> chosen · choose again` : "<b>Choose files</b> or drop them here";
+      body.querySelector("[data-check]").disabled = !names.length;
+    });
+    for (const type of ["dragenter", "dragover"]) body.addEventListener(type, (e) => e.target.closest(".drop")?.classList.add("drag"));
+    for (const type of ["dragleave", "drop"]) body.addEventListener(type, (e) => e.target.closest(".drop")?.classList.remove("drag"));
     body.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-close]");
-      if (!b) return;
-      dialog.close();
-      if (b.hasAttribute("data-reload")) location.reload();
+      const drop = e.target.closest("[data-drop-row]");
+      if (drop) {
+        drop.closest("tr").remove();
+        const left = body.querySelectorAll("input[name^='song_']").length;
+        const go = body.querySelector("[data-import]");
+        if (go) { go.disabled = !left; go.textContent = left ? `Import ${left}` : "Import"; }
+        return;
+      }
+      if (e.target.closest("[data-close]")) dialog.close();
     });
     dialog.addEventListener("close", () => {
       const open = body.querySelector("[data-batch]");

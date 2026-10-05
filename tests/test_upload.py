@@ -44,13 +44,14 @@ def test_upload_check_and_import(settings: Settings, login: Callable[..., TestCl
     ]
     html = client.post("/missing/upload", files=files).text
     batch = batch_of(html)
-    assert '<option value="spotify:s3" selected>' in html  # guessed by its name
-    assert "not audio Echolot can use" in html and "Import 2 files?" in html
-    assert re.search(r"q-lossless", html)  # its quality, for information
-    row = client.get(f"/missing/upload/{batch}/1", params={"song_1": ""}).text
-    assert "no song chosen" in row and "selected>" not in row.replace('value="" ', "")
+    assert '<input type="hidden" name="song_1" value="spotify:s3">' in html  # detected by its name
+    assert "Artist C – Gone Song" in html and "<select" not in html
+    assert "Not audio" in html and 'name="song_2"' not in html and "Import 1 of 2 files?" in html
+    assert re.search(r"\d:\d\d shorter|\d+ s shorter", html)  # what is off: its length
+    assert "q-lossless" in html  # its quality
     done = client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:s3"}).text
     assert "Artist C – Gone Song: filed as Artist C/Artist C - Gone Song.flac" in done
+    assert 'data-imported="[&#34;spotify:s3&#34;]"' in done  # the page takes the song off
     assert (settings.library_dir / "Artist C" / "Artist C - Gone Song.flac").is_file()
     con = db.connect(settings.db_path)
     assert (
@@ -91,3 +92,12 @@ def test_guess_by_title_and_length() -> None:
     assert upload.guess(upload.File(2, "track01.flac", seconds=100), songs) is None
     other = upload.File(3, "Passenger - 2 More.flac", seconds=211, artist="Passenger", title="2 More")
     assert upload.guess(other, songs) is None  # another artist's song of that title
+
+
+def test_labels() -> None:
+    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211}
+    f = upload.File(1, "x.flac", seconds=212, tier="lossless")
+    assert upload.labels(f, song, upload.Fit(1, "same", "audio of the release (0.95)"))[0][:2] == ("Looks right", "ok")
+    off = upload.labels(upload.File(1, "x.flac", seconds=346, tier="fake"), song, upload.Fit(135, "other", "0.10"))
+    assert [t for t, _, _ in off] == ["2:15 longer", "Sounds different", "Fake FLAC"]
+    assert upload.labels(f, None, None)[0][0] == "No missing song found"
