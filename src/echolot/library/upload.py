@@ -145,7 +145,7 @@ def copy_label(song: sqlite3.Row) -> str:
 # what a lossy file's quality is worth in kbps, for a fake FLAC by the source the spectrum check estimates
 SOURCE_KBPS = {"~128 kbps": 128, "~160-192 kbps": 176, "~256 kbps / V0": 256}
 MORE = 1.25  # a better lossy copy has a quarter more
-SLACK = 300  # Hz: a band this much lower is the same
+SLACK = 1000  # Hz: a band less lower is the same (above 19 kHz a few hundred Hz go unheard; 128 kbps stops at 16)
 
 
 def worth(tier: str, kbps: int, source: str = "") -> float:
