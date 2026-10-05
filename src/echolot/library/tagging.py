@@ -48,6 +48,14 @@ STALE = {
     "mp4": ["soar", "soaa", "sonm", "soal", "----:com.apple.iTunes:ALBUMARTISTS"],
 }
 FORMATS = ("flac", "ogg", "opus", "mp3", "wav", "m4a")  # what the writer handles (others keep their tags)
+# a Spotify song's place on its release (songs.released, track, tracks, disc) and ISRC, as "isrc", "date",
+# "track" ("n/total") and "disc"; with them go the uploader's spellings of the same fields (another release's)
+FACT_FIELDS = ("isrc", "date", "track", "disc")
+FACT_STALE = {
+    "vorbis": ["year", "totaltracks", "tracktotal", "totaldiscs", "disctotal"],
+    "id3": ["TYER", "TDAT"],
+    "mp4": [],
+}
 
 
 @dataclass
@@ -58,6 +66,7 @@ class Tags:
     album: str | None  # None: the file keeps its own
     sources: list[str] = field(default_factory=list)
     download: str = ""  # "" when unknown: the file keeps what it has
+    facts: dict[str, str] = field(default_factory=dict)  # the release's (FACT_FIELDS); empty: the file keeps its own
 
     @property
     def artist(self) -> str:
@@ -130,7 +139,22 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
     else:
         artists, title, album = [lead["artist"]], clean_title(lead["title"], lead["artist"]), None
     sources = [p for p in dict.fromkeys(page(s) for s in songs) if p]
-    return Tags(artists, artists[0], title, album, sources, download_of(con, rel, path, songs))
+    return Tags(artists, artists[0], title, album, sources, download_of(con, rel, path, songs), facts(lead))
+
+
+def facts(song: sqlite3.Row) -> dict[str, str]:
+    """The release facts a file of this song gets: a Spotify release's (also a YouTube song's that Spotify
+    has), never a close match's (another version) or a SoundCloud upload's."""
+    if song["service"] == "soundcloud" or song["close_match"] or not song["released"]:
+        return {}
+    track = f"{song['track']}/{song['tracks']}" if song["track"] and song["tracks"] else str(song["track"] or "")
+    out = {
+        "isrc": (song["isrc"] or "").upper(),
+        "date": song["released"],
+        "track": track,
+        "disc": str(song["disc"] or ""),
+    }
+    return {k: v for k, v in out.items() if v}
 
 
 def download_of(con: sqlite3.Connection, rel: str, path: Path, songs: list[sqlite3.Row]) -> str:
@@ -170,7 +194,7 @@ def read(path: Path) -> dict[str, Any]:
     """What a file's tags hold, in Tags terms, plus 'page': the page yt-dlp downloaded it from, 'stale': the
     STALE fields it has, and 'text': every text value."""
     out: dict[str, Any] = {"artists": [], "albumartist": "", "title": "", "album": "", "sources": [], "download": ""}
-    out |= {"track": "", "page": "", "stale": {}, "text": ""}
+    out |= {"track": "", "facts": {}, "page": "", "stale": {}, "text": ""}
     try:
         m = _raw(path)
     except Exception:
@@ -183,6 +207,7 @@ def read(path: Path) -> dict[str, Any]:
     out |= {"artists": artists, "albumartist": " ".join(get("ALBUMARTIST")), "title": " ".join(get("TITLE"))}
     out |= {"album": " ".join(get("ALBUM")), "sources": get("SOURCE"), "download": " ".join(get("DOWNLOAD"))}
     out["track"] = " ".join(get("TRACK"))
+    out["facts"] = _read_facts(t)
     out["text"] = " ".join(str(v) for v in _values(t))
     out["page"] = _page(t)
     out["stale"] = _stale(t)
@@ -216,6 +241,28 @@ def _getter(t: Any) -> Callable[[str], list[str]]:
         return [str(v) for v in t.get(key.lower(), []) or t.get(key, [])]
 
     return get
+
+
+def _read_facts(t: Any) -> dict[str, str]:
+    """The file's release facts in FACT_FIELDS form ("track": "n/total"; only those it has)."""
+    kind = _kind(t)
+    if kind == "id3":
+        text = {k: str(t[k].text[0]) if k in t and t[k].text else "" for k in ("TSRC", "TDRC", "TRCK", "TPOS")}
+        out = {"isrc": text["TSRC"], "date": text["TDRC"], "track": text["TRCK"], "disc": text["TPOS"].split("/")[0]}
+    elif kind == "mp4":
+        n, total = (t.get("trkn") or [(0, 0)])[0]
+        isrc = [bytes(v).decode("utf-8", "replace") for v in t.get(MP4_FREE + "ISRC", [])]
+        out = {"isrc": isrc[0] if isrc else "", "date": str((t.get("\xa9day") or [""])[0])}
+        out |= {
+            "track": f"{n}/{total}" if n and total else str(n or ""),
+            "disc": str((t.get("disk") or [(0, 0)])[0][0] or ""),
+        }
+    else:
+        first = lambda k: str((t.get(k) or [""])[0])  # noqa: E731
+        n, total = first("tracknumber"), first("tracktotal") or first("totaltracks")
+        track = n if "/" in n or not total else f"{n}/{total}"
+        out = {"isrc": first("isrc"), "date": first("date"), "track": track, "disc": first("discnumber").split("/")[0]}
+    return {k: v.strip() for k, v in out.items() if v and v.strip() not in ("0", "")}
 
 
 def _page(t: Any) -> str:
@@ -257,11 +304,13 @@ def differs(path: Path, tags: Tags) -> list[str]:
     album = tags.album if tags.album is not None else now["album"]
     wanted = {"artists": tags.artists, "albumartist": tags.albumartist, "title": tags.title, "album": album}
     wanted |= {"sources": tags.sources, "download": tags.download or now["download"]}
-    return [name for name, value in wanted.items() if now[name] != value] + (["stale"] if now["stale"] else [])
+    fields = [name for name, value in wanted.items() if now[name] != value] + (["stale"] if now["stale"] else [])
+    return fields + [k for k, v in tags.facts.items() if now["facts"].get(k) != v]
 
 
 def write(path: Path, tags: Tags) -> None:
-    """Write the tags; the comment, the cover and every other field stay."""
+    """Write the tags; the comment, the cover and every other field stay (but the uploader's spellings of
+    the release facts, FACT_STALE, when the song has them)."""
     m = _raw(path)
     if m is None:
         raise ValueError(f"not an audio file mutagen knows: {path.name}")
@@ -270,6 +319,8 @@ def write(path: Path, tags: Tags) -> None:
     t, kind = m.tags, _kind(m.tags)
     for key in _stale(t):
         del t[key]
+    if tags.facts:
+        _write_facts(t, kind, tags.facts)
     values = {"ARTIST": [tags.artist], "ARTISTS": tags.artists, "ALBUMARTIST": [tags.albumartist]}
     values |= {"TITLE": [tags.title], "SOURCE": tags.sources}
     if tags.album is not None:
@@ -303,6 +354,41 @@ def write(path: Path, tags: Tags) -> None:
             elif key in t:
                 del t[key]
     m.save()
+
+
+def _write_facts(t: Any, kind: str, facts: dict[str, str]) -> None:
+    """The release facts (FACT_FIELDS form) into tags of `kind`; the uploader's other spellings go."""
+    for key in [k for k in t.keys() if k.lower() in {s.lower() for s in FACT_STALE[kind]}]:  # noqa: SIM118
+        del t[key]
+    n, _, total = facts.get("track", "").partition("/")
+    if kind == "id3":
+        from mutagen.id3 import TDRC, TPOS, TRCK, TSRC
+
+        for frame, key in ((TSRC, "isrc"), (TDRC, "date"), (TRCK, "track"), (TPOS, "disc")):
+            if facts.get(key):
+                t.setall(frame.__name__, [frame(encoding=3, text=[facts[key]])])
+    elif kind == "mp4":
+        from mutagen.mp4 import MP4FreeForm
+
+        if facts.get("isrc"):
+            t[MP4_FREE + "ISRC"] = [MP4FreeForm(facts["isrc"].encode("utf-8"))]
+        if facts.get("date"):
+            t["\xa9day"] = [facts["date"]]
+        if n:
+            t["trkn"] = [(int(n), int(total or 0))]
+        if facts.get("disc"):
+            t["disk"] = [(int(facts["disc"]), 0)]
+    else:
+        values = {
+            "isrc": facts.get("isrc"),
+            "date": facts.get("date"),
+            "tracknumber": n,
+            "discnumber": facts.get("disc"),
+        }
+        values["tracktotal"] = total
+        for key, value in values.items():
+            if value:
+                t[key] = [value]
 
 
 def backup_line(rel: str, path: Path) -> str:

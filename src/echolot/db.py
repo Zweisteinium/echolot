@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 21
+VERSION = 22
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -47,7 +47,11 @@ CREATE TABLE songs (                -- every song of every list, once; kept when
     close_match INTEGER NOT NULL DEFAULT 0,  -- the link is another version, taken as a close match in review
     url TEXT,                       -- SoundCloud: the track page it is downloaded from
     archived INTEGER NOT NULL DEFAULT 0,  -- SoundCloud: downloaded once
-    isrc TEXT                       -- Spotify: the recording's ISRC
+    isrc TEXT,                      -- Spotify: the recording's ISRC
+    released TEXT,                  -- Spotify: its release's date (YYYY, YYYY-MM or YYYY-MM-DD)
+    track INTEGER,                  -- Spotify: its number on that release, of `tracks`, on disc `disc`
+    tracks INTEGER,
+    disc INTEGER
 );
 CREATE TABLE list_songs (
     list_key TEXT NOT NULL REFERENCES lists(key) ON DELETE CASCADE,
@@ -114,7 +118,7 @@ CREATE TABLE availability (         -- whether a song still plays at its source,
     song_key TEXT PRIMARY KEY,
     state TEXT NOT NULL,            -- available, taken_down (plays nowhere), blocked (not in this country),
                                     -- gone (exists no more), preview (SoundCloud: 30 s without Go+), replaced
-    since TEXT NOT NULL,            -- date it came to this state (or of its first check)
+    since TEXT NOT NULL,            -- date it came to this state; '' when it was so at its first check
     checked TEXT NOT NULL,
     detail TEXT                     -- replaced: the song key of the release it plays as now
 );
@@ -272,6 +276,14 @@ MIGRATIONS = {
         "list_key TEXT, change TEXT NOT NULL, detail TEXT)",
         "CREATE INDEX changes_ts ON changes(ts)",
         "CREATE INDEX changes_song ON changes(song_key)",
+    ],
+    22: [  # the release facts of Spotify songs (tags); a state seen at the first check has no known date
+        "ALTER TABLE songs ADD COLUMN released TEXT",
+        "ALTER TABLE songs ADD COLUMN track INTEGER",
+        "ALTER TABLE songs ADD COLUMN tracks INTEGER",
+        "ALTER TABLE songs ADD COLUMN disc INTEGER",
+        "UPDATE availability SET since = '' WHERE NOT EXISTS (SELECT 1 FROM changes c "
+        "WHERE c.song_key = availability.song_key AND c.change = availability.state)",
     ],
 }
 

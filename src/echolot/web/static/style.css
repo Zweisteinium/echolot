@@ -442,8 +442,10 @@ ol.steps form { margin-top: 0.5rem; }
   border: 1px solid var(--border); border-radius: var(--radius); transition: border-color 0.15s, box-shadow 0.15s; }
 .src-card.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
-.src-card .cover { aspect-ratio: 1; background: var(--track); display: grid; place-items: center; }
-.src-card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
+/* always square: a portrait or landscape picture is cropped to its middle (overflow keeps a tall one from
+   stretching the box past its aspect ratio) */
+.src-card .cover { aspect-ratio: 1; background: var(--track); display: grid; place-items: center; position: relative; overflow: hidden; }
+.src-card .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
 .src-card .cover img.shown { opacity: 1; }  /* fades in when loaded (lazily, as it scrolls into view) */
 .src-card:not(.on) .cover img { filter: saturate(0.6); }
 .src-card:not(.on) .cover img.shown { opacity: 0.85; }

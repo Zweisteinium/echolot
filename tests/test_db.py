@@ -18,12 +18,17 @@ V12_USERS = (
 )
 
 
+V22_SONGS = "".join(
+    f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
+)  # schema 22
+
+
 def test_version_12_is_migrated(tmp_path: Path) -> None:
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
     con.executescript(
-        "ALTER TABLE songs DROP COLUMN close_match; ALTER TABLE review_decisions DROP COLUMN name; "
+        f"ALTER TABLE songs DROP COLUMN close_match; {V22_SONGS} ALTER TABLE review_decisions DROP COLUMN name; "
         "ALTER TABLE review_decisions DROP COLUMN user_id; ALTER TABLE review_decisions DROP COLUMN overridden; "
         "ALTER TABLE events DROP COLUMN url; "
         "ALTER TABLE events DROP COLUMN compared; ALTER TABLE events DROP COLUMN peer_bytes; DROP TABLE users; "
@@ -33,7 +38,8 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     db.init(path)
     con = db.connect(path)
     assert con.execute("PRAGMA user_version").fetchone()[0] == db.VERSION
-    assert "close_match" in columns(con, "songs") and {"name", "user_id"} <= columns(con, "review_decisions")
+    assert {"close_match", "released", "track", "tracks", "disc"} <= columns(con, "songs")
+    assert {"name", "user_id"} <= columns(con, "review_decisions")
     assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
     assert "password" not in columns(con, "users")  # Navidrome's accounts
     assert {"navidrome_id", "navidrome_admin", "permissions", "view", "disabled"} <= columns(con, "users")
@@ -52,7 +58,7 @@ def test_the_local_accounts_go(tmp_path: Path) -> None:
         "INSERT INTO users (id, name, password, created, source, admin) VALUES (2, 'david', '', '2026-10-02', 'navidrome', 1); "
         "INSERT INTO sessions VALUES ('s1', 1, 'c', 'now', '2099-01-01', 'now'), ('s2', 2, 'c', 'now', '2099-01-01', 'now'); "
         "ALTER TABLE review_decisions DROP COLUMN user_id; ALTER TABLE review_decisions DROP COLUMN overridden; "
-        "DROP TABLE availability; DROP TABLE changes; PRAGMA user_version = 17;"
+        f"DROP TABLE availability; DROP TABLE changes; {V22_SONGS} PRAGMA user_version = 17;"
     )
     con.close()
     db.init(path)
@@ -86,7 +92,7 @@ def test_the_history_becomes_the_owners(tmp_path: Path) -> None:
         "INSERT INTO snapshots VALUES ('t1', 'songs_wanted', 'spotify', 10), ('t1', 'songs_wanted', 'soundcloud', 5), "
         "('t1', 'songs_by_quality', 'lossless', 8); "
         "ALTER TABLE review_decisions DROP COLUMN overridden; DROP TABLE availability; DROP TABLE changes; "
-        "PRAGMA user_version = 19;"
+        f"{V22_SONGS} PRAGMA user_version = 19;"
     )
     con.close()
     db.init(path)

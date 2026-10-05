@@ -173,7 +173,10 @@ def identify(
                   number and artist prefix, gives exactly the requested title (noise rules of title_key)
       'probable'  the artist as above, the same core title (the part before any bracket, ' - ', '|' or
                   'feat.'), the same version words (remix, live, VIP, remake, ...), a named variant such
-                  as "(Hard Trance Mix)" only if the request names it too, and the length within `tol`
+                  as "(Hard Trance Mix)" only if the request names it too, and the length within `tol`;
+                  also a name crediting the song's own artist where the request names no version
+                  ("Title - HIGH TEKK REMIX" for High Tekk's "Title": as the artist released it, but only
+                  a listener can tell)
       None        neither."""
     want = artist_words(artist)
     texts = [t for t in [*tag_artists, file_name, *folders] if t]
@@ -190,10 +193,12 @@ def identify(
         "file name": _readings(file_name, has_artist) if file_name else [],
     }
     # the file name can name a version the tags leave out ("Infinity 2008 - Klaas Vocal Edit")
-    if c := other_version(title, readings["file name"], known):
+    if c := other_version(title, readings["file name"], known, want):
         return None, f"file name '{c}' names another version than '{title}'"
+    own = _own(title, want)
+    credited = any(without_own(x, own) != x for x in (tag_title, file_name) if x)  # "- HIGH TEKK REMIX"
     for source, names in readings.items():
-        if tk and any(title_key(c) == tk and same_feat(c, title) for c in names):
+        if tk and not credited and any(title_key(c) == tk and same_feat(c, title) for c in names):
             return "exact", source
     if not (dur and length and abs(dur - float(length)) <= tol):
         return None, (
@@ -201,7 +206,9 @@ def identify(
             f"(a probable match needs the length within {tol:.0f} s: {dur or 0:.0f} s, "
             f"wanted {float(length or 0):.0f} s)"
         )
-    if c := probable(title, readings["tags"] + readings["file name"], known):
+    if c := probable(title, readings["tags"] + readings["file name"], known, want):
+        if credited:
+            return "probable", f"probable: '{c}' credits the song's own artist, length within {tol:.0f} s"
         return ("probable", f"probable: '{c}' has the core title, the same version words, length within {tol:.0f} s")
     return None, (
         f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' "
@@ -272,6 +279,9 @@ PLAIN_WORDS = {
     "for", "to", "de", "der", "die", "das",
 }  # fmt: skip
 _MARKERS = VERSION_WORDS | {"mix", "edit", "version"}  # a segment with one of these names a variant
+# a segment crediting only the song's own artist with one of these ("- HIGH TEKK REMIX" by High Tekk) is the
+# song as that artist released it, where the list leaves the word out (own_credit)
+OWN_WORDS = {"remix", "remixed", "rmx", "bootleg", "rework", "flip", "remake"}
 _SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+-\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
 
 
@@ -298,12 +308,36 @@ def _named(segs: list[str], known: set[str]) -> set[str]:
     }
 
 
-def other_version(title: str, names: list[str], artist_words_: set[str]) -> str | None:
+def own_credit(seg: str, own: Iterable[str]) -> bool:
+    """A segment that credits only the song's own artist (`own`: artist_words) with a version word:
+    "HIGH TEKK REMIX" for High Tekk."""
+    w, phrases = words(seg), list(own)
+    rest = set(_vwords(seg)) - set(" ".join(phrases).split())
+    return any(f" {p} " in w for p in phrases) and bool(rest & OWN_WORDS) and rest <= OWN_WORDS | PLAIN_WORDS
+
+
+def without_own(name: str, own: Iterable[str]) -> str:
+    """The name without segments crediting the song's own artist (own_credit), for comparing it with a
+    request that names no version; the name itself if it has none."""
+    head, segs = segments(name)
+    keep = [s for s in segs if not own_credit(s, own)]
+    return name if len(keep) == len(segs) else " ".join([head, *(f"({s})" for s in keep)])
+
+
+def _own(title: str, own: Iterable[str]) -> list[str]:
+    """The artist forms whose own credit counts as the song: none when the request names a version."""
+    return [] if set(_vwords(title)) & VERSION_WORDS else list(own)
+
+
+def other_version(title: str, names: list[str], artist_words_: set[str], own: Iterable[str] = ()) -> str | None:
     """The first of `names` with the requested core title that names another version: a version word
-    or a named variant the request does not have. None if there is none."""
+    or a named variant the request does not have (a credit of the song's own artist, `own`, is none).
+    None if there is none."""
     head, _ = segments(title)
     core, want_all = title_key(head), set(_vwords(title))
-    for c in names:
+    own = _own(title, own)
+    for name in names:
+        c = without_own(name, own)
         c_head, c_tail = segments(c)
         if (
             core
@@ -314,18 +348,21 @@ def other_version(title: str, names: list[str], artist_words_: set[str]) -> str 
                 or not same_feat(c, title)
             )
         ):
-            return c
+            return name
     return None
 
 
-def probable(title: str, names: list[str], artist_words_: set[str]) -> str | None:
-    """The first of `names` (readings of the download) that is probably the requested title."""
+def probable(title: str, names: list[str], artist_words_: set[str], own: Iterable[str] = ()) -> str | None:
+    """The first of `names` (readings of the download) that is probably the requested title (a credit of
+    the song's own artist, `own`, left out)."""
     head, tail = segments(title)
     core, want_all = title_key(head), set(_vwords(title))
     if not core:
         return None
     need = _named(tail, set())  # remixers etc. the request names must be in the download
-    for c in names:
+    own = _own(title, own)
+    for name in names:
+        c = without_own(name, own)
         c_head, c_tail = segments(c)
         have_all = set(_vwords(c))
         if (
@@ -335,7 +372,7 @@ def probable(title: str, names: list[str], artist_words_: set[str]) -> str | Non
             and not _named(c_tail, want_all | artist_words_)
             and same_feat(c, title)
         ):
-            return c
+            return name
     return None
 
 
@@ -381,7 +418,7 @@ def prejudge(
         return REJECT, 9, "artist not in the path"
     known = set(" ".join(want).split())
     names = _readings(name, has_artist)
-    if c := other_version(title, names, known):
+    if c := other_version(title, names, known, want):
         return REJECT, 9, f"'{c}' names another version"
     versions = set(_vwords(title)) & VERSION_WORDS  # a remix, live, Pt. 2 ... is asked for
     core = title_key(segments(title)[0])
@@ -390,7 +427,7 @@ def prejudge(
         return REJECT, 9, f"the file name lacks '{' '.join(sorted(versions))}' (another recording)"
     tk = title_key(title)
     exact = bool(tk) and any(title_key(c) == tk and same_feat(c, title) for c in names)
-    close = exact or bool(length and wanted and abs(length - wanted) <= 3 and probable(title, names, known))
+    close = exact or bool(length and wanted and abs(length - wanted) <= 3 and probable(title, names, known, want))
     if not artist_seen:  # a loosened search: the tags must name the artist
         if close:
             return UNKNOWN, 2, "title in the file name, artist unseen"

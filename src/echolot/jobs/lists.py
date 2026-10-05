@@ -95,18 +95,22 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
     name of a song it removed while it stays in your list). False if it has no name at all."""
     old = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone()
     cur = {k: meta.get(k) or (old[k] if old else None) for k in ("artist", "title", "album", "length",
-                                                                   "artists", "isrc", "url")}  # fmt: skip
+                                                                   "artists", "isrc", "url", *FACTS)}  # fmt: skip
     if not cur["artist"] or not cur["title"]:
         return False
     con.execute(
-        "INSERT INTO songs (key, service, artist, title, album, length, artists, isrc, url) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET artist = excluded.artist, "
-        "title = excluded.title, album = excluded.album, length = excluded.length, "
-        "artists = excluded.artists, isrc = excluded.isrc, url = excluded.url",
+        "INSERT INTO songs (key, service, artist, title, album, length, artists, isrc, url, released, track, "
+        "tracks, disc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET "
+        "artist = excluded.artist, title = excluded.title, album = excluded.album, length = excluded.length, "
+        "artists = excluded.artists, isrc = excluded.isrc, url = excluded.url, released = excluded.released, "
+        "track = excluded.track, tracks = excluded.tracks, disc = excluded.disc",
         (key, service, cur["artist"], cur["title"], cur["album"] or "", float(cur["length"] or 0),
-         cur["artists"], cur["isrc"], cur["url"]),
+         cur["artists"], cur["isrc"], cur["url"], *(cur[k] for k in FACTS)),
     )  # fmt: skip
     return True
+
+
+FACTS = ("released", "track", "tracks", "disc")  # spotify.release_facts
 
 
 # ---------------------------------------------------------------- Spotify
@@ -182,7 +186,8 @@ def _fetch_spotify_list(
     with con:
         for it in items:
             _song(con, f"spotify:{it['id']}", "spotify", artist=it["artist"], title=it["title"],
-                  album=it["album"], length=it["length"], artists=json.dumps(it["artists"]), isrc=it["isrc"])  # fmt: skip
+                  album=it["album"], length=it["length"], artists=json.dumps(it["artists"]), isrc=it["isrc"],
+                  **{k: it.get(k) for k in FACTS})  # fmt: skip
     _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot)
     return True
 
@@ -281,7 +286,7 @@ def _fetch_youtube_list(
 def _youtube_song(con: sqlite3.Connection, sp: spotify.Spotify | None, t: dict[str, Any]) -> dict[str, Any]:
     """A YouTube song's names: YouTube Music's (without a video's decoration: _plain; an upload's from its
     video title: _upload_names), then Spotify's where it has the song (_on_spotify), with its ISRC, album
-    and the release's length."""
+    and the release's length and place on it (spotify.release_facts)."""
     if t["kind"] == "ugc":
         artists, title = _upload_names((t["artists"] or [""])[0], t["title"])
     else:
@@ -304,7 +309,8 @@ def _youtube_song(con: sqlite3.Connection, sp: spotify.Spotify | None, t: dict[s
     names = [a["name"] for a in hit.get("artists") or [] if a.get("name")]
     album = (hit.get("album") or {}).get("name") or t["album"]
     found = {"artist": names[0], "title": hit["name"], "album": album, "length": hit["duration_ms"] / 1000}
-    return meta | found | {"artists": json.dumps(names), "isrc": (hit.get("external_ids") or {}).get("isrc")}
+    found |= {"artists": json.dumps(names), "isrc": (hit.get("external_ids") or {}).get("isrc")}
+    return meta | found | spotify.release_facts(hit)
 
 
 PARTS = re.compile(r"\s+[-–—|]\s+(?![^\(\[]*[\)\]])")  # "Artist - Title": a dash between spaces, not in brackets
