@@ -75,8 +75,10 @@ class FakeSpotify:
                 out.append({"id": sid, "is_playable": False, "restrictions": {"reason": "market"}})
             elif sid in ("s2", "s3"):
                 out.append({"id": sid, "available_markets": [] if sid == "s2" else ["US"]})
-            elif sid == "s7":
+            elif sid == "s7" and with_market:
                 out.append({"id": "s7b", "is_playable": True, "linked_from": {"id": "s7"}})
+            elif sid == "s7":  # the release in the list
+                out.append({"id": sid, "track_number": 5, "disc_number": 1, "album": {"release_date": "2001"}})
             elif sid == "s1":  # with its place on its release
                 album = {"release_date": "2020-07-21", "total_tracks": 4}
                 out.append({"id": sid, "is_playable": True, "track_number": 2, "disc_number": 1, "album": album})
@@ -120,7 +122,7 @@ def test_the_daily_check(run: Run) -> None:
     assert {r[0] for r in con.execute("SELECT since FROM availability")} == {""}  # so at the first check: unknown
     facts = "SELECT released, track, tracks, disc FROM songs WHERE key = ?"
     assert tuple(con.execute(facts, ("spotify:s1",)).fetchone()) == ("2020-07-21", 2, 4, 1)
-    assert tuple(con.execute(facts, ("spotify:s7",)).fetchone()) == (None,) * 4  # relinked: another release's
+    assert tuple(con.execute(facts, ("spotify:s7",)).fetchone()) == ("2001", 5, None, 1)  # its own, not the relinked
     with con:  # s2 plays again: a change
         con.execute("UPDATE availability SET state = 'available' WHERE song_key = 'spotify:s2'")
     con.close()

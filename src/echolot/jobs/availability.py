@@ -156,9 +156,9 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
         ids = [k.removeprefix("spotify:") for k in keys[n : n + BATCH]]
         run.say(f"Spotify: {n + len(ids)} of {len(keys)}", n, len(keys))
         tracks = sp.get(f"/tracks?ids={','.join(ids)}&market={market}").get("tracks") or []
-        unplayable = []
+        unplayable, relinked = [], []
         for sid, t in zip(ids, tracks, strict=False):
-            if t and t.get("id") == sid:  # (a relinked one is another release)
+            if t and t.get("id") == sid:  # (a relinked one is another release: asked for again below)
                 f = spotify.release_facts(t)
                 facts.append((f["released"], f["track"], f["tracks"], f["disc"], f"spotify:{sid}"))
             if t is None:
@@ -167,6 +167,7 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
                 unplayable.append(sid)  # nowhere, or only not here: asked without a market
             elif t.get("id") and t["id"] != sid:
                 out[f"spotify:{sid}"] = ("replaced", f"spotify:{t['id']}")  # relinked to another release
+                relinked.append(sid)
             else:
                 out[f"spotify:{sid}"] = ("available", None)
         if unplayable:
@@ -174,6 +175,11 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
             for sid, t in zip(unplayable, everywhere, strict=False):
                 markets = (t or {}).get("available_markets") or []
                 out[f"spotify:{sid}"] = ("blocked" if markets else "taken_down", None)
+        if relinked:  # asked without a market: the release in the list, for its facts
+            for sid, t in zip(relinked, sp.get(f"/tracks?ids={','.join(relinked)}").get("tracks") or [], strict=False):
+                if t and t.get("id") == sid:
+                    f = spotify.release_facts(t)
+                    facts.append((f["released"], f["track"], f["tracks"], f["disc"], f"spotify:{sid}"))
     with con:
         sql = "UPDATE songs SET released = ?, track = ?, tracks = ?, disc = ? WHERE key = ?"
         con.executemany(sql, facts)
