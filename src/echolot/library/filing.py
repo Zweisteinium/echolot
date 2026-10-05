@@ -297,6 +297,7 @@ def file_into(
     same_audio: str = "",
     replaces: str = "",
     peer_bytes: int = 0,
+    outrank: bool = False,
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -311,9 +312,10 @@ def file_into(
     SoundCloud song's FLAC: its names are an uploader's, so only you can tell). `same_audio` (what
     identity.same_master found) with `replaces` (that library file): the download is the file's audio in
     another codec, so the names only tell an exact match (filed) from a probable one (filed for review);
-    it takes over that file."""
+    it takes over that file. `outrank` (an upload by hand): a copy better than the library's by its rank (a
+    320 kbps MP3 for a 128 kbps one, not only genuine lossless) takes over its name too."""
     ext = src.suffix.lower().lstrip(".")
-    dur, _ = audio.probe(src)
+    dur, kbps = audio.probe(src)
     key = norm_key(want.key)
     length = 0 if mix_cut(want.title) else float(want.length or 0)
     info: dict[str, object] = {"source": source, "song": key or None, "artist": want.artist, "title": want.title}
@@ -369,24 +371,26 @@ def file_into(
         )
         if same:
             best = same[0]
-            if not (genuine and not best.genuine):
+            rank = catalog.Entry(f"x/x.{ext}", length, kbps, fake).rank()
+            if not (genuine and not best.genuine) and not (outrank and rank > best.rank()):
                 src.unlink(missing_ok=True)
                 event(con, paths, "duplicate", paths.tracks / best.path, **info)
                 return "duplicate", paths.tracks / best.path
-            # genuine lossless takes over: the existing name, every non-genuine copy retired
-            losers = [e for e in same if not e.genuine]
+            # genuine lossless (or, outrank, the better copy) takes over: the existing name, the worse copies retired
+            losers = [e for e in same if e.rank() < rank] if outrank else [e for e in same if not e.genuine]
             best_path = paths.tracks / best.path
             dest = best_path.with_suffix("." + ext)
             if dest.exists() and dest not in [paths.tracks / e.path for e in losers]:
                 dest = _free_name(best_path.parent, best_path.stem, ext, length)
+            why = "replaced by genuine lossless" if genuine else "replaced by a better copy"
             for e in losers:
                 if paths.tracks / e.path == dest:
-                    retire(con, paths, e, "replaced by genuine lossless")
+                    retire(con, paths, e, why)
             _place(src, dest)
             _add_file(con, paths, dest, fake)
             for e in losers:
                 if paths.tracks / e.path != dest and (paths.tracks / e.path).exists():
-                    retire(con, paths, e, "replaced by genuine lossless")
+                    retire(con, paths, e, why)
             event(con, paths, "upgrade", dest, **info)
             return "upgrade", dest
         folder = artist_dir(paths, cat, want.artist)

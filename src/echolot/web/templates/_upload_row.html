@@ -5,8 +5,9 @@
     {% if f.artist or f.title %}<div class="muted small" title="The file's tags">{{ f.artist or '?' }} – {{ f.title or '?' }}</div>{% endif %}
   </td>
   <td>
-    {% if song %}<input type="hidden" name="song_{{ f.n }}" value="{{ song.key }}">
+    {% if song %}{% if go %}<input type="hidden" name="song_{{ f.n }}" value="{{ song.key }}">{% endif %}
     <div class="name">{{ song.artist }} – {{ song.title }}</div>
+    <div class="muted small">{% if not song.file %}missing{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}{% if not go %} · not imported{% endif %}</div>
     {% else %}<span class="muted">not imported</span>{% endif %}
   </td>
   <td class="upload-facts">

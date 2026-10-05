@@ -1,5 +1,6 @@
-"""Upload by hand (Missing page): files for missing songs, checked in a dialog, imported on confirm
-(library/upload). For admins and users with the review permission, for the songs they see."""
+"""Upload by hand: files for missing songs or better copies of songs in the library, checked in a dialog
+(Missing, the Overview, the list pages), imported on confirm (library/upload). For admins and users with
+the review permission, for the songs they see."""
 
 import contextlib
 from typing import Annotated
@@ -23,7 +24,7 @@ def _paths(request: Request) -> filing.Paths:
 
 
 def _songs(request: Request, con: DB) -> dict[str, object]:
-    return {s["key"]: s for s in stats.missing_songs(con, stats.scope(request.state.user))}
+    return {s["key"]: s for s in stats.upload_songs(con, stats.scope(request.state.user))}
 
 
 def _batch(request: Request, batch: str) -> list[upload.File]:
@@ -38,7 +39,7 @@ def _batch(request: Request, batch: str) -> list[upload.File]:
 
 @router.get("/missing/upload", response_class=HTMLResponse)
 def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
-    """The dialog's first step: pick files (for one song, or any missing ones)."""
+    """The dialog's first step: pick files (for one song, or any of yours: missing ones, better copies)."""
     songs = _songs(request, con)
     return page(request, "_upload.html", step="pick", song=songs.get(song))
 
@@ -58,15 +59,15 @@ def upload_files(
     for f in found:  # each file's song: the one asked for, else the one it names (no song: not imported)
         key = song if song in songs else upload.guess(f, list(songs.values()))
         match = songs.get(key or "") if not f.error else None
-        fit = upload.fit(con, f, match)
-        rows.append((f, match, upload.labels(f, match, fit), fit))
-    n = sum(1 for _, match, _, _ in rows if match)
+        fit = upload.fit(con, f, match) if match and upload.importable(f, match) else None
+        rows.append((f, match, upload.labels(f, match, fit), fit, upload.importable(f, match)))
+    n = sum(1 for *_, go in rows if go)
     return page(request, "_upload.html", step="check", batch=batch, rows=rows, importable=n)
 
 
 @router.post("/missing/upload/{batch}/import", response_class=HTMLResponse)
 async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
-    """File every file that has a song (song_<n>, those left in the dialog); the others go."""
+    """File every file that has a song (song_<n>: those left in the dialog, a missing song or a better copy)."""
     form = await request.form()
     songs = _songs(request, con)
     _batch(request, batch)
