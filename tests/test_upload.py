@@ -124,9 +124,12 @@ def test_a_fake_flac_counts_by_its_source(monkeypatch: pytest.MonkeyPatch, tmp_p
     opus = {"file": "Enmity/Enmity - Sex.opus", "quality": "lossy-low", "kbps": 123, "fake_source": None}
     fake = upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=20000)
     assert upload.compare(paths, fake, opus).better
+    assert upload.compare(
+        paths, upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=19400), opus
+    ).better
     assert not upload.compare(paths, upload.File(1, "x.flac", tier="fake", source="~128 kbps", band=16000), opus).better
     assert not upload.compare(
-        paths, upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=19000), opus
+        paths, upload.File(1, "x.flac", tier="fake", source="~256 kbps / V0", band=18500), opus
     ).better
     assert upload.compare(paths, upload.File(1, "x.mp3", tier="lossy-high", kbps=320), opus).better
     assert not upload.compare(paths, upload.File(1, "x.mp3", tier="lossy-mid", kbps=150), opus).better  # barely more
