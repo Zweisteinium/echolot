@@ -5,9 +5,10 @@
     {% if f.artist or f.title %}<div class="muted small" title="The file's tags">{{ f.artist or '?' }} – {{ f.title or '?' }}</div>{% endif %}
   </td>
   <td>
-    {% if song %}{% if go %}<input type="hidden" name="song_{{ f.n }}" value="{{ song.key }}">{% endif %}
+    {% if song %}<input type="hidden" name="song_{{ f.n }}" value="{{ song.key }}"{% if not go %} disabled{% endif %}>
     <div class="name">{{ song.artist }} – {{ song.title }}</div>
-    <div class="muted small">{% if not song.file %}missing{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}{% if not go %} · not imported{% endif %}</div>
+    <div class="muted small">{% if not song.file %}missing{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}</div>
+    {% if not go and song.file and not f.error %}<label class="force small" title="Replace your copy with this file even though it is not better (yours is kept 30 days in inbox/replaced)"><input type="checkbox" data-force> Replace anyway</label>{% endif %}
     {% else %}<span class="muted">not imported</span>{% endif %}
   </td>
   <td class="upload-facts">

@@ -59,8 +59,9 @@ def upload_files(
     for f in found:  # each file's song: the one asked for, else the one it names (no song: not imported)
         key = song if song in songs else upload.guess(f, list(songs.values()))
         match = songs.get(key or "") if not f.error else None
-        fit = upload.fit(con, f, match) if match and upload.importable(f, match) else None
-        rows.append((f, match, upload.labels(f, match, fit), fit, upload.importable(f, match)))
+        copy = upload.compare(_paths(request), f, match) if match else None  # a song you have: better?
+        fit = upload.fit(con, f, match)
+        rows.append((f, match, upload.labels(f, match, fit, copy), fit, upload.importable(f, match, copy)))
     n = sum(1 for *_, go in rows if go)
     return page(request, "_upload.html", step="check", batch=batch, rows=rows, importable=n)
 

@@ -125,8 +125,8 @@ def _free_name(folder: Path, name: str, ext: str, length: float, label: str = ""
     return folder / f"{cand}.{ext}"
 
 
-def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool) -> None:
-    """Record a file just placed in the library (files, lossy_sourced)."""
+def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source: str = "") -> None:
+    """Record a file just placed in the library (files, lossy_sourced with the lossy `source` if known)."""
     st = p.stat()
     dur, kbps = audio.probe(p)
     rel = p.relative_to(paths.tracks).as_posix()
@@ -139,7 +139,7 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool) -> Non
         if fake:
             con.execute(
                 "INSERT OR REPLACE INTO lossy_sourced (stem, source, detected) VALUES (?, ?, ?)",
-                (entry.stem, "", datetime.date.today().isoformat()),
+                (entry.stem, source, datetime.date.today().isoformat()),
             )
 
 
@@ -297,7 +297,8 @@ def file_into(
     same_audio: str = "",
     replaces: str = "",
     peer_bytes: int = 0,
-    outrank: bool = False,
+    replace: bool = False,
+    fake_source: str = "",
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -312,10 +313,10 @@ def file_into(
     SoundCloud song's FLAC: its names are an uploader's, so only you can tell). `same_audio` (what
     identity.same_master found) with `replaces` (that library file): the download is the file's audio in
     another codec, so the names only tell an exact match (filed) from a probable one (filed for review);
-    it takes over that file. `outrank` (an upload by hand): a copy better than the library's by its rank (a
-    320 kbps MP3 for a 128 kbps one, not only genuine lossless) takes over its name too."""
+    it takes over that file. `replace` (an upload by hand, judged by the user): the download takes over the
+    song's copy whatever their ranks. `fake_source`: what a fake FLAC was made from (lossy_sourced)."""
     ext = src.suffix.lower().lstrip(".")
-    dur, kbps = audio.probe(src)
+    dur, _ = audio.probe(src)
     key = norm_key(want.key)
     length = 0 if mix_cut(want.title) else float(want.length or 0)
     info: dict[str, object] = {"source": source, "song": key or None, "artist": want.artist, "title": want.title}
@@ -371,23 +372,22 @@ def file_into(
         )
         if same:
             best = same[0]
-            rank = catalog.Entry(f"x/x.{ext}", length, kbps, fake).rank()
-            if not (genuine and not best.genuine) and not (outrank and rank > best.rank()):
+            if not (genuine and not best.genuine) and not replace:
                 src.unlink(missing_ok=True)
                 event(con, paths, "duplicate", paths.tracks / best.path, **info)
                 return "duplicate", paths.tracks / best.path
-            # genuine lossless (or, outrank, the better copy) takes over: the existing name, the worse copies retired
-            losers = [e for e in same if e.rank() < rank] if outrank else [e for e in same if not e.genuine]
+            # genuine lossless (or, replace, the user's choice) takes over: the existing name, the other copies retired
+            losers = list(same) if replace else [e for e in same if not e.genuine]
             best_path = paths.tracks / best.path
             dest = best_path.with_suffix("." + ext)
             if dest.exists() and dest not in [paths.tracks / e.path for e in losers]:
                 dest = _free_name(best_path.parent, best_path.stem, ext, length)
-            why = "replaced by genuine lossless" if genuine else "replaced by a better copy"
+            why = "replaced by genuine lossless" if genuine and not replace else "replaced by hand"
             for e in losers:
                 if paths.tracks / e.path == dest:
                     retire(con, paths, e, why)
             _place(src, dest)
-            _add_file(con, paths, dest, fake)
+            _add_file(con, paths, dest, fake, fake_source)
             for e in losers:
                 if paths.tracks / e.path != dest and (paths.tracks / e.path).exists():
                     retire(con, paths, e, why)
@@ -397,7 +397,7 @@ def file_into(
         label = "SoundCloud" if source == "soundcloud" else ""  # a SoundCloud like next to its Spotify version
         dest = _free_name(folder, f"{folder.name} - {clean_name(want.title)}", ext, length, label)
         _place(src, dest)
-        _add_file(con, paths, dest, fake)
+        _add_file(con, paths, dest, fake, fake_source)
         event(con, paths, "new", dest, **{"fake": int(fake), **info})
         return "new", dest
 
