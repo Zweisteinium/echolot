@@ -24,7 +24,7 @@ from typing import Any
 from echolot import db
 from echolot.config import Settings
 from echolot.jobs import acquire, availability, covers, lists, schedule
-from echolot.library import catalog, filing, history, playlists, review
+from echolot.library import catalog, filing, history, playlists, recordings, review
 from echolot.services import navidrome, soulseek
 from echolot.settings import auth, options, sources
 from echolot.settings.vault import Vault
@@ -98,7 +98,8 @@ class Run:
 
 
 def upkeep(run: Run) -> str:
-    """Apply due review decisions, rescan the library, write the playlists, store the hourly snapshot,
+    """Apply due review decisions, merge YouTube songs' other edits of library songs (recordings.merge_edits),
+    rescan the library, write the playlists, store the hourly snapshot,
     renew the users from Navidrome's user list (admins, accounts gone) and, once a day, empty the
     replaced/ and review/ days older than 30 days."""
     con = run.connect()
@@ -116,6 +117,8 @@ def upkeep(run: Run) -> str:
             parts.append(f"review: {'; '.join(applied)}")
         if compared := review.compare_open(con, run.paths.music):
             parts.append(f"{compared} review items compared with your copy")
+        if merged := recordings.merge_edits(con, run.paths):  # a YouTube song's other edit of a library song
+            parts.append(f"other edits: {'; '.join(merged)}")
         parts.append(catalog.refresh(con, run.paths.tracks))
         parts.append(playlists.write(con, run.paths.playlists))
         if svc := navidrome.service(con, run.vault):  # each user's playlists theirs in Navidrome

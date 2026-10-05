@@ -19,6 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from echolot import db
 from echolot.jobs import availability
 from echolot.jobs.acquire import finish
 from echolot.library import audio, catalog, filing, recordings, rules, tagging
@@ -255,20 +256,32 @@ def _fetch_youtube_list(
         raise youtube_api.YouTubeError("no songs listed although it had some")
     snapshot = hashlib.sha1(f"{' '.join(ids)}|{' '.join(sorted(playing))}".encode()).hexdigest()[:16]
     row = con.execute("SELECT snapshot, fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
-    if row and row["fetched"] and row["snapshot"] == snapshot:  # the same songs, the same ones playing
+    retry = set()  # songs without Spotify's names, looked up again once the lookup changed (LOOKUP)
+    if db.get_meta(con, f"youtube_lookup:{s.key}") != LOOKUP:
+        sql = "SELECT s.key FROM list_songs ls JOIN songs s ON s.key = ls.song_key WHERE ls.list_key = ? AND s.isrc IS NULL"
+        retry = {r[0] for r in con.execute(sql, (s.key,))}
+    if row and row["fetched"] and row["snapshot"] == snapshot and not retry:  # the same songs, the same ones playing
         with con:
             now = datetime.datetime.now().isoformat(timespec="seconds")
             con.execute("UPDATE lists SET fetched_at = ? WHERE key = ?", (now, s.key))
         return False
     known = {r[0] for r in con.execute("SELECT key FROM songs WHERE service = 'youtube'")}
     for vid, t in playing.items():
-        if f"youtube:{vid}" not in known and not run.stop.is_set():
+        key = f"youtube:{vid}"
+        if (key not in known or key in retry) and not run.stop.is_set():
             meta = _youtube_song(con, sp, t)
+            if key in retry and not meta.get("isrc"):
+                continue  # still not on Spotify: as it was
+            old = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone()
             with con:
-                if _song(con, f"youtube:{vid}", "youtube", **meta):
-                    known.add(f"youtube:{vid}")
+                if _song(con, key, "youtube", **meta):
+                    known.add(key)
+            if old is not None and old["file"]:
+                _rename_file(con, run, old, meta)
     if run.stop.is_set():
         raise youtube_api.YouTubeError("stopped while reading")
+    with con:
+        db.set_meta(con, f"youtube_lookup:{s.key}", LOOKUP)
     sql = "SELECT song_key, state FROM availability WHERE song_key LIKE 'youtube:%'"
     unplayable = {k for k, state in con.execute(sql) if state in availability.UNPLAYABLE}
     states: dict[str, tuple[str, str | None]] = {}
@@ -281,6 +294,23 @@ def _fetch_youtube_list(
     _store(con, s, [f"youtube:{vid}" for vid in ids], data["title"], data["image"], snapshot)
     availability.apply(con, states)
     return True
+
+
+LOOKUP = "2"  # the Spotify lookup of YouTube songs (_on_spotify); a new one looks up the songs it did not find again
+
+
+def _rename_file(con: sqlite3.Connection, run: "Run", old: sqlite3.Row, meta: dict[str, Any]) -> None:
+    """A YouTube song found on Spotify now: its file (its own) takes the song's new names, so the song keeps it."""
+    if con.execute("SELECT 1 FROM songs WHERE file = ? AND key != ?", (old["file"], old["key"])).fetchone():
+        return
+    entry = next((e for e in catalog.Catalog.from_db(con).entries if e.path == old["file"]), None)
+    if entry is not None and (run.paths.tracks / entry.path).is_file():
+        dest = filing.rename(con, run.paths, entry, meta["artist"], meta["title"], "named as on Spotify")
+        rel = dest.relative_to(run.paths.tracks).as_posix()
+        with con:
+            con.execute("UPDATE songs SET file = ? WHERE key = ?", (rel, old["key"]))
+        if tags := tagging.for_file(con, rel, dest, old["key"]):
+            tagging.write(dest, tags)  # all of Spotify's names and facts
 
 
 def _youtube_song(con: sqlite3.Connection, sp: spotify.Spotify | None, t: dict[str, Any]) -> dict[str, Any]:
@@ -342,12 +372,15 @@ def _upload_names(channel: str, video_title: str) -> tuple[list[str], str]:
 
 def _on_spotify(sp: spotify.Spotify, t: dict[str, Any], artists: list[str], title: str) -> dict[str, Any] | None:
     """Spotify's track of a YouTube song: by its artist and title, then by the words of the video (and of
-    its last two parts: a label's upload); one that is the song (_same_song) whose length fits the video's:
+    its last two parts: a label's upload), then both without featured artists ("Channel - Artist - Title
+    (feat. X)" finds "Artist - Title"); one that is the song (_same_song) whose length fits the video's:
     the same for the release's audio, within 5 s for an upload, an official video up to a minute longer
     (an intro, a scene at the end)."""
     queries = [f"track:{_plain(title)} artist:{artists[0]}", _words(t["title"])]
     if len(parts := PARTS.split(_plain(t["title"]))) > 2:
         queries.append(_words(" ".join(parts[-2:])))
+    # without "(feat. X)": Spotify's search then finds podcasts ("Warriyo Mortals feat Laura Brehm")
+    queries += [f"{artists[0]} {rules.search_title(title)}", _words(rules.search_title(_plain(t["title"])))]
     words = rules.title_key(" ".join([*t["artists"], t["title"]]))
     for q in dict.fromkeys(q for q in queries if q):
         time.sleep(0.25)  # gently: a new list asks for each song

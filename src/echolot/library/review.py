@@ -18,7 +18,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, identity, rules, tagging
+from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
 from echolot.library.filing import MUSIC, Want
 from echolot.settings.sources import ConfigError
 
@@ -547,7 +547,8 @@ def _confirm(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
 
 
 def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, p: Path) -> str:
-    """File a kept download as the song (Perfect match)."""
+    """File a kept download as the song (Perfect match); one kept as another edit of a library song
+    (recordings.EDIT_REASON) links the song to that file instead."""
     paths = run.paths
     # the download is tagged with another artist who has this song in the library already: the same
     # recording under two artist names (Spotify lists it twice). Link the song to that file.
@@ -555,6 +556,12 @@ def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, 
     song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
     if song:
         want = Want.of(song)
+    if key and (m := recordings.EDIT_RE.fullmatch(d["reason"] or "")):  # another edit of a library song
+        e = next((x for x in catalog.Catalog.from_db(con).entries if x.path == m["path"]), None)
+        if e is not None:  # the song is that file: nothing filed twice
+            p.unlink()
+            recordings.link(con, paths, key, want, e, "confirmed in review: another edit")
+            return f"linked {e.path}"
     tag_artists, _ = audio.read_tags(p)
     own = rules.artist_words(want.artist)
     dur, _ = audio.probe(p)
