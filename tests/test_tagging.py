@@ -233,3 +233,31 @@ def test_a_spotify_songs_release_facts(env, ext: str) -> None:
     assert tagging.for_file(con, rel, p).facts == {}
     add_song(con, "soundcloud:5", "Inner Voice", "Celestial", released="2020")
     assert tagging.facts(con.execute("SELECT * FROM songs WHERE key = 'soundcloud:5'").fetchone()) == {}
+
+
+def test_a_recording_on_several_releases_is_tagged_as_the_earliest(env) -> None:
+    """Beat It in one list from Thriller, in another from a later deluxe edition: the file is the album's."""
+    con, paths = env
+    rel = "Michael Jackson/Michael Jackson - Beat It.flac"
+    add_song(
+        con,
+        "spotify:a",
+        "Michael Jackson",
+        "Beat It",
+        album="Thriller 25 Super Deluxe Edition",
+        file=rel,
+        released="2008-02-08",
+    )
+    add_song(
+        con,
+        "spotify:b",
+        "Michael Jackson",
+        "Beat It",
+        album="Thriller",
+        file=rel,
+        released="1982-11-30",
+        track=5,
+        tracks=9,
+    )
+    tags = tagging.for_file(con, rel, copy(paths, "flac", "Michael Jackson/Michael Jackson - Beat It"))
+    assert tags.album == "Thriller" and tags.facts == {"date": "1982-11-30", "track": "5/9"}
