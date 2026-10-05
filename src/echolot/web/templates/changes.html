@@ -30,9 +30,9 @@
   <div class="card-head">
     <h2>Changes</h2>
     <nav class="tabs">
-      <a href="/changes" {% if not kind %}aria-current="page"{% endif %}>All</a>
-      <a href="/changes?kind=unavailable" {% if kind == 'unavailable' %}aria-current="page"{% endif %}>Availability</a>
-      <a href="/changes?kind=lists" {% if kind == 'lists' %}aria-current="page"{% endif %}>Lists</a>
+      <a href="/changes" data-label="All" {% if not kind %}aria-current="page"{% endif %}>All</a>
+      <a href="/changes?kind=unavailable" data-label="Availability" {% if kind == 'unavailable' %}aria-current="page"{% endif %}>Availability</a>
+      <a href="/changes?kind=lists" data-label="Lists" {% if kind == 'lists' %}aria-current="page"{% endif %}>Lists</a>
     </nav>
   </div>
   <table class="rows">

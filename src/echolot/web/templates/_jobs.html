@@ -24,37 +24,47 @@
       {% endif %}
     </div>
   </div>
-  <div class="task-state small">
+  {# the same rows for every task: Now (while it runs or is due), Last, Schedule, Next #}
+  <dl class="task-facts small">
     {% for s in t.running %}{% set run = s.run %}
-    <div class="task-now">
-      <span class="dot {{ 'wait' if s.stopping or run.give_way.is_set() else 'on' }}"></span>
-      {% if t.steps|length > 1 and steps[s.job.name] and not run.progress.startswith(steps[s.job.name]) %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
-      {% set progress = (run.progress or 'starting …') if user.admin else 'running' %}{# a song's name may be another user's #}
-      <span class="task-line" title="{{ progress }}">
-        {%- if s.stopping %}stopping: the songs in progress end first
-        {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}
-        {%- else %}{{ progress }}{% endif %}</span>
-    </div>
-    {% if run.total %}<div class="task-bar" role="progressbar" aria-label="{{ steps[s.job.name] or task.label }}" aria-valuemin="0" aria-valuemax="{{ run.total }}" aria-valuenow="{{ run.done }}"><span style="width: {{ (100 * run.done / run.total)|round(1) }}%"></span></div>{% endif %}
-    {% else %}
-    {% if t.waiting %}{% set w = t.waiting %}
-    <div class="task-now"><span class="dot wait"></span><span class="task-line">{{ steps[w.job.name] ~ ': ' if t.steps|length > 1 and steps[w.job.name] }}{{ 'starting' if w.starting else 'due' }}{{ ', after ' ~ w.waiting if w.waiting }} …</span></div>
-    {% elif last and last.last.ok == 0 %}
-    <div class="task-now"><span class="dot err"></span><span class="task-line bad-text" title="{{ last.last.message if user.admin }}">failed{{ ': ' ~ last.last.message if user.admin }}</span></div>
-    {% elif last %}
-    <div class="task-now"><span class="dot"></span><span class="task-line muted" title="{{ last.last.message }}">{{ steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] and not (last.last.message or '').startswith(steps[last.job.name]) }}{{ last.last.message or 'done' }}</span></div>
-    {% else %}
-    <div class="task-now"><span class="dot"></span><span class="task-line muted">not run yet</span></div>
-    {% endif %}
-    {% endfor %}
-  </div>
-  <div class="task-meta muted small">
+    <dt>Now</dt>
+    <dd>
+      <div class="task-now">
+        <span class="dot {{ 'wait' if s.stopping or run.give_way.is_set() else 'on' }}"></span>
+        {% if t.steps|length > 1 and steps[s.job.name] and not run.progress.startswith(steps[s.job.name]) %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
+        {% set progress = (run.progress or 'starting …') if user.admin else 'running' %}{# a song's name may be another user's #}
+        <span class="task-line" title="{{ progress }}">
+          {%- if s.stopping %}stopping: the songs in progress end first
+          {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}
+          {%- else %}{{ progress }}{% endif %}</span>
+      </div>
+      {% if run.total %}<div class="task-bar" role="progressbar" aria-label="{{ steps[s.job.name] or task.label }}" aria-valuemin="0" aria-valuemax="{{ run.total }}" aria-valuenow="{{ run.done }}"><span style="width: {{ (100 * run.done / run.total)|round(1) }}%"></span></div>{% endif %}
+    </dd>
+    {% else %}{% if t.waiting %}{% set w = t.waiting %}
+    <dt>Now</dt>
+    <dd><div class="task-now"><span class="dot wait"></span><span class="task-line">{{ steps[w.job.name] ~ ': ' if t.steps|length > 1 and steps[w.job.name] }}{{ 'starting' if w.starting else 'due' }}{{ ', after ' ~ w.waiting if w.waiting }} …</span></div></dd>
+    {% endif %}{% endfor %}
+    <dt>Last</dt>
+    <dd>
+      {% if last %}
+      {% set failed = last.last.ok == 0 %}
+      {% set step = steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] and not (last.last.message or '').startswith(steps[last.job.name]) else '' %}
+      <div class="task-now">
+        <span class="dot{{ ' err' if failed }}"></span>
+        <span class="task-line{{ ' bad-text' if failed }}" title="{{ last.last.message if user.admin or not failed }}">{{ 'failed' ~ (': ' ~ last.last.message if user.admin else '') if failed else step ~ (last.last.message or 'done') }}</span>
+        {% if last.last.started %}<span class="task-when" title="{{ last.last.started }}">{{ last.last.started|ago }}</span>{% endif %}
+      </div>
+      {% else %}<span class="muted">not run yet</span>{% endif %}
+      {% if t.log and user.admin %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
+    </dd>
     {% set timed = t.steps|rejectattr('rule', 'none')|list %}
-    <span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}runs {{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span>
-    {% if last and last.last.started %}<span title="{{ last.last.started }}">last {{ last.last.started|ago }}</span>{% endif %}
-    {% if not t.running and t.next %}<span>{{ 'paused' if paused else 'next ' ~ (t.next|until) }}</span>{% endif %}
-    {% if t.log and user.admin %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
-  </div>
+    <dt>Schedule</dt>
+    <dd><span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}{{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span></dd>
+    {% if not t.running and t.next %}
+    <dt>Next</dt>
+    <dd><span>{{ 'paused' if paused else t.next|until }}</span></dd>
+    {% endif %}
+  </dl>
   <dl class="task-info small" id="task-info-{{ task.name }}" hidden>
     {% for s in t.steps %}
     <dt>{{ s.job.label }} <span class="muted">· {{ 'after ' ~ s.job.started_by if s.job.started_by and s.rule is none else s.rule|minutes }}</span></dt>

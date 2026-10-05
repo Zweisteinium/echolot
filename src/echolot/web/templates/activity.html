@@ -6,9 +6,9 @@
   <div class="card-head">
     <h1>Activity</h1>
     <nav class="tabs">
-      <a href="/activity" {% if not kind %}aria-current="page"{% endif %}>All</a>
-      <a href="/activity?kind=added" {% if kind == 'added' %}aria-current="page"{% endif %}>Added</a>
-      <a href="/activity?kind=rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
+      <a href="/activity" data-label="All" {% if not kind %}aria-current="page"{% endif %}>All</a>
+      <a href="/activity?kind=added" data-label="Added" {% if kind == 'added' %}aria-current="page"{% endif %}>Added</a>
+      <a href="/activity?kind=rejected" data-label="Rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
     </nav>
   </div>
   <table class="rows activity">

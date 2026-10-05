@@ -6,11 +6,11 @@
 <div class="with-rail">
 <aside class="rail">
   <h1>Accounts</h1>
-  <p class="muted small">Echolot follows your playlists and likes on Spotify and SoundCloud (YouTube playlists need no account) and gets the songs, in the best quality it finds, from Soulseek. These are your own accounts: everyone connects theirs.</p>
+  <p class="muted small">Your own accounts: Echolot follows your playlists and likes on Spotify and SoundCloud and gets the songs from Soulseek. YouTube playlists need no account.</p>
   <nav aria-label="Accounts">
     <a href="#spotify">{{ icon('spotify') }} Spotify {{ state(s.spotify.connected and not s.spotify.error, s.spotify.error) }}</a>
     <a href="#soundcloud">{{ icon('soundcloud') }} SoundCloud {{ state(s.soundcloud.connected and not s.soundcloud.error, s.soundcloud.error) }}</a>
-    {% if user.admin %}<a href="#soulseek">Soulseek {{ state(s.soulseek.ready, not s.soulseek.reachable) }}</a>{% endif %}
+    {% if user.admin %}<a href="#soulseek">{{ icon('soulseek') }} Soulseek {{ state(s.soulseek.ready, not s.soulseek.reachable) }}</a>{% endif %}
   </nav>
   <p class="small"><a href="/sources">Then choose the lists to follow →</a></p>
 </aside>
@@ -115,7 +115,8 @@
 </section>
 
 {# ------------------------------------------------------------ Soulseek #}
-{% if user.admin %}{% include "_soulseek.html" %}{% endif %}
+{% if user.admin %}{% include "_soulseek.html" %}
+<p class="muted small credit">Soulseek icon by <a href="https://icons8.com" target="_blank" rel="noopener">Icons8</a></p>{% endif %}
 </div>
 </div>
 {% endblock %}
