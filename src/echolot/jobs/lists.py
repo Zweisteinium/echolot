@@ -65,7 +65,7 @@ def _default_title(s: Source) -> str:
 
 
 def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover: str | None,
-           snapshot: str | None = None) -> None:  # fmt: skip
+           snapshot: str | None = None, creator: str | None = None) -> None:  # fmt: skip
     """A list's current songs (keys in order; songs not yet known are left out), its history, and what
     changed since its last reading (availability.record_list)."""
     today = datetime.date.today().isoformat()
@@ -86,8 +86,8 @@ def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover
         )
         con.execute(
             "UPDATE lists SET title = ?, cover_url = coalesce(?, cover_url), snapshot = coalesce(?, snapshot), "
-            "fetched = 1, fetched_at = ? WHERE key = ?",
-            (s.title or title, cover, snapshot, datetime.datetime.now().isoformat(timespec="seconds"), s.key),
+            "fetched = 1, fetched_at = ?, creator = coalesce(?, creator) WHERE key = ?",
+            (s.title or title, cover, snapshot, datetime.datetime.now().isoformat(timespec="seconds"), creator, s.key),
         )
 
 
@@ -170,17 +170,21 @@ def _fetch_spotify_list(
     """Read one list if it changed (its snapshot, or the likes' state); True if it was read."""
     pid = spotify.playlist_id(s.url) if s.name != "Spotify Liked Songs" else None
     snapshot = likes if pid is None else known.get(pid) or sp.playlist(pid)["snapshot"]  # not in the library
-    row = con.execute("SELECT snapshot, fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
+    row = con.execute("SELECT snapshot, fetched, creator FROM lists WHERE key = ?", (s.key,)).fetchone()
     if row and row["fetched"] and snapshot and row["snapshot"] == snapshot:  # unchanged
+        creator = sp.playlist(pid).get("owner") if pid and not row["creator"] else None  # (once: who made it)
         with con:
             now = datetime.datetime.now().isoformat(timespec="seconds")
-            con.execute("UPDATE lists SET fetched_at = ? WHERE key = ?", (now, s.key))
+            con.execute(
+                "UPDATE lists SET fetched_at = ?, creator = coalesce(?, creator) WHERE key = ?", (now, creator, s.key)
+            )
         return False
+    creator = None
     if pid is None:
         title, cover = "Liked Songs", spotify.LIKED_SONGS_IMAGE
     else:
         meta = sp.playlist(pid)
-        title, cover = meta["name"], meta["image"]
+        title, cover, creator = meta["name"], meta["image"], meta.get("owner")
     items = sp.items(pid)
     if not items and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone():
         raise spotify.SpotifyError("no songs listed although it had some (Spotify may withhold others' playlists)")
@@ -189,7 +193,7 @@ def _fetch_spotify_list(
             _song(con, f"spotify:{it['id']}", "spotify", artist=it["artist"], title=it["title"],
                   album=it["album"], length=it["length"], artists=json.dumps(it["artists"]), isrc=it["isrc"],
                   **{k: it.get(k) for k in FACTS})  # fmt: skip
-    _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot)
+    _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot, creator)
     return True
 
 
@@ -263,7 +267,8 @@ def _fetch_youtube_list(
     if row and row["fetched"] and row["snapshot"] == snapshot and not retry:  # the same songs, the same ones playing
         with con:
             now = datetime.datetime.now().isoformat(timespec="seconds")
-            con.execute("UPDATE lists SET fetched_at = ? WHERE key = ?", (now, s.key))
+            sql = "UPDATE lists SET fetched_at = ?, creator = coalesce(?, creator) WHERE key = ?"
+            con.execute(sql, (now, data.get("author"), s.key))
         return False
     known = {r[0] for r in con.execute("SELECT key FROM songs WHERE service = 'youtube'")}
     for vid, t in playing.items():
@@ -291,7 +296,7 @@ def _fetch_youtube_list(
             states[key] = ("available", None)
         elif key in known and key not in unplayable and (found := youtube_api.state(vid)):
             states[key] = found  # (a song never seen playing has no names: left out)
-    _store(con, s, [f"youtube:{vid}" for vid in ids], data["title"], data["image"], snapshot)
+    _store(con, s, [f"youtube:{vid}" for vid in ids], data["title"], data["image"], snapshot, data.get("author"))
     availability.apply(con, states)
     return True
 

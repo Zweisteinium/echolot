@@ -210,10 +210,10 @@ class Spotify:
         return out
 
     def playlist(self, pid: str) -> dict[str, Any]:
-        """name, image, snapshot of a playlist."""
-        d = self.get(f"/playlists/{pid}?fields=name,images,snapshot_id")
+        """name, image, snapshot and owner (who made it) of a playlist."""
+        d = self.get(f"/playlists/{pid}?fields=name,images,snapshot_id,owner(display_name)")
         return {"name": d.get("name") or "", "image": ((d.get("images") or [{}])[0] or {}).get("url"),
-                "snapshot": d.get("snapshot_id") or ""}  # fmt: skip
+                "snapshot": d.get("snapshot_id") or "", "owner": (d.get("owner") or {}).get("display_name")}  # fmt: skip
 
     def snapshots(self) -> dict[str, str]:
         """The snapshot of every playlist in the account's library (own and followed): one request per 50."""
