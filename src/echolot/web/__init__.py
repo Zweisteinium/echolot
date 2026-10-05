@@ -17,13 +17,27 @@ from echolot.config import Settings
 from echolot.jobs.worker import Worker
 from echolot.settings import auth, vault
 from echolot.settings.sources import adopt
-from echolot.web import access, account, accounts, admin, api, changes, jobs, pages, review, sources, stats, users
+from echolot.web import (
+    access,
+    account,
+    accounts,
+    admin,
+    api,
+    changes,
+    jobs,
+    pages,
+    review,
+    sources,
+    stats,
+    upload,
+    users,
+)
 from echolot.web.common import Assets, asset_urls, page
 from echolot.web.format import FILTERS, pct
 
 HERE = Path(__file__).parent
 log = logging.getLogger(__name__)
-ROUTERS = (access, account, users, pages, changes, jobs, review, sources, accounts, admin, api)
+ROUTERS = (access, account, users, pages, changes, jobs, review, upload, sources, accounts, admin, api)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

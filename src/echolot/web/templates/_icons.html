@@ -1,4 +1,4 @@
-{# service icons: Simple Icons (CC0, simpleicons.org); songs, playlist and info: Material Icons (Apache-2.0); play and pause: plain shapes;
+{# service icons: Simple Icons (CC0, simpleicons.org); songs, playlist, info and upload: Material Icons (Apache-2.0); play and pause: plain shapes;
    drawn in the text colour. icon() draws one inline; sprite() puts symbols into a page once, use() refers
    to them (small markup for pages that repeat an icon many times) #}
 {% set PATHS = {
@@ -6,6 +6,7 @@
   'songs': 'M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z',
   'play': 'M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86A1 1 0 0 0 8 5.14z',
   'pause': 'M7 5h3.5v14H7zm6.5 0H17v14h-3.5z',
+  'upload': 'M5 20h14v-2H5v2zm0-10h4v6h6v-6h4l-7-7-7 7z',
   'info': 'M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z',
   'playlist': 'M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18A3 3 0 0 0 16 14a3 3 0 1 0 3 3V8h3V6h-5z',
   'youtube': 'M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',

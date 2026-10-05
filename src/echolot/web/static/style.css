@@ -476,6 +476,36 @@ table.missing td.tried { min-width: 18rem; }
 .stage i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--track); }
 .stage i.on { background: var(--warn); }
 
+/* missing: upload by hand. A dialog in the card's look: pick files (a drop zone), check them in a table,
+   confirm; the row's upload button is a quiet icon until the row is hovered */
+.row-action { width: 1%; text-align: right; }
+.icon-button { padding: 0.3rem; line-height: 0; color: var(--muted); background: transparent; border-color: transparent; }
+.icon-button:hover, .icon-button:focus-visible { color: var(--accent); border-color: var(--border); background: var(--surface); }
+dialog.modal { width: min(56rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 1.25rem 1.4rem;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text);
+  box-shadow: 0 24px 60px -20px rgb(16 24 40 / 0.45); }
+dialog.modal::backdrop { background: rgb(10 18 32 / 0.45); backdrop-filter: blur(2px); }
+dialog.modal[open] { animation: rise 0.18s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.upload h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.upload > p { margin: 0 0 0.9rem; }
+.drop { position: relative; display: grid; gap: 0.25rem; place-items: center; text-align: center; padding: 2rem 1rem;
+  border: 1.5px dashed var(--border); border-radius: var(--radius-sm); background: var(--track); cursor: pointer;
+  transition: border-color 0.15s, background 0.15s; }
+.drop:hover, .drop:focus-within { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--track)); }
+.drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }  /* the whole zone takes files and drops */
+.drop-text b { color: var(--accent); }
+.upload progress { width: 100%; margin-top: 0.75rem; accent-color: var(--accent); }
+.upload-pick #upload-busy { margin: 0.4rem 0 0; }
+.table-scroll { max-height: 55vh; overflow: auto; margin: 0 -0.2rem; }
+.upload-table td { vertical-align: top; }
+.upload-table select { width: 100%; max-width: 22rem; }
+.upload-file { max-width: 16rem; }
+.upload-file .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-facts { display: grid; gap: 0.3rem; justify-items: start; min-width: 12rem; }
+.upload-results { margin: 0.5rem 0 0.75rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
+
 /* a download's facts (Review, Activity): source · length · quality · size, then a tag and a note */
 .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.7rem; font-size: 0.8rem; color: var(--muted); }
 .facts .fits { color: var(--ok); }

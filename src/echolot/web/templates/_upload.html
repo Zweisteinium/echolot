@@ -1,0 +1,46 @@
+{# the upload dialog on the Missing page, step by step: pick files, check them, done (web/upload.py) #}
+<div class="upload" {% if step == 'check' %}data-batch="{{ batch }}"{% endif %}>
+{% if step == 'pick' %}
+  <h2>Upload {{ 'a file for ' ~ song.artist ~ ' – ' ~ song.title if song else 'files for missing songs' }}</h2>
+  <p class="muted small">Files you got elsewhere (bought, or from another tool). Echolot checks each one and shows what it sees; you decide what is imported.</p>
+  {% if upload_error %}<div class="flash error" role="alert">{{ upload_error }}</div>{% endif %}
+  <form hx-post="/missing/upload" hx-encoding="multipart/form-data" hx-target="#upload-body" class="upload-pick">
+    {{ csrf_input }}
+    {% if song %}<input type="hidden" name="song" value="{{ song.key }}">{% endif %}
+    <label class="drop">
+      <input type="file" name="files" multiple required accept="audio/*,.flac,.mp3,.m4a,.opus,.ogg,.wav,.aiff,.aif">
+      <span class="drop-text"><b>Choose files</b> or drop them here</span>
+      <span class="muted small">FLAC, MP3, M4A, Opus, Ogg, WAV, AIFF</span>
+    </label>
+    <progress id="upload-progress" max="100" value="0" hidden></progress>
+    <p id="upload-busy" class="muted small" hidden>Checking the files (quality, length, audio)…</p>
+    <div class="dialog-actions">
+      <button type="button" data-close>Cancel</button>
+      <button class="primary">Check files</button>
+    </div>
+  </form>
+{% elif step == 'check' %}
+  <h2>Import {{ rows|length }} file{{ 's' if rows|length != 1 }}?</h2>
+  <p class="muted small">Each file becomes the song you pick, whatever its names or length (as Perfect match in review). Length, quality and the audio check are for your information.</p>
+  <form hx-post="/missing/upload/{{ batch }}/import" hx-target="#upload-body">
+    {{ csrf_input }}
+    <div class="table-scroll">
+    <table class="rows upload-table">
+      <thead><tr><th>File</th><th>Is the song</th><th>What Echolot sees</th></tr></thead>
+      <tbody>
+      {% for f, key, fit in rows %}{% include "_upload_row.html" %}{% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" hx-post="/missing/upload/{{ batch }}/cancel" hx-target="#upload-body" data-cancel>Cancel</button>
+      <button class="primary">Import</button>
+    </div>
+  </form>
+{% else %}
+  <h2>{{ 'Nothing imported' if none else 'Imported' }}</h2>
+  {% if results %}<ul class="upload-results">{% for line in results %}<li>{{ line }}</li>{% endfor %}</ul>
+  <p class="muted small">The songs leave Missing now; playlists and Navidrome follow within a few minutes.</p>{% endif %}
+  <div class="dialog-actions"><button class="primary" type="button" data-close data-reload>Close</button></div>
+{% endif %}
+</div>
