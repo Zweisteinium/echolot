@@ -286,6 +286,7 @@ def test_review(client: TestClient, settings: Settings) -> None:
     assert 'href="https://open.spotify.com/track/s1" data-app="spotify:track:s1"' in html  # desktop app first
     assert "Gone Song (Club Mix)" in html and "title differs" in html
     assert "Artist C, Remixer – Gone Song" in html  # all the wanted song's artists
+    assert html.count("data-volume aria-label") == 1 and "data-mute" in html  # one volume for the page's player
     assert "/etc/passwd" not in html and "Requiem in D minor" not in html  # no near miss
     assert client.get(f"/review/{ids[1]}/audio").content == b"audio"
     assert client.get(f"/review/{ids[2]}/audio").status_code == 404

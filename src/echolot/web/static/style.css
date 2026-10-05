@@ -550,6 +550,10 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .download-body { display: grid; gap: 0.2rem; min-width: 0; }
 .download-name { font-weight: 550; overflow-wrap: anywhere; }
 .download-why { font-size: 0.8rem; color: var(--muted); }
+/* the page's player volume (Review): a quiet control at the top of the first card */
+.volume { display: inline-flex; align-items: center; gap: 0.35rem; }
+.volume input[type="range"] { width: 7.5rem; accent-color: var(--accent); cursor: pointer; }
+.volume .volume-value { min-width: 3.2rem; font-variant-numeric: tabular-nums; }
 .seek { display: none; position: relative; height: 6px; border-radius: 3px; background: var(--track); cursor: pointer;
   margin: 0.6rem 0 0.5rem; }
 .seek::before { content: ""; position: absolute; inset: -9px 0; }  /* a 24 px high target around the thin bar */
