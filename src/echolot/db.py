@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 22
+VERSION = 23
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -30,7 +30,8 @@ CREATE TABLE lists (                -- the followed lists as last fetched, once 
     cover_url TEXT,                 -- the list's picture at its source
     cover_file TEXT,                -- the cover_url saved next to its playlist file
     snapshot TEXT,                  -- Spotify: snapshot_id of the last listing
-    fetched_at TEXT                 -- last successful listing
+    fetched_at TEXT,                -- last successful listing
+    creator TEXT                    -- who made the list at its source (Spotify's owner, YouTube's author)
 );
 CREATE TABLE songs (                -- every song of every list, once; kept when it leaves every list
     key TEXT PRIMARY KEY,           -- spotify:<track id>, soundcloud:<track id>
@@ -285,6 +286,7 @@ MIGRATIONS = {
         "UPDATE availability SET since = '' WHERE NOT EXISTS (SELECT 1 FROM changes c "
         "WHERE c.song_key = availability.song_key AND c.change = availability.state)",
     ],
+    23: ["ALTER TABLE lists ADD COLUMN creator TEXT"],  # who made a list, for its playlist's comment
 }
 
 

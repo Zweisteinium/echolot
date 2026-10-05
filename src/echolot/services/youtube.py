@@ -28,7 +28,7 @@ def watch_url(video_id: str) -> str:
 
 
 def playlist(pid: str) -> dict[str, Any]:
-    """A playlist's title, image (its largest thumbnail) and the songs that play, in list order: id,
+    """A playlist's title, image (its largest thumbnail), author and the songs that play, in list order: id,
     title, artists, album, length (s), kind."""
     from ytmusicapi import YTMusic
     from ytmusicapi.exceptions import YTMusicError
@@ -47,7 +47,9 @@ def playlist(pid: str) -> dict[str, Any]:
         song = {"id": t["videoId"], "title": t.get("title") or "", "artists": artists, "album": album}
         songs.append(song | {"length": t.get("duration_seconds") or 0, "kind": kind})
     thumbs = data.get("thumbnails") or []
-    return {"title": data.get("title") or pid, "image": thumbs[-1]["url"] if thumbs else None, "songs": songs}
+    author = (data.get("author") or {}).get("name") if isinstance(data.get("author"), dict) else data.get("author")
+    return {"title": data.get("title") or pid, "image": thumbs[-1]["url"] if thumbs else None, "songs": songs,
+            "author": author or None}  # fmt: skip
 
 
 def state(video_id: str) -> tuple[str, str | None] | None:

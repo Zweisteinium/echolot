@@ -21,6 +21,7 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
+V22_SONGS += "ALTER TABLE lists DROP COLUMN creator; "  # schema 23
 
 
 def test_version_12_is_migrated(tmp_path: Path) -> None:

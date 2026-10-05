@@ -39,7 +39,7 @@ class FakeSpotify:
 
     def playlist(self, pid: str) -> dict:
         FakeSpotify.calls.append(f"playlist {pid}")
-        return {"name": f"Name {pid}", "image": f"https://img/{pid}", "snapshot": "snap1"}
+        return {"name": f"Name {pid}", "image": f"https://img/{pid}", "snapshot": "snap1", "owner": "Timon"}
 
     def snapshots(self) -> dict[str, str]:  # BBB222 is not in the account's library: asked on its own
         return {"AAA111": "snap1"}
@@ -95,6 +95,8 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     assert con.execute("SELECT count(*) FROM songs WHERE key = 'spotify:s2'").fetchone()[0] == 1  # kept
     row = con.execute("SELECT title, cover_url, snapshot FROM lists WHERE key = 'spotify:playlist:BBB222'").fetchone()
     assert tuple(row) == ("Renamed", "https://img/BBB222", "snap1")  # the name override wins
+    creator = "SELECT creator FROM lists WHERE key = 'spotify:playlist:BBB222'"
+    assert con.execute(creator).fetchone()[0] == "Timon"  # who made it, for its playlist's comment
     con.close()
     FakeSpotify.calls = []
     assert lists.fetch_spotify(run) == "3 lists, 0 changed"  # nothing changed: nothing read
@@ -328,6 +330,7 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
 
     class Navidrome:
         calls: ClassVar[list[tuple]] = []
+        comments: ClassVar[dict[str, str]] = {}
 
         def playlists(self) -> list[dict]:
             p = "/music/playlists/"
@@ -341,15 +344,25 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
                 *imported,  # the owner's other playlists, theirs already
             ]
 
-        def set_owner(self, pid: str, owner: str) -> None:
-            Navidrome.calls.append(("owner", pid, owner))
+        def update_playlist(self, pid: str, fields: dict) -> None:
+            if "ownerId" in fields:
+                Navidrome.calls.append(("owner", pid, fields["ownerId"]))
+            if "comment" in fields:
+                Navidrome.comments[pid] = fields["comment"]
 
         def delete_playlist(self, pid: str) -> None:
             Navidrome.calls.append(("delete", pid))
 
     message = playlists.sync_owners(con, Navidrome(), folder)
     assert Navidrome.calls == [("owner", "a", "nd-owner"), ("delete", "c")]
-    assert message == "1 playlists given to their users, 1 old playlists deleted"
+    n = len(Navidrome.comments)
+    assert message == f"1 playlists given to their users, {n} playlist comments set, 1 old playlists deleted"
+    # where each list comes from, in place of Navidrome's "Auto-imported from '<file>'" (Feishin links it)
+    assert Navidrome.comments["a"] == "Auto-imported from Spotify, by owner: https://open.spotify.com/collection/tracks"
+    assert (
+        Navidrome.comments["b"].startswith("Auto-imported from Spotify")
+        and "open.spotify.com/playlist/AAA111" in Navidrome.comments["b"]
+    )
     assert db.get_meta(con, "playlists_gone") == "[]"
     con.close()
 
@@ -397,7 +410,7 @@ def test_old_echolot_playlists_go_only_while_the_folder_is_there(run: Run) -> No
             now = [{"id": f"i{n}", "path": p + r, "ownerId": "nd-owner"} for n, r in enumerate(rels)]
             return [*now, {"id": "old", "path": p + "Spotify Liked Songs - removed.m3u", "ownerId": "nd-owner"}]
 
-        def set_owner(self, pid: str, owner: str) -> None:
+        def update_playlist(self, pid: str, fields: dict) -> None:
             pass
 
         def delete_playlist(self, pid: str) -> None:
@@ -407,7 +420,7 @@ def test_old_echolot_playlists_go_only_while_the_folder_is_there(run: Run) -> No
     playlists.sync_owners(con, Navidrome(), folder)
     assert deleted == []
     shutil.move(folder.with_name("away"), folder)
-    assert playlists.sync_owners(con, Navidrome(), folder) == "1 old playlists deleted" and deleted == ["old"]
+    assert playlists.sync_owners(con, Navidrome(), folder).endswith(", 1 old playlists deleted") and deleted == ["old"]
     con.close()
 
 

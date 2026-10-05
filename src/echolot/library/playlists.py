@@ -149,16 +149,45 @@ def _legacy(path: str, folder: Path) -> str | None:
     return name
 
 
+SERVICES = {"spotify": "Spotify", "soundcloud": "SoundCloud", "youtube": "YouTube"}
+
+
+def comment(row: sqlite3.Row, owner: str = "") -> str:
+    """A playlist's comment in the music server: "Auto-imported from Spotify, by Timon: <the list's page>"
+    (who made the list: Spotify's owner, YouTube's author, the SoundCloud account; Liked Songs: their user)."""
+    creator = row["creator"]
+    if not creator and row["service"] == "soundcloud":
+        creator = (row["url"] or "").removeprefix("https://soundcloud.com/").split("/", 1)[0]
+    if not creator and str(row["key"]).startswith("spotify:likes:"):
+        creator = owner
+    text = f"Auto-imported from {SERVICES.get(row['service'], row['service'])}"
+    return text + (f", by {creator}" if creator else "") + (f": {row['url']}" if row["url"] else "")
+
+
+def comments(con: sqlite3.Connection) -> dict[str, str]:
+    """The comment of each playlist file Echolot writes (<user>/<name>.m3u, as write names them)."""
+    lists = {r["key"]: r for r in con.execute("SELECT * FROM lists")}
+    names = dict(con.execute("SELECT id, name FROM users").fetchall())
+    folders, out = user_folders(con), {}
+    for uid in sources.owners(con):
+        if uid not in folders:
+            continue
+        for s in sources.user_lists(con, uid):
+            if (row := lists.get(s.key)) is not None and s.playlist:
+                out[f"{folders[uid]}/{clean_name(s.name)}.m3u"] = comment(row, names.get(uid, ""))
+    return out
+
+
 def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path) -> str:
-    """Navidrome's playlists of the files Echolot writes: each given to its user (the folder's), and those
-    of files Echolot removed deleted. Only those: a playlist is Echolot's when its path is exactly one of
+    """Navidrome's playlists of the files Echolot writes: each given to its user (the folder's) with its
+    comment (where the list comes from), and those of files Echolot removed deleted. Only those: a playlist is Echolot's when its path is exactly one of
     its files; one made in Navidrome has no file and is never touched."""
     folders = user_folders(con)
     ids = dict(con.execute("SELECT id, navidrome_id FROM users WHERE navidrome_id IS NOT NULL").fetchall())
     owner_of = {name: ids[uid] for uid, name in folders.items() if uid in ids}
     current = {r for r in json.loads(db.get_meta(con, "playlist_files", "[]")) if r.endswith(".m3u")}
     gone = set(json.loads(db.get_meta(con, "playlists_gone", "[]")))
-    given = deleted = 0
+    given = deleted = commented = 0
     found: dict[str, list[dict]] = {}
     present = bool(current) and all((folder / r).exists() for r in current)  # the folder is there, as written
     for p in svc.playlists():
@@ -168,14 +197,23 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
         elif present and (old := _legacy(path, folder)):
             found.setdefault(old, []).append(p)  # from before users had folders (a "- removed" playlist)
             gone.add(old)
+    notes = comments(con)
     for rel in current & set(found):
         owner = owner_of.get(rel.split("/", 1)[0]) if "/" in rel else None
         for p in found[rel]:
-            if owner and p.get("ownerId") != owner:
-                svc.set_owner(p["id"], owner)
-                given += 1
+            fields = {"ownerId": owner} if owner and p.get("ownerId") != owner else {}
+            if (note := notes.get(rel)) and p.get(
+                "comment"
+            ) != note:  # in place of Navidrome's "Auto-imported from '<file>'"
+                fields["comment"] = note
+            if fields:
+                svc.update_playlist(p["id"], fields)
+                given += "ownerId" in fields
+                commented += "comment" in fields
+    done = [f"{given} playlists given to their users"] if given else []
+    done += [f"{commented} playlist comments set"] if commented else []
     if current - set(found):  # not all imported yet: the old playlists stay until the new ones are there
-        return f"{given} playlists given to their users" if given else ""
+        return ", ".join(done)
     for rel in gone & set(found):
         if not (folder / rel).exists():
             for p in found[rel]:
@@ -183,5 +221,4 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
                 deleted += 1
     with con:  # every playlist of a removed file is deleted now (Navidrome said which there are)
         db.set_meta(con, "playlists_gone", json.dumps(sorted(r for r in gone if (folder / r).exists())))
-    parts = [f"{given} playlists given to their users"] if given else []
-    return ", ".join(parts + ([f"{deleted} old playlists deleted"] if deleted else []))
+    return ", ".join(done + ([f"{deleted} old playlists deleted"] if deleted else []))
