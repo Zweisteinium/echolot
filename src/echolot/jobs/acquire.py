@@ -48,7 +48,8 @@ LOOSEN = [(4, {"desperate": True, "strict_artist": False}), (2, {"desperate": Tr
 MAX_RESULTS = 5  # downloads tried per song and attempt
 SEARCH_SECONDS = 300  # a search waits at most this long (queued behind the rate limit included)
 TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
-FOUND = {"new", "upgrade", "duplicate", "linked"}  # linked: the library had it under other names
+EDIT_REVIEW = "another edit, in review"  # a YouTube song's download that is probably a library song's other edit
+FOUND = {"new", "upgrade", "duplicate", "linked", EDIT_REVIEW}  # linked: the library had it under other names
 SEARCHING: set[str] = set()  # the songs (or files, upgrades) searched now: a run started beside one giving way
 SEARCHING_LOCK = threading.Lock()  # (worker) skips them, so nothing is downloaded twice at once
 
@@ -664,12 +665,26 @@ def _fallback_song(
             return "bad file", str(e)
         source = "youtube" if site == "youtube" else "soundcloud-search"
         dur = want.length or audio.probe(prepared.path)[0]
-        if same := recordings.already(
-            run.paths, prepared.path, want.title, dur, recordings.Index(catalog.Catalog.from_db(con))
-        ):
+        cat = catalog.Catalog.from_db(con)
+        if same := recordings.already(run.paths, prepared.path, want.title, dur, recordings.Index(cat)):
             prepared.path.unlink(missing_ok=True)  # the library has it under other names
             recordings.link(con, run.paths, want.key, want, same, "the same audio")
             return "linked", ""
+        if want.key.startswith("youtube:") and (
+            edit := recordings.another_edit(run.paths, prepared.path, want, cat, con=con)
+        ):
+            e, share = edit  # a YouTube song named as a library song of another length, by its audio:
+            if share >= recordings.SAME_EDIT:  # that song, in another edit: linked, nothing filed twice
+                prepared.path.unlink(missing_ok=True)
+                recordings.link(con, run.paths, want.key, want, e, f"another edit, audio {share:.2f}")
+                return "linked", ""
+            kept = filing.keep(run.paths, prepared.path, want.artist, want.title, source)  # probably: you decide
+            info = {"source": source, "song": want.key, "artist": want.artist, "title": want.title, "url": r["url"]}
+            info |= {"found": r["title"], "file_name": r["title"], "wanted_seconds": round(want.length)}
+            filing.event(
+                con, run.paths, "mismatch", kept, reason=recordings.EDIT_REASON.format(path=e.path, share=share), **info
+            )
+            return EDIT_REVIEW, ""
         heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
         found = {"file_name": r["title"], "folders": (r["uploader"],), "fake": prepared.fake, "heard": heard}
         found["url"] = r["url"]  # the page, for the DOWNLOAD tag
