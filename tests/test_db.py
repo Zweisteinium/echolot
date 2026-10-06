@@ -42,6 +42,11 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     assert {"close_match", "released", "track", "tracks", "disc"} <= columns(con, "songs")
     assert {"name", "user_id"} <= columns(con, "review_decisions")
     assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
+    assert {"songs_file", "songs_stem"} <= {r[1] for r in con.execute("PRAGMA index_list(songs)")}
+    plan = " ".join(
+        str(r[-1]) for r in con.execute("EXPLAIN QUERY PLAN SELECT * FROM songs WHERE file = ? OR stem = ?", ("a", "b"))
+    )
+    assert "songs_file" in plan and "songs_stem" in plan  # the songs of a file without reading all songs
     assert "password" not in columns(con, "users")  # Navidrome's accounts
     assert {"navidrome_id", "navidrome_admin", "permissions", "view", "disabled"} <= columns(con, "users")
     con.close()
