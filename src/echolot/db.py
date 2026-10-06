@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 24
+VERSION = 25
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -152,7 +152,7 @@ CREATE TABLE review_decisions (
     overridden TEXT                 -- '<admin> <time>': an admin took it back after it was applied
 );
 CREATE TABLE snapshots (            -- metrics over time (history.py), hourly
-    ts TEXT NOT NULL,               -- local time, ISO 8601; all rows of one snapshot share it
+    ts TEXT NOT NULL,               -- UTC, ISO 8601 ("...T14:00:00Z"); all rows of one snapshot share it
     metric TEXT NOT NULL,           -- see history.METRICS
     key TEXT NOT NULL DEFAULT '',   -- label value: quality tier, format, service, list key, ...
     value REAL NOT NULL,
@@ -292,6 +292,10 @@ MIGRATIONS = {
     24: [  # the songs of a file found without reading all songs (it grows with the library)
         "CREATE INDEX IF NOT EXISTS songs_file ON songs(file)",
         "CREATE INDEX IF NOT EXISTS songs_stem ON songs(stem)",
+    ],
+    25: [  # snapshot times in UTC, not local time (SQLite converts with the server's time zone)
+        "UPDATE snapshots SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'utc') "
+        "WHERE ts NOT LIKE '%Z' AND strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'utc') IS NOT NULL"
     ],
 }
 

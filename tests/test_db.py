@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from echolot import db
+from echolot.library import history
 from echolot.settings import auth
 
 
@@ -106,3 +107,20 @@ def test_the_history_becomes_the_owners(tmp_path: Path) -> None:
     rows = {(m, k): v for m, k, v in con.execute("SELECT metric, key, value FROM snapshots WHERE metric LIKE 'user_%'")}
     con.close()
     assert rows == {("user_songs_wanted", "7"): 15, ("user_songs_by_quality", "7:lossless"): 8}
+
+
+def test_snapshot_times_become_utc(tmp_path: Path) -> None:
+    """Version 24 to 25: the snapshots' local times in UTC (the server's time zone, as Python's)."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    con.executescript(
+        "INSERT INTO snapshots VALUES ('2026-07-01T12:00:00', 'library_files', '', 3), "
+        "('2026-07-01T13:00:00Z', 'library_files', '', 4); PRAGMA user_version = 24;"
+    )
+    con.close()
+    db.init(path)
+    con = db.connect(path)
+    got = [r[0] for r in con.execute("SELECT ts FROM snapshots ORDER BY value")]
+    con.close()
+    assert got == [history.utc("2026-07-01T12:00:00"), "2026-07-01T13:00:00Z"]
