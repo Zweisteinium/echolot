@@ -271,7 +271,8 @@ EVENTS = {
     "retagged": ("Retagged", ""),
 }
 MATCHED = {"probable": ("probable match", "warn"), "review": ("from review", ""), "close": ("close match", "")}
-REPLACED = "replaced by genuine lossless"  # a retired file's reason when an upgrade took its place
+REPLACED = "replaced by genuine lossless"  # a retired file's reason when a genuine lossless upgrade took its place
+UPGRADED = "replaced by "  # ... or any upgrade (also one by hand: "replaced by hand", filing.file_into)
 
 
 def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None = None) -> list[dict[str, Any]]:
@@ -286,7 +287,7 @@ def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None 
         where += f" AND e.action IN ({', '.join('?' * len(actions))})"
     sql = f"SELECT e.*, s.url AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song WHERE {where} "
     rows = con.execute(f"{sql} ORDER BY e.id DESC LIMIT ?", (*args, *(actions or ()), 2 * limit)).fetchall()
-    replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(REPLACED)}
+    replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(UPGRADED)}
     partners = {e["id"]: was for e in rows if e["action"] == "upgrade" and (was := _replaced(e, replaced))}
     taken = {was["id"] for was in partners.values()}
     out = []
@@ -295,7 +296,7 @@ def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None 
             continue  # an upgrade's other half, or fetched only to find those
         entry = _entry(e)
         if was := partners.get(e["id"]):
-            entry["was"], entry["was_bytes"] = _quality(was, lossy_flac=True), was["bytes"]
+            entry["was"], entry["was_bytes"] = _quality(was, was["reason"].startswith(REPLACED)), was["bytes"]
         out.append(entry)
     return out[:limit]
 
@@ -315,7 +316,8 @@ def _stem(path: str | None) -> str:
 
 
 def _quality(e: Row, lossy_flac: bool = False) -> tuple[str, int] | None:
-    """(tier, kbps) of an event's file; a FLAC an upgrade replaced was one made from lossy."""
+    """(tier, kbps) of an event's file; a FLAC a genuine lossless upgrade replaced was one made from lossy
+    (`lossy_flac`; one replaced by hand can be genuine)."""
     if not e["ext"]:
         return None
     fake = bool(e["fake"]) or (lossy_flac and e["ext"] in catalog.LOSSLESS)
