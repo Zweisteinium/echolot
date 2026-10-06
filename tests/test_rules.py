@@ -281,6 +281,19 @@ def test_catalog_song_other_artists_and_link() -> None:
     assert not cat.song("TheDoDo", "Chilln", 227, ["TheDoDo"])
 
 
+def test_cjk_names_with_or_without_a_space() -> None:
+    """Spotify writes "祖堅 正慶", most peers "祖堅正慶" (and some the other way round)."""
+    title = "Close to the Heavens"
+    together = "Music\\祖堅正慶\\Heavensward (2016)\\15 - Close to the Heavens.flac"
+    apart = "Music\\祖堅 正慶\\2016 - Heavensward\\15. Close to the Heavens.flac"
+    for path in (together, apart):
+        assert rules.prejudge("祖堅 正慶", title, path, 297, 298)[0] == "accept"
+        assert rules.prejudge("祖堅正慶", title, path, 297, 298)[0] == "accept"
+    assert rules.words("祖堅 正慶 & Keiko") == " 祖堅正慶 and keiko "
+    assert len(rules.words("아이유 노래").split()) == 2  # Korean keeps its spaces
+    assert rules.prejudge("祖堅 正慶", title, "Music\\植松伸夫\\Close to the Heavens.flac", 297, 298)[0] == "reject"
+
+
 def test_prejudge_needs_artist_or_title() -> None:
     """A loosened search for "HK - Was!?!?" finds anything with "was" in it: with neither the artist nor
     the title in the path nothing is downloaded; with the title alone the tags decide."""

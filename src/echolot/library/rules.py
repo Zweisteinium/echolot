@@ -140,10 +140,16 @@ def norm_key(key: str | None) -> str:
     return re.sub(r"^spotify:track:", "spotify:", key or "")
 
 
+_CJK = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"  # kana and Han (not Hangul: Korean spaces words)
+_CJK_GAP = re.compile(rf"(?<=[{_CJK}]) (?=[{_CJK}])")
+
+
 def words(s: str | None) -> str:
-    """' w1 w2 ... ': whole-word form for 'contains' checks; apostrophes vanish ("N'to" = "NTO")."""
+    """' w1 w2 ... ': whole-word form for 'contains' checks; apostrophes vanish ("N'to" = "NTO"), and so
+    does a space between Chinese or Japanese characters, which names are written with or without
+    ("祖堅 正慶" = "祖堅正慶")."""
     s = re.sub(r"['’`´]", "", fold(s)).replace("&", " and ")
-    return " " + re.sub(r"[\W_]+", " ", s).strip() + " "
+    return " " + _CJK_GAP.sub("", re.sub(r"[\W_]+", " ", s).strip()) + " "
 
 
 def _strip_track_no(s: str) -> str:
