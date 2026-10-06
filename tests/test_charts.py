@@ -29,6 +29,7 @@ def test_growth_downsamples_and_breaks_at_gaps() -> None:
     hourly = [(f"2026-09-{d:02d}T{h:02d}:00:00Z", d * 24 + h) for d in range(1, 21) for h in range(24)]
     g = charts.growth(hourly, fmt, axis, most=50)
     assert len(json.loads(g.points)) <= 51 and g.line.count("M") == 1
+    assert g.rebuilt == ""  # nothing rebuilt: no dashed part (and no note under the graph)
     gap = [("2026-09-01T00:00:00Z", 1), ("2026-09-02T00:00:00Z", 2), ("2026-09-05T00:00:00Z", 3)]
     assert charts.growth(gap, fmt, axis).line.count("M") == 2  # 3 days without a snapshot
 

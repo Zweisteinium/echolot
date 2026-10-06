@@ -418,6 +418,13 @@ def override(con: sqlite3.Connection, paths: filing.Paths, event_id: int, admin:
     return result
 
 
+def _replaced_file(path: str, paths: filing.Paths) -> Path | None:
+    """Echolot's path of a retired file the events name as /music/inbox/replaced/<...> (None for another)."""
+    base = paths.inbox("replaced").resolve()
+    p = (paths.music / path.removeprefix(MUSIC)).resolve() if path.startswith(MUSIC) else None
+    return p if p is not None and p.is_relative_to(base) else None
+
+
 def _restore(con: sqlite3.Connection, paths: filing.Paths, d: sqlite3.Row) -> str:
     """The library file a No match retired, back at its place ('' if it is no longer in replaced/, or its
     place is taken)."""
@@ -425,14 +432,16 @@ def _restore(con: sqlite3.Connection, paths: filing.Paths, d: sqlite3.Row) -> st
         "SELECT * FROM events WHERE action = 'retired' AND reason = ? AND ts >= ? ORDER BY id DESC",
         (f"no match in review (was {d['path']})", d["decided"]),
     ).fetchone()
-    src = local_file(retired["path"], paths.music) if retired else None
+    src = _replaced_file(retired["path"], paths) if retired else None
     dest = paths.tracks / d["path"]
     if retired is None or src is None or not src.is_file() or dest.exists():
         return ""
     with filing.LOCK:
         filing.place_back(con, paths, src, dest)
     song = rules.norm_key(d["song"]) or None
-    filing.event(con, paths, "restored", dest, song=song, reason="No match taken back by an admin")
+    names = con.execute("SELECT artist, title FROM songs WHERE key = ?", (song,)).fetchone() if song else None
+    who = {"artist": names[0], "title": names[1]} if names else {}  # (Activity names the song)
+    filing.event(con, paths, "restored", dest, song=song, reason="No match taken back by an admin", **who)
     catalog.match_songs(con)
     return "file back"
 
