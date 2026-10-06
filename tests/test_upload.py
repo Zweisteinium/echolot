@@ -34,20 +34,38 @@ def batch_of(html: str) -> str:
     return re.search(r'data-batch="([0-9a-f]{16})"', html).group(1)
 
 
+def post_files(client: TestClient, files: list[tuple], data: dict | None = None) -> str:
+    """As the dialog does it: opened (a new batch), then each file uploaded on its own; the rows, with the batch."""
+    song = (data or {}).get("song", "")
+    dialog = client.get("/missing/upload", params={"song": song} if song else None)
+    assert dialog.status_code == 200 and "data-files" in dialog.text
+    batch = batch_of(dialog.text)
+    rows = []
+    for _, (name, content, mime) in files:
+        r = client.post(f"/missing/upload/{batch}/file", files={"file": (name, content, mime)}, data=data or {})
+        assert r.status_code == 200
+        rows.append(r.text)
+    return f'<div data-batch="{batch}">' + "".join(rows)
+
+
 def test_upload_check_and_import(settings: Settings, login: Callable[..., TestClient]) -> None:
     client = login(create_app(settings))
     page = client.get("/missing").text
     assert "Upload files" in page and 'hx-get="/missing/upload?song=spotify%3As3"' in page
     assert "Choose files" in client.get("/missing/upload").text
+    assert (
+        client.post("/missing/upload/0123456789abcdef/file", files={"file": ("x.flac", b"x", "audio/flac")}).status_code
+        == 404
+    )
     files = [
         ("files", ("Artist C - Gone Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac")),
         ("files", ("notes.txt", b"not audio", "text/plain")),
     ]
-    html = client.post("/missing/upload", files=files).text
+    html = post_files(client, files)
     batch = batch_of(html)
     assert '<input type="hidden" name="song_1" value="spotify:s3">' in html  # detected by its name
     assert "Artist C – Gone Song" in html and "<select" not in html
-    assert "Not audio" in html and 'name="song_2"' not in html and "Import 1 of 2 files?" in html
+    assert "Not audio" in html and 'name="song_2"' not in html and html.count('class="upload-row"') == 2
     assert re.search(r"\d:\d\d shorter|\d+ s shorter", html)  # what is off: its length
     assert "q-lossless" in html  # its quality
     done = client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:s3"}).text
@@ -72,7 +90,7 @@ def test_cancel_and_scope(settings: Settings, login: Callable[..., TestClient]) 
     app = create_app(settings)
     client = login(app)
     one = [("files", ("x.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
-    batch = batch_of(client.post("/missing/upload", files=one, data={"song": "spotify:s3"}).text)
+    batch = batch_of(post_files(client, one, {"song": "spotify:s3"}))
     assert (
         client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:nobody"}).status_code == 403
     )  # none of the user's songs
@@ -148,7 +166,7 @@ def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., T
     client = login(create_app(settings))
     assert 'hx-get="/missing/upload?song=spotify%3As1"' in client.get("/lists/spotify:playlist:AAA111").text
     one = [("files", ("Artist A - First Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
-    html = client.post("/missing/upload", files=one).text
+    html = post_files(client, one)
     assert '<input type="hidden" name="song_1" value="spotify:s1">' in html and "you have it" in html
     assert "Better than your" in html
     done = client.post(f"/missing/upload/{batch_of(html)}/import", data={"song_1": "spotify:s1"}).text
@@ -179,7 +197,7 @@ def test_a_close_match_song_gets_its_own_file(settings: Settings, login: Callabl
     con.close()
     client = login(create_app(settings))
     one = [("files", ("Artist C - Gone Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
-    html = client.post("/missing/upload", files=one).text
+    html = post_files(client, one)
     assert "covered by a close match" in html and 'name="remove_1"' in html and "Not better" not in html
     done = client.post(f"/missing/upload/{batch_of(html)}/import", data={"song_1": "spotify:s3", "remove_1": "1"}).text
     assert "Artist C – Gone Song: filed as Artist C/Artist C - Gone Song.flac" in done
@@ -210,3 +228,18 @@ def test_remove_a_close_match(settings: Settings, login: Callable[..., TestClien
         None,
     )
     con.close()
+
+
+def test_files_added_one_by_one(tmp_path: Path) -> None:
+    """A batch opened empty takes files one at a time, each with the next number; a cancelled one takes none."""
+    paths = Paths(tmp_path)
+    batch = upload.start(paths)
+    import io
+
+    first = upload.add(paths, batch, "a.flac", io.BytesIO((AUDIO / "silence.flac").read_bytes()))
+    second = upload.add(paths, batch, "b.txt", io.BytesIO(b"not audio"))
+    assert (first.n, second.n) == (1, 2) and not first.error and second.error
+    assert [f.n for f in upload.files(paths, batch)] == [1, 2]
+    upload.cancel(paths, batch)
+    with pytest.raises(ValueError):
+        upload.add(paths, batch, "c.flac", io.BytesIO(b"x"))

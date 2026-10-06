@@ -1,43 +1,27 @@
-{# the upload dialog on the Missing page, step by step: pick files, check them, done (web/upload.py) #}
-<div class="upload" {% if step == 'check' %}data-batch="{{ batch }}"{% endif %}>
+{# the upload dialog (web/upload.py): add files, each uploaded and checked at once (its row: _upload_row.html),
+   then one Import for all; done #}
+<div class="upload"{% if step == 'pick' %} data-batch="{{ batch }}" data-song="{{ song.key if song else '' }}"{% endif %}>
 {% if step == 'pick' %}
   <h2>Upload {{ 'a file for ' ~ song.artist ~ ' – ' ~ song.title if song else 'files' }}</h2>
-  <p class="muted small">Files you got elsewhere (bought, or from another tool): for missing songs, or better copies of songs you have. Echolot finds each file's song, checks it and shows what it sees; you decide what is imported.</p>
-  {% if upload_error %}<div class="flash error" role="alert">{{ upload_error }}</div>{% endif %}
-  <form hx-post="/missing/upload" hx-encoding="multipart/form-data" hx-target="#upload-body" class="upload-pick">
-    {{ csrf_input }}
-    {% if song %}<input type="hidden" name="song" value="{{ song.key }}">{% endif %}
-    <label class="drop">
-      <input type="file" name="files" multiple required accept="audio/*,.flac,.mp3,.m4a,.opus,.ogg,.wav,.aiff,.aif">
-      <span class="drop-text"><b>Choose files</b> or drop them here</span>
-      <span class="muted small">FLAC, MP3, M4A, Opus, Ogg, WAV, AIFF</span>
-    </label>
-    <ul class="picked" hidden></ul>
-    <progress id="upload-progress" max="100" value="0" hidden></progress>
-    <p id="upload-busy" class="muted small busy" hidden>Uploading…</p>
-    <div class="dialog-actions">
-      <button type="button" data-close>Cancel</button>
-      <button class="primary" disabled data-check>Check files</button>
-    </div>
-  </form>
-{% elif step == 'check' %}
-  {% set n = importable %}
-  <h2>{% if n == rows|length %}Import {{ n }} file{{ 's' if n != 1 }}?{% elif n %}Import {{ n }} of {{ rows|length }} files?{% else %}Nothing to import{% endif %}</h2>
-  <p class="muted small">Each file becomes the song shown, whatever its names or length (as Perfect match in review); for a song you have, it replaces your copy (kept 30 days in <code>inbox/replaced</code>). Leave out a file with ×.</p>
+  <p class="muted small">Files you got elsewhere (bought, or from another tool): for missing songs, or better copies of songs you have. Each file is checked the moment you add it; you decide what is imported.</p>
+  <label class="drop">
+    <input type="file" multiple accept="audio/*,.flac,.mp3,.m4a,.opus,.ogg,.wav,.aiff,.aif" data-files>
+    <span class="drop-text"><b>Choose files</b> or drop them here</span>
+    <span class="muted small">FLAC, MP3, M4A, Opus, Ogg, WAV, AIFF · add more any time</span>
+  </label>
   <form hx-post="/missing/upload/{{ batch }}/import" hx-target="#upload-body">
     {{ csrf_input }}
-    <div class="table-scroll">
+    <div class="table-scroll" data-table hidden>
     <table class="rows upload-table">
       <thead><tr><th>File</th><th>Song</th><th>Check</th><th></th></tr></thead>
-      <tbody>
-      {% for f, song, labels, fit, go in rows %}{% include "_upload_row.html" %}{% endfor %}
-      </tbody>
+      <tbody data-rows></tbody>
     </table>
     </div>
+    <p class="muted small" data-table hidden>Each file becomes the song shown, whatever its names or length (as Perfect match in review); for a song you have, it replaces your copy (kept 30 days in <code>inbox/replaced</code>). Leave out a file with ×.</p>
     <div class="dialog-actions">
       <span class="muted small busy" hidden>Importing…</span>
-      <button type="button" hx-post="/missing/upload/{{ batch }}/cancel" hx-target="#upload-body" data-cancel>Cancel</button>
-      <button class="primary" data-import {% if not n %}disabled{% endif %}>Import</button>
+      <button type="button" data-close>Cancel</button>
+      <button class="primary" data-import disabled>Import</button>
     </div>
   </form>
 {% else %}

@@ -384,7 +384,7 @@ def file_into(
                 dest = _free_name(best_path.parent, best_path.stem, ext, length)
             why = "replaced by genuine lossless" if genuine and not replace else "replaced by hand"
             for e in losers:
-                if paths.tracks / e.path == dest:
+                if paths.tracks / e.path == dest and dest.exists():  # (gone by hand: nothing to keep)
                     retire(con, paths, e, why)
             _place(src, dest)
             _add_file(con, paths, dest, fake, fake_source)

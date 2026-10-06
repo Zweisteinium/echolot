@@ -46,31 +46,30 @@ def _batch(request: Request, batch: str) -> list[upload.File]:
 
 @router.get("/missing/upload", response_class=HTMLResponse)
 def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
-    """The dialog's first step: pick files (for one song, or any of yours: missing ones, better copies). Only
-    that song is looked up: all of them are needed once files are there."""
-    return page(request, "_upload.html", step="pick", song=_song(request, con, song))
+    """The dialog, with a new batch: files are uploaded and checked the moment they are picked or dropped,
+    each on its own (upload_file); one Import for all once every one is done. For one song (`song`), or any
+    of yours: missing ones, better copies."""
+    batch = upload.start(_paths(request))
+    return page(request, "_upload.html", step="pick", batch=batch, song=_song(request, con, song))
 
 
-@router.post("/missing/upload", response_class=HTMLResponse)
-def upload_files(
-    request: Request, con: DB, files: Annotated[list[UploadFile], File()], song: Annotated[str, Form()] = ""
+@router.post("/missing/upload/{batch}/file", response_class=HTMLResponse)
+def upload_file(
+    request: Request, con: DB, batch: str, file: Annotated[UploadFile, File()], song: Annotated[str, Form()] = ""
 ) -> HTMLResponse:
-    """The files are saved and checked; each one's song as detected and how it fits, for confirmation."""
+    """One file of the batch: saved, checked, its song found (the one asked for, else the one it names; no
+    song: not imported) and how it fits; its row for the dialog."""
+    try:
+        f = upload.add(_paths(request), batch, file.filename or "", file.file)
+    except ValueError as e:
+        raise HTTPException(404, "That upload is gone (imported, cancelled, or older than a day).") from e
     songs = _songs(request, con)
-    picked = [f for f in files if f.filename]
-    if not picked:
-        return page(request, "_upload.html", step="pick", song=songs.get(song), upload_error="Choose a file first.")
-    batch = upload.stage(_paths(request), [(f.filename or "", f.file) for f in picked])
-    found = upload.files(_paths(request), batch)
-    rows = []
-    for f in found:  # each file's song: the one asked for, else the one it names (no song: not imported)
-        key = song if song in songs else upload.guess(f, list(songs.values()))
-        match = songs.get(key or "") if not f.error else None
-        copy = upload.compare(_paths(request), f, match) if match else None  # a song you have: better?
-        fit = upload.fit(con, f, match)
-        rows.append((f, match, upload.labels(f, match, fit, copy), fit, upload.importable(f, match, copy)))
-    n = sum(1 for *_, go in rows if go)
-    return page(request, "_upload.html", step="check", batch=batch, rows=rows, importable=n)
+    key = song if song in songs else upload.guess(f, list(songs.values()))
+    match = songs.get(key or "") if not f.error else None
+    copy = upload.compare(_paths(request), f, match) if match else None  # a song you have: better?
+    fit = upload.fit(con, f, match)
+    go = upload.importable(f, match, copy)
+    return page(request, "_upload_row.html", f=f, song=match, labels=upload.labels(f, match, fit, copy), fit=fit, go=go)
 
 
 @router.post("/missing/upload/{batch}/import", response_class=HTMLResponse)
