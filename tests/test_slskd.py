@@ -23,7 +23,7 @@ class Fake:
 
     def reset(self, downloads: Path) -> None:
         self.responses, self.searches, self.transfers, self.calls = {}, {}, [], []
-        self.downloads, self.deliver, self.tokens, self.readonly = downloads, "Succeeded", 0, False
+        self.downloads, self.deliver, self.tokens, self.readonly, self.late = downloads, "Succeeded", 0, False, False
 
 
 FAKE = Fake()
@@ -85,7 +85,7 @@ class Handler(BaseHTTPRequestHandler):
             f = body["files"][0]
             name = f["filename"].rsplit("\\", 1)[-1]
             folder = FAKE.downloads / body["options"]["destination"]
-            if FAKE.deliver == "Succeeded":
+            if FAKE.deliver == "Succeeded" and not FAKE.late:
                 folder.mkdir(parents=True)
                 (folder / name).write_bytes(b"audio")
                 if FAKE.readonly:
@@ -218,6 +218,13 @@ def test_download_lands_in_its_folder(client: slskd.Slskd, tmp_path: Path) -> No
     t = client.transfer(client.download(job, c, "echolot/abc", {}))
     assert t.state == "done" and Path(t.path) == tmp_path / "echolot/abc/Artist - Song.flac"
     assert not FAKE.transfers  # taken off slskd's list; the file stays
+    FAKE.late = True  # reported done a moment before the file is moved into its folder
+    late = client.download(job, c, "echolot/late", {})
+    assert client.transfer(late).state == "running"
+    (tmp_path / "echolot/late").mkdir(parents=True)
+    (tmp_path / "echolot/late/Artist - Song.flac").write_bytes(b"audio")
+    assert client.transfer(late).state == "done"
+    FAKE.late = False
     FAKE.readonly = True  # slskd runs as another user: its folder is not Echolot's to change
     try:
         t = client.transfer(client.download(job, c, "echolot/ro", {}))

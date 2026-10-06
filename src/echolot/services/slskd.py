@@ -27,7 +27,8 @@ from echolot.library import audio, rules
 from echolot.services.soulseek import Candidate, DaemonError, Lost, Transfer
 
 OTHER_USER = "slskd saved it as another user: run slskd as Echolot's user (user: PUID:PGID in its compose file)"
-SECRET = "slskd.secret"  # the vault's name of slskd's password (with a user) or API key (without)
+SECRET = "slskd.secret"
+MOVE_WAIT = 60  # s a reported download may take to appear in its folder  # the vault's name of slskd's password (with a user) or API key (without)
 SEARCH_LIMIT = (34, 220)  # Soulseek allows about 34 searches per 220 s: kept by every client of this process
 # ms after the last response a search counts as complete: slskd's searchTimeout goes to Soulseek.NET as is
 # (milliseconds, though slskd's API notes call it seconds); 15 s is slskd's default
@@ -71,6 +72,7 @@ class Slskd:
         self.user, self.secret = user, secret
         self._token = ""
         self._jobs: dict[str, dict[str, Any]] = {}  # search id -> its query, settings and the searches made
+        self._done_at: dict[str, float] = {}  # download job -> when slskd first reported it done
 
     # ------------------------------------------------------------ HTTP
 
@@ -266,6 +268,10 @@ class Slskd:
             if files:
                 self._forget(job, t)
                 return Transfer("done", str(files[-1]), done, total, "")
+            # slskd reports success, then moves the file from its incomplete folder: wait for it a while
+            first = self._done_at.setdefault(job_id, time.monotonic())
+            if time.monotonic() - first < MOVE_WAIT:
+                return Transfer("running", None, done, total, "")
             return Transfer("failed", None, done, total, f"downloaded, but not found in {folder}")
         reason = t.get("exception") or state.replace("Completed, ", "")
         self._forget(job, t)

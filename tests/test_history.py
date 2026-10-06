@@ -103,6 +103,10 @@ def test_api(con, settings: Settings, login) -> None:
 
 
 def test_prometheus(con, settings: Settings) -> None:
+    from echolot.settings import options
+
+    with con:
+        options.update(con, options.Metrics, public=True)
     text = TestClient(create_app(settings)).get("/metrics").text
     assert "# TYPE echolot_library_files gauge" in text
     assert "echolot_library_files 3\n" in text

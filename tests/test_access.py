@@ -227,8 +227,10 @@ def test_api_tokens(app, login: Callable[..., TestClient]) -> None:
 
 def test_metrics_public_setting(app, login: Callable[..., TestClient]) -> None:
     anonymous = TestClient(app)
-    assert anonymous.get("/metrics").status_code == 200
+    assert anonymous.get("/metrics").status_code == 401  # private unless chosen
     client = login(app)
+    client.post("/settings/access", data={"session_days": 7, "metrics_public": "1"})
+    assert anonymous.get("/metrics").status_code == 200
     client.post("/settings/access", data={"session_days": 7})  # checkbox off
     assert anonymous.get("/metrics").status_code == 401
     assert client.get("/metrics").status_code == 200

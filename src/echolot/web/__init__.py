@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException
 from echolot import COMMIT, __version__, db
 from echolot.config import Settings
 from echolot.jobs.worker import Worker
+from echolot.library import filing
 from echolot.settings import auth, vault
 from echolot.settings.sources import adopt
 from echolot.web import (
@@ -44,6 +45,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
     con = db.connect(settings.db_path)
+    if settings.library_dir is not None:
+        try:
+            filing.Paths(settings.library_dir.parent).create()
+        except OSError as e:  # (a read-only test copy)
+            log.warning("folders not created: %s", e)
     try:  # lists from before users had lists: the oldest admin's (sources.adopt)
         if adopted := adopt(con):
             log.info("adopted: %s", adopted)

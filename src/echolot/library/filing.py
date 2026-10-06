@@ -46,6 +46,17 @@ class Paths:
     def inbox(self, name: str) -> Path:
         return self.music / "inbox" / name
 
+    def create(self) -> None:
+        """The folders Echolot writes, made by Echolot (as its user: a folder Docker makes for a mount is
+        root's), and an empty .ndignore in inbox/: Navidrome skips the downloads and review files there."""
+        for folder in (self.tracks, self.playlists, *(self.inbox(n) for n in INBOXES)):
+            folder.mkdir(parents=True, exist_ok=True)
+        if not (ignore := self.music / "inbox" / ".ndignore").exists():
+            ignore.write_text("")
+
+
+INBOXES = ("soulseek", "soundcloud", "fallback", "review", "replaced", "upload")  # inbox/<name>
+
 
 @dataclass
 class Want:
