@@ -36,3 +36,20 @@ def test_growth_downsamples_and_breaks_at_gaps() -> None:
 def test_growth_needs_two_points() -> None:
     assert charts.growth([("2026-09-01T00:00:00Z", 1)], fmt, axis) is None
     assert charts._nice(0) == (3, 1)  # an empty library still gets an axis
+
+
+def test_layers_stack_the_quality_tiers_under_the_songs_wanted() -> None:
+    order = [("lossless", "Lossless"), ("lossy-low", "Lossy"), ("missing", "Missing")]
+    rows = [
+        ("2026-09-27T12:00:00Z", {"lossless": 10, "lossy-low": 5, "missing": 5}),
+        ("2026-09-28T12:00:00Z", {"lossless": 20, "lossy-low": 5, "missing": 2}),
+    ]
+    g = charts.layers(rows, order, fmt, axis, rebuilt=[("2026-09-26T12:00:00Z", 8)])
+    assert [b.key for b in g.bands] == ["lossless", "lossy-low", "missing"]
+    assert (g.now, g.total) == ("25 songs", "+17 songs")  # in the library (not the missing), since the rebuilt start
+    assert g.area and g.rebuilt  # the rebuilt day: one plain area, dashed
+    hover = json.loads(g.points)
+    assert hover[0][3] == "8 songs (rebuilt)" and hover[0][4] == []
+    assert hover[-1][4] == [["lossless", "Lossless", "20"], ["lossy-low", "Lossy", "5"], ["missing", "Missing", "2"]]
+    assert [t.label for t in g.values][-1] == "30"  # the axis reaches the 27 wanted (+ 8 %)
+    assert charts.layers(rows[:1], order, fmt, axis) is None

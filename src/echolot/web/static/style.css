@@ -425,6 +425,11 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth .fill-top { stop-color: var(--chart-b); stop-opacity: 0.24; }
 .growth .fill-bottom { stop-color: var(--chart-b); stop-opacity: 0; }
 .growth .line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.growth .band { fill: var(--q); fill-opacity: 0.88; stroke: var(--surface); stroke-width: 1; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+.growth .band.q-missing { fill: color-mix(in srgb, var(--q-missing) 15%, transparent); fill-opacity: 1; stroke: none; }
+.growth .line.wanted { stroke: color-mix(in srgb, var(--q-missing) 60%, transparent); stroke-width: 1.5; }
+.growth .area.plain { fill: color-mix(in srgb, var(--muted) 16%, transparent); }
 .growth .line.rebuilt { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 3 5; opacity: 0.75; }
 .growth .line-a { stop-color: var(--chart-a); } .growth .line-b { stop-color: var(--chart-b); } .growth .line-c { stop-color: var(--chart-c); }
 .growth .y { position: absolute; left: 0; width: 3rem; text-align: right; transform: translateY(-50%); font-size: 0.72rem;
@@ -441,6 +446,10 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow);
   font-size: 0.78rem; color: var(--muted); white-space: nowrap; pointer-events: none; }
 .growth .tip b { display: block; color: var(--text); font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+.growth .tip .split { display: grid; gap: 0.1rem; margin-top: 0.3rem; }
+.growth .tip .split:empty { display: none; }
+.growth .tip .split > span { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.45rem; }
+.growth .tip .split em { font-style: normal; color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
 .growth .dates { position: relative; height: 1.3rem; margin: 0.45rem 0 0 3.6rem; font-size: 0.72rem; color: var(--muted); }
 .rebuilt-note { margin: 0.35rem 0 0 3.6rem; font-size: 0.72rem; color: var(--muted); }
 .rebuilt-note .dash { display: inline-block; width: 1.4rem; margin-right: 0.45rem; vertical-align: middle;

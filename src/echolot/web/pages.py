@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 
 from echolot import db
 from echolot.library import filing, history
+from echolot.library.catalog import QUALITY
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, jobs, stats
 from echolot.web.common import DB, page
@@ -33,15 +34,31 @@ def overview(request: Request, con: DB) -> HTMLResponse:
 
 
 def _growth(con: sqlite3.Connection, uid: int | None) -> dict[str, charts.Growth | None]:
-    """The songs in the library over time (the user's, or everyone's) and the library's size (everyone's)."""
-    songs = history.totals(con, "user_songs_in_library", str(uid)) if uid is not None else None
+    """The songs over time (the user's, or everyone's): in the library by quality, and missing (the top
+    edge: the songs wanted); and the library's size (everyone's)."""
     rebuilt = db.get_meta(con, history.REBUILT)
+    if uid is None:
+        tiers, wanted = history.series(con, "songs_by_quality"), history.totals(con, "songs_wanted")
+        have = history.totals(con, "songs_in_library")
+    else:
+        tiers = [r for r in history.series(con, "user_songs_by_quality") if r["key"].startswith(f"{uid}:")]
+        wanted = history.totals(con, "user_songs_wanted", str(uid))
+        have = history.totals(con, "user_songs_in_library", str(uid))
+    split: dict[str, dict[str, float]] = {}
+    for r in tiers:
+        split.setdefault(r["ts"], {})[r["key"].rpartition(":")[2]] = r["value"]
+    for ts, n in wanted:
+        if ts in split:
+            split[ts]["missing"] = max(n - sum(split[ts].values()), 0)
+    rows = sorted((ts, r) for ts, r in split.items() if "missing" in r)
+    before = [(ts, n) for ts, n in have if rebuilt and ts < rebuilt and (not rows or ts < rows[0][0])]
     return {
-        "songs": charts.growth(
-            songs if songs is not None else history.totals(con, "songs_in_library"),
+        "songs": charts.layers(
+            rows,
+            [*QUALITY, ("missing", "Missing")],
             lambda v: f"{num(round(v))} songs",
             lambda v: num(round(v)),
-            rebuilt,
+            before,
         ),
         "size": charts.growth(
             history.totals(con, "library_bytes"),

@@ -32,16 +32,23 @@
         <linearGradient id="{{ name }}-line" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1000" y2="0"><stop offset="0" class="line-a"></stop><stop offset="0.55" class="line-b"></stop><stop offset="1" class="line-c"></stop></linearGradient>
       </defs>
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
+      {% if g.bands %}
+      {% if g.area %}<path class="area plain" d="{{ g.area }}"></path>{% endif %}
+      {% for b in g.bands %}<path class="band q-{{ b.key }}" d="{{ b.path }}"></path>{% endfor %}
+      <path class="line wanted" d="{{ g.line }}"></path>
+      {% if g.rebuilt %}<path class="line rebuilt" d="{{ g.rebuilt }}"></path>{% endif %}
+      {% else %}
       <path class="area" d="{{ g.area }}" fill="url(#{{ name }}-fill)"></path>
       {% if g.rebuilt %}<path class="line rebuilt" d="{{ g.rebuilt }}"></path>{% endif %}
       <path class="line" d="{{ g.line }}" stroke="url(#{{ name }}-line)"></path>
+      {% endif %}
     </svg>
     <span class="end" style="left: {{ g.end[0] }}%; top: {{ g.end[1] }}%" aria-hidden="true"></span>
     <span class="cursor" aria-hidden="true" hidden></span><span class="mark" aria-hidden="true" hidden></span><span class="tip" aria-hidden="true" hidden></span>
     </div>
   </div>
   <div class="dates" aria-hidden="true">{% for t in g.dates %}<span style="left: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}</div>
-  {% if g.rebuilt %}<p class="rebuilt-note"><span class="dash" aria-hidden="true"></span>rebuilt from the activity log</p>{% endif %}
+  {% if g.rebuilt %}<p class="rebuilt-note"><span class="dash" aria-hidden="true"></span>rebuilt from the activity log{% if g.bands %} (the total only){% endif %}</p>{% endif %}
   <figcaption class="sr-only">{{ caption }}</figcaption>
 </figure>
 {%- endmacro %}
