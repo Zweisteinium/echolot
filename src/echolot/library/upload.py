@@ -65,30 +65,53 @@ def folder(paths: Paths, batch: str) -> Path:
     return paths.inbox("upload") / batch
 
 
-def stage(paths: Paths, uploads: list[tuple[str, Any]]) -> str:
-    """Save the uploaded files (name, file object) as a new batch and check each one; returns the batch."""
+def start(paths: Paths) -> str:
+    """A new, empty batch (the dialog opened); files are added one by one (add)."""
     purge(paths)
     batch = secrets.token_hex(8)
+    folder(paths, batch).mkdir(parents=True)
+    return batch
+
+
+_NUMBER = threading.Lock()  # files added at the same time get numbers of their own
+
+
+def add(paths: Paths, batch: str, name: str, fileobj: Any) -> File:
+    """Save one uploaded file into the batch and check it (audio.prepare, its length, quality and tags);
+    its number in the batch is the next free one. ValueError when the batch is gone (cancelled)."""
     d = folder(paths, batch)
-    d.mkdir(parents=True)
-    for n, (name, fileobj) in enumerate(uploads, 1):
+    with _NUMBER:
+        if not d.is_dir():
+            raise ValueError("no such upload")
+        taken = (re.match(r"\d+", p.name) for p in d.iterdir())
+        n = 1 + max((int(m.group()) for m in taken if m), default=0)
         base = Path(name or "file").name
         stem, ext = re.sub(r"[^\w\-. ()&',!]+", "_", Path(base).stem)[:120] or "file", Path(base).suffix.lower()
         dest = d / f"{n:02d} {stem}{ext}"
-        with dest.open("wb") as out:
-            shutil.copyfileobj(fileobj, out)
-        f = File(n, base)
-        try:
-            prepared = audio.prepare(dest)
-            f.path = prepared.path
-            f.seconds, f.kbps = audio.probe(prepared.path)
-            f.tier = tier(prepared.path, f.kbps, prepared.fake)
-            f.source, f.band = (prepared.spectrum or {}).get("source", ""), _band(prepared.spectrum)
-            artists, f.title = audio.read_tags(prepared.path)
-            f.artist = ", ".join(dict.fromkeys(artists))
-        except audio.Rejected as e:
-            f.error = str(e)
+        dest.touch()  # (the number is taken)
+    with dest.open("wb") as out:
+        shutil.copyfileobj(fileobj, out)
+    f = File(n, base)
+    try:
+        prepared = audio.prepare(dest)
+        f.path = prepared.path
+        f.seconds, f.kbps = audio.probe(prepared.path)
+        f.tier = tier(prepared.path, f.kbps, prepared.fake)
+        f.source, f.band = (prepared.spectrum or {}).get("source", ""), _band(prepared.spectrum)
+        artists, f.title = audio.read_tags(prepared.path)
+        f.artist = ", ".join(dict.fromkeys(artists))
+    except audio.Rejected as e:
+        f.error = str(e)
+    if d.is_dir():  # (cancelled meanwhile: nothing to keep)
         _save(d, f)
+    return f
+
+
+def stage(paths: Paths, uploads: list[tuple[str, Any]]) -> str:
+    """Save the uploaded files (name, file object) as a new batch and check each one; returns the batch."""
+    batch = start(paths)
+    for name, fileobj in uploads:
+        add(paths, batch, name, fileobj)
     return batch
 
 
