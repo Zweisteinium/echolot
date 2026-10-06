@@ -4,32 +4,48 @@
 {{ sprite(['upload']) }}
 <dialog id="upload" class="modal" aria-label="Upload files"><div id="upload-body"></div></dialog>
 <script>
-  // a file is uploaded and checked the moment it is picked or dropped, two at a time, each on its own (a
-  // row with its bar, then its result); Import, for all of them, waits until every one is done (failed
-  // ones count as done; × leaves a file out, also one still uploading); imported songs leave Missing
-  // (another page shows anew when the dialog closes); closing the dialog (Esc, Cancel) deletes the batch
+  // a file is uploaded and checked the moment it is picked or dropped, two at a time, each on its own; it
+  // shows as a quiet placeholder row, one bar shows the whole batch, and once every file is done all results
+  // fill in at once (calm: nothing moves one by one) and Import, for all of them, unlocks (failed ones count
+  // as done; × leaves a file out, also one still uploading); imported songs leave Missing (another page shows
+  // anew when the dialog closes); closing the dialog (Esc, Cancel) deletes the batch
   (() => {
     const dialog = document.getElementById("upload");
     const body = document.getElementById("upload-body");
     const csrf = () => JSON.parse(document.body.getAttribute("hx-headers") || "{}")["X-CSRF-Token"] || "";
     const AT_ONCE = 2;
     let reload = false;  // songs imported on a page that does not take them off by itself
-    let queue = [], active = [], added = 0, finished = 0;
+    let queue = [], active = [], jobs = [];  // jobs: every file still in the dialog, in order
     const box = () => body.querySelector("[data-batch]");
-    const refresh = () => {  // Import: every file done, and something to import
+    const refresh = () => {  // the bar; once every file is done: all results in, Import (for something to import)
       const go = body.querySelector("[data-import]");
       if (!go) return;
       const pending = queue.length + active.length;
+      if (!pending) {
+        for (const job of jobs) if (job.result && job.row.isConnected) { job.row.replaceWith(job.result); job.row = job.result; job.result = null; }
+      }
+      const bar = body.querySelector("[data-progress]");
+      const open = jobs.filter((j) => j.done !== undefined);
+      bar.hidden = !pending;
+      if (pending) {
+        const share = open.reduce((n, j) => n + (j.done ? 1 : 0.5 * (j.sent || 0) + (j.checking ? 0.25 : 0)), 0) / open.length;
+        const pct = Math.min(99, Math.round(100 * share));  // (100 % is when the results are in)
+        bar.querySelector(".bar > span").style.width = `${pct}%`;
+        bar.querySelector("[data-progress-pct]").textContent = `${pct} %`;
+        bar.setAttribute("aria-valuenow", pct);
+        bar.querySelector("[data-progress-text]").textContent = `Uploading and checking ${open.filter((j) => j.done).length} of ${open.length} files`;
+      }
       const left = body.querySelectorAll("input[name^='song_']:not([disabled])").length;
       go.disabled = pending > 0 || !left;
-      go.textContent = pending ? `Checking ${finished} of ${added}…` : left ? `Import ${left}` : "Import";
+      go.textContent = left && !pending ? `Import ${left}` : "Import";
       for (const el of body.querySelectorAll("[data-table]")) el.hidden = !body.querySelector("[data-rows] tr");
     };
     const placeholder = (file) => {
       const tr = document.createElement("tr");
       tr.className = "upload-row pending";
-      tr.innerHTML = '<td class="upload-file"><div class="name"></div><progress max="100" value="0"></progress></td>' +
-        '<td colspan="2" class="muted small" data-status>waiting…</td>' +
+      tr.innerHTML = '<td class="upload-file"><div class="name"></div><span class="ph short"></span></td>' +
+        '<td><span class="ph"></span><span class="ph short"></span></td>' +
+        '<td><div class="sonar-ph"><span class="ping" aria-hidden="true"></span><span class="ph"></span></div><span class="ph short"></span></td>' +
         '<td class="row-action"><button type="button" class="icon-button" data-drop-row title="Leave this file out">×</button></td>';
       tr.querySelector(".name").textContent = tr.querySelector(".name").title = file.name;
       body.querySelector("[data-rows]").append(tr);
@@ -37,7 +53,8 @@
     };
     const settle = (job) => {
       active = active.filter((j) => j !== job);
-      finished += 1;
+      job.done = true;
+      job.row.classList.replace("working", "ready");  // done: rests (green) until the others are
       pump();
       refresh();
     };
@@ -45,23 +62,19 @@
       const b = box();
       if (!b) return;
       active.push(job);
+      job.row.classList.add("working");  // its row pings while it is uploaded and checked
       const xhr = (job.xhr = new XMLHttpRequest());
-      const status = job.row.querySelector("[data-status]"), bar = job.row.querySelector("progress");
-      status.textContent = "uploading…";
       xhr.open("POST", `/missing/upload/${b.dataset.batch}/file`);
       xhr.setRequestHeader("X-CSRF-Token", csrf());
-      xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.value = Math.round((e.loaded / e.total) * 100); };
-      xhr.upload.onload = () => { bar.removeAttribute("value"); status.innerHTML = '<span class="busy">checking (quality, length, audio)…</span>'; };
-      xhr.onload = () => {
-        if (xhr.status === 200 && job.row.isConnected) {
-          const t = document.createElement("tbody");
-          t.innerHTML = xhr.responseText;
-          job.row.replaceWith(t.firstElementChild);
-        } else if (job.row.isConnected) {
-          bar.remove();
-          status.innerHTML = '<span class="pill bad-pill">upload failed</span>';
-          job.row.classList.remove("pending");
-        }
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) { job.sent = e.loaded / e.total; refresh(); } };
+      xhr.upload.onload = () => { job.sent = 1; job.checking = true; refresh(); };
+      xhr.onload = () => {  // the result waits for the others: all fill in at once (refresh)
+        const t = document.createElement("tbody");
+        t.innerHTML = xhr.status === 200 ? xhr.responseText
+          : '<tr class="upload-row"><td class="upload-file"><div class="name"></div></td><td colspan="2"><span class="pill bad-pill">upload failed</span></td><td class="row-action"><button type="button" class="icon-button" data-drop-row>×</button></td></tr>';
+        if (xhr.status !== 200) t.querySelector(".name").textContent = job.file.name;
+        job.result = t.firstElementChild;
+        job.result.job = job;
         settle(job);
       };
       xhr.onerror = xhr.onload;
@@ -74,10 +87,10 @@
     const pump = () => { while (active.length < AT_ONCE && queue.length) send(queue.shift()); };
     const addFiles = (files) => {
       for (const file of files) {
-        const job = { file, row: placeholder(file) };
+        const job = { file, row: placeholder(file), done: false, sent: 0 };
         job.row.job = job;
         queue.push(job);
-        added += 1;
+        jobs.push(job);
       }
       pump();
       refresh();
@@ -86,7 +99,7 @@
       if (e.target !== body) return;
       if (!body.firstElementChild) return dialog.close();
       if (!dialog.open) dialog.showModal();
-      if (box()) { queue = []; active = []; added = finished = 0; refresh(); }  // a new dialog
+      if (box()) { queue = []; active = []; jobs = []; refresh(); }  // a new dialog
       const done = body.querySelector("[data-imported]");
       if (!done) return;
       const keys = JSON.parse(done.dataset.imported);
@@ -124,7 +137,7 @@
       const drop = e.target.closest("[data-drop-row]");
       if (drop) {
         const tr = drop.closest("tr"), job = tr.job;
-        if (job && queue.includes(job)) { queue = queue.filter((j) => j !== job); finished += 1; }
+        if (job) { jobs = jobs.filter((j) => j !== job); queue = queue.filter((j) => j !== job); }
         tr.remove();
         if (job && active.includes(job)) job.xhr.abort();
         refresh();
