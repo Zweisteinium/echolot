@@ -19,6 +19,10 @@
     </div>
     <p class="muted small" data-table hidden>Each file becomes the song shown, whatever its names or length (as Perfect match in review); for a song you have, it replaces your copy (kept 30 days in <code>inbox/replaced</code>). Leave out a file with ×.</p>
     <div class="dialog-actions">
+      <div class="upload-progress" data-progress hidden role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="label"><span data-progress-text></span><b data-progress-pct>0 %</b></div>
+        <div class="bar"><span></span></div>
+      </div>
       <span class="muted small busy" hidden>Importing…</span>
       <button type="button" data-close>Cancel</button>
       <button class="primary" data-import disabled>Import</button>
