@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 23
+VERSION = 24
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -61,6 +61,8 @@ CREATE TABLE list_songs (
     PRIMARY KEY (list_key, position)
 );
 CREATE INDEX list_songs_song ON list_songs(song_key);
+CREATE INDEX songs_file ON songs(file);  -- the songs of a file (tags, shared files, merges)
+CREATE INDEX songs_stem ON songs(stem);
 CREATE VIEW wanted AS SELECT * FROM songs WHERE key IN (SELECT song_key FROM list_songs);
 CREATE TABLE list_history (         -- every song a list ever had (first and last seen)
     list_key TEXT NOT NULL,
@@ -287,6 +289,10 @@ MIGRATIONS = {
         "WHERE c.song_key = availability.song_key AND c.change = availability.state)",
     ],
     23: ["ALTER TABLE lists ADD COLUMN creator TEXT"],  # who made a list, for its playlist's comment
+    24: [  # the songs of a file found without reading all songs (it grows with the library)
+        "CREATE INDEX IF NOT EXISTS songs_file ON songs(file)",
+        "CREATE INDEX IF NOT EXISTS songs_stem ON songs(stem)",
+    ],
 }
 
 
