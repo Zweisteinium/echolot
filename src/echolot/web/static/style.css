@@ -336,6 +336,7 @@ table.rows { width: 100%; border-collapse: collapse; }
 .rows tbody tr:hover td, .rows > tr:hover td { background: color-mix(in srgb, var(--track) 55%, transparent); }
 .rows tr.missing td { background: color-mix(in srgb, var(--q-missing) 7%, transparent); }
 .rows tr.missing:hover td { background: color-mix(in srgb, var(--q-missing) 11%, transparent); }
+.rows tr.same td { opacity: 0.55; }  /* a list's second entry of a recording it has (another release) */
 .rows tr.sub td { border-top: none; padding-top: 0; }
 .rows tr.group th { padding-top: 1rem; font-size: 0.85rem; font-weight: 600; color: var(--text);
   border-bottom: 1px solid var(--border); }

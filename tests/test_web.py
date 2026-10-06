@@ -71,6 +71,31 @@ def test_list_page(client: TestClient, settings: Settings) -> None:
     assert client.get("/lists/nope").status_code == 404
 
 
+def test_a_recording_twice_in_a_list(client: TestClient, settings: Settings) -> None:
+    """Spotify lists a recording once per release: a list can hold it twice. The second entry is marked
+    the same song (one file, once in the playlist), not shown as a song of its own."""
+    rows = [
+        {"position": 0, "file": "A/A - Song.flac", "isrc": "X1"},
+        {"position": 1, "file": None, "isrc": "Y1"},
+        {"position": 2, "file": "A/A - Song.flac", "isrc": "X2"},  # another release, the same file
+        {"position": 3, "file": None, "isrc": "Y1"},  # missing twice: the same ISRC
+        {"position": 4, "file": "B/B - Other.flac", "isrc": None},
+    ]
+    assert stats.same_as(rows) == {2: 0, 3: 1}
+    con = db.connect(settings.db_path)
+    with con:
+        file = con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
+        con.execute(
+            "INSERT INTO songs (key, service, artist, title, length, file) "
+            "VALUES ('spotify:s1b', 'spotify', 'Somebody', 'First Song', 200, ?)",
+            (file,),
+        )
+        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 1, 'spotify:s1b')")
+    con.close()
+    html = client.get("/lists/spotify:playlist:AAA111").text
+    assert 'class="same"' in html and "same song as #1, another release" in html
+
+
 def test_activity(client: TestClient) -> None:
     html = client.get("/activity").text
     assert "Artist A – First Song" in html and ">Added</span>" in html and ">Soulseek</span>" in html
