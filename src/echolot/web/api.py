@@ -29,10 +29,14 @@ def api_stats_metrics() -> dict[str, dict[str, str | None]]:
 def api_stats_history(
     con: DB, metric: str, key: str | None = None, since: str | None = None, until: str | None = None
 ) -> list[dict[str, Any]]:
-    """One metric over time, oldest first: [{ts, time (unix), key, value}]. since/until: ISO local
-    time or date. Hourly for the last 90 days, daily before."""
+    """One metric over time, oldest first: [{ts (UTC), time (unix), key, value}]. since/until: ISO time
+    or date (local time without a zone). Hourly for the last 30 days, the last of each day before."""
     if metric not in history.METRICS:
         raise HTTPException(404, f"no metric {metric!r}, see /api/stats/metrics")
+    try:
+        since, until = (history.utc(t) if t else None for t in (since, until))
+    except ValueError as e:
+        raise HTTPException(422, f"since/until: {e}") from e
     rows = history.series(con, metric, key, since, until)
     return [dict(r) | {"time": int(datetime.fromisoformat(r["ts"]).timestamp())} for r in rows]  # ts, key, value
 

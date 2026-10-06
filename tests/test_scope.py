@@ -50,7 +50,7 @@ def test_a_user_sees_their_own_songs(app, login: Callable[..., TestClient]) -> N
     assert "Gone Song" in owner.get("/missing").text
     assert owner.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
     home = owner.get("/").text
-    assert "Quality of the library" in home and "owner, timon" in home  # who follows Playlist A
+    assert "<h2>Library</h2>" in home and "owner, timon" in home  # everyone's; who follows Playlist A
 
 
 def test_review_is_for_their_own_songs(app, login: Callable[..., TestClient]) -> None:

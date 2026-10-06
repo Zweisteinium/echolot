@@ -1,61 +1,124 @@
 {% extends "base.html" %}
 {% from "_macros.html" import qbar, share %}
 {% from "_icons.html" import icon %}
-{% from "_chart.html" import donut_chart %}
+{% from "_chart.html" import donut_chart, growth_chart %}
 {% block content %}
 {% set missing = o.wanted - o.have %}
 <div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
-<section class="tiles">
-{% set unlisted = o.files - o.in_lists %}
-  <div class="tile" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists: a recording that is in them more than once (on Spotify and on SoundCloud, or as several releases) is one file.{% if unlisted %} {{ unlisted|num }} are in no followed list any more.{% endif %}">
-    <div class="label">{{ 'Your files' if o.scoped else 'Library' }}</div>
-    <div class="value">{{ o.files|num }}</div>
-    <div class="sub">files · {{ o.size|size }}{% if o.scoped %} · of {{ o.library_files|num }} in the library{% endif %}</div>
-  </div>
-  <div class="tile"{% if o.close %} title="{{ o.close|num }} of them {{ 'is' if o.close == 1 else 'are' }} covered by a close match: another version you took for the song in review (Missing lists them)."{% endif %}>
-    <div class="label">Lists complete</div>
-    <div class="value">{{ pct(o.have, o.wanted) }} %</div>
-    <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs{% if o.close %} · {{ o.close|num }} close match{{ 'es' if o.close != 1 }}{% endif %}</div>
-  </div>
-  <a class="tile" href="/missing">
-    <div class="label">Missing</div>
-    <div class="value{{ ' bad-text' if missing }}">{{ missing|num }}</div>
-    <div class="sub">{{ o.not_found|num }} searched, not found yet</div>
-  </a>
-  <a class="tile" href="/activity?kind=added">
-    <div class="label">Added in 24 h</div>
-    <div class="value">{{ o.added_24h|num }}</div>
-    <div class="sub">songs · {{ o.added_bytes_24h|size }}</div>
-  </a>
-  <a class="tile" href="/activity?kind=rejected">
-    <div class="label">Rejected in 24 h</div>
-    <div class="value">{{ o.rejected_24h|num }}</div>
-    <div class="sub">downloads that were not the song</div>
-  </a>
-</section>
-
-<section class="card quality-card">
+<section class="card stats" data-stats>
   <div class="card-head">
-    <h2>{{ 'Quality of your songs' if o.scoped else 'Quality of the library' }} <span class="count">{{ o.files|num }} files{% if missing %} · {{ missing|num }} songs missing{% endif %}</span></h2>
-    {% if user.can('review') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: better copies of songs you have, or missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
+    <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
+    <div class="stats-actions">
+      {% if user.can('review') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: better copies of songs you have, or missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
+    </div>
   </div>
-  <div class="quality-split">
-    {{ donut_chart(donut, share(o.lossless, donut.total), 'FLAC') }}
-    <table class="legend-table">
-      <thead><tr><th colspan="2">Tier</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
-      <tbody>
-      {% for k, label, n in o.tiers %}
-      <tr class="q-{{ k }}{{ ' dim' if not n }}">
-        <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
-        <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
-        <td class="num">{{ n|num }}</td>
-        <td class="num muted">{{ share(n, donut.total) }}</td>
-      </tr>
+  <div class="stats-main">
+    <div class="growth-panels">
+      {% if growth.songs or growth.size %}
+      <div class="segmented" role="radiogroup" aria-label="The graph shows">
+        <label><input type="radio" name="growth" value="songs" checked> Songs</label>
+        <label><input type="radio" name="growth" value="size"> Size</label>
+      </div>
+      {% endif %}
+      {% for key, g, what in (('songs', growth.songs, 'your songs in the library' if o.scoped else 'songs in the library'), ('size', growth.size, 'the size of the library')) %}
+      <div class="growth-panel" data-panel="{{ key }}"{% if key != 'songs' %} hidden{% endif %}>
+        {% if g %}
+        <div class="headline">
+          <span class="figure">{{ g.now }}</span>
+          <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span> <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% if key == 'size' and o.scoped %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap">the whole library</span>{% endif %}</span>
+        </div>
+        {{ growth_chart(g, 'growth-' ~ key, 'Growth of ' ~ what ~ ' since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
+        {% else %}
+        <p class="muted growth-empty">The graph of {{ what }} starts with the second hourly snapshot.</p>
+        {% endif %}
+      </div>
       {% endfor %}
-      </tbody>
-    </table>
+    </div>
+    <div class="quality-side">
+      <div class="side-label">{{ 'Quality of your songs' if o.scoped else 'Quality' }}</div>
+      <div class="quality-split">
+        {{ donut_chart(donut, share(o.lossless, donut.total), 'FLAC') }}
+        <table class="legend-table">
+          <tbody>
+          {% for k, label, n in o.tiers %}
+          <tr class="q-{{ k }}{{ ' dim' if not n }}">
+            <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
+            <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
+            <td class="num">{{ n|num }}</td>
+            <td class="num muted">{{ share(n, donut.total) }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% set unlisted = o.files - o.in_lists %}
+  <div class="kpis">
+    <div class="kpi"{% if o.close %} title="{{ o.close|num }} of them {{ 'is' if o.close == 1 else 'are' }} covered by a close match: another version you took for the song in review (Missing lists them)."{% endif %}>
+      <div class="label">Lists complete</div>
+      <div class="value">{{ pct(o.have, o.wanted) }} %</div>
+      <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs{% if o.close %} · {{ o.close|num }} close match{{ 'es' if o.close != 1 }}{% endif %}</div>
+    </div>
+    <a class="kpi" href="/missing">
+      <div class="label">Missing</div>
+      <div class="value{{ ' bad-text' if missing }}">{{ missing|num }}</div>
+      <div class="sub">{{ o.not_found|num }} searched, not found yet</div>
+    </a>
+    <a class="kpi" href="/activity?kind=added">
+      <div class="label">Added in 24 h</div>
+      <div class="value">{{ o.added_24h|num }}</div>
+      <div class="sub">songs · {{ o.added_bytes_24h|size }}</div>
+    </a>
+    <a class="kpi" href="/activity?kind=rejected">
+      <div class="label">Rejected in 24 h</div>
+      <div class="value">{{ o.rejected_24h|num }}</div>
+      <div class="sub">downloads that were not the song</div>
+    </a>
+    <div class="kpi" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists: a recording that is in them more than once (on Spotify and on SoundCloud, or as several releases) is one file.{% if unlisted %} {{ unlisted|num }} are in no followed list any more.{% endif %}">
+      <div class="label">{{ 'Your files' if o.scoped else 'Files' }}</div>
+      <div class="value">{{ o.files|num }}</div>
+      <div class="sub">{{ o.size|size }}{% if o.scoped %} · of {{ o.library_files|num }} in the library{% endif %}</div>
+    </div>
   </div>
 </section>
+<script>
+  // the graph shows songs or size (remembered in this browser), and the value under the pointer
+  (() => {
+    const card = document.querySelector("[data-stats]");
+    if (!card) return;
+    const KEY = "echolot:growth";
+    const show = (what) => {
+      for (const panel of card.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== what;
+      const radio = card.querySelector(`input[name="growth"][value="${what}"]`);
+      if (radio) radio.checked = true;
+    };
+    try { const saved = localStorage.getItem(KEY); if (saved === "songs" || saved === "size") show(saved); } catch (e) {}
+    card.addEventListener("change", (e) => {
+      if (e.target.name !== "growth") return;
+      show(e.target.value);
+      try { localStorage.setItem(KEY, e.target.value); } catch (err) {}
+    });
+    for (const figure of card.querySelectorAll("[data-growth]")) {
+      const points = JSON.parse(figure.dataset.points), plot = figure.querySelector(".canvas");
+      const cursor = plot.querySelector(".cursor"), mark = plot.querySelector(".mark"), tip = plot.querySelector(".tip");
+      plot.addEventListener("pointermove", (e) => {
+        const box = plot.getBoundingClientRect(), x = (100 * (e.clientX - box.left)) / box.width;
+        let near = points[0];
+        for (const p of points) if (Math.abs(p[0] - x) < Math.abs(near[0] - x)) near = p;
+        cursor.style.left = mark.style.left = `${near[0]}%`;
+        mark.style.top = tip.style.top = `${near[1]}%`;
+        const value = document.createElement("b");
+        value.textContent = near[3];
+        tip.replaceChildren(value, near[2]);
+        cursor.hidden = mark.hidden = tip.hidden = false;
+        const half = tip.offsetWidth / 2, at = (near[0] / 100) * box.width;
+        tip.style.left = `${Math.min(Math.max(at, half), box.width - half)}px`;  // (inside the card)
+      });
+      plot.addEventListener("pointerleave", () => { cursor.hidden = mark.hidden = tip.hidden = true; });
+    }
+  })();
+</script>
 
 <section class="card">
   <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>

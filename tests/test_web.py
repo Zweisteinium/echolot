@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from echolot import __version__, db
 from echolot.config import Settings
 from echolot.jobs import schedule
-from echolot.library import filing
+from echolot.library import filing, history
 from echolot.library.filing import Paths
 from echolot.services import spotify
 from echolot.settings import options
@@ -37,6 +37,20 @@ def test_overview(client: TestClient) -> None:
     assert 'href="/lists/spotify:playlist:BBB222"' in html
     assert "no playlist" in html
     assert "Run now" in html and "Resume" in html  # jobs paused since the takeover
+
+
+def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
+    """One snapshot: no graph yet; two: the songs (shown) and the size (behind the toggle)."""
+    html = client.get("/").text
+    assert "starts with the second hourly snapshot" in html and '<figure class="growth"' not in html
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("UPDATE snapshots SET ts = '2026-09-27T10:00:00Z'")
+    history.snapshot(con)
+    con.close()
+    html = client.get("/").text
+    assert html.count('<figure class="growth"') == 2 and 'name="growth" value="size"' in html
+    assert 'data-panel="size" hidden' in html and ">3 songs</span>" in html  # the owner's 3 songs in the library
 
 
 def test_missing(client: TestClient) -> None:

@@ -17,3 +17,31 @@
   <text class="donut-caption" x="50%" y="63%" text-anchor="middle">{{ caption }}</text>
 </svg>
 {%- endmacro %}
+
+
+{# the library's growth (charts.growth): a line over an area, stretched to its frame; labels, the last point and
+   the pointer's value are HTML on top (they keep their shape); the rebuilt start is dashed #}
+{% macro growth_chart(g, name, caption) -%}
+<figure class="growth" data-growth data-points="{{ g.points }}">
+  <div class="plot">
+    {% for t in g.values %}<span class="y" style="top: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}
+    <div class="canvas">
+    <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="{{ name }}-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fill-top"></stop><stop offset="1" class="fill-bottom"></stop></linearGradient>
+        <linearGradient id="{{ name }}-line" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1000" y2="0"><stop offset="0" class="line-a"></stop><stop offset="0.55" class="line-b"></stop><stop offset="1" class="line-c"></stop></linearGradient>
+      </defs>
+      {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
+      <path class="area" d="{{ g.area }}" fill="url(#{{ name }}-fill)"></path>
+      {% if g.rebuilt %}<path class="line rebuilt" d="{{ g.rebuilt }}"></path>{% endif %}
+      <path class="line" d="{{ g.line }}" stroke="url(#{{ name }}-line)"></path>
+    </svg>
+    <span class="end" style="left: {{ g.end[0] }}%; top: {{ g.end[1] }}%" aria-hidden="true"></span>
+    <span class="cursor" aria-hidden="true" hidden></span><span class="mark" aria-hidden="true" hidden></span><span class="tip" aria-hidden="true" hidden></span>
+    </div>
+  </div>
+  <div class="dates" aria-hidden="true">{% for t in g.dates %}<span style="left: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}</div>
+  {% if g.rebuilt %}<p class="rebuilt-note"><span class="dash" aria-hidden="true"></span>rebuilt from the activity log</p>{% endif %}
+  <figcaption class="sr-only">{{ caption }}</figcaption>
+</figure>
+{%- endmacro %}

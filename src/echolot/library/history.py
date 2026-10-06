@@ -2,19 +2,23 @@
 
 The refresh job stores a snapshot of every metric at most once per SNAPSHOT_SECONDS in the `snapshots`
 table: one row per (ts, metric, key), where key is the label value (a quality tier, a format, a list,
-...; '' for none). Snapshots older than KEEP_HOURLY_DAYS are thinned to the first one of each day.
-Downloads are a time series already (the events table).
+...; '' for none) and ts the time in UTC ("2026-10-06T14:00:00Z": no hour twice when the clocks go back).
+Snapshots older than KEEP_HOURLY_DAYS are thinned to the last one of each (UTC) day: what the day ended
+with. The hours before the first snapshot are rebuilt once from the events (rebuild). Downloads are a
+time series already (the events table).
 """
 
 import sqlite3
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 
+from echolot import db
 from echolot.library.catalog import QUALITY
 
 SNAPSHOT_SECONDS = 3600
-KEEP_HOURLY_DAYS = 90
+KEEP_HOURLY_DAYS = 30
+REBUILT = "history_rebuilt"  # meta: the first real snapshot's ts once the hours before it are rebuilt
 REASONS = ("not_found", "unavailable", "waiting")  # why a song is missing
 
 # metric -> (label name, help); the label name is None for a single value
@@ -127,15 +131,20 @@ def _per_user(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
     return rows
 
 
+def utc(when: datetime | str) -> str:
+    """A time as the snapshots store it (UTC); a time or ISO text without a zone is local time."""
+    when = datetime.fromisoformat(when) if isinstance(when, str) else when
+    return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def snapshot(con: sqlite3.Connection, now: datetime | None = None, force: bool = False) -> bool:
     """Store a snapshot unless the last one is younger than SNAPSHOT_SECONDS (minus a minute of slack,
     so a 5-min refresh does not drift to every 65 min). Returns True if one was stored."""
-    now = now or datetime.now()
+    now = (now or datetime.now()).astimezone(UTC)
     last = con.execute("SELECT max(ts) FROM snapshots").fetchone()[0]
     if not force and last and (now - datetime.fromisoformat(last)).total_seconds() < SNAPSHOT_SECONDS - 60:
         return False
-    ts = now.isoformat(timespec="seconds")
-    cutoff = (now - timedelta(days=KEEP_HOURLY_DAYS)).isoformat(timespec="seconds")
+    ts, cutoff = utc(now), utc(now - timedelta(days=KEEP_HOURLY_DAYS))
     with con:
         con.executemany(
             "INSERT OR REPLACE INTO snapshots (ts, metric, key, value) VALUES (?, ?, ?, ?)",
@@ -143,10 +152,65 @@ def snapshot(con: sqlite3.Connection, now: datetime | None = None, force: bool =
         )
         con.execute(
             "DELETE FROM snapshots WHERE ts < ? AND ts NOT IN "
-            "(SELECT min(ts) FROM snapshots WHERE ts < ? GROUP BY substr(ts, 1, 10))",
+            "(SELECT max(ts) FROM snapshots WHERE ts < ? GROUP BY substr(ts, 1, 10))",
             (cutoff, cutoff),
         )
     return True
+
+
+GROWTH = ("library_files", "library_bytes", "songs_in_library", "user_songs_in_library")  # what rebuild fills in
+
+
+def rebuild(con: sqlite3.Connection) -> int:
+    """Once, after the first snapshot: the hours before it, rebuilt from the events (new and upgraded files
+    in, retired ones out). The library's files are exact: those there before the first event are the first
+    snapshot's less the events' net count. Its size is near (retagging changes a file's size a little). The
+    songs in the library (and each user's the first snapshot has) are taken in the same proportion to the
+    files as at the first snapshot. Returns how many hours were filled in; meta REBUILT holds the first real
+    snapshot's ts (the chart marks what came before)."""
+    if db.get_meta(con, REBUILT) or not (first := con.execute("SELECT min(ts) FROM snapshots").fetchone()[0]):
+        return 0
+    base = con.execute(
+        f"SELECT metric, key, value FROM snapshots WHERE ts = ? AND metric IN ({', '.join('?' * len(GROWTH))})",
+        (first, *GROWTH),
+    ).fetchall()
+    events = [
+        (utc(ts), -1 if action == "retired" else 1, (-1 if action == "retired" else 1) * (size or 0))
+        for ts, action, size in con.execute(
+            "SELECT ts, action, bytes FROM events WHERE action IN ('new', 'upgrade', 'retired') ORDER BY id"
+        )
+    ]
+    before = sorted(e for e in events if e[0] < first)
+    files = next((v for m, _, v in base if m == "library_files"), 0)
+    rows: list[tuple[str, str, str, float]] = []
+    if before and files:
+        net, size = sum(e[1] for e in before), sum(e[2] for e in before)
+        hour = datetime.fromisoformat(before[0][0]).replace(minute=0, second=0) - timedelta(hours=1)
+        end, i, seen, grown = datetime.fromisoformat(first), 0, 0, 0
+        while hour < end:
+            while i < len(before) and before[i][0] <= utc(hour):
+                seen, grown, i = seen + before[i][1], grown + before[i][2], i + 1
+            share = (files - (net - seen)) / files  # of the first snapshot's files
+            for metric, key, value in base:
+                if metric == "library_files":
+                    value = files - (net - seen)
+                elif metric == "library_bytes":
+                    value -= size - grown
+                else:
+                    value = round(value * share)
+                rows.append((utc(hour), metric, key, max(value, 0)))
+            hour += timedelta(hours=1)
+    with con:
+        con.executemany("INSERT OR IGNORE INTO snapshots (ts, metric, key, value) VALUES (?, ?, ?, ?)", rows)
+        db.set_meta(con, REBUILT, first)
+    return len({r[0] for r in rows})
+
+
+def totals(con: sqlite3.Connection, metric: str, key: str | None = None) -> list[tuple[str, float]]:
+    """(ts, value) of one metric over time, its keys added up (or one key's), oldest first."""
+    one = " AND key = ?" if key is not None else ""
+    sql = f"SELECT ts, sum(value) FROM snapshots WHERE metric = ?{one} GROUP BY ts ORDER BY ts"
+    return [(ts, v) for ts, v in con.execute(sql, (metric, key) if key is not None else (metric,))]
 
 
 def latest(con: sqlite3.Connection) -> tuple[str | None, dict[str, dict[str, float]]]:
