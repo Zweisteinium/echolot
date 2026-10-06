@@ -206,11 +206,7 @@ def test_accounts_page(client: TestClient, settings: Settings) -> None:
     assert "32+characters" in r.headers["location"]
     r = client.post("/accounts/soulseek", data={"user": "me", "password": "secret pw"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
-    conf = (settings.daemon_dir / "daemon.conf").read_text()
-    assert (
-        "user = me\npass = secret pw\n" in conf
-        and oct((settings.daemon_dir / "daemon.conf").stat().st_mode & 0o777) == "0o600"
-    )
+    assert "user = me\n" in (settings.daemon_dir / "daemon.conf").read_text()  # (the file: test_soulseek)
     # the Spotify login: a pasted address with another state is refused
     r = client.post("/accounts/spotify/paste", data={"url": "http://127.0.0.1:48721/callback?code=x&state=y"},
                     follow_redirects=False)  # fmt: skip
@@ -379,8 +375,7 @@ def test_close_matches_on_the_missing_page(client: TestClient, settings: Setting
 
 
 def test_library_job(client: TestClient, settings: Settings) -> None:
-    """The library job writes the playlists: one per shown list, in list order, with only the songs in
-    the library, and never touches files it did not write."""
+    """The library job writes the playlists (what they hold: test_lists.test_playlists)."""
     import threading
 
     from echolot.jobs import worker
@@ -393,11 +388,7 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
     run.stop = threading.Event()
     message = worker.upkeep(run)
     assert "playlists written" in message
-    likes = (playlists / "owner" / "Spotify Liked Songs.m3u").read_text()
-    assert likes.splitlines()[:2] == ["#EXTM3U", "#PLAYLIST:Liked Songs"]
-    assert "\n../../tracks/Artist A/Artist A - First Song.mp3" in likes
-    assert not (playlists / "owner" / "spotify-BBB222.m3u").exists()  # playlist: false
-    assert (playlists / "My own.m3u").exists()
+    assert (playlists / "owner" / "Spotify Liked Songs.m3u").exists() and (playlists / "My own.m3u").exists()
 
 
 def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: Settings) -> None:

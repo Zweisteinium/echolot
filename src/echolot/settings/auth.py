@@ -73,11 +73,6 @@ def get_user(con: sqlite3.Connection, name: str) -> User | None:
     return _user(row) if row else None
 
 
-def user_by_id(con: sqlite3.Connection, user_id: int) -> User | None:
-    row = con.execute(f"SELECT {USER_COLUMNS} FROM users u WHERE u.id = ? AND NOT u.disabled", (user_id,)).fetchone()
-    return _user(row) if row else None
-
-
 def users(con: sqlite3.Connection) -> list[sqlite3.Row]:
     return con.execute("SELECT * FROM users ORDER BY name").fetchall()
 

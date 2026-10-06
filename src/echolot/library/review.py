@@ -456,8 +456,7 @@ def apply_due(run: "Run", con: sqlite3.Connection) -> list[str]:
             result = f"failed: {e}"
         with con:
             con.execute(
-                "UPDATE review_decisions SET applied = ?, result = ? WHERE id = ?",
-                (datetime.datetime.now().isoformat(timespec="seconds"), result, d["decision_id"]),
+                "UPDATE review_decisions SET applied = ?, result = ? WHERE id = ?", (_now(), result, d["decision_id"])
             )
         done.append(f"{LABELS.get(d['decision'], d['decision'])} {d['artist']} - {d['title']}: {result}")
     return done

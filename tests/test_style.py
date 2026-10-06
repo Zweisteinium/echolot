@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 MARKER = "# fmt: " + "skip"  # (split, so this file does not count itself)
-OLD_SKIPS = 101  # hand-compacted code from before ruff laid out the code; may only go down
+OLD_SKIPS = 87  # hand-compacted code from before ruff laid out the code; may only go down
 
 
 def test_no_new_fmt_skip() -> None:

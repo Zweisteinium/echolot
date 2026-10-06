@@ -71,7 +71,6 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
     con.close()
     wk._start_due()
     wait_for(lambda: {"sync", "soundcloud", "library"} <= set(started))
-    assert {"sync", "soundcloud", "library"} <= set(started)  # Spotify lists, web, local
     assert {"spotify", "web", "local"} <= {r.job.resource for r in wk.runs.values()}
     assert sum(r.job.resource == "soulseek" for r in wk.runs.values()) <= 1  # one at a time
     release.set()

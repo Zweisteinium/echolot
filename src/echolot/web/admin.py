@@ -17,12 +17,11 @@ from echolot.web.common import DB, back, page
 router = APIRouter()
 
 
-def _settings_page(request: Request, con: sqlite3.Connection, status_code: int = 200, **extra: Any) -> HTMLResponse:
+def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
     rules = schedule.rules(con)
     return page(
         request,
         "settings.html",
-        status_code,
         nav="settings",
         tasks=[(t, [(schedule.BY_NAME[n], schedule.when_text(rules[n])) for n in t.jobs]) for t in schedule.TASKS],
         settings=request.app.state.settings,
@@ -32,7 +31,6 @@ def _settings_page(request: Request, con: sqlite3.Connection, status_code: int =
         navidrome=options.get(con, options.Navidrome),
         navidrome_ok=_service_state(request, con),
         vault_source=request.app.state.vault.source,
-        **extra,
     )
 
 

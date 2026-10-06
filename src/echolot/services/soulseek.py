@@ -9,7 +9,6 @@ every job.
 
 import contextlib
 import json
-import logging
 import os
 import threading
 import time
@@ -18,8 +17,6 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-log = logging.getLogger(__name__)
 
 # Sockseek's filters (necessary) and ranking preferences
 SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [...]}
@@ -76,7 +73,7 @@ class Candidate:
     def name(self) -> str:
         """The file name without its extension."""
         name = self.parts[-1] if self.parts else ""
-        return name.rsplit(".", 1)[0] if "." in name else name
+        return name.rsplit(".", 1)[0]
 
     @property
     def folders(self) -> tuple[str, ...]:

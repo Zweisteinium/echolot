@@ -31,7 +31,6 @@ def test_login_required(app) -> None:
     r = client.get("/api/stats")
     assert r.status_code == 401 and r.headers["www-authenticate"] == "Bearer"
     assert client.post("/sources/add", data={"url": "x"}).status_code == 401
-    assert client.get("/setup").status_code == 401  # gone: there is no first account to set up
 
 
 def test_login_with_navidrome_and_logout(app) -> None:
@@ -305,6 +304,7 @@ def test_navidrome_login_asks_navidrome(monkeypatch: pytest.MonkeyPatch) -> None
             navidrome.Service(url, "timon", "secret").users()
     finally:
         server.shutdown()
+        server.server_close()  # (refused at once: the checks below wait for no timeout)
     with pytest.raises(navidrome.NavidromeError):
         navidrome.login(url, "Timon", "secret")
     assert not navidrome.reachable(url)
