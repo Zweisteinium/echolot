@@ -145,11 +145,25 @@ def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:
 
 def list_songs(con: Connection, key: str) -> list[Row]:
     return con.execute(
-        "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, "
+        "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, s.isrc, "
         "s.file, f.quality, f.kbps FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
         "LEFT JOIN files f ON f.path = s.file WHERE ls.list_key = ? ORDER BY ls.position",
         (key,),
     ).fetchall()
+
+
+def same_as(songs: list[Row]) -> dict[int, int]:
+    """Entries of a list that are a song it has already (the same file, or else the same ISRC): Spotify lists
+    a recording once per release, so a list can hold it twice under other names. position -> the first's."""
+    first: dict[str, int] = {}
+    out = {}
+    for s in songs:
+        marks = [m for m in (s["file"] and f"file:{s['file']}", s["isrc"] and f"isrc:{s['isrc']}") if m]
+        if (seen := next((first[m] for m in marks if m in first), None)) is not None:
+            out[s["position"]] = seen
+        else:
+            first.update(dict.fromkeys(marks, s["position"]))
+    return out
 
 
 UNAVAILABLE = {

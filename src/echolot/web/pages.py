@@ -67,7 +67,9 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     if lst is None:  # (or not theirs)
         raise HTTPException(404, "no such list")
     songs = stats.list_songs(con, key)
-    return page(request, "list.html", nav="overview", lst=lst, songs=songs, tiers=stats.tiers_of(songs))
+    same = stats.same_as(songs)  # (the quality bar counts such a song once)
+    tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
+    return page(request, "list.html", nav="overview", lst=lst, songs=songs, same=same, tiers=tiers)
 
 
 @router.get("/activity", response_class=HTMLResponse)
