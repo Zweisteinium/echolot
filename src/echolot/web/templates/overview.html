@@ -110,7 +110,17 @@
         mark.style.top = tip.style.top = `${near[1]}%`;
         const value = document.createElement("b");
         value.textContent = near[3];
-        tip.replaceChildren(value, near[2]);
+        const split = document.createElement("span");
+        split.className = "split";
+        for (const [key, label, n] of near[4] || []) {  // the quality layers: each tier's songs
+          const row = document.createElement("span");
+          row.className = `q-${key}`;
+          row.innerHTML = '<i class="swatch"></i><span></span><em></em>';
+          row.children[1].textContent = label;
+          row.children[2].textContent = n;
+          split.append(row);
+        }
+        tip.replaceChildren(value, near[2], split);
         cursor.hidden = mark.hidden = tip.hidden = false;
         const half = tip.offsetWidth / 2, at = (near[0] / 100) * box.width;
         tip.style.left = `${Math.min(Math.max(at, half), box.width - half)}px`;  // (inside the card)

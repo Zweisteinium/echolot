@@ -4,7 +4,7 @@ JavaScript only show the value under the pointer)."""
 import json
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 
@@ -69,6 +69,13 @@ class Growth:
     since: str  # the first point's date
     total: str  # growth since the first point, formatted with its sign
     week: str  # ... in the last 7 days
+    bands: list["Band"] = field(default_factory=list)  # stacked layers (layers): drawn instead of line and area
+
+
+@dataclass
+class Band:
+    key: str  # a quality tier, or 'missing'
+    path: str
 
 
 def _nice(top: float) -> tuple[float, float]:
@@ -148,4 +155,87 @@ def growth(
         since=f"{t0.day} {t0:%b}",
         total=_signed(points[-1][1] - points[0][1], value),
         week=_signed(points[-1][1] - week_ago, value),
+    )
+
+
+def layers(
+    rows: list[tuple[str, dict[str, float]]],
+    order: list[tuple[str, str]],
+    value: Callable[[float], str],
+    axis: Callable[[float], str],
+    rebuilt: list[tuple[str, float]] = (),
+    most: int = 240,
+) -> Growth | None:
+    """Stacked layers over time: rows of (UTC ts, {key: value}), stacked from the bottom in `order` ((key,
+    label) pairs; the last, 'missing', on top: its top edge is what is wanted). `rebuilt` (ts, total) comes
+    before the rows, known only as a total: one plain area. The headline is the total without 'missing'.
+    None for fewer than two points."""
+    keys = [k for k, _ in order]
+    have = [k for k in keys if k != "missing"]
+    total = [(ts, sum(r.get(k, 0) for k in have)) for ts, r in rows]
+    timeline = [*rebuilt, *total]
+    if len(timeline) < 2 or not rows:
+        return None
+    when = [datetime.fromisoformat(ts).astimezone() for ts, _ in timeline]
+    t0, t1 = when[0], when[-1]
+    span = (t1 - t0).total_seconds() or 1
+    picked: dict[int, int] = {}
+    for i, t in enumerate(when):
+        picked[min(int((t - t0).total_seconds() / span * most), most - 1)] = i
+    keep = sorted({0, len(rebuilt), *picked.values()} - {len(timeline)})
+    old, real = [i for i in keep if i < len(rebuilt)], [i for i in keep if i >= len(rebuilt)]
+    wanted = [sum(r.get(k, 0) for k in keys) for _, r in rows]
+    top, step = _nice(max([*wanted, *(v for _, v in rebuilt)]) * 1.08)
+
+    def x(i: int) -> float:
+        return W * (when[i] - t0).total_seconds() / span
+
+    def y(v: float) -> float:
+        return H - H * v / top
+
+    def edge(idx: list[int], heights: list[float]) -> str:
+        return "L".join(f"{x(i):.1f},{y(h):.1f}" for i, h in zip(idx, heights, strict=True))
+
+    bands, below = [], [0.0] * len(real)
+    for k in keys:
+        above = [b + rows[i - len(rebuilt)][1].get(k, 0) for b, i in zip(below, real, strict=True)]
+        back = list(zip(reversed(real), reversed(below), strict=True))
+        lower = "L".join(f"{x(i):.1f},{y(h):.1f}" for i, h in back)
+        bands.append(Band(k, f"M{edge(real, above)}L{lower}Z"))
+        below = above
+    plain = old + real[:1]
+    heights = [timeline[i][1] for i in plain]
+    area = f"M{edge(plain, heights)}L{x(plain[-1]):.1f},{H}L{x(plain[0]):.1f},{H}Z" if old else ""
+    labels = dict(order)
+
+    def hover(i: int) -> list:
+        when_text = f"{when[i]:%a} {when[i].day} {when[i]:%b, %H:%M}"
+        if i < len(rebuilt):
+            return [
+                round(100 * x(i) / W, 2),
+                round(100 * y(timeline[i][1]) / H, 2),
+                when_text,
+                value(timeline[i][1]) + " (rebuilt)",
+                [],
+            ]
+        r, n = rows[i - len(rebuilt)][1], timeline[i][1]
+        split = [[k, labels[k], f"{round(r.get(k, 0)):,}"] for k in keys if r.get(k, 0)]
+        return [round(100 * x(i) / W, 2), round(100 * y(n) / H, 2), when_text, value(n), split]
+
+    week_ago = next((timeline[i][1] for i in reversed(keep) if when[i] <= t1 - timedelta(days=7)), timeline[0][1])
+    hour = span <= 2 * 86400
+    dates = [t0 + timedelta(seconds=span * k / 4) for k in range(5)]
+    return Growth(
+        line=f"M{edge(real, [wanted[i - len(rebuilt)] for i in real])}",  # what is wanted: the top edge
+        rebuilt=f"M{edge(plain, heights)}" if old else "",
+        area=area,
+        values=[Tick(100 - 100 * k * step / top, axis(k * step)) for k in range(round(top / step) + 1)],
+        dates=[Tick(25 * k, f"{d:%H:%M}" if hour else f"{d.day} {d:%b}") for k, d in enumerate(dates)],
+        end=(100 * x(keep[-1]) / W, 100 * y(timeline[-1][1]) / H),
+        points=json.dumps([hover(i) for i in keep]),
+        now=value(timeline[-1][1]),
+        since=f"{t0.day} {t0:%b}",
+        total=_signed(timeline[-1][1] - timeline[0][1], value),
+        week=_signed(timeline[-1][1] - week_ago, value),
+        bands=bands,
     )
