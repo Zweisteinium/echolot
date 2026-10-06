@@ -458,7 +458,9 @@ def soundcloud(run: "Run") -> str:
     ydls: dict[str | None, ytdlp.YtDlp] = {}
 
     def ydl_of(token: str | None) -> ytdlp.YtDlp:
-        return ydls.setdefault(token, ytdlp.YtDlp(run.data / "ytdlp", token))
+        if token not in ydls:  # (one client per account: each writes its netrc once)
+            ydls[token] = ytdlp.YtDlp(run.data / "ytdlp", token)
+        return ydls[token]
 
     ydl = ydl_of(any_token)  # downloads: SoundCloud hands a song to any account
     listed: dict[str, list[tuple[str, str]]] = {}
