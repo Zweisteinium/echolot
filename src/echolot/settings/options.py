@@ -9,7 +9,7 @@ import json
 import re
 import sqlite3
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -61,7 +61,11 @@ class Spotify(Section):
 
 class Soulseek(Section):
     SECTION = "soulseek"
+    backend: Literal["sockseek", "slskd"] = Field("sockseek", description="the Soulseek client Echolot uses")
     url: str = Field("http://sockseek:5031", description="the Sockseek daemon's API")
+    slskd_url: str = Field("http://slskd:5030", description="slskd's address")
+    slskd_user: str = Field("", description="slskd's web login (none: the secret is an API key)")
+    slskd_downloads: str = Field("/music/inbox/slskd", description="slskd's downloads folder, as Echolot sees it")
     user: str = Field("", description="the Soulseek account the daemon logs in with")
     daemon_music: str = Field("/music", description="the music directory as the daemon sees it")
     parallel: int = Field(4, ge=1, le=8, description="songs searched and downloaded at a time")

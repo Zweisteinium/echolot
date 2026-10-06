@@ -434,3 +434,27 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     assert client.post("/jobs/start", data={"names": "nope"}).status_code == 404
     settings_html = client.get("/settings").text
     assert "after Spotify and YouTube lists" in settings_html and 'class="schedule-task"' in settings_html
+
+
+def test_soulseek_backend_choice(client: TestClient, settings: Settings) -> None:
+    """slskd or the Sockseek daemon, chosen on the Accounts page; the secret is kept in the vault."""
+    form = {
+        "backend": "slskd",
+        "slskd_url": "http://slskd:5030/",
+        "slskd_user": "admin",
+        "slskd_secret": "pw",
+        "slskd_downloads": "/music/inbox/slskd/",
+    }
+    r = client.post("/accounts/soulseek/backend", data=form, follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    con = db.connect(settings.db_path)
+    opts = options.get(con, options.Soulseek)
+    assert (opts.backend, opts.slskd_url, opts.slskd_downloads) == ("slskd", "http://slskd:5030", "/music/inbox/slskd")
+    assert client.app.state.vault.get(con, "slskd.secret") == "pw"
+    con.close()
+    html = client.get("/accounts").text
+    assert "through slskd" in html and "Soulseek client: slskd" in html
+    client.post("/accounts/soulseek/backend", data={"backend": "sockseek"})
+    con = db.connect(settings.db_path)
+    assert options.get(con, options.Soulseek).backend == "sockseek"
+    con.close()
