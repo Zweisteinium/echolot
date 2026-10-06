@@ -24,7 +24,9 @@
     {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">connected as {{ s.spotify.name }}</span>
     {% elif s.spotify.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
   </div>
-  {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }} Connect again below. (Spotify also stops apps whose owner no longer has Premium.)</p>{% endif %}
+  {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }}
+    {%- if '403' in s.spotify.error %} Spotify refuses this account: make sure the app's owner added exactly this account's e-mail address under User Management in the Spotify developer app (and that the owner still has Premium), then connect again below.
+    {%- else %} Connect again below. (Spotify also stops apps whose owner no longer has Premium.){% endif %}</p>{% endif %}
 
   {% if s.spotify.connected and not s.spotify.error %}
   <p class="muted">Echolot reads your liked songs and playlists, also other people's that you saved. Spotify's own mixes and editorial playlists can't be read through its API: copy their songs into a playlist of yours. Spotify's rules let it withhold other people's playlists from private apps; the Sources page marks any it does.</p>

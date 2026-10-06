@@ -459,3 +459,19 @@ def test_soulseek_backend_choice(client: TestClient, settings: Settings) -> None
     con = db.connect(settings.db_path)
     assert options.get(con, options.Soulseek).backend == "sockseek"
     con.close()
+
+
+def test_spotify_403_says_to_check_the_users_email(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 403 for a connected account: almost always an account the app's owner did not add (or a wrong
+    e-mail address); other errors keep the general hint."""
+    from echolot.web import accounts
+
+    error = "Spotify: HTTP 403 for https://api.spotify.com/v1/me"
+    monkeypatch.setattr(accounts, "_spotify_status", lambda state, uid: {"connected": False, "error": error})
+    html = client.get("/accounts").text
+    assert "exactly this account's e-mail address under User Management" in html
+    monkeypatch.setattr(
+        accounts, "_spotify_status", lambda state, uid: {"connected": False, "error": "Spotify: timeout"}
+    )
+    html = client.get("/accounts").text
+    assert "User Management in the Spotify developer app" not in html and "no longer has Premium" in html
