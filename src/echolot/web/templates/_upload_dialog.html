@@ -5,10 +5,10 @@
 <dialog id="upload" class="modal" aria-label="Upload files"><div id="upload-body"></div></dialog>
 <script>
   // a file is uploaded and checked the moment it is picked or dropped, two at a time, each on its own; it
-  // shows as a quiet placeholder row, one bar shows the whole batch, and once every file is done all results
-  // fill in at once (calm: nothing moves one by one) and Import, for all of them, unlocks (failed ones count
-  // as done; × leaves a file out, also one still uploading); imported songs leave Missing (another page shows
-  // anew when the dialog closes); closing the dialog (Esc, Cancel) deletes the batch
+  // shows as a quiet placeholder row, as tall as its result, which fills in as soon as the file is checked;
+  // one bar shows the whole batch, and once every file is done Import, for all of them, unlocks (failed ones
+  // count as done; × leaves a file out, also one still uploading); imported songs leave Missing (another page
+  // shows anew when the dialog closes); closing the dialog (Esc, Cancel) deletes the batch
   (() => {
     const dialog = document.getElementById("upload");
     const body = document.getElementById("upload-body");
@@ -17,13 +17,10 @@
     let reload = false;  // songs imported on a page that does not take them off by itself
     let queue = [], active = [], jobs = [];  // jobs: every file still in the dialog, in order
     const box = () => body.querySelector("[data-batch]");
-    const refresh = () => {  // the bar; once every file is done: all results in, Import (for something to import)
+    const refresh = () => {  // the bar; once every file is done: Import (for something to import)
       const go = body.querySelector("[data-import]");
       if (!go) return;
       const pending = queue.length + active.length;
-      if (!pending) {
-        for (const job of jobs) if (job.result && job.row.isConnected) { job.row.replaceWith(job.result); job.row = job.result; job.result = null; }
-      }
       const bar = body.querySelector("[data-progress]");
       const open = jobs.filter((j) => j.done !== undefined);
       bar.hidden = !pending;
@@ -54,7 +51,6 @@
     const settle = (job) => {
       active = active.filter((j) => j !== job);
       job.done = true;
-      job.row.classList.replace("working", "ready");  // done: rests (green) until the others are
       pump();
       refresh();
     };
@@ -68,13 +64,15 @@
       xhr.setRequestHeader("X-CSRF-Token", csrf());
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) { job.sent = e.loaded / e.total; refresh(); } };
       xhr.upload.onload = () => { job.sent = 1; job.checking = true; refresh(); };
-      xhr.onload = () => {  // the result waits for the others: all fill in at once (refresh)
+      xhr.onload = () => {  // its result takes the placeholder's place
         const t = document.createElement("tbody");
         t.innerHTML = xhr.status === 200 ? xhr.responseText
           : '<tr class="upload-row"><td class="upload-file"><div class="name"></div></td><td colspan="2"><span class="pill bad-pill">upload failed</span></td><td class="row-action"><button type="button" class="icon-button" data-drop-row>×</button></td></tr>';
         if (xhr.status !== 200) t.querySelector(".name").textContent = job.file.name;
-        job.result = t.firstElementChild;
-        job.result.job = job;
+        const row = t.firstElementChild;
+        row.job = job;
+        if (job.row.isConnected) job.row.replaceWith(row);
+        job.row = row;
         settle(job);
       };
       xhr.onerror = xhr.onload;
