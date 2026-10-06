@@ -1,6 +1,6 @@
 {# the Soulseek card; reloaded every few seconds while the daemon is not ready #}
 {% from "_icons.html" import icon %}
-<section class="card account" id="soulseek" {% if not s.soulseek.ready %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
+<section class="card account" id="soulseek" {% if not s.soulseek.ready and s.soulseek.backend != 'slskd' %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
   <div class="section-head">
     <h2 class="group-name">{{ icon('soulseek', 20) }} Soulseek</h2>
     {% if s.soulseek.ready %}<span class="pill ok-pill">logged in as {{ s.soulseek.user }}</span>
@@ -8,9 +8,14 @@
     {% elif s.soulseek.user and s.soulseek.state in ('', 'None') %}<span class="pill">logs in with the next search</span>
     {% elif s.soulseek.user %}<span class="pill warn-pill">{{ s.soulseek.state }}</span>{% else %}<span class="pill">no account</span>{% endif %}
   </div>
-  <p class="muted">The songs come from Soulseek, a file sharing network, through the Sockseek daemon (in the VPN's network{% if s.soulseek.version %}, version {{ s.soulseek.version }}{% endif %}). It needs a Soulseek account of its own: a new name is registered on the first login. Use one no other client logs in with (an account can only be online once).</p>
+  {% set via_slskd = s.soulseek.backend == 'slskd' %}
+  {% if via_slskd %}
+  <p class="muted">The songs come from Soulseek, a file sharing network, through slskd{% if s.soulseek.version %} {{ s.soulseek.version }}{% endif %}, a full Soulseek client: it shares your music, so peers that refuse accounts sharing nothing deliver too. Its Soulseek account is set in slskd.</p>
+  {% else %}
+  <p class="muted">The songs come from Soulseek, a file sharing network, through the Sockseek daemon{% if s.soulseek.version %} (version {{ s.soulseek.version }}){% endif %}. It needs a Soulseek account of its own: a new name is registered on the first login. Use one no other client logs in with (an account can only be online once). Sockseek shares nothing, so some peers refuse it; slskd (below) shares.</p>
+  {% endif %}
   {% if not s.soulseek.reachable %}<p class="flash error">{{ s.soulseek.error }}</p>{% endif %}
-  {% if has_daemon_dir %}
+  {% if via_slskd %}{% elif has_daemon_dir %}
   <form method="post" action="/accounts/soulseek" class="stack narrow-form">{{ csrf_input }}
     <label>User name <input type="text" name="user" value="{{ s.soulseek.user }}" autocomplete="off" required></label>
     <label>Password {% if s.soulseek.password %}<span class="muted small">saved; leave empty to keep it</span>{% endif %}<input type="password" name="password" autocomplete="new-password" {% if not s.soulseek.password %}required{% endif %}></label>
@@ -19,4 +24,18 @@
   {% else %}
   <p class="muted small">Echolot can't set the account here (no <code>ECHOLOT_DAEMON_DIR</code>): put <code>user</code> and <code>pass</code> into the daemon's config file.</p>
   {% endif %}
+  <details{% if via_slskd and not s.soulseek.ready %} open{% endif %}>
+    <summary>Soulseek client: {{ 'slskd' if via_slskd else 'Sockseek daemon' }}</summary>
+    <form method="post" action="/accounts/soulseek/backend" class="stack narrow-form">{{ csrf_input }}
+      <span class="seg" role="radiogroup" aria-label="Soulseek client">
+        <label><input type="radio" name="backend" value="sockseek" {% if not via_slskd %}checked{% endif %}> Sockseek daemon</label>
+        <label><input type="radio" name="backend" value="slskd" {% if via_slskd %}checked{% endif %}> slskd</label>
+      </span>
+      <label>slskd's address <input type="url" name="slskd_url" value="{{ s.soulseek.slskd_url }}"></label>
+      <label>slskd's web user <span class="muted small">empty: the secret below is an API key</span><input type="text" name="slskd_user" value="{{ s.soulseek.slskd_user }}" autocomplete="off"></label>
+      <label>Password or API key {% if s.soulseek.slskd_secret %}<span class="muted small">saved; leave empty to keep it</span>{% endif %}<input type="password" name="slskd_secret" autocomplete="new-password"></label>
+      <label>slskd's downloads folder, as Echolot sees it <span class="muted small">on the music volume, so files move without a copy</span><input type="text" name="slskd_downloads" value="{{ s.soulseek.slskd_downloads }}"></label>
+      <p><button>Save</button></p>
+    </form>
+  </details>
 </section>

@@ -64,6 +64,7 @@ class Candidate:
     free_slot: bool
     speed: int
     rank: int
+    queue: int = 0  # the peer's upload queue (slskd reports it)
 
     @property
     def parts(self) -> list[str]:

@@ -15,7 +15,7 @@ from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
 from echolot.library import audio, catalog, filing, identity, review, tagging
 from echolot.library.filing import Want
-from echolot.services import soulseek
+from echolot.services import slskd, soulseek
 from echolot.settings import options, vault
 
 
@@ -150,6 +150,32 @@ def test_filed_and_attempts_cleared(run: Run) -> None:
     )
     con.close()
     assert not any((run.paths.inbox("soulseek")).iterdir())  # nothing left in the inbox
+
+
+def test_through_slskd(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With slskd as the backend: its downloads folder is the inbox (echolot/<name>), the search is deleted
+    in slskd afterwards, and the song is filed as through Sockseek."""
+    downloads = run.paths.music / "inbox" / "slskd"
+    closed = []
+
+    class FakeSlskd(FakeDaemon):
+        def download(self, search_job: str, c: soulseek.Candidate, parent_dir: str, settings: dict) -> str:
+            assert parent_dir.startswith("echolot/")
+            return super().download(search_job, c, str(downloads / parent_dir), settings)
+
+        def close(self, job: str) -> None:
+            closed.append(job)
+
+    monkeypatch.setattr(slskd, "connect", lambda con, vault, opts: FakeSlskd(opts.slskd_url))
+    con = run.connect()
+    with con:
+        options.update(con, options.Soulseek, backend="slskd", slskd_downloads=str(downloads))
+    con.close()
+    FakeDaemon.files["Gone Song"] = [("u2", "Music\\Artist C\\Artist C - Gone Song.flac", 180, "ok")]
+    rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
+    assert "1 new" in acquire._search(run, rows, "search")
+    assert closed == ["search:Gone Song"]
+    assert not any((downloads / "echolot").iterdir())  # moved into the library, nothing left behind
 
 
 def test_nothing_found_counts_a_try_and_loosens(run: Run) -> None:

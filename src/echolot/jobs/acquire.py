@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
 from echolot.library.filing import Want
-from echolot.services import soulseek, spotify, ytdlp
+from echolot.services import slskd, soulseek, spotify, ytdlp
 from echolot.services import soundcloud as sc_api
 from echolot.settings import options
 
@@ -123,14 +123,20 @@ class Fetcher:
         con = run.connect()
         try:
             self.opts = options.get(con, options.Soulseek)
+            if self.opts.backend == "slskd":  # downloads go to <slskd's downloads>/echolot/<name>
+                self.daemon: soulseek.Daemon | slskd.Slskd = slskd.connect(con, run.vault, self.opts)
+                self.local_inbox, self.daemon_inbox = Path(self.opts.slskd_downloads) / "echolot", "echolot"
+            else:  # the Sockseek daemon downloads to <music>/inbox/soulseek/<name>, as it sees the music folder
+                self.daemon = soulseek.Daemon(self.opts.url)
+                self.local_inbox = run.paths.inbox("soulseek")
+                self.daemon_inbox = self.opts.daemon_music.rstrip("/") + "/inbox/soulseek"
         finally:
             con.close()
-        self.daemon = soulseek.Daemon(self.opts.url)
-        self.local_inbox = run.paths.inbox("soulseek")
-        self.daemon_inbox = self.opts.daemon_music.rstrip("/") + "/inbox/soulseek"
 
     def local(self, daemon_path: str) -> Path:
-        """The daemon's path of a downloaded file, as Echolot sees it."""
+        """The backend's path of a downloaded file, as Echolot sees it (slskd's: already Echolot's)."""
+        if self.opts.backend == "slskd":
+            return Path(daemon_path)
         rel = Path(daemon_path).relative_to(self.opts.daemon_music)
         return self.run.paths.music / rel
 
@@ -139,39 +145,57 @@ class Fetcher:
         settings = soulseek.search_settings(**opts, flac_only=self.purpose == "upgrade")
         artist, title, length = rules.search_terms(want.artist, want.title, want.length, loosen)
         job = self.daemon.search(artist, title, length, settings)
-        self.daemon.wait(job, self.run.stop, time.monotonic() + SEARCH_SECONDS)
-        found = self.daemon.results(job)
-        con = self.run.connect()
         try:
-            blocked = [r[0] for r in con.execute("SELECT name FROM blocked WHERE song_key = ?", (want.key,))]
-            before = filing.rejected_before(con, want.key, fakes=self.purpose == "upgrade")
+            self.daemon.wait(job, self.run.stop, time.monotonic() + SEARCH_SECONDS)
+            found = self.daemon.results(job)
+            con = self.run.connect()
+            try:
+                blocked = [r[0] for r in con.execute("SELECT name FROM blocked WHERE song_key = ?", (want.key,))]
+                before = filing.rejected_before(con, want.key, fakes=self.purpose == "upgrade")
+            finally:
+                con.close()
+            wanted = 0 if rules.mix_cut(want.title) else want.length
+            judged, rejected, terms = (
+                [],
+                collections.Counter(),
+                (wanted, opts.get("strict_artist", True), blocked, loosen),
+            )
+            for c in found:
+                if filing.was_rejected(before, c.name, c.length, c.size):
+                    rejected["rejected before"] += 1
+                    continue
+                verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms)
+                if verdict != rules.REJECT:
+                    judged.append((rank, c.rank, c))
+                else:
+                    rejected[kind(why)] += 1
+            depth = stage(tries) if self.purpose == "search" else 0
+            report = {
+                "stage": depth,
+                "results": len(found),
+                "fits": len(judged),
+                "rejected": dict(rejected),
+                "tried": [],
+            }
+            if not judged:
+                return Outcome("not found", f"{len(found)} results, none fits" if found else "no results", report)
+            tried = []
+            for _, _, c in sorted(judged, key=lambda j: j[:2])[:MAX_RESULTS]:
+                if self.run.stop.is_set():
+                    break
+                outcome = self.attempt(job, c, want, tries, settings)
+                if outcome.action in ("upgrade", "confirm") or (outcome.action in FOUND and self.purpose == "search"):
+                    return outcome
+                tried.append(f"{c.name}: {outcome.detail or outcome.action}")
+                report["tried"].append([c.name, outcome.action, outcome.detail])
+            return Outcome("not found", f"{len(found)} results; tried " + "; ".join(tried), report)
         finally:
-            con.close()
-        wanted = 0 if rules.mix_cut(want.title) else want.length
-        judged, rejected, terms = [], collections.Counter(), (wanted, opts.get("strict_artist", True), blocked, loosen)
-        for c in found:
-            if filing.was_rejected(before, c.name, c.length, c.size):
-                rejected["rejected before"] += 1
-                continue
-            verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms)
-            if verdict != rules.REJECT:
-                judged.append((rank, c.rank, c))
-            else:
-                rejected[kind(why)] += 1
-        depth = stage(tries) if self.purpose == "search" else 0
-        report = {"stage": depth, "results": len(found), "fits": len(judged), "rejected": dict(rejected), "tried": []}
-        if not judged:
-            return Outcome("not found", f"{len(found)} results, none fits" if found else "no results", report)
-        tried = []
-        for _, _, c in sorted(judged, key=lambda j: j[:2])[:MAX_RESULTS]:
-            if self.run.stop.is_set():
-                break
-            outcome = self.attempt(job, c, want, tries, settings)
-            if outcome.action in ("upgrade", "confirm") or (outcome.action in FOUND and self.purpose == "search"):
-                return outcome
-            tried.append(f"{c.name}: {outcome.detail or outcome.action}")
-            report["tried"].append([c.name, outcome.action, outcome.detail])
-        return Outcome("not found", f"{len(found)} results; tried " + "; ".join(tried), report)
+            self.done(job)
+
+    def done(self, search_job: str) -> None:
+        """The song's search is over: slskd deletes it (Sockseek forgets its jobs by itself)."""
+        if close := getattr(self.daemon, "close", None):
+            close(search_job)
 
     def attempt(self, search_job: str, c: soulseek.Candidate, want: Want, tries: int, settings: dict) -> Outcome:
         name = uuid.uuid4().hex[:12]

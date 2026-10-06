@@ -15,7 +15,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from echolot import db
-from echolot.services import soulseek, soundcloud, spotify
+from echolot.services import slskd, soulseek, soundcloud, spotify
 from echolot.settings import options
 from echolot.settings.vault import VaultError
 from echolot.web.common import DB, back, page
@@ -47,7 +47,16 @@ def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> d
     if cached and last and time.monotonic() - last[0] < CACHE_SECONDS:
         return last[1]
     opts = options.get(con, options.Soulseek)
-    slsk: dict[str, Any] = {"user": opts.user, "password": state.vault.has(con, "soulseek.password")}
+    slsk: dict[str, Any] = {
+        "user": opts.user,
+        "password": state.vault.has(con, "soulseek.password"),
+        "backend": opts.backend,
+        "slskd_url": opts.slskd_url,
+        "slskd_user": opts.slskd_user,
+        "slskd_downloads": opts.slskd_downloads,
+        "slskd_secret": state.vault.has(con, slskd.SECRET),
+    }
+    client = slskd.connect(con, state.vault, opts, timeout=5) if opts.backend == "slskd" else None
     try:  # a secret stored with another key can't be read: shown as the account's error
         token, token_error = soundcloud.token_of(con, state.vault, uid), None
     except VaultError as e:
@@ -55,7 +64,7 @@ def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> d
     with ThreadPoolExecutor(3) as pool:
         sp = pool.submit(_spotify_status, state, uid)
         sc = pool.submit(_soundcloud_status, token, token_error)
-        daemon = pool.submit(_daemon_status, opts.url)
+        daemon = pool.submit(_daemon_status, opts.url, client)
         result = {"spotify": sp.result(), "soundcloud": sc.result(), "soulseek": slsk | daemon.result()}
     state.account_status[uid] = (time.monotonic(), result)
     return result
@@ -96,9 +105,10 @@ def _soundcloud_status(token: str | None, token_error: str | None) -> dict[str, 
         return {"connected": False, "error": str(e)}
 
 
-def _daemon_status(url: str) -> dict[str, Any]:
+def _daemon_status(url: str, client: Any = None) -> dict[str, Any]:
+    """The Soulseek client's state: the Sockseek daemon at `url`, or `client` (slskd)."""
     try:
-        return soulseek.Daemon(url, timeout=5).status() | {"reachable": True}
+        return (client or soulseek.Daemon(url, timeout=5)).status() | {"reachable": True}
     except soulseek.DaemonError as e:
         return {"reachable": False, "ready": False, "error": str(e)}
 
@@ -260,6 +270,37 @@ def soulseek_account(
         vault.set(con, "soulseek.password", password)
     soulseek.write_conf(folder, user, password)
     return back("/accounts", ok="Soulseek account saved; the daemon logs in with it in a moment.")
+
+
+@router.post("/accounts/soulseek/backend")
+def soulseek_backend(
+    request: Request,
+    con: DB,
+    backend: Annotated[str, Form()],
+    slskd_url: Annotated[str, Form()] = "",
+    slskd_user: Annotated[str, Form()] = "",
+    slskd_secret: Annotated[str, Form()] = "",
+    slskd_downloads: Annotated[str, Form()] = "",
+) -> RedirectResponse:
+    """Which Soulseek client Echolot uses: the Sockseek daemon, or slskd (its address, login and downloads
+    folder; an empty secret keeps the saved one)."""
+    vault = request.app.state.vault
+    fields: dict[str, Any] = {"backend": backend}
+    if backend == "slskd":
+        fields |= {
+            "slskd_url": slskd_url.strip().rstrip("/"),
+            "slskd_user": slskd_user.strip(),
+            "slskd_downloads": slskd_downloads.strip().rstrip("/"),
+        }
+    try:
+        with con:
+            options.update(con, options.Soulseek, **fields)
+            if backend == "slskd" and slskd_secret:
+                vault.set(con, slskd.SECRET, slskd_secret)
+    except options.OptionsError as e:
+        return back("/accounts", error=str(e))
+    name = "slskd" if backend == "slskd" else "the Sockseek daemon"
+    return back("/accounts", ok=f"Soulseek through {name} from the next search on.")
 
 
 @router.post("/accounts/soulseek/url")
