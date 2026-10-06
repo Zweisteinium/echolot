@@ -128,7 +128,7 @@ def growth(
     dates = [t0 + timedelta(seconds=span * k / 4) for k in range(5)]
     return Growth(
         line=path(old[-1:] + real),
-        rebuilt=path(old + real[:1]),
+        rebuilt=path(old + real[:1]) if old else "",  # (nothing rebuilt: no dashed part, no note)
         area=f"{path(keep)}L{last[0]:.1f},{H}L{first[0]:.1f},{H}Z",
         values=[Tick(100 - 100 * k * step / top, axis(k * step)) for k in range(round(top / step) + 1)],
         dates=[Tick(25 * k, f"{d:%H:%M}" if hour else f"{d.day} {d:%b}") for k, d in enumerate(dates)],

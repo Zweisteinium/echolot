@@ -126,3 +126,24 @@ def test_history_per_user(app, settings: Settings) -> None:
     assert rows[("user_songs_wanted", f"{uid}")] == 1 and rows[("user_songs_in_library", f"{uid}")] == 1
     assert rows[("user_songs_wanted", "1")] == 5  # the owner's: every song of the small collection
     assert ("user_songs_by_quality", f"{uid}:lossy-high") in rows
+
+
+def test_a_restored_file_names_its_song(settings: Settings) -> None:
+    """A No match an admin takes back puts the library file back; Activity names the song it is for."""
+    con = db.connect(settings.db_path)
+    paths = filing.Paths(settings.library_dir.parent)
+    rel = "Artist A/Artist A - First Song.mp3"
+    kept = paths.inbox("replaced") / "2099-01-01" / rel
+    kept.parent.mkdir(parents=True)
+    (paths.tracks / rel).rename(kept)
+    with con:
+        con.execute(
+            "INSERT INTO events (ts, action, path, reason) VALUES ('2099-01-01T00:03:00', 'retired', ?, ?)",
+            (filing.event_path(paths, kept), f"no match in review (was {rel})"),
+        )
+    d = {"path": rel, "decided": "2099-01-01T00:00:00", "song": "spotify:s1"}
+    assert review._restore(con, paths, d) == "file back"
+    row = con.execute("SELECT action, artist, title FROM events ORDER BY id DESC LIMIT 1").fetchone()
+    assert tuple(row) == ("restored", "Artist A", "First Song") and (paths.tracks / rel).is_file()
+    assert review._replaced_file("/music/inbox/replaced/../../tracks/x.mp3", paths) is None  # only replaced/
+    con.close()
