@@ -12,7 +12,7 @@
   {% if via_slskd %}
   <p class="muted">The songs come from Soulseek, a file sharing network, through slskd{% if s.soulseek.version %} {{ s.soulseek.version }}{% endif %}, a full Soulseek client: it shares your music, so peers that refuse accounts sharing nothing deliver too. Its Soulseek account is set in slskd.</p>
   {% else %}
-  <p class="muted">The songs come from Soulseek, a file sharing network, through the Sockseek daemon{% if s.soulseek.version %} (version {{ s.soulseek.version }}){% endif %}. It needs a Soulseek account of its own: a new name is registered on the first login. Use one no other client logs in with (an account can only be online once). Sockseek shares nothing, so some peers refuse it; slskd (below) shares.</p>
+  <p class="muted">The songs come from Soulseek, a file sharing network, through the Sockseek daemon{% if s.soulseek.version %} (version {{ s.soulseek.version }}){% endif %}. It needs a Soulseek account of its own: a new name is registered on the first login. Use one no other client logs in with (an account can only be online once). Sockseek shares nothing, so some peers refuse it; slskd (below) shares. Peers behind a firewall can only send when the daemon's listen port is reachable: the VPN setup (<code>vpn.yaml</code>) forwards one; without it, those peers are skipped.</p>
   {% endif %}
   {% if not s.soulseek.reachable %}<p class="flash error">{{ s.soulseek.error }}</p>{% endif %}
   {% if via_slskd %}{% elif has_daemon_dir %}

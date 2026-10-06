@@ -29,6 +29,7 @@ def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
         navidrome=options.get(con, options.Navidrome),
+        navidrome_env=os.environ.get("ECHOLOT_NAVIDROME_URL", ""),
         navidrome_ok=_service_state(request, con),
         vault_source=request.app.state.vault.source,
     )

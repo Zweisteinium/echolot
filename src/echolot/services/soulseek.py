@@ -200,7 +200,7 @@ CONF = "daemon.conf"
 
 def write_conf(folder: Path, user: str, password: str) -> None:
     """The daemon's login, in its config file (mode 600): the daemon container restarts the daemon when
-    the file changes (deploy/sockseek-daemon/run.sh)."""
+    the file changes (deploy/sockseek/run.sh)."""
     folder.mkdir(parents=True, exist_ok=True)
     text = (
         "# Written by Echolot (Accounts page): the Soulseek account the Sockseek daemon logs in with.\n"

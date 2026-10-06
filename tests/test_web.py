@@ -395,7 +395,8 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
     from echolot.jobs import worker
 
     playlists = settings.library_dir.parent / "playlists"
-    playlists.mkdir()
+    assert playlists.is_dir()  # made at the start, with the other folders Echolot writes
+    assert (settings.library_dir.parent / "inbox" / ".ndignore").is_file()  # Navidrome skips the inbox
     (playlists / "My own.m3u").write_text("#EXTM3U\n")
     run = worker.Run(__import__("echolot.jobs.schedule", fromlist=["BY_NAME"]).BY_NAME["library"], settings,
                      client.app.state.vault, "manual")  # fmt: skip

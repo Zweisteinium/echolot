@@ -28,4 +28,6 @@ services:
 
   sockseek:
     network_mode: service:gluetun
-    depends_on: [gluetun]
+    depends_on:
+      gluetun:
+        condition: service_started

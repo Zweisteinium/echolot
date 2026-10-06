@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 OURS = re.compile(
     r"^(?:spotify-[A-Za-z0-9]+|soundcloud-[a-z0-9-]+|Spotify Liked Songs|SoundCloud Likes)"
-    r"(?: - removed)?\.(?:m3u|jpg|png)$"
+    r"\.(?:m3u|jpg|png)$"
 )
 
 
@@ -140,20 +140,11 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
     return f"{written} playlists written" + (f", {len(stale)} old files removed" if stale else "")
 
 
-def _legacy(path: str, folder: Path) -> str | None:
-    """The name of a playlist file Echolot wrote at the top of its folder (before users had folders) that
-    is gone: its playlist goes too."""
-    _, sep, name = path.rpartition(f"/{folder.name}/")
-    if not sep or "/" in name or not OURS.match(name) or (folder / name).exists():
-        return None
-    return name
-
-
 SERVICES = {"spotify": "Spotify", "soundcloud": "SoundCloud", "youtube": "YouTube"}
 
 
 def comment(row: sqlite3.Row, owner: str = "") -> str:
-    """A playlist's comment in the music server: "Auto-imported from Spotify, by Timon: <the list's page>"
+    """A playlist's comment in the music server: "Auto-imported from Spotify, by Alex: <the list's page>"
     (who made the list: Spotify's owner, YouTube's author, the SoundCloud account; Liked Songs: their user)."""
     creator = row["creator"]
     if not creator and row["service"] == "soundcloud":
@@ -189,14 +180,10 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
     gone = set(json.loads(db.get_meta(con, "playlists_gone", "[]")))
     given = deleted = commented = 0
     found: dict[str, list[dict]] = {}
-    present = bool(current) and all((folder / r).exists() for r in current)  # the folder is there, as written
     for p in svc.playlists():
         path = p.get("path") or ""
         if rel := next((r for r in current | gone if path.endswith(f"/{folder.name}/{r}")), None):
             found.setdefault(rel, []).append(p)
-        elif present and (old := _legacy(path, folder)):
-            found.setdefault(old, []).append(p)  # from before users had folders (a "- removed" playlist)
-            gone.add(old)
     notes = comments(con)
     for rel in current & set(found):
         owner = owner_of.get(rel.split("/", 1)[0]) if "/" in rel else None

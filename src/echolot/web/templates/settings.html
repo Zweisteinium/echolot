@@ -62,8 +62,8 @@
   <div class="section-head"><h2>Access</h2></div>
   <div class="fields">
     <div class="field">
-      <label for="navidrome_url">Navidrome<span class="hint">its address: Navidrome's accounts log in to Echolot with their Navidrome password</span></label>
-      <div class="control"><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="http://192.168.1.10:4533" required></div>
+      <label for="navidrome_url">Navidrome<span class="hint">its address: Navidrome's accounts log in to Echolot with their Navidrome password{% if navidrome_env %}; empty: {{ navidrome_env }} (ECHOLOT_NAVIDROME_URL){% endif %}</span></label>
+      <div class="control"><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="{{ navidrome_env or 'http://192.168.1.10:4533' }}" {% if not navidrome_env %}required{% endif %}></div>
     </div>
     <div class="field">
       <label for="service_user">Service account<span class="hint">a Navidrome admin: Echolot reads Navidrome's users with it (who is an admin, who is gone) and sets the owners of the playlists it writes</span></label>

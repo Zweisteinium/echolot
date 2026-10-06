@@ -16,6 +16,12 @@ class Settings:
     daemon_dir: Path | None = None
     worker: bool = True  # run the jobs (a development copy runs none: ECHOLOT_WORKER=off)
 
+    def __post_init__(self) -> None:
+        # the jobs file into <music>/tracks next to <music>/inbox and <music>/playlists: another name would
+        # make the pages read one folder and the jobs write another
+        if self.library_dir is not None and self.library_dir.name != "tracks":
+            raise ValueError(f"ECHOLOT_LIBRARY_DIR must be <music>/tracks, not {self.library_dir}")
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "echolot.db"

@@ -26,7 +26,7 @@ class SourceOptions(Section):
 
 class Metrics(Section):
     SECTION = "metrics"
-    public: bool = Field(True, description="/metrics answers without login (for Prometheus)")
+    public: bool = Field(False, description="/metrics answers without login (for Prometheus; else an API token)")
 
 
 class Auth(Section):
