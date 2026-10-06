@@ -3,6 +3,7 @@ SoundCloud search), from the home IP (YouTube refuses VPN exits). The SoundCloud
 through a private netrc file, never the command line (ps would show it).
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -22,11 +23,12 @@ SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp
 
 class YtDlp:
     def __init__(self, private: Path, sc_token: str | None = None) -> None:
-        """private: a directory only Echolot reads (its data directory), for the netrc file."""
+        """private: a directory only Echolot reads (its data directory), for the netrc file (one per token:
+        clients of several accounts run side by side)."""
         self.netrc: Path | None = None
         if sc_token:
             private.mkdir(parents=True, exist_ok=True)
-            self.netrc = private / "netrc"
+            self.netrc = private / f"netrc-{hashlib.sha256(sc_token.encode()).hexdigest()[:12]}"
             fd = os.open(self.netrc, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write(f"machine soundcloud login oauth password {sc_token}\n")
