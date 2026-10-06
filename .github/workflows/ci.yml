@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # a branch's image on both platforms, without a release
 
 concurrency: # a newer push to a pull request supersedes its running check; main runs every commit (releases)
   group: ci-${{ github.ref }}
@@ -11,6 +12,9 @@ concurrency: # a newer push to a pull request supersedes its running check; main
 
 permissions:
   contents: read
+
+env:
+  IMAGE: lordlayer/echolot # Docker Hub; pushed for a release only (secret DOCKERHUB_TOKEN)
 
 jobs:
   test:
@@ -25,23 +29,53 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run pytest
 
-  image:
+  meta:
+    # the version in pyproject.toml, and whether this push releases it (on main, no tag for it yet)
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.release.outputs.release }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - id: version
         run: echo "version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")" >> "$GITHUB_OUTPUT"
+      - id: release
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ] \
+             && ! git rev-parse -q --verify "refs/tags/v${{ steps.version.outputs.version }}" >/dev/null; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  image:
+    # built and tested on each platform natively (no emulation: the ffmpeg stage compiles); a release
+    # pushes each platform's image by digest, the release job joins them under the version's tags
+    needs: meta
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/${{ matrix.arch }}
           load: true
           tags: echolot:ci
           build-args: |
-            ECHOLOT_VERSION=${{ steps.version.outputs.version }}
+            ECHOLOT_VERSION=${{ needs.meta.outputs.version }}
             ECHOLOT_COMMIT=${{ github.sha }}
-          cache-from: type=gha # the ffmpeg stage takes minutes to build; cached it takes seconds
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.arch }} # the ffmpeg stage takes minutes to build; cached it takes seconds
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
       - name: Smoke test
         run: docker run --rm -v "$PWD/tools:/tools:ro" echolot:ci python /tools/smoke.py
       - name: The web app answers
@@ -50,27 +84,67 @@ jobs:
           for _ in $(seq 30); do curl -fsS http://127.0.0.1:8490/healthz && exit 0; sleep 1; done
           docker logs echolot
           exit 1
+      - if: needs.meta.outputs.release == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: lordlayer
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - if: needs.meta.outputs.release == 'true'
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            ECHOLOT_VERSION=${{ needs.meta.outputs.version }}
+            ECHOLOT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.arch }} # the image just tested, from the cache
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - if: needs.meta.outputs.release == 'true'
+        run: mkdir -p digests && touch "digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+      - if: needs.meta.outputs.release == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+          retention-days: 1
 
   release:
-    # a version in pyproject.toml without its tag yet: tag the tested commit and publish the release notes
-    needs: [test, image]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # a version in pyproject.toml without its tag yet: the images under <version>, <major.minor> and
+    # latest, then the tag on the tested commit and the release notes
+    needs: [test, meta, image]
+    if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          username: lordlayer
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push the multi-platform image
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:${VERSION%.*}" -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " $(ls digests))
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Release a new version
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            echo "v$version is released already"
-            exit 0
-          fi
           previous=$(git describe --tags --abbrev=0 2>/dev/null || true)
           git log --no-merges --format='- %s' ${previous:+$previous..}HEAD > notes.md
-          gh release create "v$version" --target "$GITHUB_SHA" --title "Echolot $version" --notes-file notes.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Echolot $VERSION" --notes-file notes.md
