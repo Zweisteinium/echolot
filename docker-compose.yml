@@ -16,5 +16,6 @@ services:
     volumes:
       - ./data:/data
       - ${MUSIC_DIR:?set MUSIC_DIR in .env}:/music:ro
+      - ./data/inbox:/music/inbox  # its own, writable: uploads by hand can be tried (importing still fails: the library is read-only)
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
