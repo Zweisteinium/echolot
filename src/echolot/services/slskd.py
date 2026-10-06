@@ -27,8 +27,8 @@ from echolot.library import audio, rules
 from echolot.services.soulseek import Candidate, DaemonError, Lost, Transfer
 
 OTHER_USER = "slskd saved it as another user: run slskd as Echolot's user (user: PUID:PGID in its compose file)"
-SECRET = "slskd.secret"
-MOVE_WAIT = 60  # s a reported download may take to appear in its folder  # the vault's name of slskd's password (with a user) or API key (without)
+SECRET = "slskd.secret"  # the vault's name of slskd's password (with a user) or API key (without)
+MOVE_WAIT = 60  # s a reported download may take to appear in its folder
 SEARCH_LIMIT = (34, 220)  # Soulseek allows about 34 searches per 220 s: kept by every client of this process
 # ms after the last response a search counts as complete: slskd's searchTimeout goes to Soulseek.NET as is
 # (milliseconds, though slskd's API notes call it seconds); 15 s is slskd's default
