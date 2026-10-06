@@ -107,6 +107,7 @@ def test_found_after_skipping_wrong_and_stuck_results(run: Run, monkeypatch: pyt
     filed."""
     monotonic = iter(range(0, 10**6, 200))  # every look at the clock: 200 s later
     monkeypatch.setattr(acquire.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(acquire, "POLL_SECONDS", 0)
     FakeDaemon.files["Gone Song"] = [
         ("u1", "Music\\Artist C\\Gone Song (Club Remix).flac", 180, "ok"),
         ("u2", "Music\\Artist C\\Artist C - Gone Song.flac", 180, "stuck"),

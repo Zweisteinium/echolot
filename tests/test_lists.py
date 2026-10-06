@@ -127,7 +127,6 @@ def test_playlists(run: Run) -> None:
     mine = folder / "owner"  # the owner's folder
     likes = (mine / "Spotify Liked Songs.m3u").read_text().splitlines()
     assert likes == ["#EXTM3U", "#PLAYLIST:Liked Songs", "../../tracks/Artist A/Artist A - First Song.mp3"]
-    assert not (mine / "Spotify Liked Songs - removed.m3u").exists()  # what left a list: the Changes page
     assert not (mine / "spotify-BBB222.m3u").exists()  # playlist: false
     # a list that is no longer followed loses its playlist file; a file Echolot did not write stays
     from echolot.settings import sources

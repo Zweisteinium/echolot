@@ -1,4 +1,5 @@
 import datetime
+import socket
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -97,6 +98,19 @@ def seed(con: sqlite3.Connection) -> None:
         db.set_meta(con, "playlist_files", "[]")
         options.update(con, options.Jobs, paused=True)
         options.update(con, options.SourceOptions, soundcloud_user="someone")
+
+
+@pytest.fixture(autouse=True)
+def no_internet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never leave the machine: a name other than the loopback's is not found (as offline)."""
+    lookup = socket.getaddrinfo
+
+    def local_only(host, *args, **kwargs):
+        if host not in ("127.0.0.1", "::1", "localhost", "testserver"):
+            raise socket.gaierror(f"tests are offline: {host}")
+        return lookup(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", local_only)
 
 
 @pytest.fixture(autouse=True)

@@ -107,10 +107,6 @@ class Service:
         """Every user's playlists (an admin sees all): id, name, path (of an imported file), ownerId, ..."""
         return list(self.call("GET", "/api/playlist?_start=0&_end=100000") or [])
 
-    def set_owner(self, playlist_id: str, owner_id: str) -> None:
-        """Give a playlist to another user (it stays theirs when its file is imported again)."""
-        self.update_playlist(playlist_id, {"ownerId": owner_id})
-
     def update_playlist(self, playlist_id: str, fields: dict[str, Any]) -> None:
         """Change a playlist's fields (ownerId, comment); Navidrome keeps them when its file is imported again."""
         self.call("PUT", f"/api/playlist/{playlist_id}", fields)

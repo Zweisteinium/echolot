@@ -64,7 +64,7 @@ def test_review_is_for_their_own_songs(app, login: Callable[..., TestClient]) ->
     assert timon.get("/review").status_code == 200 and "Decisions by others" not in timon.get("/review").text
     r = timon.post(f"/review/{gone}", data={"decision": "wrong"})
     assert r.status_code == 403 and "another user" in r.text
-    assert timon.post(f"/review/{first}", data={"decision": "ok"}).status_code != 403  # theirs (not up for review)
+    assert timon.post(f"/review/{first}", data={"decision": "ok"}).status_code == 200  # theirs (not up for review)
     assert timon.get(f"/review/{gone}/audio").status_code == 403
 
 

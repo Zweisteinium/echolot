@@ -48,6 +48,7 @@ LOOSEN = [(4, {"desperate": True, "strict_artist": False}), (2, {"desperate": Tr
 MAX_RESULTS = 5  # downloads tried per song and attempt
 SEARCH_SECONDS = 300  # a search waits at most this long (queued behind the rate limit included)
 TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
+POLL_SECONDS = 2  # how often a running download is looked at
 EDIT_REVIEW = "another edit, in review"  # a YouTube song's download that is probably a library song's other edit
 FOUND = {"new", "upgrade", "duplicate", "linked", EDIT_REVIEW}  # linked: the library had it under other names
 SEARCHING: set[str] = set()  # the songs (or files, upgrades) searched now: a run started beside one giving way
@@ -220,7 +221,7 @@ class Fetcher:
                 self.daemon.cancel(job)
                 why = "no progress (queued at the peer)" if stalled else "stopped"
                 return soulseek.Transfer("cancelled", None, t.done_bytes, t.total_bytes, why)
-            self.run.stop.wait(2)
+            self.run.stop.wait(POLL_SECONDS)
 
 
 def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None) -> None:
