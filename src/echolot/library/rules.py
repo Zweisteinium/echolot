@@ -54,13 +54,22 @@ def artist_keys(a: str | None) -> set[str]:
     return {k for k in (artist_key(a), artist_key(first_artist(a))) if k}
 
 
+# Words that mark another recording of a song: request and download must agree on them.
+VERSION_WORDS = {
+    "remix", "remixed", "rmx", "live", "acoustic", "instrumental", "inst", "slowed", "sped",
+    "nightcore", "reverb", "cover", "karaoke", "vip", "bootleg", "mashup", "rework", "flip",
+    "remake", "reprise", "unplugged", "demo", "acapella", "orchestral", "piano", "lofi", "8d",
+    "medley", "tribute", "dub", "megamix", "pt", "ii", "iii", "iv",
+}  # fmt: skip
+# a bracket starting with one names a version, never a catalog number or id ("[Mashup 2019]", not "[HAK003]")
+_NO_VERSION = "(?!" + "|".join(sorted(VERSION_WORDS | {"edit", "mix", "version"})) + ")"
 _MIX_CUT_RE = r"[\(\[]\s*mixed\s*[\)\]]|\s+-\s+mixed\s*$"
 _NOISE = [
     r"[\(\[\{]\s*(?:free\s*(?:dl|d/l|download)|freel\s*dl|free|out\s*now|premiere|official(?:\s+(?:4k|hd))?"
-    r"(?:\s+(?:audio|video|music\s+video|lyrics?\s+video|visuali[sz]er))?|lyrics?\s+video"
-    r"|visuali[sz]er|lyrics?|hq|hd|explicit|clean|original(?:\s+(?:mix|version))?)\s*[\)\]\}]",
+    r"(?:\s+(?:audio|video|music\s+video|lyrics?\s+video|visuali[sz]er))?(?:\s+(?:4k|hd|hq))?|lyrics?\s+video"
+    r"|visuali[sz]er|lyrics?|audio|4k|hq|hd|explicit|clean|original(?:\s+(?:mix|version))?)\s*[\)\]\}]",
     # catalog numbers [HAK003]
-    r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[a-z]{2,8}\s?-?\d{2,5}\s*\]",
+    rf"\[\s*{_NO_VERSION}[a-z]{{2,8}}\s?-?\d{{2,5}}\s*\]",
     r"[\(\[]\s*(?:feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]",
     r"\s+(?:feat|ft|featuring)\.?\s[^\-\(\[]*$",
     r"\s+-\s+original(?:\s+(?:mix|version))?\s*$",
@@ -69,7 +78,7 @@ _NOISE = [
     r"[\(\[]\s*(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?(?:\s+version)?\s*[\)\]]",
     r"\s+-\s+(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?(?:\s+version)?\s*$",
     # ids and catalog numbers like [///A001], [2157720717]
-    r"\[\s*(?!remix|edit|mix|vip|version|rework|bootleg|flip|live)[/\\\-_#]*[a-z]{0,6}[/\\\-_#\s]*\d{3,}\s*\]",
+    rf"\[\s*{_NO_VERSION}[/\\\-_#]*[a-z]{{0,6}}[/\\\-_#\s]*\d{{3,}}\s*\]",
     r"_\d{6,}\b",  # upload ids glued to titles: Title_1554143200
     r"[\(\[]\s*(?:clean|dirty|explicit)\s*[\)\]]",  # DJ-pool edition tags
     r"\s+(?:clean|dirty)(?=\s+\d{1,2}[ab]\s+\d{2,3}\s*$|\s*$)",
@@ -216,11 +225,15 @@ def identify(
     )
 
 
+_DASHES = re.compile(r"\s+[–—~]\s+")  # other dashes between artist, title and suffix ("Song ~ 'Label'")
+
+
 def _readings(name: str, has_artist: Callable[[str], bool]) -> list[str]:
     """Readings of a tag title / file name as a plain title, for comparing with the requested one:
     - with and without a leading track number ("07 ", "1-04 ", "CD-01 - ")
     - without (repeated) artist prefixes "Artist - ", 'Album - 07 - Title', reversed 'Title - Artist'
     - 'Artist_Album_13_Title'
+    - " – ", " — " and " ~ " read as " - " ("Artist – Title ~ 'Label'": video titles)
     - scene names without ' - ': "02-solo_viking-war_harangue-grp" -> "war harangue"; every dash is
       tried as the end of the artist ("a-ha-take_on_me"), and a trailing group tag or id is dropped
       only in real scene names (lower case, no spaces) or when it is a number."""
@@ -234,6 +247,7 @@ def _readings(name: str, has_artist: Callable[[str], bool]) -> list[str]:
         add(m.group(1).replace("_", " "))
     scene = bool(re.fullmatch(r"[a-z0-9_\-().&'!]+", name))
     name = name.replace("_-_", " - ").replace("_", " ") if name.count("_") > 2 else name
+    name = _DASHES.sub(" - ", name)
     for rest in (name, _strip_track_no(name)):
         add(rest)
         while " - " in rest:
@@ -262,13 +276,6 @@ def _readings(name: str, has_artist: Callable[[str], bool]) -> list[str]:
     return out
 
 
-# Words that mark another recording of a song: request and download must agree on them.
-VERSION_WORDS = {
-    "remix", "remixed", "rmx", "live", "acoustic", "instrumental", "inst", "slowed", "sped",
-    "nightcore", "reverb", "cover", "karaoke", "vip", "bootleg", "mashup", "rework", "flip",
-    "remake", "reprise", "unplugged", "demo", "acapella", "orchestral", "piano", "lofi", "8d",
-    "medley", "tribute", "dub", "megamix", "pt", "ii", "iii", "iv",
-}  # fmt: skip
 # Words that name no other recording (an edit or extended mix differs in length, which is checked)
 PLAIN_WORDS = {
     "original", "radio", "extended", "club", "album", "single", "edit", "mix", "version",
@@ -282,7 +289,7 @@ _MARKERS = VERSION_WORDS | {"mix", "edit", "version"}  # a segment with one of t
 # a segment crediting only the song's own artist with one of these ("- HIGH TEKK REMIX" by High Tekk) is the
 # song as that artist released it, where the list leaves the word out (own_credit)
 OWN_WORDS = {"remix", "remixed", "rmx", "bootleg", "rework", "flip", "remake"}
-_SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+-\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
+_SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+[-–—~]\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
 
 
 def segments(title: str | None) -> tuple[str, list[str]]:

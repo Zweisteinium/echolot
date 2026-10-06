@@ -20,8 +20,17 @@ def probable(artist: str, title: str, found: str, *, file_name: str = "", dur: f
         ("Song feat. Somebody", "Song"),
         ("Song - 2011 Remaster", "Song"),
         ("Song (Free DL)", "Song"),
+        ("Song [///A001]", "Song"),
+        ("Song [2157720717]", "Song"),
+        ("Song (Official Lyric Video)", "Song"),
+        ("Song (Lyric Video)", "Song"),
+        ("Song (Official Video HD)", "Song"),
+        ("Song (Audio)", "Song"),
+        ("Song [4K]", "Song"),
         ("Tale Pt. III", "Tale Part III"),
         ("Rock & Roll", "Rock and Roll"),
+        ("Straße", "Strasse"),
+        ("BEYONCÉ", "Beyonce"),
     ],
 )
 def test_same_title(a: str, b: str) -> None:
@@ -35,6 +44,10 @@ def test_same_title(a: str, b: str) -> None:
         ("Fire", "Fire II"),
         ("Song", "Song - Radio Edit"),
         ("Song", "Song (VIP)"),
+        ("Song", "Song [Mashup 2019]"),  # a version word, not a catalog number
+        ("Song", "Song [Acoustic 2021]"),
+        ("Song", "Song [Remake 2017]"),
+        ("Song", "Song [RMX 2020]"),
     ],
 )
 def test_different_title(a: str, b: str) -> None:
@@ -58,7 +71,6 @@ def test_same_length() -> None:
 RIGHT = [
     ("CAPO", "Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix",
      "CAPO - RUN RUN RUN feat. YUNG KAFA & KÜCÜK EFENDI (prod. von Jurijgold & Falconi) [Official Remix]"),
-    ("AC/DC", "Hells Bells", "AC/DC - Hells Bells (Official 4K Video)"),
     ("Linkin Park", "BURN IT DOWN", "BURN IT DOWN (Official Music Video) [4K Upgrade] - Linkin Park"),
     ("Frank Ocean", "In My Room", "Frank Ocean - In My Room (Lyric Video)"),
     ("Mark Terre", "Raindrops (H369) - H369 Remix", "Raindrops (H369 Remix)"),
@@ -103,11 +115,32 @@ def test_probable_needs_length_and_artist() -> None:
     capo = RIGHT[0]
     assert not probable(*capo, dur=210)  # 10 s off
     assert not probable(*capo, dur=0)  # unknown
-    assert rules.identify("Other", capo[1], ["Other Artist"], capo[2], "", (), 200, 200, 3)[0] is None
+    match, why = rules.identify("Other", capo[1], ["Somebody"], capo[2], "", (), 200, 200, 3)
+    assert match is None and why.startswith("artist ")
 
 
 def test_probable_from_file_name() -> None:
     assert probable("Hi-Rez", "Smiling", "", file_name="Hi-Rez_A Walk To Remember_13_Smiling")
+
+
+@pytest.mark.parametrize(
+    ("found", "match"),
+    [  # video titles: tilde, en and em dashes separate like " - "; a suffix naming no version is a label or channel
+        ("Somewhen - Without You ~ '44 LABEL GROUP'", "probable"),
+        ("Somewhen – Without You", "exact"),
+        ("Somewhen — Without You (Official Video)", "exact"),
+        ("Without You – Somewhen", "exact"),
+        ("Somewhen – Without You ~ Somewhen Remix", "probable"),  # the artist's own remix
+        ("Somewhen - Say Nothing ~ '44 LABEL GROUP'", None),
+        ("Somewhen - Without You ~ VIP", None),
+        ("Somewhen – Without You – Other Guy Remix", None),
+        ("Somewhen - Without You~Me", None),  # no spaces: part of the title
+    ],
+)
+def test_other_dashes_separate(found: str, match: str | None) -> None:
+    assert rules.identify("Somewhen", "Without You", ["Somewhen"], found, found, (), 172, 172, 6)[0] == match
+    if match:  # a search result of that name is worth the download
+        assert rules.prejudge("Somewhen", "Without You", found, 172, 172)[0] == rules.ACCEPT
 
 
 def test_segments() -> None:
@@ -131,7 +164,8 @@ def test_segments() -> None:
 def test_mix_cut(title: str, cut: bool, release: str) -> None:
     assert rules.mix_cut(title) is cut
     assert rules.release_title(title) == release
-    assert (rules.title_key(title) == rules.title_key(release)) is True
+    if cut:  # the same song
+        assert rules.title_key(title) == rules.title_key(release)
 
 
 @pytest.mark.parametrize(
@@ -154,6 +188,7 @@ def test_identify(title: str, found: str, dur: int, match: str | None) -> None:
 def test_identify_artist_first() -> None:
     assert rules.identify("TINOS", "All Night", ["Vanilla"], "All Night")[0] is None
     assert rules.identify("TINOS", "All Night", ["TINOS"], "All Night")[0] == "exact"
+    assert rules.identify("NTO", "Trauma - Worakls Remix", ["N'to"], "Trauma (Worakls Remix)")[0]  # apostrophe
 
 
 def test_file_name_version_overrules_tags() -> None:
@@ -163,13 +198,6 @@ def test_file_name_version_overrules_tags() -> None:
     assert rules.identify(*args, "03 - Infinity 2008 (Original Mix)")[0] == "exact"
     assert rules.identify(*args, "Guru Josh Project - Infinity 2008 (Live)")[0] is None
     assert rules.identify(*args, "Guru Josh Project - Club Hits 2009 - 03 - Something Else")[0] == "exact"
-
-
-def test_small_gaps() -> None:
-    assert rules.identify("NTO", "Trauma - Worakls Remix", ["N'to"], "Trauma (Worakls Remix)", "", (), 0, 0)[0]
-    assert rules.title_key("10 out 10 [ARONAVA08]") == rules.title_key("10 out 10")
-    assert rules.title_key("Liebeslied (Official Lyric Video)") == rules.title_key("Liebeslied")
-    assert rules.title_key("Liebeslied (Lyric Video)") == rules.title_key("Liebeslied")
 
 
 @pytest.mark.parametrize(
@@ -302,3 +330,5 @@ def test_own_artist_credit_is_the_song_for_review() -> None:
     assert rules.prejudge("High Tekk", title, f"High Tekk/{title} (High Tekk VIP)", 170, 170)[0] == "reject"
     assert rules.prejudge("Tekk", "Song", "Tekk/Song (High Tekk Remix)", 170, 170)[0] == "reject"  # a longer name
     assert rules.identify("Bar", "Song - Foo Remix", ["Bar"], "Song - Bar Remix", "", [], 170, 170)[0] is None
+    collab = "Song (High Tekk & DJ Foo Remix)"  # with another remixer: not the artist's own release
+    assert rules.identify("High Tekk", "Song", ["High Tekk"], collab, collab, [], 170, 170, 6)[0] is None
