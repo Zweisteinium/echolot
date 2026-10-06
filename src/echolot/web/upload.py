@@ -27,6 +27,13 @@ def _songs(request: Request, con: DB) -> dict[str, object]:
     return {s["key"]: s for s in stats.upload_songs(con, stats.scope(request.state.user))}
 
 
+def _song(request: Request, con: DB, key: str) -> object | None:
+    if not key:
+        return None
+    found = stats.upload_songs(con, stats.scope(request.state.user), key)
+    return found[0] if found else None
+
+
 def _batch(request: Request, batch: str) -> list[upload.File]:
     try:
         found = upload.files(_paths(request), batch)
@@ -39,9 +46,9 @@ def _batch(request: Request, batch: str) -> list[upload.File]:
 
 @router.get("/missing/upload", response_class=HTMLResponse)
 def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
-    """The dialog's first step: pick files (for one song, or any of yours: missing ones, better copies)."""
-    songs = _songs(request, con)
-    return page(request, "_upload.html", step="pick", song=songs.get(song))
+    """The dialog's first step: pick files (for one song, or any of yours: missing ones, better copies). Only
+    that song is looked up: all of them are needed once files are there."""
+    return page(request, "_upload.html", step="pick", song=_song(request, con, song))
 
 
 @router.post("/missing/upload", response_class=HTMLResponse)
