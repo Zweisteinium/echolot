@@ -18,6 +18,7 @@
     {% if user %}
     <nav>
       <a href="/" data-label="Overview" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="/discover" data-label="Discover" {% if nav == 'discover' %}aria-current="page"{% endif %}>Discover</a>
       <a href="/sources" data-label="Sources" {% if nav == 'sources' %}aria-current="page"{% endif %}>Sources</a>
       <a href="/missing" data-label="Missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
       {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}

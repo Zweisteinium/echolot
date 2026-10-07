@@ -1,0 +1,31 @@
+{% from "_icons.html" import icon %}{% from "_macros.html" import quality %}
+{% if q and q|length < 2 %}
+<p class="muted small">A little more, please.</p>
+{% elif q and not results and not failed %}
+<p class="muted">Nothing found for “{{ q }}”.</p>
+{% elif results %}
+<p class="muted small discover-meta">{{ results|length }} song{{ 's' if results|length != 1 }} · {{ '%.1f'|format(seconds) }} s{% for name, why in failed.items() %} · <span class="warn-text" title="{{ why }}">{{ names[name] }} did not answer</span>{% endfor %}</p>
+<ol class="discover-list">
+  {% for r in results %}
+  {% set mine = have.get(loop.index0) %}
+  <li class="discover-item{{ ' in-library' if mine }}">
+    <div class="discover-cover">{% if r.cover %}<img src="{{ r.cover }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}{{ icon('songs', 22) }}{% endif %}
+      {% if r.preview %}<button type="button" class="discover-play" data-preview="{{ r.preview }}" title="Play a 30 s preview" aria-label="Play a preview of {{ r.artist }} – {{ r.title }}"><span class="when-paused">{{ icon('play', 18) }}</span><span class="when-playing">{{ icon('pause', 18) }}</span></button>{% endif %}
+    </div>
+    <div class="discover-body">
+      <div class="discover-title">{{ r.title }}</div>
+      <div class="muted small">{{ r.artist }}{% if r.album and r.album != r.title %} · {{ r.album }}{% endif %}{% if r.year %} · {{ r.year }}{% endif %}</div>
+    </div>
+    <div class="discover-facts">
+      {% if mine %}<span class="pill ok-pill" title="{{ mine.path }}">In your library</span>{{ quality(mine.quality, mine.kbps) }}{% endif %}
+      <span class="num muted small">{{ r.seconds|mmss if r.seconds else '' }}</span>
+      <span class="discover-sources">{% for h in r.sources %}<a href="{{ h.url }}" target="_blank" rel="noopener" title="{{ names[h.source] }}{{ ': ' ~ h.artist ~ ' – ' ~ h.title if h.title != r.title or h.artist != r.artist else '' }}" aria-label="{{ names[h.source] }}">{{ icon(h.source, 15) }}</a>{% endfor %}</span>
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+{% elif failed %}
+<p class="warn-text">{% for name, why in failed.items() %}{{ names[name] }}: {{ why }}{{ '; ' if not loop.last }}{% endfor %}</p>
+{% else %}
+<p class="muted small discover-hint">{{ icon('deezer', 15) }} {{ icon('apple', 15) }} {{ icon('soundcloud', 15) }} &nbsp;Type an artist or a song.</p>
+{% endif %}

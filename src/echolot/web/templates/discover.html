@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Discover · Echolot{% endblock %}
+{% block content %}
+<section class="card discover">
+  <h1>Discover</h1>
+  <p class="muted">Search new songs in Deezer, Apple Music and SoundCloud at once. One release found in several places shows once, with each place it came from.</p>
+  <form method="get" action="/discover" class="discover-search" role="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Artist, title, or both" aria-label="Search songs" autocomplete="off" autofocus
+           hx-get="/discover/results" hx-trigger="input changed delay:450ms, search" hx-target="#discover-results" hx-sync="this:replace" hx-indicator=".discover-search"
+           hx-push-url="false">
+    <span class="spinner" aria-hidden="true"></span>
+  </form>
+  <div id="discover-results" aria-live="polite">{% include "_discover_results.html" %}</div>
+</section>
+<script>
+  // one player for the page: ▶ plays a song's preview (again: pauses), the button shows which is playing
+  (() => {
+    const player = new Audio();
+    let playing = null;
+    const show = () => document.querySelectorAll("[data-preview]").forEach((b) => b.classList.toggle("playing", b === playing && !player.paused));
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-preview]");
+      if (!b) return;
+      if (b === playing && !player.paused) { player.pause(); return; }
+      if (b !== playing) { player.src = b.dataset.preview; playing = b; }
+      player.play();
+    });
+    for (const ev of ["play", "pause", "ended"]) player.addEventListener(ev, show);
+    document.addEventListener("htmx:beforeSwap", () => { player.pause(); playing = null; });
+  })();
+</script>
+{% endblock %}

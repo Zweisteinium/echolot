@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev, "feat/**", "fix/**"] # releases come from main only (job meta)
+    branches: [main, dev, "feat/**", "feature/**", "fix/**"] # releases come from main only (job meta)
   pull_request:
   workflow_dispatch: # a branch's image on both platforms, without a release
 
