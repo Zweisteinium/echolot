@@ -21,7 +21,7 @@ AUDIO = Path(__file__).parent / "fixtures" / "audio"
 def no_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
     """The check before a file is shown (audio.prepare runs ffmpeg): audio passes as it is, text does not."""
 
-    def prepare(path: Path) -> audio.Prepared:
+    def prepare(path: Path, keep_hires: bool = False) -> audio.Prepared:
         if path.suffix == ".txt":
             path.unlink()
             raise audio.Rejected("codec 'none' in a .txt file")

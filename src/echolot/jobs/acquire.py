@@ -123,6 +123,7 @@ class Fetcher:
         con = run.connect()
         try:
             self.opts = options.get(con, options.Soulseek)
+            self.keep_hires = options.get(con, options.Files).keep_hires
             if self.opts.backend == "slskd":  # downloads go to <slskd's downloads>/echolot/<name>
                 self.daemon: soulseek.Daemon | slskd.Slskd = slskd.connect(con, run.vault, self.opts)
                 self.local_inbox, self.daemon_inbox = Path(self.opts.slskd_downloads) / "echolot", "echolot"
@@ -206,7 +207,7 @@ class Fetcher:
             if t.state != "done" or not t.path:
                 return Outcome("failed", t.reason)
             try:
-                prepared = audio.prepare(self.local(t.path))
+                prepared = audio.prepare(self.local(t.path), self.keep_hires)
             except audio.Rejected as e:
                 return Outcome("bad file", str(e))
             con = self.run.connect()
@@ -690,7 +691,7 @@ def _fallback_song(
         if not got:
             return "download failed", error
         try:
-            prepared = audio.prepare(got)
+            prepared = audio.prepare(got, options.get(con, options.Files).keep_hires)
         except audio.Rejected as e:
             return "bad file", str(e)
         source = "youtube" if site == "youtube" else "soundcloud-search"

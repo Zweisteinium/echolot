@@ -27,7 +27,7 @@ from echolot.library.filing import Want
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify, ytdlp
 from echolot.services import youtube as youtube_api
-from echolot.settings import sources
+from echolot.settings import options, sources
 from echolot.settings.sources import Source
 
 if TYPE_CHECKING:
@@ -596,8 +596,13 @@ def _names(con: sqlite3.Connection, uploader: str, artist: str, title: str) -> t
 def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
     """File one SoundCloud download (its title often holds the artist: _names)."""
     key = f"soundcloud:{d['id']}"
+    con = run.connect()
     try:
-        prepared = audio.prepare(Path(d["path"]))
+        keep_hires = options.get(con, options.Files).keep_hires
+    finally:
+        con.close()
+    try:
+        prepared = audio.prepare(Path(d["path"]), keep_hires)
     except audio.Rejected as e:
         log.warning("soundcloud %s: %s", key, e)
         return 0

@@ -295,13 +295,15 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
         "fallback": "0",
         "upgrade": "13:00; sat 10:00",
         "parallel": "3",
+        "keep_hires": "1",
     }
     response = client.post("/settings", data=form)
     assert "Settings saved" in response.text
     con = db.connect(settings.db_path)
     rules = schedule.rules(con)
+    kept = options.get(con, options.Files).keep_hires
     con.close()
-    assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (20, None, ["13:00", "sat 10:00"])
+    assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (20, None, ["13:00", "sat 10:00"]) and kept
     assert 'value="3"' in client.get("/settings").text
     bad = client.post("/settings", data=form | {"fallback": "2"})
     assert "at least 60" in bad.text

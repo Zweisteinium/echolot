@@ -48,6 +48,11 @@ class Navidrome(Section):
         return v
 
 
+class Files(Section):
+    SECTION = "files"
+    keep_hires: bool = Field(False, description="hi-res FLAC (above 48 kHz) stays (else 44.1/48 kHz, 24 bit)")
+
+
 class Jobs(Section):
     SECTION = "jobs"
     paused: bool = Field(False, description="no job starts; running ones end after their songs in progress")
@@ -73,7 +78,7 @@ class Soulseek(Section):
     stall_minutes: int = Field(10, ge=2, le=120, description="a download without progress this long is given up")
 
 
-SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Navidrome, Jobs, Spotify, Soulseek]
+SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Navidrome, Files, Jobs, Spotify, Soulseek]
 BY_NAME = {s.SECTION: s for s in SECTIONS}
 
 
