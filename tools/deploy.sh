@@ -62,7 +62,10 @@ if [ -n "$(git -C src status --porcelain)" ]; then
     echo "src/ has changes of its own: commit or discard them first" >&2
     exit 1
 fi
-was=$(git -C src rev-parse --short HEAD)
+was=?  # the commit that runs now (the image's, as /healthz reports it)
+if [ -n "$container" ]; then
+    was=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^ECHOLOT_COMMIT=//p')
+fi
 git -C src fetch -q origin
 if [ -n "${ONLY_BRANCH:-}" ]; then
     git -C src checkout -q "$target"
