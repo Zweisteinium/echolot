@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,7 +26,7 @@ from echolot import db
 from echolot.config import Settings
 from echolot.jobs import acquire, availability, covers, lists, schedule
 from echolot.library import catalog, filing, history, playlists, recordings, review
-from echolot.services import navidrome, soulseek
+from echolot.services import navidrome, slskd, soulseek
 from echolot.settings import auth, options, sources
 from echolot.settings.vault import Vault
 
@@ -99,7 +100,7 @@ class Run:
 
 def upkeep(run: Run) -> str:
     """Apply due review decisions, merge YouTube songs' other edits of library songs (recordings.merge_edits),
-    rescan the library, write the playlists, store the hourly snapshot,
+    rescan the library, write the playlists, have slskd rescan its share (_reshare), store the hourly snapshot,
     renew the users from Navidrome's user list (admins, accounts gone) and, once a day, empty the
     replaced/ and review/ days older than 30 days."""
     con = run.connect()
@@ -124,6 +125,8 @@ def upkeep(run: Run) -> str:
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
         parts.append(playlists.write(con, run.paths.playlists))
+        if reshared := _reshare(run, con):
+            parts.append(reshared)
         if svc := navidrome.service(con, run.vault):  # each user's playlists theirs in Navidrome
             try:
                 if owners := playlists.sync_owners(con, svc, run.paths.playlists):
@@ -143,6 +146,32 @@ def upkeep(run: Run) -> str:
         return "; ".join(parts)
     finally:
         con.close()
+
+
+RESHARE_SECONDS = 3600  # slskd's share is scanned again at most this often
+
+
+def _reshare(run: Run, con: sqlite3.Connection) -> str:
+    """slskd shares the library (it seeds what Echolot fetched) but scans it only at its start: once the
+    library changed since its last scan, it is asked to scan again (at most every RESHARE_SECONDS), so it
+    offers the new files and no longer the old names of upgraded ones (their downloads fail)."""
+    if not run.vault.get(con, slskd.SECRET):
+        return ""  # no slskd set up
+    state = "{}:{}".format(*con.execute("SELECT count(*), coalesce(max(mtime), 0) FROM files").fetchone())
+    last = float(db.get_meta(con, "shares_scanned", "0") or 0)
+    if state == db.get_meta(con, "shares_state") or time.time() - last < RESHARE_SECONDS:
+        return ""
+    try:
+        client = slskd.connect(con, run.vault, options.get(con, options.Soulseek), timeout=15)
+        if not client.rescan_shares():
+            return ""
+    except soulseek.DaemonError as e:  # (not running, another address: the next upkeep asks again)
+        log.info("slskd's share: %s", e)
+        return ""
+    with con:
+        db.set_meta(con, "shares_state", state)
+        db.set_meta(con, "shares_scanned", str(time.time()))
+    return "slskd scans its share again"
 
 
 FUNCTIONS: dict[str, Callable[[Run], str]] = {
