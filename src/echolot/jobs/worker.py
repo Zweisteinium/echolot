@@ -120,6 +120,9 @@ def upkeep(run: Run) -> str:
         if merged := recordings.merge_edits(con, run.paths):  # a YouTube song's other edit of a library song
             parts.append(f"other edits: {'; '.join(merged)}")
         parts.append(catalog.refresh(con, run.paths.tracks))
+        if linked := recordings.link_isrc(con, run.paths):  # a twin of a song just found (recordings.twins)
+            catalog.match_songs(con)
+            parts.append(f"{linked} linked by ISRC")
         parts.append(playlists.write(con, run.paths.playlists))
         if svc := navidrome.service(con, run.vault):  # each user's playlists theirs in Navidrome
             try:

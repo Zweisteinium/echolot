@@ -519,6 +519,33 @@ def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
     assert acquire.search_new(run) == "no new songs"
 
 
+def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run) -> None:
+    """Spotify lists one release twice (two track ids, one ISRC): the one searched before stands for both,
+    on the Missing page with both places; once it is filed, the library job links its twin to the file."""
+    from echolot.jobs import worker
+    from echolot.web import stats
+
+    add_missing(run, "spotify:b", "Rebirth", tries=2)
+    add_missing(run, "spotify:a", "Rebirth")
+    con = run.connect()
+    with con:
+        con.execute("UPDATE songs SET isrc = 'HKG732264755' WHERE key = 'spotify:a'")
+        con.execute("UPDATE songs SET isrc = 'HK-G73-22-64755' WHERE key = 'spotify:b'")
+    assert [r["key"] for r in missing(run) if r["title"] == "Rebirth"] == ["spotify:b"]  # searched before
+    shown = [r for r in stats.missing(con) if r["title"] == "Rebirth"]
+    assert [r["key"] for r in shown] == ["spotify:b"] and shown[0]["in_lists"].count("#") == 2
+    con.close()
+    FakeDaemon.files["Rebirth"] = [("u1", "Music\\Artist N\\Artist N - Rebirth.flac", 200, "ok")]
+    run.trigger = "manual"
+    acquire.sweep(run)
+    assert [s[1] for s in FakeDaemon.searches].count("Rebirth") == 1
+    worker.upkeep(run)
+    con = run.connect()
+    files = {r[0] for r in con.execute("SELECT file FROM songs WHERE key IN ('spotify:a', 'spotify:b')")}
+    con.close()
+    assert files == {"Artist N/Artist N - Rebirth.flac"}
+
+
 def test_the_evening_search_takes_each_song_daily_then_weekly(run: Run) -> None:
     now = int(time.time())
     add_missing(run, "spotify:recent", "Recent Song", tries=1, last_try=now - 3600)  # searched an hour ago
