@@ -41,6 +41,11 @@ def deezer(query: str, limit: int = 20) -> list[Hit]:
     return out
 
 
+def track_preview(track_id: str) -> str:
+    """A Deezer track's preview address as of now (the ones in a search answer expire)."""
+    return _get(f"https://api.deezer.com/track/{urllib.parse.quote(track_id)}").get("preview") or ""
+
+
 def apple(query: str, country: str = "US", limit: int = 20) -> list[Hit]:
     q = urllib.parse.urlencode({"term": query, "media": "music", "entity": "song", "limit": limit, "country": country})
     out = []

@@ -2,7 +2,8 @@
 
 The accounts are Navidrome's: the login form's name and password go to Navidrome (services/navidrome);
 Echolot keeps no password (settings/auth). Every request needs a session or a token, except /healthz,
-the login page, the static files and, when the metrics setting allows it, /metrics. A session's
+the login page, the static files, the players' Subsonic calls under /rest (Navidrome's login, checked by
+web/subsonic) and, when the metrics setting allows it, /metrics. A session's
 changing requests (POST, PUT, ...) also need its CSRF token: the csrf_token form field or the
 X-CSRF-Token header (htmx sends it for every request).
 
@@ -81,7 +82,7 @@ def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
     con = db.connect(request.app.state.settings.db_path)
     try:
         path = request.url.path
-        public = path in PUBLIC or path.startswith("/static/")
+        public = path in PUBLIC or path.startswith(("/static/", "/rest/"))
         if path == "/metrics":
             public = options.get(con, options.Metrics).public
         header = request.headers.get("authorization", "")

@@ -1,9 +1,10 @@
 """A song search over several catalogues at once (Deezer, Apple Music, SoundCloud): their hits merged into
-one list, best first. The same release from several sources is one result that names them all: the same
-artist (any of its keys) and the same title key (rules.title_key: noise like "(Original Mix)" goes,
+one list, best first. The same release from several sources is one result that names them all: an artist
+in common (a source may name only the main one of several) and the same title key (rules.title_key: noise like "(Original Mix)" goes,
 versions like "Remix" or "Extended" stay) at a length within LENGTH seconds. A result ranks by where each
 source placed it and by how many sources suggest it."""
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -13,6 +14,9 @@ LENGTH = 3.0  # s: two hits of one song may differ this much (a fade, a silent s
 SOURCES = ("deezer", "apple", "soundcloud")  # the order their icons are shown in
 WEIGHT = {"deezer": 1.0, "apple": 0.9, "soundcloud": 0.85}  # how much a top place counts per source
 TOGETHER = 0.6  # the bonus per further source that suggests the same song
+LONGEST = 20 * 60  # s: a longer upload is a DJ mix or a whole album, no song
+INVISIBLE = "\u2800\u200b\u200c\u200d\u2060\ufeff"  # blanks some uploads pad names with
+ARTISTS = re.compile(r"\s*[,;/]\s*|\s+(?:&|and|x|feat\.?|ft\.?|featuring|vs\.?|with)\s+", re.I)
 
 
 @dataclass
@@ -30,9 +34,13 @@ class Hit:
     cover: str = ""
     year: str = ""
 
+    def __post_init__(self) -> None:
+        self.artist, self.title = (" ".join(v.strip(INVISIBLE).split()) for v in (self.artist, self.title))
+
     @property
     def akeys(self) -> set[str]:
-        return rules.artist_keys(self.artist)
+        """The full name's key and each artist's ("1luu, Happysadgirl & Aexhy": four keys)."""
+        return rules.artist_keys(self.artist) | {k for a in ARTISTS.split(self.artist) if (k := rules.artist_key(a))}
 
     @property
     def tkey(self) -> str:
@@ -98,7 +106,8 @@ def merge(hits: Iterable[Hit]) -> list[Result]:
     """The hits as songs, best first. A hit joins the first result it is the same song as; the result's
     names are its best-placed hit's (a catalogue's tidy names before an uploader's)."""
     results: list[Result] = []
-    for hit in sorted(hits, key=lambda h: (h.position, SOURCES.index(h.source) if h.source in SOURCES else 9)):
+    songs = [h for h in hits if h.seconds <= LONGEST]
+    for hit in sorted(songs, key=lambda h: (h.position, SOURCES.index(h.source) if h.source in SOURCES else 9)):
         home = next((r for r in results if any(same(hit, h) for h in r.hits)), None)
         if home is None:
             results.append(Result([hit]))
