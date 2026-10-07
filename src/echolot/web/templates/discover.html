@@ -15,8 +15,8 @@
 </section>
 {% if liked %}
 <section class="card discover">
-  <h2>Liked in your player</h2>
-  <p class="muted small">Hearts in Feishin or another player on songs the library doesn't have yet.</p>
+  <h2>Wished</h2>
+  <p class="muted small">Songs you hearted in Feishin or another player while the library didn't have them. Echolot fetches them into your playlist “Echolot · Wished”.</p>
   <ol class="discover-list">
     {% for s in liked %}
     <li class="discover-item">
@@ -26,6 +26,7 @@
         <div class="muted small">{{ s.artist }}{% if s.album and s.album != s.title %} · {{ s.album }}{% endif %}{% if s.year %} · {{ s.year }}{% endif %}</div>
       </div>
       <div class="discover-facts">
+        {% if s.file %}<span class="pill ok-pill" title="{{ s.file }}">In your library</span>{% else %}<span class="pill">On its way</span>{% endif %}
         <span class="muted small" title="{{ s.liked }}">{{ s.liked|ago }}</span>
         <span class="num muted small">{{ s.seconds|mmss if s.seconds else '' }}</span>
         <span class="discover-sources">{% for h in s.hits %}<a href="{{ h.url }}" target="_blank" rel="noopener" title="{{ names[h.source] }}" aria-label="{{ names[h.source] }}">{{ icon(h.source, 15) }}</a>{% endfor %}</span>

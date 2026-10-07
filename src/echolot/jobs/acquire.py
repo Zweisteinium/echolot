@@ -314,11 +314,11 @@ def _download(url: str) -> bytes:
 # ---------------------------------------------------------------- the jobs
 
 
-SEARCHED = "s.service IN ('spotify', 'youtube')"  # the songs searched for (SoundCloud's are downloaded)
+SEARCHED = "s.service IN ('spotify', 'youtube', 'discover')"  # the songs searched for (SoundCloud's: downloaded)
 
 
 def _missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Wanted Spotify and YouTube songs not in the library, greyed-out ones first (most at risk); one song
+    """Wanted Spotify, YouTube and Discover songs not in the library, greyed-out ones first (most at risk); one song
     per recording (recordings.twins)."""
     rows = con.execute(
         "SELECT s.*, coalesce(a.tries, 0) AS tries, coalesce(a.last_try, 0) AS last_try FROM wanted s "

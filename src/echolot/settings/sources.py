@@ -26,6 +26,8 @@ SERVICES = ("spotify", "soundcloud", "youtube")
 TOP_LEVEL = {*SERVICES, "removed_playlists"}  # removed_playlists: of old files, ignored
 ENTRY_KEYS = {"url", "title", "playlist"}
 LIKES = {"Spotify Liked Songs", "SoundCloud Likes"}  # the likes lists' names
+WISHED = "discover"  # a user's hearts in a player on songs the library lacked (web/subsonic): Echolot's own
+WISHED_TITLE = "Echolot · Wished"  # list, kept out of the configuration (as_config, replace_rows)
 
 
 def slug(name: str) -> str:
@@ -244,8 +246,32 @@ def _options(r: sqlite3.Row) -> dict[str, Any]:
 
 
 def _rows(con: sqlite3.Connection, user_id: int | None) -> list[sqlite3.Row]:
-    sql = "SELECT * FROM sources WHERE user_id IS ? ORDER BY position, key"
-    return con.execute(sql, (user_id,)).fetchall()
+    sql = "SELECT * FROM sources WHERE user_id IS ? AND service != ? ORDER BY position, key"
+    return con.execute(sql, (user_id, WISHED)).fetchall()
+
+
+def wished_key(user_id: int) -> str:
+    return f"discover:wished:{user_id}"
+
+
+def wished(con: sqlite3.Connection, user_id: int | None) -> list[Source]:
+    """The user's Wished list once they hearted a song in a player (add_wished)."""
+    if (
+        user_id is None
+        or not con.execute("SELECT 1 FROM sources WHERE user_id = ? AND service = ?", (user_id, WISHED)).fetchone()
+    ):
+        return []
+    return [Source(wished_key(user_id), "echolot-wished", WISHED, "/discover", WISHED_TITLE, True, user_id)]
+
+
+def add_wished(con: sqlite3.Connection, user_id: int) -> Source:
+    """The user's Wished list, made at their first heart (no commit)."""
+    con.execute(
+        "INSERT OR IGNORE INTO sources (user_id, key, service, likes, url, title, playlist, enabled, position, "
+        "added) VALUES (?, ?, ?, 1, '/discover', NULL, 1, 1, 1000000, ?)",
+        (user_id, wished_key(user_id), WISHED, _now()),
+    )
+    return wished(con, user_id)[0]
 
 
 def soundcloud_user(con: sqlite3.Connection, user_id: int | None) -> str:
@@ -289,7 +315,7 @@ def owners(con: sqlite3.Connection) -> list[int | None]:
 
 def user_lists(con: sqlite3.Connection, user_id: int | None) -> list[Source]:
     """A user's lists in order, with their keys and names (None: the lists nobody owns yet)."""
-    return derive(as_config(con, user_id), user_id)
+    return derive(as_config(con, user_id), user_id) + wished(con, user_id)
 
 
 def lists(con: sqlite3.Connection) -> list[Source]:
@@ -364,7 +390,7 @@ def replace_rows(con: sqlite3.Connection, data: dict[str, Any], user_id: int | N
             _, canonical = parse_url(e["url"])
             playlist = int(e.get("playlist", True) is not False)
             rows.append((_key(service, canonical), service, 0, canonical, e.get("title") or None, playlist, 1))
-    con.execute("DELETE FROM sources WHERE user_id IS ?", (user_id,))
+    con.execute("DELETE FROM sources WHERE user_id IS ? AND service != ?", (user_id, WISHED))
     for n, row in enumerate(rows):
         _insert(con, user_id, row, n)
     sc = str((data.get("soundcloud") or {}).get("user") or "").strip().strip("/")

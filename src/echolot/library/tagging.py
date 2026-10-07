@@ -85,7 +85,7 @@ def clean_title(title: str, artist: str) -> str:
     return t or title
 
 
-NAMED = ("spotify", "youtube", "soundcloud")  # whose names a file takes first (Spotify's, YouTube Music's)
+NAMED = ("spotify", "youtube", "discover", "soundcloud")  # whose names a file takes first (Spotify's, ...)
 
 
 def page(song: sqlite3.Row) -> str:

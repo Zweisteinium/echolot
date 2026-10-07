@@ -14,6 +14,7 @@ A player's login (u with t and s, or p) is Navidrome's: Echolot passes it on to 
 password. Answers are JSON (f=json, as Feishin and most players ask) or else XML."""
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -29,10 +30,11 @@ from typing import Any
 from xml.sax.saxutils import quoteattr
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from echolot import __version__, db
+from echolot.jobs import lists
 from echolot.library import catalog, discover
 from echolot.services import catalogs, navidrome, ytdlp
 from echolot.services import soundcloud as sc_api
@@ -190,10 +192,41 @@ def _plays(song: dict[str, Any]) -> tuple[str, str, float]:
     return "", "", 0
 
 
-def _entry(sid: str, song: dict[str, Any], starred: str | None) -> dict[str, Any]:
-    """The song as Subsonic describes one (the fields players expect of Navidrome's)."""
+STATES = {  # a Discover song for a user: what its artist line adds and its album says first
+    "new": "♥ to add",  # not liked: a heart fetches it
+    "wished": "on its way",  # liked, not in the library yet
+    "here": "in your library",  # liked and fetched
+}
+
+
+def _state(con: sqlite3.Connection, user: auth.User | None, sid: str) -> str:
+    if (
+        not user
+        or not con.execute("SELECT 1 FROM discover_likes WHERE user_id = ? AND song_id = ?", (user.id, sid)).fetchone()
+    ):
+        return "new"
+    row = con.execute("SELECT file FROM songs WHERE key = ?", (song_key(sid),)).fetchone()
+    return "here" if row and row[0] else "wished"
+
+
+def song_key(sid: str) -> str:
+    """The songs row a liked Discover song is wanted as."""
+    return "discover:" + sid.removeprefix(PREFIX)
+
+
+def _base(sid: str) -> str:
+    """The song's id without the cover's state ("ex-…~wished": a new state is a new picture for the player)."""
+    return sid.split("~", 1)[0]
+
+
+def _entry(sid: str, song: dict[str, Any], state: str, starred: str | None) -> dict[str, Any]:
+    """The song as Subsonic describes one (the fields players expect of Navidrome's). The artist line and the
+    album tell what it is (a player shows no more): "Icona Pop · ♥ to add", "♥ to add · Deezer · 30 s preview";
+    the cover has a badge (see _cover)."""
     kind, _, seconds = _plays(song)
     names = ", ".join(discover_page.NAMES.get(h["source"], h["source"]) for h in song["hits"])
+    line = f"{song['artist']} · {STATES[state]}"
+    album = " · ".join([STATES[state].capitalize() if state != "new" else STATES[state], names])
     out: dict[str, Any] = {
         "id": sid,
         "parent": "discover",
@@ -202,11 +235,11 @@ def _entry(sid: str, song: dict[str, Any], starred: str | None) -> dict[str, Any
         "type": "music",
         "mediaType": "song",
         "title": song["title"],
-        "artist": song["artist"],
-        "displayArtist": song["artist"],
-        "album": f"Discover · {names}" + (" · 30 s preview" if kind == "preview" else ""),
+        "artist": line,
+        "displayArtist": line,
+        "album": album + (" · 30 s preview" if kind == "preview" else ""),
         "albumArtists": [],
-        "artists": [],
+        "artists": [{"id": f"{PREFIX}artist", "name": line}],
         "duration": round(seconds),
         "contentType": "audio/mpeg",
         "suffix": "mp3",
@@ -216,8 +249,7 @@ def _entry(sid: str, song: dict[str, Any], starred: str | None) -> dict[str, Any
         "path": f"Discover/{song['artist']} - {song['title']}.mp3",
         "created": _now(),
     }
-    if song["cover"]:
-        out["coverArt"] = sid
+    out["coverArt"] = f"{sid}~{state}"
     if song["year"].isdigit():
         out["year"] = int(song["year"])
     if starred:
@@ -255,7 +287,7 @@ def _found(request: Request, con: sqlite3.Connection, query: str, user: auth.Use
             "ON CONFLICT (id) DO UPDATE SET data = excluded.data, seen = excluded.seen",
             (sid, json.dumps(song), now),
         )
-        out.append(_entry(sid, song, liked.get(sid)))
+        out.append(_entry(sid, song, _state(con, user, sid), liked.get(sid)))
     old = (datetime.now() - timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
     con.execute("DELETE FROM discover_songs WHERE seen < ? AND id NOT IN (SELECT song_id FROM discover_likes)", (old,))
     con.commit()
@@ -292,7 +324,7 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
     """Every call but search3: an answer, or for a stream ('stream', song, its id)."""
     con = db.connect(request.app.state.settings.db_path)
     try:
-        ids = [v for k, v in params if k in ("id", "mediaId") and v.startswith(PREFIX)]
+        ids = [_base(v) for k, v in params if k in ("id", "mediaId") and v.startswith(PREFIX)]
         if not ids:
             return _pass_on(con, f"{method}.view", params)
         user = _user(con, params)
@@ -307,17 +339,22 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
                 if (song := _song(con, sid)) is None:
                     return _answer(params, error=NOT_FOUND)
                 _like(con, user, sid, song, method == "star")
+            _wish(request, con, user)
             return _pass_on(con, f"{method}.view", rest) if others else _answer(params)
         if method in ("scrobble", "reportPlayback"):  # not the library's: nothing to count
             return _pass_on(con, f"{method}.view", rest) if others and method == "scrobble" else _answer(params)
         song = _song(con, ids[0])
         if song is None:
             return _answer(params, error=NOT_FOUND)
+        who = user if isinstance(user, auth.User) else None
         if method == "getSong":
-            starred = _likes(con, user if isinstance(user, auth.User) else None).get(ids[0])
-            return _answer(params, {"song": _entry(ids[0], song, starred)})
-        if method == "getCoverArt":
-            return RedirectResponse(song["cover"], 302) if song["cover"] else _answer(params, error=NOT_FOUND)
+            starred = _likes(con, who).get(ids[0])
+            return _answer(params, {"song": _entry(ids[0], song, _state(con, who, ids[0]), starred)})
+        if method == "getCoverArt":  # (an id without the state: the state as of now, not kept by the browser)
+            state = next((v for k, v in params if k == "id"), "").partition("~")[2]
+            if state in STATES:
+                return _cover(song, state, 86400)
+            return _cover(song, _state(con, who, ids[0]), 0)
         if method in ("stream", "download"):
             return "stream", song, ids[0]
         return _answer(params, error=(0, "Echolot has not got this song yet."))
@@ -326,6 +363,15 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
 
 
 def _like(con: sqlite3.Connection, user: auth.User, sid: str, song: dict[str, Any], liked: bool) -> None:
+    if liked and "isrc" not in song:  # the recording's code (Deezer's): the audio check compares with its preview
+        song["isrc"] = ""
+        deezer = next((h["url"] for h in song["hits"] if h["source"] == "deezer"), "")
+        if (track := deezer.rstrip("/").rsplit("/", 1)[-1]).isdigit():
+            try:
+                song["isrc"] = catalogs.track(track).get("isrc") or ""
+            except catalogs.CatalogError as e:
+                log.info("Deezer's ISRC of %s – %s: %s", song["artist"], song["title"], e)
+        con.execute("UPDATE discover_songs SET data = ? WHERE id = ?", (json.dumps(song), sid))
     if liked:
         con.execute(
             "INSERT OR IGNORE INTO discover_likes (user_id, song_id, liked) VALUES (?, ?, ?)", (user.id, sid, _now())
@@ -340,6 +386,110 @@ def _like(con: sqlite3.Connection, user: auth.User, sid: str, song: dict[str, An
         song["artist"],
         song["title"],
     )
+
+
+def _wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
+    """The user's Wished list as their hearts are now (jobs/lists.store_wished), and its songs searched at once
+    (search_new: the songs never searched) and the playlist written (library)."""
+    rows = con.execute(
+        "SELECT s.id, s.data FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id WHERE l.user_id = ? "
+        "ORDER BY l.liked DESC, s.id",
+        (user.id,),
+    )
+    songs = []
+    for sid, data in rows:
+        d = json.loads(data)
+        pages = [h["url"] for h in sorted(d["hits"], key=lambda h: h["source"] != "soundcloud") if h["url"]]
+        songs.append((song_key(sid), {**d, "url": pages[0] if pages else ""}))
+    lists.store_wished(con, user.id, songs)
+    for job in ("search_new", "library"):
+        request.app.state.worker.trigger(job)
+
+
+@router.get("/rest/navidrome/song/{sid}")
+def native_song(request: Request, sid: str) -> Response:
+    """GET /api/song/<ex- id> of Navidrome's own API (the gate sends it here): Feishin in Navidrome mode asks
+    it for the song that starts playing, and shows what it answers. The login is Navidrome's token."""
+    con = db.connect(request.app.state.settings.db_path)
+    try:
+        name = _token_user(con, request.headers.get("x-nd-authorization", ""))
+        if name is None:
+            return JSONResponse({"error": "Not authenticated"}, 401)
+        song, user = _song(con, _base(sid)), auth.get_user(con, name)
+        if song is None:
+            return JSONResponse({"error": "data not found"}, 404)
+        return JSONResponse(_native(_base(sid), song, _state(con, user, _base(sid)), _likes(con, user)))
+    except navidrome.NavidromeError as e:
+        log.warning("player call song: %s", e)
+        return JSONResponse({"error": "Navidrome is not reachable"}, 502)
+    finally:
+        con.close()
+
+
+def _token_user(con: sqlite3.Connection, header: str) -> str | None:
+    """Whose Navidrome token it is ("Bearer <JWT>"), if Navidrome takes it: its user name (the token's sub)."""
+    token = header.removeprefix("Bearer ").strip()
+    try:
+        part = token.split(".")[1]
+        name = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))["sub"]
+    except (IndexError, ValueError, KeyError, TypeError):
+        return None
+    key = hashlib.sha256(token.encode()).hexdigest()
+    with _lock:
+        fresh = time.monotonic() - _checked.get(key, -CHECK_SECONDS) < CHECK_SECONDS
+    if not fresh:
+        request = urllib.request.Request(
+            f"{navidrome.address(con)}/api/song?_start=0&_end=1", headers={"X-ND-Authorization": f"Bearer {token}"}
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10):
+                pass
+        except urllib.error.HTTPError:
+            return None
+        except OSError as e:
+            raise navidrome.NavidromeError(f"Navidrome not reachable: {e}") from e
+        with _lock:
+            _checked[key] = time.monotonic()
+    return name if isinstance(name, str) else None
+
+
+def _native(sid: str, song: dict[str, Any], state: str, liked: dict[str, str]) -> dict[str, Any]:
+    """The song as Navidrome's own API describes one (the same names as _entry)."""
+    entry = _entry(sid, song, state, liked.get(sid))
+    artist = {"id": entry["artists"][0]["id"], "name": entry["artist"]}
+    return {
+        "id": sid,
+        "title": entry["title"],
+        "album": entry["album"],
+        "albumId": "",
+        "artist": entry["artist"],
+        "artistId": artist["id"],
+        "albumArtist": entry["artist"],
+        "albumArtistId": artist["id"],
+        "participants": {"artist": [artist], "albumartist": [artist]},
+        "bitRate": entry["bitRate"],
+        "bookmarkPosition": 0,
+        "compilation": False,
+        "createdAt": entry["created"],
+        "updatedAt": entry["created"],
+        "discNumber": 1,
+        "trackNumber": 1,
+        "duration": entry["duration"],
+        "genre": "",
+        "genres": None,
+        "hasCoverArt": True,
+        "path": entry["path"],
+        "sampleRate": 44100,
+        "size": 0,
+        "suffix": "mp3",
+        "orderTitle": entry["title"],
+        "orderAlbumName": entry["album"],
+        "orderArtistName": entry["artist"],
+        "orderAlbumArtistName": entry["artist"],
+        "year": entry.get("year", 0),
+        "starred": sid in liked,
+        **({"starredAt": liked[sid]} if sid in liked else {}),
+    }
 
 
 @router.api_route("/rest/{method}", methods=["GET", "POST"])
@@ -427,7 +577,65 @@ def _preview(hit: dict[str, Any]) -> bytes:
     """A 30 s preview's MP3; Deezer's addresses expire, so Deezer is asked for a fresh one."""
     url = hit["preview"]
     if hit["source"] == "deezer" and (track := hit["url"].rstrip("/").rsplit("/", 1)[-1]).isdigit():
-        url = catalogs.track_preview(track) or url
+        url = catalogs.track(track).get("preview") or url
     request = urllib.request.Request(url, headers=catalogs.UA)
     with urllib.request.urlopen(request, timeout=15) as r:
         return r.read()
+
+
+# ---------------------------------------------------------------- covers
+
+
+BADGES = {  # state -> colour, the badge's drawing (on a 600 x 600 cover, centred at 486, 486)
+    "new": ("#1f6bcf", '<path d="M486 436v100M436 486h100" stroke="#fff" stroke-width="24" stroke-linecap="round"/>'),
+    "wished": (
+        "#b7791f",
+        '<circle cx="486" cy="486" r="48" fill="none" stroke="#fff" stroke-width="16"/>'
+        '<path d="M486 456v32l22 16" fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round"/>',
+    ),
+    "here": (
+        "#1a7f37",
+        '<path d="M446 488l28 28 58-62" fill="none" stroke="#fff" stroke-width="24" stroke-linecap="round" '
+        'stroke-linejoin="round"/>',
+    ),
+}
+NO_COVER = (  # a note on grey, for a song without a picture
+    '<rect width="600" height="600" fill="#2b3240"/><g fill="#5b6578"><circle cx="262" cy="392" r="58"/>'
+    '<rect x="296" y="160" width="26" height="236"/><path d="M296 160h130v64H322z"/></g>'
+)
+_covers: dict[str, tuple[bytes, str]] = {}  # the source's picture -> (bytes, type), the last ones asked
+
+
+def _picture(url: str) -> tuple[bytes, str] | None:
+    if (got := _covers.get(url)) is None:
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=catalogs.UA), timeout=10) as r:
+                got = r.read(2_000_000), (r.headers.get("content-type") or "image/jpeg").split(";")[0]
+        except (OSError, ValueError):
+            return None
+        if len(_covers) > 300:
+            _covers.pop(next(iter(_covers)))
+        _covers[url] = got
+    return got
+
+
+def _cover(song: dict[str, Any], state: str, keep: int) -> Response:
+    """The song's picture with a badge in its corner: + (a heart adds it), a clock (on its way), a tick (in
+    the library); "30s" when only a preview plays. An SVG with the picture inside, so it needs no image library
+    and stays sharp at any size."""
+    picture = _picture(song["cover"]) if song["cover"] else None
+    if picture:
+        data = base64.b64encode(picture[0]).decode()
+        art = f'<image href="data:{picture[1]};base64,{data}" width="600" height="600" preserveAspectRatio="xMidYMid slice"/>'
+    else:
+        art = NO_COVER
+    colour, mark = BADGES.get(state, BADGES["new"])
+    badge = f'<circle cx="486" cy="486" r="96" fill="{colour}" stroke="#fff" stroke-width="10"/>{mark}'
+    if _plays(song)[0] == "preview":
+        badge += (
+            '<rect x="22" y="22" width="168" height="80" rx="40" fill="#000" fill-opacity=".7"/><text x="106" y="78" '
+            'font-family="sans-serif" font-size="48" font-weight="700" fill="#fff" text-anchor="middle">30s</text>'
+        )
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">{art}{badge}</svg>'
+    cache = f"max-age={keep}" if keep else "no-cache"
+    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": cache})

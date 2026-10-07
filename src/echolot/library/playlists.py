@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 OURS = re.compile(
-    r"^(?:spotify-[A-Za-z0-9]+|soundcloud-[a-z0-9-]+|Spotify Liked Songs|SoundCloud Likes)"
+    r"^(?:spotify-[A-Za-z0-9]+|soundcloud-[a-z0-9-]+|Spotify Liked Songs|SoundCloud Likes|echolot-wished)"
     r"\.(?:m3u|jpg|png)$"
 )
 
@@ -146,6 +146,8 @@ SERVICES = {"spotify": "Spotify", "soundcloud": "SoundCloud", "youtube": "YouTub
 def comment(row: sqlite3.Row, owner: str = "") -> str:
     """A playlist's comment in the music server: "Auto-imported from Spotify, by Alex: <the list's page>"
     (who made the list: Spotify's owner, YouTube's author, the SoundCloud account; Liked Songs: their user)."""
+    if row["service"] == sources.WISHED:
+        return "The songs you hearted in a player while Echolot did not have them yet: fetched by Echolot"
     creator = row["creator"]
     if not creator and row["service"] == "soundcloud":
         creator = (row["url"] or "").removeprefix("https://soundcloud.com/").split("/", 1)[0]
