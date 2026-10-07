@@ -124,12 +124,30 @@ def fetch_spotify(run: "Run") -> str:
     """Read the followed Spotify lists that changed, each user's with their own login: what changed is
     asked first (the snapshots of the playlists in their library and the state of their likes, a few
     requests), so a run without changes costs next to nothing. A list two users follow is read once; one
-    whose follower is not connected is read with another follower's login. Which songs Spotify greys
-    out, the daily availability check finds (every list's)."""
+    whose follower is not connected is read with another follower's login, and a public playlist none of its
+    followers connected to Spotify with Echolot's own app (no login; likes need their owner's). Which songs
+    Spotify greys out, the daily availability check finds (every list's)."""
     con = run.connect()
     try:
         sync_table(con)
-        done, read, failed, seen = 0, 0, [], set()
+        done, read, failed, seen, tried = 0, 0, [], set(), set()
+
+        def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, str], likes: str | None) -> None:
+            nonlocal done, read
+            run.say(f"reading {s.title or s.url}")
+            tried.add(s.key)
+            try:
+                if _fetch_spotify_list(con, sp, s, known, likes):
+                    read += 1
+                    run.note(f"Spotify: {s.title or s.url} changed, read again")
+                done += 1
+                seen.add(s.key)
+                availability.list_readable(con, s.key, True)
+            except spotify.SpotifyError as e:
+                log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
+                failed.append(f"{s.title or s.key}: {e}")
+                availability.list_readable(con, s.key, False, str(e))
+
         for uid in _active(con):
             mine = [s for s in sources.user_lists(con, uid) if s.service == "spotify" and s.key not in seen]
             if not mine:
@@ -141,26 +159,25 @@ def fetch_spotify(run: "Run") -> str:
                 log.info("spotify lists of user %s: %s", uid, e)
                 continue  # another follower may have a login
             for s in mine:
-                run.say(f"reading {s.title or s.url}")
-                try:
-                    if _fetch_spotify_list(con, sp, s, known, likes):
-                        read += 1
-                        run.note(f"Spotify: {s.title or s.url} changed, read again")
-                    done += 1
-                    seen.add(s.key)
-                    availability.list_readable(con, s.key, True)
-                except spotify.SpotifyError as e:
-                    log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
-                    failed.append(f"{s.title or s.key}: {e}")
-                    availability.list_readable(con, s.key, False, str(e))
+                read_list(sp, s, known, likes)
             try:
                 if aliased := _aliases(con, sp):
                     run.note(f"Spotify: {aliased} artists' English names (searched as well)")
             except spotify.SpotifyError as e:
                 log.info("spotify: English names: %s", e)
+        public = [s for s in sources.followed(con) if s.service == "spotify" and s.key not in tried]
+        public = [s for s in public if s.name != "Spotify Liked Songs" and spotify.playlist_id(s.url)]
+        if public:  # nobody connected follows them: Echolot's app reads public playlists without a login
+            try:
+                app = spotify.Spotify(con, run.vault, None)
+            except spotify.SpotifyError as e:
+                log.info("spotify app: %s", e)
+            else:
+                for s in public:
+                    read_list(app, s, {}, None)
         message = f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
-        unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in seen) - len(failed)
-        return message + (f", {unread} not read (no follower connected to Spotify)" if unread > 0 else "")
+        unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in tried)
+        return message + (f", {unread} not read (no follower connected to Spotify)" if unread else "")
     finally:
         con.close()
 
@@ -210,7 +227,7 @@ def _active(con: sqlite3.Connection) -> list[int]:
 
 
 def _fetch_spotify_list(
-    con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, str], likes: str
+    con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, str], likes: str | None
 ) -> bool:
     """Read one list if it changed (its snapshot, or the likes' state); True if it was read."""
     pid = spotify.playlist_id(s.url) if s.name != "Spotify Liked Songs" else None

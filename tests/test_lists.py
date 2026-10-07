@@ -69,13 +69,17 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
 
 def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """A list two users follow is read once; a follower not connected to Spotify does not keep it from
-    being read (the other's login reads it)."""
+    being read (the other's login reads it), and a public playlist only unconnected users follow is read with
+    Echolot's own app (no user)."""
     from echolot.settings import auth, sources
+
+    logins: list[int | None] = []
 
     class Unconnected(FakeSpotify):
         def __init__(self, con, vault, user_id=None) -> None:
             if user_id == 2:
                 raise spotify.SpotifyError("Spotify is not connected.")
+            logins.append(user_id)
 
     monkeypatch.setattr(spotify, "Spotify", Unconnected)
     con = run.connect()
@@ -84,8 +88,8 @@ def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch
     sources.add_list(con, timon, "https://open.spotify.com/playlist/ONLY2")
     con.close()
     message = lists.fetch_spotify(run)
-    assert FakeSpotify.calls.count("items AAA111") == 1 and "items ONLY2" not in FakeSpotify.calls
-    assert message == "3 lists, 3 changed, 1 not read (no follower connected to Spotify)"
+    assert FakeSpotify.calls.count("items AAA111") == 1 and FakeSpotify.calls.count("items ONLY2") == 1
+    assert message == "4 lists, 4 changed" and logins[-1] is None  # ONLY2: the app's
 
 
 def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
