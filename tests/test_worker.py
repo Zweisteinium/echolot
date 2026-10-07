@@ -333,3 +333,39 @@ def test_a_follow_up_waits_while_paused_and_keeps_the_songs_waits(w) -> None:
     wait_for(lambda: "fallback" in triggers)
     assert triggers["fallback"] == "after"  # as scheduled: each song's wait counts
     release.set()
+
+
+def test_slskd_rescans_its_share_after_the_library_changed(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """slskd scans its share only at its start: upkeep asks it again once the library changed (new files, an
+    upgrade's other name), at most once an hour; never without an slskd set up, not while it scans."""
+    from echolot.jobs.schedule import BY_NAME
+    from echolot.services import slskd
+
+    vault = Vault.from_env(settings.data_dir, {})
+    run = worker.Run(BY_NAME["library"], settings, vault, "manual")
+    asked: list[str] = []
+
+    class Client:
+        scanning = False
+
+        def rescan_shares(self) -> bool:
+            asked.append("rescan")
+            return not self.scanning
+
+    client = Client()
+    monkeypatch.setattr(slskd, "connect", lambda con, vault, opts, timeout=30: client)
+    con = db.connect(settings.db_path)
+    assert worker._reshare(run, con) == "" and asked == []  # no slskd set up
+    vault.set(con, slskd.SECRET, "secret")
+    assert worker._reshare(run, con) == "slskd scans its share again" and asked == ["rescan"]
+    assert worker._reshare(run, con) == "" and len(asked) == 1  # nothing changed
+    with con:
+        con.execute("INSERT INTO files (path, size, mtime, duration, kbps) VALUES ('A/A - New.flac', 1, 9e9, 1, 1)")
+    assert worker._reshare(run, con) == "" and len(asked) == 1  # changed, but within the hour
+    with con:
+        db.set_meta(con, "shares_scanned", str(time.time() - worker.RESHARE_SECONDS - 1))
+    client.scanning = True
+    assert worker._reshare(run, con) == "" and len(asked) == 2  # scanning: asked again next time
+    client.scanning = False
+    assert worker._reshare(run, con) == "slskd scans its share again" and len(asked) == 3
+    con.close()

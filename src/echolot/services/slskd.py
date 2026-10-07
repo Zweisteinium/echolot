@@ -328,6 +328,14 @@ class Slskd:
         if (t := self._find(job)) is not None:
             self._forget(job, t)
 
+    def rescan_shares(self) -> bool:
+        """Have slskd scan its shares again (it scans them only at its start); False while a scan runs."""
+        state = (self._call("GET", "/application") or {}).get("shares") or {}
+        if state.get("scanning") or state.get("scanPending"):
+            return False
+        self._call("PUT", "/shares")
+        return True
+
     def cancel_search(self, job_id: str) -> None:
         for sid in (self._jobs.get(job_id) or {}).get("searches") or []:
             with contextlib.suppress(DaemonError):
