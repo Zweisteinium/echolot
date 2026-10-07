@@ -53,6 +53,23 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     con.close()
 
 
+def test_who_could_upload_with_review_still_can(tmp_path: Path) -> None:
+    """Version 25 to 26: upload is a permission of its own; who had review (which allowed it) gets it."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    for n, (name, perms) in enumerate([("a", "review,run"), ("b", "review"), ("c", "run"), ("d", "")], 1):
+        con.execute("INSERT INTO users (id, name, created, permissions) VALUES (?, ?, 'now', ?)", (n, name, perms))
+    con.commit()
+    con.execute("PRAGMA user_version = 25")
+    con.close()
+    db.init(path)
+    con = db.connect(path)
+    rows = dict(con.execute("SELECT name, permissions FROM users").fetchall())
+    con.close()
+    assert rows == {"a": "review,run,upload", "b": "review,upload", "c": "run", "d": ""}
+
+
 def test_the_local_accounts_go(tmp_path: Path) -> None:
     """Version 17 to 18: the local account goes with its sessions; a Navidrome account stays, an admin."""
     path = tmp_path / "echolot.db"

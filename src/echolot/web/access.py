@@ -63,10 +63,10 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permiss
     ("POST", "/review/{event_id}"): "review",
     ("POST", "/review/{event_id}/discard-all"): "review",
     ("POST", "/review/{event_id}/revert"): "review",
-    ("GET", "/missing/upload"): "review",  # files for missing songs (web/upload), as review gives songs files
-    ("POST", "/missing/upload/{batch}/file"): "review",
-    ("POST", "/missing/upload/{batch}/import"): "review",
-    ("POST", "/missing/upload/{batch}/cancel"): "review",
+    ("GET", "/missing/upload"): "upload",  # files got elsewhere for the user's songs (web/upload)
+    ("POST", "/missing/upload/{batch}/file"): "upload",
+    ("POST", "/missing/upload/{batch}/import"): "upload",
+    ("POST", "/missing/upload/{batch}/cancel"): "upload",
     ("POST", "/songs/{key:path}/search"): "run",
     ("POST", "/songs/{key:path}/close-remove"): "review",
     ("POST", "/jobs/mine"): "run",

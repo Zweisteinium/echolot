@@ -9,7 +9,7 @@
   <div class="card-head">
     <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
     <div class="stats-actions">
-      {% if user.can('review') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: better copies of songs you have, or missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
+      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: better copies of songs you have, or missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
     </div>
   </div>
   <div class="stats-main">
@@ -156,5 +156,5 @@
 <section class="card">
   {% include "_jobs.html" %}
 </section>
-{% if user.can('review') %}{% include "_upload_dialog.html" %}{% endif %}
+{% if user.can('upload') %}{% include "_upload_dialog.html" %}{% endif %}
 {% endblock %}
