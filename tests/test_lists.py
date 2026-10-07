@@ -134,6 +134,29 @@ def test_an_artist_in_another_script_gets_its_english_name(run: Run, monkeypatch
     con.close()
 
 
+def test_a_name_spotify_blanks_is_kept_or_asked_in_english(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spotify names Timati "." (without a language; "Timati" in English): a new song gets the English names,
+    a list read later giving "." again keeps them."""
+    timati = {**song("t1", ".", "Groove On"), "artists": [".", "Snoop Dogg"]}
+    monkeypatch.setattr(FakeSpotify, "liked", [*FakeSpotify.liked[:2], timati])
+    monkeypatch.setattr(FakeSpotify, "english", {"t1": "Timati"})
+
+    def track(self, tid: str, lang: str = "") -> dict:
+        return {"artists": [{"name": "Timati" if lang == "en" else "."}, {"name": "Snoop Dogg"}]}
+
+    monkeypatch.setattr(FakeSpotify, "track", track)
+    lists.fetch_spotify(run)
+    con = run.connect()
+    row = con.execute("SELECT artist, artists FROM songs WHERE key = 'spotify:t1'").fetchone()
+    assert (row[0], json.loads(row[1])) == ("Timati", ["Timati", "Snoop Dogg"])
+    with con:
+        lists._song(
+            con, "spotify:t1", "spotify", artist=".", artists=json.dumps([".", "Snoop Dogg"]), title="Groove On"
+        )
+    assert con.execute("SELECT artist FROM songs WHERE key = 'spotify:t1'").fetchone()[0] == "Timati"
+    con.close()
+
+
 def test_empty_listing_keeps_the_last(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     lists.fetch_spotify(run)
     monkeypatch.setattr(FakeSpotify, "liked", [])  # e.g. a playlist Spotify no longer hands out

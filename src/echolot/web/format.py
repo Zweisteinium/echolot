@@ -9,12 +9,20 @@ def num(n: int | None) -> str:
 
 def size(b: int | None) -> str:
     b = b or 0
-    return f"{b / 1e9:.1f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB"
+    return f"{b / 1e12:.2f} TB" if b >= 1e12 else f"{b / 1e9:.1f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB"
 
 
 def pct(part: int, whole: int) -> int:
     """Whole percent, rounded down: 100 only when complete."""
     return 100 * part // whole if whole else 0
+
+
+def share(part: int, whole: int) -> str:
+    """Percent with one decimal, rounded down (100.0 only when complete); '< 0.1' for a little."""
+    if not whole:
+        return "0.0"
+    tenths = 1000 * part // whole
+    return "< 0.1" if part and not tenths else f"{tenths / 10:.1f}"
 
 
 def _span(s: float) -> str:

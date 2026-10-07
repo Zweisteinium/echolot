@@ -39,6 +39,16 @@ def test_overview(client: TestClient) -> None:
     assert "Run now" in html and "Resume" in html  # jobs paused since the takeover
 
 
+def test_sizes_and_shares() -> None:
+    """Sizes in the unit that fits (TB with two decimals from 1 TB); shares with one decimal, rounded down, so
+    100.0 only when complete."""
+    from echolot.web import format
+
+    assert [format.size(b) for b in (5e8, 146.4e9, 9.3456e12)] == ["500 MB", "146.4 GB", "9.35 TB"]
+    cases = ((4682, 5605), (1, 5605), (5604, 5605), (0, 5), (5, 5), (1, 0))
+    assert [format.share(*a) for a in cases] == ["83.5", "< 0.1", "99.9", "0.0", "100.0", "0.0"]
+
+
 def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
     """No snapshot: no graph yet; one: from it to now, the songs (shown, as files) and the size (behind the
     toggle). The last point is the value of now, not the last snapshot's."""
