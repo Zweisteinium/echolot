@@ -87,7 +87,7 @@
     </div>
     <div class="field">
       <label for="session_days">A login lasts<span class="hint">then Echolot asks for the password again</span></label>
-      <div class="control"><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short"> <span class="muted small">days</span></div>
+      <div class="control"><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short" autocomplete="off" data-bwignore data-1p-ignore> <span class="muted small">days</span></div>
     </div>
     <div class="field">
       <div class="label">Metrics<span class="hint">for Prometheus; else it needs an API token</span></div>
