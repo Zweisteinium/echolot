@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Discover · Echolot{% endblock %}
 {% block content %}
 <section class="card discover">
@@ -12,6 +13,28 @@
   </form>
   <div id="discover-results" aria-live="polite">{% include "_discover_results.html" %}</div>
 </section>
+{% if liked %}
+<section class="card discover">
+  <h2>Liked in your player</h2>
+  <p class="muted small">Hearts in Feishin or another player on songs the library doesn't have yet.</p>
+  <ol class="discover-list">
+    {% for s in liked %}
+    <li class="discover-item">
+      <div class="discover-cover">{% if s.cover %}<img src="{{ s.cover }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}{{ icon('songs', 22) }}{% endif %}</div>
+      <div class="discover-body">
+        <div class="discover-title">{{ s.title }}</div>
+        <div class="muted small">{{ s.artist }}{% if s.album and s.album != s.title %} · {{ s.album }}{% endif %}{% if s.year %} · {{ s.year }}{% endif %}</div>
+      </div>
+      <div class="discover-facts">
+        <span class="muted small" title="{{ s.liked }}">{{ s.liked|ago }}</span>
+        <span class="num muted small">{{ s.seconds|mmss if s.seconds else '' }}</span>
+        <span class="discover-sources">{% for h in s.hits %}<a href="{{ h.url }}" target="_blank" rel="noopener" title="{{ names[h.source] }}" aria-label="{{ names[h.source] }}">{{ icon(h.source, 15) }}</a>{% endfor %}</span>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
 <script>
   // one player for the page: ▶ plays a song's preview (again: pauses), the button shows which is playing
   (() => {

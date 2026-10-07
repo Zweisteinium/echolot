@@ -1,6 +1,6 @@
 """SoundCloud's web API with the account's OAuth token (SoundCloud gives out no app keys): who the token
-belongs to, the sets in its library (own and liked) for the Sources page, and the song search (Discover).
-Downloads go through yt-dlp.
+belongs to, the sets in its library (own and liked) for the Sources page, the song search (Discover) and
+a track's stream for a player (web/subsonic). Downloads go through yt-dlp.
 """
 
 import json
@@ -83,6 +83,29 @@ def artwork(token: str, track_id: str) -> str | None:
 def tracks(token: str, ids: list[str]) -> list[dict[str, Any]]:
     """Up to 50 tracks at once (id, policy, snipped, ...); one deleted or private is left out."""
     return list(_get(token, f"/tracks?ids={','.join(ids)}") or [])
+
+
+def stream(token: str, page: str) -> str:
+    """The address of a track's stream to listen to now (HLS or one file; ffmpeg reads both), the best of
+    STREAMS it has; SoundCloudError if it has none (only encrypted ones). A track SoundCloud lets this
+    account hear only in part gives its snippet."""
+    t = _get(token, f"/resolve?url={urllib.parse.quote(page, safe='')}")
+    codings = [c for c in (t.get("media") or {}).get("transcodings") or [] if c.get("url")]
+    rank = {kind: n for n, kind in enumerate(STREAMS)}
+    usable = [c for c in codings if _kind(c) in rank]
+    if not usable:
+        raise SoundCloudError("SoundCloud has no stream of it for this account")
+    best = min(usable, key=lambda c: rank[_kind(c)])
+    query = urllib.parse.urlencode({"track_authorization": t.get("track_authorization") or ""})
+    return _get(token, best["url"].removeprefix(API) + ("&" if "?" in best["url"] else "?") + query)["url"]
+
+
+STREAMS = ("hls:audio/mp4", "progressive:audio/mpeg", "hls:audio/mpeg", "hls:audio/ogg")  # best first
+
+
+def _kind(coding: dict[str, Any]) -> str:
+    f = coding.get("format") or {}
+    return f"{f.get('protocol')}:{(f.get('mime_type') or '').split(';')[0]}"
 
 
 def states(token: str) -> dict[str, str]:
