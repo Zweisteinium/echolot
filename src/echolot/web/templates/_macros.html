@@ -34,7 +34,7 @@
 
 {# a share in whole percent; a small non-zero share is "< 1 %", never "0 %" #}
 {% macro share(n, total) -%}
-{{ '< 1' if n and not pct(n, total) else pct(n, total) }} %
+{{ percent(n, total) }} %
 {%- endmacro %}
 
 {% macro legend(counts) -%}

@@ -95,6 +95,8 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
     """Insert or update a song; a value the source blanked keeps the known one (Spotify can blank the
     name of a song it removed while it stays in your list). False if it has no name at all."""
     old = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone()
+    if old and _blanked(meta.get("artist") or "", meta.get("artists")):  # "." for Timati: the known names stay
+        meta = {k: v for k, v in meta.items() if k not in ("artist", "artists")}
     cur = {k: meta.get(k) or (old[k] if old else None) for k in ("artist", "title", "album", "length",
                                                                    "artists", "isrc", "url", *FACTS)}  # fmt: skip
     if not cur["artist"] or not cur["title"]:
@@ -166,16 +168,34 @@ def fetch_spotify(run: "Run") -> str:
 ALIASES_PER_RUN = 50  # songs asked for their artist's English name per run (one request each)
 
 
+def _blanked(artist: str, artists: str | list | None) -> bool:
+    """A name without a letter or digit: Spotify's "." for an artist whose name it withholds (Timati, in
+    English; Тимати in Russian), or an empty one."""
+    names = json.loads(artists) if isinstance(artists, str) else artists or []
+    return any(not re.search(r"\w", n or "") for n in [artist, *names])
+
+
 def _aliases(con: sqlite3.Connection, sp: spotify.Spotify) -> int:
     """Spotify songs whose artist is written in another script (祖堅 正慶): its English name, if Spotify has
     one that differs (Masayoshi Soken), as songs.artist_alias, searched and matched as well ('' = asked, the
-    same). Asked once per song; returns how many got one."""
-    rows = con.execute("SELECT key, artist FROM songs WHERE service = 'spotify' AND artist_alias IS NULL").fetchall()
+    same). A song whose names Spotify blanked ("."): the English names instead, if they are names. Asked once
+    per song; returns how many got a name."""
+    rows = con.execute(
+        "SELECT key, artist, artists FROM songs WHERE service = 'spotify' AND artist_alias IS NULL"
+    ).fetchall()
     found = 0
-    for r in [r for r in rows if rules.non_latin(r["artist"])][:ALIASES_PER_RUN]:
+    for r in [r for r in rows if rules.non_latin(r["artist"]) or _blanked(r["artist"], r["artists"])][:ALIASES_PER_RUN]:
         track = sp.track(r["key"].removeprefix("spotify:"), lang="en")
-        name = ((track.get("artists") or [{}])[0].get("name") or "").strip()
-        alias = name if name and name != r["artist"] else ""
+        names = [(a.get("name") or "").strip() for a in track.get("artists") or []]
+        if names and _blanked(r["artist"], r["artists"]) and not _blanked(names[0], names):
+            with con:
+                con.execute(
+                    "UPDATE songs SET artist = ?, artists = ?, artist_alias = '' WHERE key = ?",
+                    (names[0], json.dumps(names), r["key"]),
+                )
+            found += 1
+            continue
+        alias = names[0] if names and names[0] and names[0] != r["artist"] and not _blanked(names[0], []) else ""
         with con:
             con.execute("UPDATE songs SET artist_alias = ? WHERE key = ?", (alias, r["key"]))
         found += bool(alias)

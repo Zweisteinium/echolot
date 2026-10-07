@@ -34,7 +34,7 @@ from echolot.web import (
     users,
 )
 from echolot.web.common import Assets, asset_urls, page
-from echolot.web.format import FILTERS, pct
+from echolot.web.format import FILTERS, pct, share
 
 HERE = Path(__file__).parent
 log = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", Assets(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(FILTERS)
-    templates.env.globals.update(pct=pct, tier_counts=stats.tier_counts, tiers=stats.TIERS)
+    templates.env.globals.update(pct=pct, percent=share, tier_counts=stats.tier_counts, tiers=stats.TIERS)
     templates.env.globals.update(version=__version__, commit=COMMIT)
     templates.env.globals["asset"] = asset_urls(HERE / "static")
     app.state.templates = templates
