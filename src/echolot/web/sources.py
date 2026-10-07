@@ -158,7 +158,7 @@ def other(request: Request, con: DB) -> HTMLResponse:
             shown |= {c["key"] for c in _cards_of(request.app, service, uid)}
     state, cards = _state(con, uid), []
     for s in sources.user_lists(con, uid):
-        if s.key in shown or s.name in sources.LIKES:
+        if s.key in shown or s.name in sources.LIKES or s.service == sources.WISHED:
             continue
         row = con.execute("SELECT title, cover_url FROM lists WHERE key = ?", (s.key,)).fetchone()
         cards.append(_card({"key": s.key, "service": s.service, "url": s.url,

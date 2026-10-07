@@ -91,6 +91,20 @@ def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover
         )
 
 
+def store_wished(con: sqlite3.Connection, user_id: int, songs: list[tuple[str, dict[str, Any]]]) -> None:
+    """A user's Wished list as their hearts in a player are now: (song key, its names, length, page, ISRC),
+    the newest first. Searched like a Spotify song (acquire.SEARCHED); the library's songs are linked at once."""
+    s = sources.add_wished(con, user_id)
+    con.commit()
+    sync_table(con)
+    with con:
+        for key, d in songs:
+            meta = {"album": d.get("album") or "", "length": d.get("seconds") or 0, "isrc": d.get("isrc") or None}
+            _song(con, key, sources.WISHED, artist=d["artist"], title=d["title"], url=d.get("url") or None, **meta)
+    _store(con, s, [key for key, _ in songs], sources.WISHED_TITLE, None)
+    catalog.match_songs(con)
+
+
 def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
     """Insert or update a song; a value the source blanked keeps the known one (Spotify can blank the
     name of a song it removed while it stays in your list). False if it has no name at all."""

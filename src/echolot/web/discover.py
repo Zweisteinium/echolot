@@ -120,10 +120,11 @@ def _answer(request: Request, con: DB, q: str) -> dict:
 
 
 def _liked(con: sqlite3.Connection, user_id: int) -> list[dict]:
-    """The user's hearts in a player on songs the library lacks (web/subsonic), newest first."""
+    """The user's hearts in a player on songs the library lacked (web/subsonic), newest first; file: the
+    library's, once fetched (their Wished list)."""
     rows = con.execute(
-        "SELECT s.data, l.liked FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id "
-        "WHERE l.user_id = ? ORDER BY l.liked DESC",
+        "SELECT s.data, l.liked, so.file FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id "
+        "LEFT JOIN songs so ON so.key = 'discover:' || substr(s.id, 4) WHERE l.user_id = ? ORDER BY l.liked DESC",
         (user_id,),
     )
-    return [{"liked": when, **json.loads(data)} for data, when in rows]
+    return [{"liked": when, "file": file, **json.loads(data)} for data, when, file in rows]
