@@ -24,7 +24,7 @@ cd "$1"
 name=$(basename "$(pwd)")
 target=${2:-dev}
 container=$(docker compose ps -a -q echolot 2>/dev/null || true)
-image=$(docker compose config --images echolot)
+image=$(docker compose config --format json | python3 -c "import json, sys; print(json.load(sys.stdin)['services']['echolot']['image'])")
 mkdir -p data/backups
 
 in_echolot() { docker compose exec -T echolot "$@"; }
