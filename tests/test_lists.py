@@ -204,6 +204,7 @@ def test_playlists(run: Run) -> None:
 
 class FakeYtDlp:
     asked: ClassVar[list[str]] = []  # meta() calls
+    fetched: ClassVar[list[str]] = []  # the tracks download() was given
 
     def __init__(self, private: Path, token: str | None = None) -> None:
         pass
@@ -216,6 +217,7 @@ class FakeYtDlp:
 
     def download(self, tracks: list, folder: Path, stop) -> list[dict]:
         out = []
+        FakeYtDlp.fetched += [tid for tid, _ in tracks]
         for tid, _ in tracks:
             if tid == "2002":
                 path = folder / "2002.wav"
@@ -266,6 +268,48 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     con.close()
     library(run)
     assert lists.soundcloud(run) == "2 lists, 2 changed; 1 new songs"
+
+
+def test_a_soundcloud_song_the_library_has_by_its_page_is_not_downloaded(
+    run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A library file whose source tag holds exactly the track's page is that song (Echolot filed it so, here or in
+    the Echolot it was copied from): linked to it, not downloaded. The others are downloaded as before."""
+    from mutagen.flac import FLAC
+
+    monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
+    monkeypatch.setattr(FakeYtDlp, "fetched", [])
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+    monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
+    copy = run.paths.tracks / "DJ Nobody" / "DJ Nobody - Night Drive.flac"
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes((Path(__file__).parent / "fixtures" / "audio" / "silence.flac").read_bytes())
+    tags = FLAC(copy)
+    tags.update({"artist": "DJ Nobody", "title": "Night Drive", "source": "https://sc/2002/"})
+    tags.save()
+    second = run.paths.tracks / "Uploader" / "Uploader - Set Track.flac"  # a set lists it by API address
+    second.parent.mkdir(parents=True, exist_ok=True)
+    second.write_bytes(copy.read_bytes())
+    tags = FLAC(second)
+    tags.update({"artist": "Uploader", "title": "Set Track", "source": "https://soundcloud.com/uploader/4004"})
+    tags.save()
+    listing = FakeYtDlp.listing
+
+    def with_set_track(self, url: str, stop) -> tuple:
+        tracks, info = listing(self, url, stop)
+        return [*tracks, ("4004", "https://api-v2.soundcloud.com/tracks/4004")], info
+
+    monkeypatch.setattr(FakeYtDlp, "listing", with_set_track)
+    library(run)
+    message = lists.soundcloud(run)
+    assert message.endswith("; 0 new songs, 2 linked to the library's file of their page")
+    assert "2002" not in FakeYtDlp.fetched and "4004" not in FakeYtDlp.fetched
+    library(run)
+    con = run.connect()
+    song = con.execute("SELECT artist, title, file, archived FROM songs WHERE key = 'soundcloud:2002'").fetchone()
+    con.close()
+    assert tuple(song) == ("DJ Nobody", "Night Drive", "DJ Nobody/DJ Nobody - Night Drive.flac", 1)
+    assert lists.soundcloud(run).endswith("; 0 new songs")  # known now: nothing linked or downloaded again
 
 
 def library(run: Run) -> None:

@@ -552,6 +552,7 @@ def soundcloud(run: "Run") -> str:
     finally:
         con.close()
     new = [(tid, url) for tid, url in urls.items() if tid not in have and url]
+    new, known = _filed_before(run, ydl, any_token, new) if new else (new, 0)
     added = 0
     if new and not run.stop.is_set():
         run.claim()  # new songs come first: a running YouTube & SoundCloud search gives way now
@@ -589,7 +590,8 @@ def soundcloud(run: "Run") -> str:
     shutil.rmtree(work, ignore_errors=True)
     run.after.add("library")
     unread = f", {len(srcs) - len(listed)} not read" if len(listed) < len(srcs) else ""
-    return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs"
+    known_part = f", {known} linked to the library's file of their page" if known else ""
+    return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs{known_part}"
 
 
 def _readable(run: "Run", key: str, readable: bool, why: str = "") -> None:
@@ -653,6 +655,72 @@ def _names(con: sqlite3.Connection, uploader: str, artist: str, title: str) -> t
     if rules.artist_key(t) in known and rules.artist_key(a) not in known:
         return t, a
     return a, t
+
+
+_PAGES: dict[str, tuple[float, list[str]]] = {}  # library file -> (mtime, the pages in its source tags)
+
+
+def _page_key(url: str) -> str:
+    return url.split("?", 1)[0].rstrip("/").casefold()
+
+
+def _filed_before(
+    run: "Run", ydl: ytdlp.YtDlp, token: str | None, new: list[tuple[str, str]]
+) -> tuple[list[tuple[str, str]], int]:
+    """New SoundCloud songs a library file already is: one whose source tag holds exactly the track's page
+    (Echolot wrote it when it filed that file as this song, after its checks; also into a copy from another
+    Echolot). Those are linked to the file, not downloaded; anything less certain (a name alone) is downloaded
+    and its audio checked (recordings.already). A track a set lists by its API address gets its page first
+    (with a login 50 per request, else one by one). Returns the songs left to download and how many were
+    linked. Tags are read once per file change."""
+    con = run.connect()
+    try:
+        cat = catalog.Catalog.from_db(con)
+        pages: dict[str, catalog.Entry] = {}
+        for e in cat.entries:
+            path = run.paths.tracks / e.path
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
+            if (seen := _PAGES.get(e.path)) is None or seen[0] != mtime:
+                seen = mtime, [_page_key(u) for u in tagging.read(path)["sources"] if u.startswith("http")]
+                _PAGES[e.path] = seen
+            for page in seen[1]:
+                pages.setdefault(page, e)
+        resolved: dict[str, str] = {}
+        api = [tid for tid, url in new if "://api" in url] if pages else []  # (api-v2.soundcloud.com/tracks/<id>)
+        for i in range(0, len(api) if token else 0, 50):
+            try:
+                found = sc_api.tracks(token, api[i : i + 50])
+            except sc_api.SoundCloudError as e:
+                log.info("soundcloud pages: %s", e)
+                break
+            resolved |= {str(t.get("id")): t.get("permalink_url") or "" for t in found}
+        for tid in api if not token else []:
+            resolved[tid] = (ydl.meta(dict(new)[tid], run.stop) or {}).get("webpage_url") or ""
+        left, linked = [], 0
+        for tid, url in new:
+            page = resolved.get(tid) or url
+            e = pages.get(_page_key(page)) if "://api" not in page else None
+            if e is None:
+                left.append((tid, url))
+                continue
+            tags = tagging.read(run.paths.tracks / e.path)  # the file's names are the song's (Echolot wrote them)
+            artist, title = (tags["artists"] or [e.path.partition("/")[0]])[0], tags["title"] or e.title
+            key = f"soundcloud:{tid}"
+            with con:
+                _song(con, key, "soundcloud", artist=artist, title=title, length=e.duration, url=page)
+                con.execute("UPDATE songs SET archived = 1, unavailable = NULL WHERE key = ?", (key,))
+            want = Want(artist, title, e.duration, key)
+            recordings.link(con, run.paths, key, want, e, "its page in the file's source tag")
+            run.note(f"SoundCloud: {artist} – {title}: in the library already ({e.path}), not downloaded")
+            linked += 1
+        if linked:
+            catalog.match_songs(con)
+        return left, linked
+    finally:
+        con.close()
 
 
 def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
