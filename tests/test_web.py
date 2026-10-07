@@ -40,17 +40,24 @@ def test_overview(client: TestClient) -> None:
 
 
 def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
-    """One snapshot: no graph yet; two: the songs (shown) and the size (behind the toggle)."""
-    html = client.get("/").text
-    assert "starts with the second hourly snapshot" in html and '<figure class="growth"' not in html
+    """No snapshot: no graph yet; one: from it to now, the songs (shown, as files) and the size (behind the
+    toggle). The last point is the value of now, not the last snapshot's."""
     con = db.connect(settings.db_path)
     with con:
-        con.execute("UPDATE snapshots SET ts = '2026-09-27T10:00:00Z'")
+        con.execute("DELETE FROM snapshots")
+    con.close()
+    html = client.get("/").text
+    assert "starts with the first hourly snapshot" in html and '<figure class="growth"' not in html
+    con = db.connect(settings.db_path)
     history.snapshot(con)
+    with con:
+        con.execute("UPDATE snapshots SET ts = '2026-09-27T10:00:00Z'")
+        con.execute("UPDATE snapshots SET value = 1 WHERE metric = 'user_library_files'")  # (one file then)
     con.close()
     html = client.get("/").text
     assert html.count('<figure class="growth"') == 2 and 'name="growth" value="size"' in html
-    assert 'data-panel="size" hidden' in html and ">3 songs</span>" in html  # the owner's 3 songs in the library
+    assert 'data-panel="size" hidden' in html and '<span class="figure">3 songs</span>' in html  # the owner's 3 files
+    assert "&#34;1 songs&#34;" in html and ">+2 songs</span>" in html  # one file at the snapshot, two more since
 
 
 def test_missing(client: TestClient) -> None:

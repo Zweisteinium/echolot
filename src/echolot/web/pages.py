@@ -1,6 +1,7 @@
 """The pages that show the library: overview, missing songs, a list and the activity."""
 
 import sqlite3
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -26,30 +27,44 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         charts.donut(o["tiers"], size=160, width=22),
         jobs.status(request, con),
     )  # the library's files by quality, and the songs missing
-    growth = _growth(con, stats.scope(request.state.user))
+    growth = _growth(con, stats.scope(request.state.user), o)
     return page(
         request, "overview.html", nav="overview", o=o, donut=donut, growth=growth, connected=connected, **running
     )
 
 
-def _growth(con: sqlite3.Connection, uid: int | None) -> dict[str, charts.Growth | None]:
-    """The songs in the library over time (the user's, or everyone's) and the library's size (everyone's)."""
-    songs = history.totals(con, "user_songs_in_library", str(uid)) if uid is not None else None
+def _growth(con: sqlite3.Connection, uid: int | None, o: dict) -> dict[str, charts.Growth | None]:
+    """The songs in the library over time, as files (a recording several list entries share counts once:
+    the user's, or everyone's), and the library's size (everyone's); each ends with the value of now."""
+    now = history.utc(datetime.now())
     rebuilt = db.get_meta(con, history.REBUILT)
     return {
         "songs": charts.growth(
-            songs if songs is not None else history.totals(con, "songs_in_library"),
+            [*_files(con, uid, o), (now, o["files"])],
             lambda v: f"{num(round(v))} songs",
             lambda v: num(round(v)),
             rebuilt,
         ),
         "size": charts.growth(
-            history.totals(con, "library_bytes"),
+            [*history.totals(con, "library_bytes"), (now, o["library_size"])],
             size,
             lambda v: "0" if not v else f"{v / 1e9:g} GB" if v >= 1e9 else f"{v / 1e6:g} MB",
             rebuilt,
         ),
     }
+
+
+def _files(con: sqlite3.Connection, uid: int | None, o: dict) -> list[tuple[str, float]]:
+    """The library files over time (everyone's), or the user's: counted since 2026-10-07, before that their
+    songs in the library scaled to the files they had at the first count (or have now)."""
+    if uid is None:
+        return history.totals(con, "library_files")
+    files = history.totals(con, "user_library_files", str(uid))
+    songs = history.totals(con, "user_songs_in_library", str(uid))
+    start, had = files[0] if files else (None, o["files"])
+    then = dict(songs).get(start) if start else o["have"]
+    ratio = had / then if then else 1
+    return [(ts, v * ratio) for ts, v in songs if start is None or ts < start] + files
 
 
 @router.get("/missing", response_class=HTMLResponse)
