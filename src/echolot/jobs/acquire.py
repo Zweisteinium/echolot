@@ -142,9 +142,19 @@ class Fetcher:
         return self.run.paths.music / rel
 
     def song(self, want: Want, tries: int) -> Outcome:
+        """Search and download the song; with nothing that fits under the artist's name, once more under its
+        English one (祖堅 正慶 as Masayoshi Soken: peers name folders either way)."""
+        outcome = self._song(want, tries, want.artist)
+        if want.alias and outcome.action == "not found" and not (outcome.report or {}).get("fits"):
+            again = self._song(want, tries, want.alias)
+            if again.action != "not found" or (again.report or {}).get("fits"):
+                return again
+        return outcome
+
+    def _song(self, want: Want, tries: int, artist_name: str) -> Outcome:
         loosen, opts = level(tries) if self.purpose == "search" else (False, {})
         settings = soulseek.search_settings(**opts, flac_only=self.purpose == "upgrade")
-        artist, title, length = rules.search_terms(want.artist, want.title, want.length, loosen)
+        artist, title, length = rules.search_terms(artist_name, want.title, want.length, loosen)
         job = self.daemon.search(artist, title, length, settings)
         try:
             self.daemon.wait(job, self.run.stop, time.monotonic() + SEARCH_SECONDS)
@@ -165,7 +175,7 @@ class Fetcher:
                 if filing.was_rejected(before, c.name, c.length, c.size):
                     rejected["rejected before"] += 1
                     continue
-                verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms)
+                verdict, rank, why = rules.prejudge(want.artist, want.title, c.path, c.length, *terms, want.aliases)
                 if verdict != rules.REJECT:
                     judged.append((rank, c.rank, c))
                 else:

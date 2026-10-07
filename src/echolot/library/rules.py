@@ -162,11 +162,18 @@ def _strip_track_no(s: str) -> str:
 # ---------------------------------------------------------------- is this download the song?
 
 
-def artist_words(artist: str) -> list[str]:
+def non_latin(s: str | None) -> bool:
+    """A name in another script than Latin (祖堅 正慶, Квашеная): Spotify may know it in English as well."""
+    return any(c.isalpha() and not unicodedata.name(c, "").startswith("LATIN") for c in s or "")
+
+
+def artist_words(artist: str, aliases: Iterable[str] = ()) -> list[str]:
     """The requested artist as whole-word forms: full name, first artist, without a disambiguation
-    suffix (Spotify: "Vegas (Brazil)")."""
-    base = re.sub(r"\s*\([^)]*\)\s*$", "", artist or "")
-    forms = {words(artist).strip(), words(first_artist(artist)).strip(), words(base).strip()}
+    suffix (Spotify: "Vegas (Brazil)"); the same for its other names (aliases: the English one)."""
+    forms: set[str] = set()
+    for name in [artist, *aliases]:
+        base = re.sub(r"\s*\([^)]*\)\s*$", "", name or "")
+        forms |= {words(name).strip(), words(first_artist(name)).strip(), words(base).strip()}
     return [w for w in forms if w]
 
 
@@ -180,6 +187,7 @@ def identify(
     dur: float = 0,
     length: float = 0,
     tol: float = 3,
+    aliases: Iterable[str] = (),
 ) -> tuple[str | None, str]:
     """Is this download <artist> - <title>? (Search results can be another artist's song with the same
     title.) Returns (match, reason), match one of
@@ -193,7 +201,7 @@ def identify(
                   ("Title - HIGH TEKK REMIX" for High Tekk's "Title": as the artist released it, but only
                   a listener can tell)
       None        neither."""
-    want = artist_words(artist)
+    want = artist_words(artist, aliases)
     texts = [t for t in [*tag_artists, file_name, *folders] if t]
 
     def has_artist(x: str) -> bool:
@@ -403,6 +411,7 @@ def prejudge(
     strict_artist: bool = True,
     blocked: Iterable[str] = (),
     loosened: bool = False,
+    aliases: Iterable[str] = (),
 ) -> tuple[str, int, str]:
     """A search result, judged from its path and length before it is downloaded: (verdict, rank,
     reason). Only what is certain from the name rejects: the artist missing (when the search requires
@@ -421,7 +430,7 @@ def prejudge(
         return REJECT, 9, "marked wrong in review"
     if wanted and length and not mix_cut(title) and not same_length(length, wanted):
         return REJECT, 9, f"length {length:.0f} s, wanted {wanted:.0f} s"
-    want = artist_words(artist)
+    want = artist_words(artist, aliases)
 
     def has_artist(x: str) -> bool:
         return any(f" {w} " in words(x) for w in want)

@@ -50,6 +50,13 @@ class FakeSpotify:
     def unplayable_liked(self) -> set[str]:
         return {"s9"}
 
+    english: ClassVar[dict[str, str]] = {}  # track id -> its first artist in English (else the same name)
+
+    def track(self, track_id: str, lang: str = "") -> dict:
+        FakeSpotify.calls.append(f"track {track_id} {lang}")
+        name = next(s["artist"] for s in FakeSpotify.liked if s["id"] == track_id)
+        return {"artists": [{"name": FakeSpotify.english.get(track_id, name) if lang == "en" else name}]}
+
 
 @pytest.fixture
 def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
@@ -105,6 +112,26 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(FakeSpotify, "liked", [song("s10", "Artist N", "Newest Song"), *FakeSpotify.liked])  # a like
     assert lists.fetch_spotify(run) == "3 lists, 1 changed"
     assert FakeSpotify.calls == ["items None", "playlist BBB222"]
+
+
+def test_an_artist_in_another_script_gets_its_english_name(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spotify writes 祖堅 正慶 as Masayoshi Soken only when asked in English: asked once per such song (not for
+    Latin names; one with no other English name is marked as asked); renamed, it is asked again."""
+    soken, other = song("k1", "祖堅 正慶", "Dynamis"), song("k2", "川子", "Song K")
+    monkeypatch.setattr(FakeSpotify, "liked", [*FakeSpotify.liked[:2], soken, other])
+    monkeypatch.setattr(FakeSpotify, "english", {"k1": "Masayoshi Soken"})
+    lists.fetch_spotify(run)
+    con = run.connect()
+    aliases = dict(con.execute("SELECT key, artist_alias FROM songs WHERE key LIKE 'spotify:%'").fetchall())
+    assert [aliases[k] for k in ("spotify:k1", "spotify:k2", "spotify:s9")] == ["Masayoshi Soken", "", None]
+    asked = [c for c in FakeSpotify.calls if c.startswith("track")]
+    assert sorted(asked) == ["track k1 en", "track k2 en"]
+    with con:
+        lists._song(con, "spotify:k1", "spotify", artist="Masayoshi Soken", title="Dynamis")
+        lists._song(con, "spotify:k2", "spotify", artist="川子", title="Song K")
+    assert con.execute("SELECT artist_alias FROM songs WHERE key = 'spotify:k1'").fetchone()[0] is None  # renamed
+    assert con.execute("SELECT artist_alias FROM songs WHERE key = 'spotify:k2'").fetchone()[0] == ""  # the same
+    con.close()
 
 
 def test_empty_listing_keeps_the_last(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

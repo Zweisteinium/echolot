@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V22_SONGS += "ALTER TABLE lists DROP COLUMN creator; "  # schema 23
+V26_SONGS = "ALTER TABLE songs DROP COLUMN artist_alias; "  # schema 26
+V22_SONGS += "ALTER TABLE lists DROP COLUMN creator; " + V26_SONGS  # schema 23
 
 
 def test_version_12_is_migrated(tmp_path: Path) -> None:
@@ -40,7 +41,7 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     db.init(path)
     con = db.connect(path)
     assert con.execute("PRAGMA user_version").fetchone()[0] == db.VERSION
-    assert {"close_match", "released", "track", "tracks", "disc"} <= columns(con, "songs")
+    assert {"close_match", "released", "track", "tracks", "disc", "artist_alias"} <= columns(con, "songs")
     assert {"name", "user_id"} <= columns(con, "review_decisions")
     assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
     assert {"songs_file", "songs_stem"} <= {r[1] for r in con.execute("PRAGMA index_list(songs)")}
@@ -61,7 +62,7 @@ def test_who_could_upload_with_review_still_can(tmp_path: Path) -> None:
     for n, (name, perms) in enumerate([("a", "review,run"), ("b", "review"), ("c", "run"), ("d", "")], 1):
         con.execute("INSERT INTO users (id, name, created, permissions) VALUES (?, ?, 'now', ?)", (n, name, perms))
     con.commit()
-    con.execute("PRAGMA user_version = 25")
+    con.executescript(f"{V26_SONGS} PRAGMA user_version = 25;")
     con.close()
     db.init(path)
     con = db.connect(path)
@@ -133,7 +134,7 @@ def test_snapshot_times_become_utc(tmp_path: Path) -> None:
     con = db.connect(path)
     con.executescript(
         "INSERT INTO snapshots VALUES ('2026-07-01T12:00:00', 'library_files', '', 3), "
-        "('2026-07-01T13:00:00Z', 'library_files', '', 4); PRAGMA user_version = 24;"
+        f"('2026-07-01T13:00:00Z', 'library_files', '', 4); {V26_SONGS} PRAGMA user_version = 24;"
     )
     con.close()
     db.init(path)

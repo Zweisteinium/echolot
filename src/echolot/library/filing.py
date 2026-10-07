@@ -68,14 +68,21 @@ class Want:
     key: str = ""
     artists: list[str] = field(default_factory=list)
     isrc: str = ""  # the recording (Spotify), for the audio check
+    alias: str = ""  # the artist's English name (Spotify's, for one in another script): searched and matched too
+
+    @property
+    def aliases(self) -> list[str]:
+        return [self.alias] if self.alias else []
 
     @classmethod
     def of(cls, row: sqlite3.Row) -> "Want":
         import json
 
-        isrc = row["isrc"] if "isrc" in row.keys() else ""  # noqa: SIM118 (on a Row, "in" tests the values)
+        cols = row.keys()
+        isrc = row["isrc"] if "isrc" in cols else ""
+        alias = row["artist_alias"] if "artist_alias" in cols else ""
         artists = json.loads(row["artists"] or "[]")
-        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], artists, isrc or "")
+        return cls(row["artist"], row["title"], row["length"] or 0, row["key"], artists, isrc or "", alias or "")
 
 
 def event_path(paths: Paths, p: Path) -> str:
@@ -337,7 +344,9 @@ def file_into(
         info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries, audio=heard.detail)
         info["peer_bytes"] = peer_bytes or None
         tol = 3 if source == "soulseek" else 6  # videos have intros
-        match, why = identify(want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol)
+        match, why = identify(
+            want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol, want.aliases
+        )
         if match == "exact" and tagging.conflict(tag_title, want.title):  # named the song, tagged as another
             match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
