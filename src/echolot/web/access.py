@@ -51,6 +51,8 @@ USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for th
     ("POST", "/sources/follow"),
     ("POST", "/sources/add"),
     ("GET", "/missing"),
+    ("GET", "/discover"),
+    ("GET", "/discover/results"),
     ("GET", "/lists/{key:path}"),
     ("GET", "/activity"),
     ("GET", "/accounts/line"),

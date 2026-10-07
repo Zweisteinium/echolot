@@ -1,14 +1,17 @@
 """SoundCloud's web API with the account's OAuth token (SoundCloud gives out no app keys): who the token
-belongs to, and the sets in its library (own and liked) for the Sources page. Downloads go through yt-dlp.
+belongs to, the sets in its library (own and liked) for the Sources page, and the song search (Discover).
+Downloads go through yt-dlp.
 """
 
 import json
 import sqlite3
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from echolot.library.discover import Hit
     from echolot.settings.vault import Vault
 
 API = "https://api-v2.soundcloud.com"
@@ -94,4 +97,25 @@ def states(token: str) -> dict[str, str]:
     for it in _get(token, "/me/library/all?limit=200").get("collection") or []:
         if (p := it.get("playlist") or {}).get("permalink_url"):
             out[p["permalink_url"]] = f"{p.get('track_count')}:{p.get('last_modified')}"
+    return out
+
+
+def search(token: str, query: str, limit: int = 20) -> list["Hit"]:
+    """Tracks for a query, as SoundCloud's own search lists them: discover.Hit, best first, the names split
+    as the SoundCloud job does ("Artist - Title [Free DL]" uploaded by a label: Artist, Title)."""
+    from echolot.library.discover import Hit
+    from echolot.library.tagging import clean_title
+    from echolot.services.ytdlp import artist_title
+
+    found = _get(token, f"/search/tracks?q={urllib.parse.quote(query)}&limit={limit}") or {}
+    out = []
+    for n, t in enumerate(found.get("collection") or []):
+        meta, uploader = t.get("publisher_metadata") or {}, (t.get("user") or {}).get("username") or ""
+        artist, title = artist_title(uploader, meta.get("artist") or "", t.get("title") or "")
+        hit = Hit("soundcloud", n, artist, clean_title(title, artist), (t.get("duration") or 0) / 1000)
+        hit.album, hit.url = meta.get("album_title") or meta.get("release_title") or "", t.get("permalink_url") or ""
+        art = t.get("artwork_url") or (t.get("user") or {}).get("avatar_url") or ""
+        hit.cover = art.replace("-large.", "-t300x300.")
+        hit.year = (t.get("release_date") or t.get("display_date") or t.get("created_at") or "")[:4]
+        out.append(hit)
     return out
