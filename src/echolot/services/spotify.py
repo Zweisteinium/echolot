@@ -154,10 +154,13 @@ class Spotify:
             _tokens[key] = (d["access_token"], time.time() + int(d.get("expires_in") or 3600))
         return d["access_token"]
 
-    def get(self, url: str) -> dict[str, Any]:
+    def get(self, url: str, lang: str = "") -> dict[str, Any]:
+        """`lang`: the names in that language where Spotify has them (Accept-Language; without it, the
+        artist's own: 祖堅 正慶, in English Masayoshi Soken)."""
         url = url if url.startswith("http") else API + url
         for attempt in range(6):
-            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token()}"})
+            headers = {"Authorization": f"Bearer {self.token()}"} | ({"Accept-Language": lang} if lang else {})
+            req = urllib.request.Request(url, headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
                     return json.load(r)
@@ -246,8 +249,8 @@ class Spotify:
             })  # fmt: skip
         return out
 
-    def track(self, track_id: str) -> dict[str, Any]:
-        return self.get(f"/tracks/{track_id}")
+    def track(self, track_id: str, lang: str = "") -> dict[str, Any]:
+        return self.get(f"/tracks/{track_id}", lang)
 
     def find_track(self, artist: str, title: str) -> dict[str, Any] | None:
         q = urllib.parse.quote(f"track:{title} artist:{artist}")

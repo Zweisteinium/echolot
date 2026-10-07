@@ -281,6 +281,17 @@ def test_catalog_song_other_artists_and_link() -> None:
     assert not cat.song("TheDoDo", "Chilln", 227, ["TheDoDo"])
 
 
+def test_an_artist_matches_by_its_english_name_too() -> None:
+    """Spotify's 祖堅 正慶 is Masayoshi Soken in English, and most peers name folders that way."""
+    path = "music\\Masayoshi Soken\\ENDWALKER FINAL FANTASY XIV Original Soundtrack\\1-48 Dynamis.flac"
+    assert rules.prejudge("祖堅 正慶", "Dynamis", path, 240, 240)[0] == "reject"
+    assert rules.prejudge("祖堅 正慶", "Dynamis", path, 240, 240, aliases=["Masayoshi Soken"])[0] == "accept"
+    match, _ = rules.identify("祖堅 正慶", "Dynamis", ["Masayoshi Soken"], "Dynamis", aliases=["Masayoshi Soken"])
+    assert match == "exact" and rules.identify("祖堅 正慶", "Dynamis", ["Masayoshi Soken"], "Dynamis")[0] is None
+    assert rules.non_latin("祖堅 正慶") and rules.non_latin("Квашеная") and rules.non_latin("Dxrk ダーク")
+    assert not rules.non_latin("Beyoncé") and not rules.non_latin("Ke$ha & 2Pac")
+
+
 def test_cjk_names_with_or_without_a_space() -> None:
     """Spotify writes "祖堅 正慶", most peers "祖堅正慶" (and some the other way round)."""
     title = "Close to the Heavens"

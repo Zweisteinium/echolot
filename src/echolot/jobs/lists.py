@@ -104,7 +104,8 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
         "tracks, disc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET "
         "artist = excluded.artist, title = excluded.title, album = excluded.album, length = excluded.length, "
         "artists = excluded.artists, isrc = excluded.isrc, url = excluded.url, released = excluded.released, "
-        "track = excluded.track, tracks = excluded.tracks, disc = excluded.disc",
+        "track = excluded.track, tracks = excluded.tracks, disc = excluded.disc, "
+        "artist_alias = CASE WHEN excluded.artist = songs.artist THEN songs.artist_alias END",  # (renamed: asked again)
         (key, service, cur["artist"], cur["title"], cur["album"] or "", float(cur["length"] or 0),
          cur["artists"], cur["isrc"], cur["url"], *(cur[k] for k in FACTS)),
     )  # fmt: skip
@@ -150,11 +151,35 @@ def fetch_spotify(run: "Run") -> str:
                     log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
                     failed.append(f"{s.title or s.key}: {e}")
                     availability.list_readable(con, s.key, False, str(e))
+            try:
+                if aliased := _aliases(con, sp):
+                    run.note(f"Spotify: {aliased} artists' English names (searched as well)")
+            except spotify.SpotifyError as e:
+                log.info("spotify: English names: %s", e)
         message = f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
         unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in seen) - len(failed)
         return message + (f", {unread} not read (no follower connected to Spotify)" if unread > 0 else "")
     finally:
         con.close()
+
+
+ALIASES_PER_RUN = 50  # songs asked for their artist's English name per run (one request each)
+
+
+def _aliases(con: sqlite3.Connection, sp: spotify.Spotify) -> int:
+    """Spotify songs whose artist is written in another script (祖堅 正慶): its English name, if Spotify has
+    one that differs (Masayoshi Soken), as songs.artist_alias, searched and matched as well ('' = asked, the
+    same). Asked once per song; returns how many got one."""
+    rows = con.execute("SELECT key, artist FROM songs WHERE service = 'spotify' AND artist_alias IS NULL").fetchall()
+    found = 0
+    for r in [r for r in rows if rules.non_latin(r["artist"])][:ALIASES_PER_RUN]:
+        track = sp.track(r["key"].removeprefix("spotify:"), lang="en")
+        name = ((track.get("artists") or [{}])[0].get("name") or "").strip()
+        alias = name if name and name != r["artist"] else ""
+        with con:
+            con.execute("UPDATE songs SET artist_alias = ? WHERE key = ?", (alias, r["key"]))
+        found += bool(alias)
+    return found
 
 
 def _active(con: sqlite3.Connection) -> list[int]:

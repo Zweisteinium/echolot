@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 26
+VERSION = 27
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -52,7 +52,9 @@ CREATE TABLE songs (                -- every song of every list, once; kept when
     released TEXT,                  -- Spotify: its release's date (YYYY, YYYY-MM or YYYY-MM-DD)
     track INTEGER,                  -- Spotify: its number on that release, of `tracks`, on disc `disc`
     tracks INTEGER,
-    disc INTEGER
+    disc INTEGER,
+    artist_alias TEXT               -- Spotify: the artist's English name if it differs (祖堅 正慶: Masayoshi Soken),
+                                    -- searched and matched as well; '' = checked, the same; NULL = not asked yet
 );
 CREATE TABLE list_songs (
     list_key TEXT NOT NULL REFERENCES lists(key) ON DELETE CASCADE,
@@ -301,6 +303,7 @@ MIGRATIONS = {
         "UPDATE users SET permissions = CASE WHEN ',' || permissions || ',' LIKE '%,run,%' "
         "THEN 'review,run,upload' ELSE 'review,upload' END WHERE ',' || permissions || ',' LIKE '%,review,%'"
     ],
+    27: ["ALTER TABLE songs ADD COLUMN artist_alias TEXT"],  # Spotify's English name of a non-Latin artist
 }
 
 

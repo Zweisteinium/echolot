@@ -546,6 +546,38 @@ def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run) -> None:
     assert files == {"Artist N/Artist N - Rebirth.flac"}
 
 
+def test_a_song_is_found_under_its_artists_english_name(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """祖堅 正慶 on Spotify, Masayoshi Soken in the peer's folder and file: matched by the alias, filed under the
+    song's own name. With nothing that fits under the name, the English one is searched as well."""
+    add_missing(run, "spotify:k1", "Dynamis")
+    con = run.connect()
+    with con:
+        con.execute("UPDATE songs SET artist = '祖堅 正慶', artist_alias = 'Masayoshi Soken' WHERE key = 'spotify:k1'")
+    con.close()
+    FakeDaemon.files["Dynamis"] = [
+        ("u1", "music\\Masayoshi Soken\\ENDWALKER\\Masayoshi Soken - Dynamis.flac", 200, "ok")
+    ]
+    rows = [r for r in missing(run) if r["key"] == "spotify:k1"]
+    assert acquire._search(run, rows, "search") == "1 of 1 songs: 1 new"
+    con = run.connect()
+    filed = con.execute("SELECT path FROM events WHERE song = 'spotify:k1' AND action = 'new'").fetchone()[0]
+    con.close()
+    assert filed == "祖堅 正慶/祖堅 正慶 - Dynamis.flac"
+    names: list[str] = []
+
+    def one(self, want, tries, artist_name):  # the first search sees nothing that fits, the second finds it
+        names.append(artist_name)
+        if artist_name == want.artist:
+            return acquire.Outcome("not found", "no results", {"fits": 0})
+        return acquire.Outcome("new", "x", {"fits": 1})
+
+    monkeypatch.setattr(acquire.Fetcher, "_song", one)
+    want = Want("祖堅 正慶", "Dynamis", 240, "spotify:k1", alias="Masayoshi Soken")
+    assert acquire.Fetcher(run, "search").song(want, 0).action == "new" and names == ["祖堅 正慶", "Masayoshi Soken"]
+    names.clear()
+    assert acquire.Fetcher(run, "search").song(Want("A", "B", 200, "x"), 0).action == "not found" and names == ["A"]
+
+
 def test_the_evening_search_takes_each_song_daily_then_weekly(run: Run) -> None:
     now = int(time.time())
     add_missing(run, "spotify:recent", "Recent Song", tries=1, last_try=now - 3600)  # searched an hour ago
