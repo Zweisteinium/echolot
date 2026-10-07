@@ -62,3 +62,33 @@ def test_the_covers_run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> 
     assert message.startswith("2 replaced") and sorted(asked) == ["spotify:s1", "spotify:s2"]
     asked.clear()
     assert covers.run(run) == "nothing to do" and asked == []  # done files are not asked again
+
+
+def test_a_discover_songs_cover(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A song hearted in a player: the album of the Spotify track with its ISRC; without one (or Spotify
+    knows none), the picture Discover showed, large."""
+    run = Run(BY_NAME["covers"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "INSERT INTO discover_songs (id, data, seen) VALUES ('ex-abc', ?, 'now')",
+            ('{"cover": "https://cdn-images.dzcdn.net/images/cover/x/250x250-000000-80-0-0.jpg"}',),
+        )
+    fetched: list[str] = []
+    monkeypatch.setattr(covers, "download", lambda url: fetched.append(url) or SONG)
+    c = covers.Covers(con, run)
+    c.sp = None  # no Spotify: Discover's picture
+    song = {"key": "discover:abc", "isrc": "GB2LD0901580"}
+    assert c.of(song) == SONG and fetched == ["https://cdn-images.dzcdn.net/images/cover/x/1000x1000-000000-80-0-0.jpg"]
+
+    class Sp:
+        def search(self, q: str, limit: int) -> list[dict]:
+            return [{"id": "t1"}] if q == "isrc:GB2LD0901580" else []
+
+        def track(self, tid: str) -> dict:
+            return {"album": {"id": "a1", "images": [{"url": "https://i.scdn.co/a1"}]}}
+
+    monkeypatch.setattr(covers.time, "sleep", lambda s: None)
+    c.sp, c.cache = Sp(), {}
+    assert c.of(song) == SONG and fetched[-1] == "https://i.scdn.co/a1"
+    con.close()
