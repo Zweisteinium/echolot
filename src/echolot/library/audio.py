@@ -14,6 +14,7 @@ prepare() is what every download goes through:
 import base64
 import json
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,25 @@ def probe(path: Path) -> tuple[float, int]:
         return float(getattr(info, "length", 0) or 0), kbps
     except Exception:
         return 0.0, 0
+
+
+def levels(path: Path) -> tuple[float | None, float | None]:
+    """(peak, RMS) of the whole file in dBFS (ffmpeg astats over all channels); None where unreadable or silent.
+    Releases peak near 0 dB; one recorded at a low volume is as much lower (at 25 %: -12 dB)."""
+    stats = "astats=measure_perchannel=none:measure_overall=Peak_level+RMS_level"
+    try:
+        r = _run(
+            ["ffmpeg", "-v", "info", "-nostats", "-i", str(path), "-map", "0:a:0", "-af", stats, "-f", "null", "-"]
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None, None
+    err = r.stderr.decode(errors="replace")
+
+    def last(name: str) -> float | None:
+        found = re.findall(rf"{name} level dB:\s*(-?[0-9.]+)", err)
+        return round(float(found[-1]), 1) if found else None
+
+    return last("Peak"), last("RMS")
 
 
 def _flac_ok(path: Path) -> bool:

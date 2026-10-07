@@ -26,14 +26,16 @@ if TYPE_CHECKING:
     from echolot.settings.vault import Vault
 
 KEEP_SECONDS = 24 * 3600  # a batch nobody imported or cancelled is deleted after this
+QUIETER = 3.0  # dB (RMS) under your copy from which an upload is no better: recorded at a lower volume
+QUIET_PEAK = -9.0  # dBFS: a file peaking lower is flagged (releases peak near 0; recorded at 25 %: -12)
 BATCH = re.compile(r"[0-9a-f]{16}")
 
 
 @dataclass
 class File:
     """An uploaded file as checked: n (its place in the batch), name (as uploaded), path (after prepare),
-    seconds, kbps, tier (catalog.QUALITY), tags (artist, title), error (not usable audio) and what the
-    spectrum check saw (source, band)."""
+    seconds, kbps, tier (catalog.QUALITY), tags (artist, title), error (not usable audio), what the
+    spectrum check saw (source, band) and its levels (peak, rms: dBFS)."""
 
     n: int
     name: str
@@ -46,6 +48,8 @@ class File:
     error: str = ""
     source: str = ""  # a fake FLAC: the lossy file it was made from, as the spectrum check estimates it
     band: int = 0  # Hz up to which it has sound (a lossy encoder's edge; 0: none, its full range)
+    peak: float | None = None
+    rms: float | None = None
 
 
 @dataclass
@@ -100,6 +104,7 @@ def add(paths: Paths, batch: str, name: str, fileobj: Any, keep_hires: bool = Fa
         f.source, f.band = (prepared.spectrum or {}).get("source", ""), _band(prepared.spectrum)
         artists, f.title = audio.read_tags(prepared.path)
         f.artist = ", ".join(dict.fromkeys(artists))
+        f.peak, f.rms = audio.levels(prepared.path)
     except audio.Rejected as e:
         f.error = str(e)
     if d.is_dir():  # (cancelled meanwhile: nothing to keep)
@@ -199,6 +204,7 @@ class Copy:
 
     better: bool
     why: str
+    quieter: float = 0.0  # dB (RMS) under your copy, from QUIETER on
 
 
 def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
@@ -206,10 +212,17 @@ def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
     a close match is another version). Genuine
     lossless beats a lossy or fake copy; otherwise its worth (a fake FLAC: its source's) must be a quarter
     more than the copy's, and its sound reach as high (the library copy is measured by the same spectrum
-    check): a 256 kbps source made into a FLAC beats a 123 kbps Opus, a 128 kbps one does not."""
+    check): a 256 kbps source made into a FLAC beats a 123 kbps Opus, a 128 kbps one does not. One QUIETER
+    than your copy is no better whatever its quality (recorded at a lower volume)."""
     if needs(song):  # missing, or a close match (another recording): nothing to compare with
         return None
     have = copy_label(song)
+    lib = paths.tracks / song["file"]
+    if f.rms is not None and lib.is_file():
+        _, theirs_rms = audio.levels(lib)
+        if theirs_rms is not None and f.rms < theirs_rms - QUIETER:
+            down = round(theirs_rms - f.rms, 1)
+            return Copy(False, f"{down:g} dB quieter than your {have} (recorded at a lower volume?)", down)
     if f.tier == "lossless":
         ok = song["quality"] != "lossless"
         return Copy(ok, "genuine lossless" + ("" if ok else f", like your {have}"))
@@ -220,7 +233,6 @@ def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
     what = f"{f.source} source" if f.tier == "fake" and f.source else f"{f.kbps} kbps"
     if mine < max(theirs * MORE, theirs + 1):
         return Copy(False, f"{what}, your copy {have}")
-    lib = paths.tracks / song["file"]
     band = f.band or 22050
     theirs_band = (_band(audio.spectrum(lib)) or 22050) if lib.is_file() else 22050
     khz = f"sound up to {band / 1000:.1f} kHz (yours {theirs_band / 1000:.1f})"
@@ -261,6 +273,8 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None
         return [("No song found", "bad", "Neither its tags nor its name name one of your songs")]
     if copy is not None and not copy.better:
         why = f"{copy.why}: your copy stays unless you replace it anyway"
+        if copy.quieter:
+            return [(f"{copy.quieter:.0f} dB quieter than your copy", "bad", why)]
         return [(f"Not better than your {copy_label(song)}", "bad", why)]
     why = f"{copy.why if copy else ''}; your copy is kept 30 days in inbox/replaced"
     out = [(f"Better than your {copy_label(song)}", "ok", why)] if copy else []
@@ -276,6 +290,9 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None
         out.append(("Other master or mix", "warn", "The same recording, but its waveform is not the release's"))
     if f.tier == "fake":
         out.append(("Fake FLAC", "warn", "A FLAC made from a lossy file (spectrum check)"))
+    if f.peak is not None and f.peak <= QUIET_PEAK:
+        detail = "Releases peak near 0 dB: recorded at a low volume? (at 25 % it peaks at -12 dB)"
+        out.append((f"Quiet: peaks at {f.peak:g} dB", "warn", detail))
     if not out:
         why = "Length fits" + (", the release's audio" if wave is not None else ", audio not compared (no preview)")
         out.append(("Looks right", "ok", why))

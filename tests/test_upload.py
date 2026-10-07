@@ -132,6 +132,37 @@ def test_labels() -> None:
     assert not upload.importable(f, flac, copy)
 
 
+def test_an_upload_much_quieter_than_your_copy_is_no_better(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Recorded at 25 % (Spotify in the Windows mixer): 12 dB under your copy, so no better however lossless.
+    Peaking at -12 dB it is flagged on its own too; for a missing song it is still imported (your call)."""
+    paths = Paths(tmp_path)
+    (paths.tracks / "Gusted").mkdir(parents=True)
+    (paths.tracks / "Gusted/Gusted - You Make Me.opus").write_bytes(b"x")
+    monkeypatch.setattr(audio, "levels", lambda p: (-0.1, -9.5))  # the copy in the library
+    monkeypatch.setattr(audio, "spectrum", lambda p: {"verdict": "ok"})
+    song = {
+        "key": "a",
+        "artist": "Gusted",
+        "title": "You Make Me",
+        "length": 200,
+        "close_match": 0,
+        "file": "Gusted/Gusted - You Make Me.opus",
+        "quality": "lossy-low",
+        "kbps": 128,
+        "fake_source": None,
+    }
+    quiet = upload.File(1, "x.flac", seconds=200, tier="lossless", peak=-12.1, rms=-21.6)
+    copy = upload.compare(paths, quiet, song)
+    assert copy is not None and not copy.better and copy.quieter == 12.1
+    assert upload.labels(quiet, song, None, copy)[0][:2] == ("12 dB quieter than your copy", "bad")
+    assert not upload.importable(quiet, song, copy)
+    loud = upload.File(1, "x.flac", seconds=200, tier="lossless", peak=-0.1, rms=-9.8)
+    assert upload.compare(paths, loud, song).better
+    missing = song | {"file": None}
+    assert ("Quiet: peaks at -12.1 dB", "warn") in [label[:2] for label in upload.labels(quiet, missing, upload.Fit(0))]
+    assert upload.importable(quiet, missing, None)
+
+
 def test_a_fake_flac_counts_by_its_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Enmity's FLAC made from a ~256 kbps file beats a 123 kbps Opus of the same reach (20 kHz); one made from
     ~128 kbps does not, nor one whose sound stops lower than the copy's; a lossy file needs a quarter more."""
@@ -165,6 +196,7 @@ def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., T
     """First Song is an MP3 in the library: a FLAC of it uploaded on its list page takes over its name."""
     client = login(create_app(settings))
     assert 'hx-get="/missing/upload?song=spotify%3As1"' in client.get("/lists/spotify:playlist:AAA111").text
+    assert "data-force-all hidden" in client.get("/missing/upload").text  # Replace all (shown once one is no better)
     one = [("files", ("Artist A - First Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
     html = post_files(client, one)
     assert '<input type="hidden" name="song_1" value="spotify:s1">' in html and "you have it" in html
