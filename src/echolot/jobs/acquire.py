@@ -307,12 +307,15 @@ SEARCHED = "s.service IN ('spotify', 'youtube')"  # the songs searched for (Soun
 
 
 def _missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Wanted Spotify and YouTube songs not in the library, greyed-out ones first (most at risk)."""
-    return con.execute(
+    """Wanted Spotify and YouTube songs not in the library, greyed-out ones first (most at risk); one song
+    per recording (recordings.twins)."""
+    rows = con.execute(
         "SELECT s.*, coalesce(a.tries, 0) AS tries, coalesce(a.last_try, 0) AS last_try FROM wanted s "
         f"LEFT JOIN attempts a ON a.song_key = s.key WHERE {SEARCHED} AND s.file IS NULL "
         "ORDER BY s.unavailable IS NULL, s.artist, s.title"
     ).fetchall()
+    twins = recordings.twins(rows)
+    return [r for r in rows if r["key"] not in twins]
 
 
 def _for(run: "Run", con: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
@@ -619,6 +622,8 @@ def fallback(run: "Run") -> str:
             "ORDER BY coalesce(a.last_fallback, 0) > 0, s.unavailable IS NULL",
             (week,),
         ).fetchall()
+        twins = recordings.twins(songs)
+        songs = [r for r in songs if r["key"] not in twins]
         songs = run.todo(_for(run, con, songs))  # (by hand: without the songs a run that gave way did)
         token = sc_api.any_token(con, run.vault)
     finally:

@@ -8,7 +8,7 @@ from typing import Any
 
 from echolot.jobs import acquire
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
-from echolot.library import catalog, filing
+from echolot.library import catalog, filing, recordings
 from echolot.library.catalog import QUALITY
 from echolot.library.filing import Paths
 
@@ -191,7 +191,7 @@ def missing(
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
     rows = con.execute(
-        "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, "
+        "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, s.isrc, "
         "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
         "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
         " FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key "
@@ -200,6 +200,12 @@ def missing(
         "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
     ).fetchall()
+    twins = recordings.twins(rows)  # one recording listed twice: one row, the places of both
+    places: dict[str, list[str]] = {}
+    for r in rows:
+        if r["in_lists"]:
+            places.setdefault(twins.get(r["key"], r["key"]), []).append(r["in_lists"])
+    rows = [r for r in rows if r["key"] not in twins]
     rejected: dict[str, list[Row]] = {}
     if keys := [r["key"] for r in rows]:
         for e in con.execute(
@@ -209,7 +215,9 @@ def missing(
         ):
             if len(rejected.setdefault(e["song"], [])) < 3:
                 rejected[e["song"]].append(e)
-    return [_tried(r, rejected.get(r["key"], []), paths) for r in rows]
+    return [
+        _tried(r, rejected.get(r["key"], []), paths) | {"in_lists": " · ".join(places.get(r["key"], []))} for r in rows
+    ]
 
 
 def upload_songs(con: Connection, uid: int | None = None, key: str | None = None) -> list[Row]:

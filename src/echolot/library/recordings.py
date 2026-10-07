@@ -3,6 +3,7 @@ main artist, "Edit" and "Radio Edit", a re-release), and a SoundCloud upload nam
 by name (catalog.Catalog.song), each got its own file. So the library is asked first:
 
   link_isrc   a missing song whose ISRC another song has a file of is linked to that file
+  twins       of missing songs with one ISRC, one is searched and shown: the others follow it (link_isrc)
   in_library  before a missing song is searched: a file with the same core title and length (±3 s) that
               sounds like the song's release (identity.check) is the song
   already     before a SoundCloud or YouTube download is filed: a file with the same core title and length
@@ -77,6 +78,23 @@ def link_isrc(con: sqlite3.Connection, paths: Paths) -> int:
             link(con, paths, r["key"], Want.of(r), e, f"ISRC {r['isrc']}")
             n += 1
     return n
+
+
+def twins(rows: list[sqlite3.Row]) -> dict[str, str]:
+    """Missing songs (rows with key, isrc, tries) that are another one's recording, its ISRC (Spotify lists
+    a release twice): {twin's key: the key that stands for it}, the one searched most (then the first key).
+    Only that one is searched and shown; once it has a file, link_isrc links the twins to it."""
+    first: dict[str, sqlite3.Row] = {}
+    for r in rows:
+        if isrc := (r["isrc"] or "").replace("-", "").upper():
+            b = first.get(isrc)
+            if b is None or (r["tries"] or 0, b["key"]) > (b["tries"] or 0, r["key"]):
+                first[isrc] = r
+    return {
+        r["key"]: s["key"]
+        for r in rows
+        if (s := first.get((r["isrc"] or "").replace("-", "").upper())) is not None and s is not r
+    }
 
 
 def in_library(con: sqlite3.Connection, paths: Paths, want: Want, index: Index) -> catalog.Entry | None:
