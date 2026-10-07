@@ -5,7 +5,9 @@ either backend.
 
 What Sockseek does for its daemon, Echolot does here: the search text (without feat. credits; the desperate
 search repeats a search without results with the title alone and the artist alone), the filters and the
-ranking of soulseek.SEARCH, and Soulseek's search limit. slskd logs in with an API key or with its web login
+ranking of soulseek.SEARCH, Soulseek's search limit, giving a download up that makes no progress
+(maxStaleTime), and peers whose downloads failed: ranked last after one failure, left out after two (Sockseek's
+fails-to-downrank 1, fails-to-ignore 2; here for PEER_MEMORY). slskd logs in with an API key or with its web login
 (user and password).
 """
 
@@ -34,8 +36,13 @@ SEARCH_LIMIT = (34, 220)  # Soulseek allows about 34 searches per 220 s: kept by
 # (milliseconds, though slskd's API notes call it seconds); 15 s is slskd's default
 SEARCH_IDLE_MS = 15_000
 FAST = 1_000_000  # bytes/s from which a peer counts as fast (the ranking: fast before slow)
+PEER_MEMORY = 6 * 3600  # s a peer's failed downloads count against it
+BUSY_TRIES = 10  # slskd answers 429 while it handles another search or enqueue: tried again this often
 _searches: deque[float] = deque()
 _searches_lock = threading.Lock()
+_peers: dict[str, tuple[int, float]] = {}  # user -> (downloads done minus failed, when that last changed)
+_peers_lock = threading.Lock()
+_post_lock = threading.Lock()  # one search or enqueue at a time (slskd: "Only one concurrent operation")
 _FT = re.compile(r"\s*[\(\[]\s*(?:feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]|\s+(?:feat|ft|featuring)\.?\s.*$", re.I)
 
 
@@ -64,6 +71,19 @@ def _throttle(stop: threading.Event | None = None) -> None:
             time.sleep(min(wait, 5))
 
 
+def _peer(user: str) -> int:
+    """Downloads from the peer done minus failed (failures older than PEER_MEMORY forgotten)."""
+    with _peers_lock:
+        n, at = _peers.get(user, (0, 0.0))
+    return 0 if n < 0 and time.monotonic() - at > PEER_MEMORY else n
+
+
+def _record(user: str, ok: bool) -> None:
+    n = _peer(user)
+    with _peers_lock:
+        _peers[user] = (n + (1 if ok else -1), time.monotonic())
+
+
 class Slskd:
     def __init__(self, url: str, downloads: Path, user: str = "", secret: str = "", timeout: float = 30) -> None:
         """downloads: slskd's downloads folder, as Echolot sees it. user and secret: slskd's web login, or no
@@ -73,6 +93,7 @@ class Slskd:
         self._token = ""
         self._jobs: dict[str, dict[str, Any]] = {}  # search id -> its query, settings and the searches made
         self._done_at: dict[str, float] = {}  # download job -> when slskd first reported it done
+        self._moved: dict[str, tuple[int, float]] = {}  # download job -> (bytes, when they last changed)
 
     # ------------------------------------------------------------ HTTP
 
@@ -89,7 +110,7 @@ class Slskd:
         except (OSError, TimeoutError) as e:
             raise DaemonError(f"slskd at {self.url} not reachable: {e}") from e
 
-    def _call(self, method: str, path: str, body: object = None, again: bool = True) -> Any:
+    def _call(self, method: str, path: str, body: object = None, again: bool = True, busy: int = 0) -> Any:
         headers = {"Content-Type": "application/json"}
         if self.user:
             if not self._token:
@@ -106,9 +127,9 @@ class Slskd:
             if e.code == 401 and self.user and again:  # the session ran out: log in again
                 self._token = ""
                 return self._call(method, path, body, again=False)
-            if e.code == 429 and again:  # slskd takes one enqueue at a time
-                time.sleep(1)
-                return self._call(method, path, body, again=False)
+            if e.code == 429 and busy < BUSY_TRIES:  # slskd takes one search or enqueue at a time
+                time.sleep(0.5 * (busy + 1))
+                return self._call(method, path, body, again, busy + 1)
             if e.code == 404:
                 raise Lost(f"{method} {path}: not found") from e
             detail = e.read().decode(errors="replace")[:300]
@@ -157,19 +178,17 @@ class Slskd:
         text = j["pending"].pop(0)
         _throttle(stop)
         sid = job if not j["searches"] else str(uuid.uuid4())
-        self._call(
-            "POST",
-            "/searches",
-            {
-                "id": sid,
-                "searchText": text,
-                "searchTimeout": SEARCH_IDLE_MS,
-                "responseLimit": 100,
-                "fileLimit": 10000,
-                "filterResponses": True,
-                "minimumResponseFileCount": 1,
-            },
-        )
+        body = {
+            "id": sid,
+            "searchText": text,
+            "searchTimeout": SEARCH_IDLE_MS,
+            "responseLimit": 100,
+            "fileLimit": 10000,
+            "filterResponses": True,
+            "minimumResponseFileCount": 1,
+        }
+        with _post_lock:
+            self._call("POST", "/searches", body)
         j["searches"].append(sid)
         return True
 
@@ -197,7 +216,8 @@ class Slskd:
 
     def results(self, job_id: str) -> list[Candidate]:
         """The files the job's searches found that pass soulseek.SEARCH's necessary conditions, best first by
-        its preferred ones, then free slot, speed and queue."""
+        its preferred ones, then free slot, speed and queue; a peer whose download failed last, one that failed
+        twice not at all."""
         j = self._jobs.get(job_id)
         if j is None:
             raise Lost(f"search {job_id}: unknown")
@@ -210,7 +230,7 @@ class Slskd:
             for resp in self._call("GET", f"/searches/{sid}/responses") or []:
                 for f in resp.get("files") or []:
                     c = _candidate(resp, f)
-                    if f.get("isLocked") or (only and c.ext not in only):
+                    if f.get("isLocked") or (only and c.ext not in only) or _peer(c.user) <= -2:
                         continue
                     if tolerance and j["length"] and c.length and abs(c.length - j["length"]) > tolerance:
                         continue
@@ -230,11 +250,15 @@ class Slskd:
         }
         if sid:
             body["searchId"] = sid
-        r = self._call("POST", "/transfers/downloads/batches", body) or {}
+        with _post_lock:
+            r = self._call("POST", "/transfers/downloads/batches", body) or {}
         if r.get("failures") and not (r.get("batch") or {}).get("id"):
             raise DaemonError(f"slskd could not queue {c.path}: {r['failures'][0].get('message')}")
         batch = (r.get("batch") or {}).get("id") or ""
-        return json.dumps({"user": c.user, "file": c.path, "batch": batch, "dir": parent_dir})
+        stale = int((settings.get("search") or {}).get("maxStaleTime") or 0)
+        job = json.dumps({"user": c.user, "file": c.path, "batch": batch, "dir": parent_dir, "stale": stale})
+        self._moved[job] = (0, time.monotonic())
+        return job
 
     def _find(self, job: dict) -> dict | None:
         """The job's transfer record (by user, file and batch)."""
@@ -251,11 +275,19 @@ class Slskd:
     def transfer(self, job_id: str) -> Transfer:
         job = json.loads(job_id)
         t = self._find(job)
-        if t is None:
-            return Transfer("running", None, 0, 0, "")  # not listed yet (a moment after the enqueue)
-        state, done, total = str(t.get("state") or ""), int(t.get("bytesTransferred") or 0), int(t.get("size") or 0)
-        if "Completed" not in state:
+        state = str((t or {}).get("state") or "")
+        done, total = int((t or {}).get("bytesTransferred") or 0), int((t or {}).get("size") or 0)
+        if "Completed" not in state:  # (t None: not listed yet, a moment after the enqueue)
+            seen, since = self._moved.get(job_id, (done, time.monotonic()))
+            if done != seen:
+                self._moved[job_id] = (done, time.monotonic())
+            elif job.get("stale") and time.monotonic() - since > job["stale"] / 1000:
+                self.cancel(job_id)  # queued at the peer, or the peer does not answer: as Sockseek, the next file
+                self._moved.pop(job_id, None)
+                _record(job["user"], False)
+                return Transfer("failed", None, done, total, f"no progress for {job['stale'] // 1000} s")
             return Transfer("running", None, done, total, "")
+        self._moved.pop(job_id, None)
         if "Succeeded" in state:
             folder = self.downloads / job["dir"]
             files = sorted(
@@ -267,6 +299,7 @@ class Slskd:
                 return Transfer("failed", None, done, total, f"{OTHER_USER} (owner uid {folder.stat().st_uid})")
             if files:
                 self._forget(job, t)
+                _record(job["user"], True)
                 return Transfer("done", str(files[-1]), done, total, "")
             # slskd reports success, then moves the file from its incomplete folder: wait for it a while
             first = self._done_at.setdefault(job_id, time.monotonic())
@@ -275,7 +308,10 @@ class Slskd:
             return Transfer("failed", None, done, total, f"downloaded, but not found in {folder}")
         reason = t.get("exception") or state.replace("Completed, ", "")
         self._forget(job, t)
-        return Transfer("cancelled" if "Cancelled" in state else "failed", None, done, total, str(reason))
+        if "Cancelled" in state:
+            return Transfer("cancelled", None, done, total, str(reason))
+        _record(job["user"], False)
+        return Transfer("failed", None, done, total, str(reason))
 
     def _forget(self, job: dict, t: dict) -> None:
         """Take the finished transfer off slskd's list (its file stays)."""
@@ -335,8 +371,9 @@ def _candidate(resp: dict, f: dict) -> Candidate:
 
 
 def _rank(c: Candidate, job: dict, want: dict) -> tuple:
-    """Sort key: more of the preferred conditions met (format, bitrate, sample rate, the title in the file name,
-    the artist in the path), then a free slot, a fast peer, a short queue, a higher bitrate."""
+    """Sort key: a peer whose download failed last; more of the preferred conditions met (format, bitrate, sample
+    rate, the title in the file name, the artist in the path), then a free slot, a fast peer, a short queue, a
+    higher bitrate."""
     formats = [f.lower() for f in _values(want.get("formats"))]
     met = [
         not formats or c.ext in formats,
@@ -345,4 +382,4 @@ def _rank(c: Candidate, job: dict, want: dict) -> tuple:
         not want.get("strictTitle") or rules.words(job["title"]).strip() in rules.words(c.name),
         not want.get("strictArtist") or any(f" {w} " in rules.words(c.path) for w in rules.artist_words(job["artist"])),
     ]
-    return (-sum(met), not c.free_slot, c.speed < FAST, c.queue, -c.bitrate, -c.speed)
+    return (_peer(c.user) < 0, -sum(met), not c.free_slot, c.speed < FAST, c.queue, -c.bitrate, -c.speed)

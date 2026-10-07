@@ -24,6 +24,7 @@ class Fake:
     def reset(self, downloads: Path) -> None:
         self.responses, self.searches, self.transfers, self.calls = {}, {}, [], []
         self.downloads, self.deliver, self.tokens, self.readonly, self.late = downloads, "Succeeded", 0, False, False
+        self.busy = 0  # answers 429 to this many search POSTs (slskd: one operation at a time)
 
 
 FAKE = Fake()
@@ -67,6 +68,9 @@ class Handler(BaseHTTPRequestHandler):
             )
         if path == "/searches" and method == "POST":
             body = self._body()
+            if FAKE.busy:
+                FAKE.busy -= 1
+                return self._send(429, "Only one concurrent operation is permitted.")
             FAKE.searches[body["id"]] = body
             return self._send(200, {"id": body["id"], "state": "InProgress"})
         if path.startswith("/searches/"):
@@ -85,6 +89,7 @@ class Handler(BaseHTTPRequestHandler):
             f = body["files"][0]
             name = f["filename"].rsplit("\\", 1)[-1]
             folder = FAKE.downloads / body["options"]["destination"]
+            queued = FAKE.deliver == "Queued"
             if FAKE.deliver == "Succeeded" and not FAKE.late:
                 folder.mkdir(parents=True)
                 (folder / name).write_bytes(b"audio")
@@ -97,9 +102,9 @@ class Handler(BaseHTTPRequestHandler):
                     "batchId": "b1",
                     "filename": f["filename"],
                     "size": f["size"],
-                    "bytesTransferred": f["size"],
-                    "state": f"Completed, {FAKE.deliver}",
-                    "exception": "Transfer rejected: File not shared." if FAKE.deliver != "Succeeded" else None,
+                    "bytesTransferred": 0 if queued else f["size"],
+                    "state": "Queued, Remotely" if queued else f"Completed, {FAKE.deliver}",
+                    "exception": "Transfer rejected: File not shared." if FAKE.deliver == "Rejected" else None,
                 }
             )
             return self._send(201, {"batch": {"id": "b1"}, "failures": []})
@@ -129,6 +134,7 @@ class Handler(BaseHTTPRequestHandler):
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     FAKE.reset(tmp_path)
     monkeypatch.setattr(slskd, "_searches", __import__("collections").deque())  # a fresh search budget
+    monkeypatch.setattr(slskd, "_peers", {})  # no peer failed yet
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield slskd.Slskd(f"http://127.0.0.1:{server.server_port}", tmp_path, "admin", "pw", timeout=5)
@@ -262,3 +268,55 @@ def test_the_search_limit_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     stop.set()
     with pytest.raises(soulseek.DaemonError, match="search slot"):
         slskd._throttle(stop)  # the third within the window waits (here: stopped)
+
+
+def test_slskd_busy_with_another_search_is_asked_again(client: slskd.Slskd, monkeypatch: pytest.MonkeyPatch) -> None:
+    """slskd answers 429 while it starts another search: Echolot waits a moment and asks again."""
+    monkeypatch.setattr(slskd.time, "sleep", lambda s: None)
+    FAKE.busy = 3
+    job = client.search("Artist", "Song", 200, soulseek.search_settings())
+    assert job in FAKE.searches and FAKE.busy == 0
+
+
+def test_a_peer_that_failed_is_tried_last_then_not_at_all(client: slskd.Slskd) -> None:
+    """As Sockseek (fails-to-downrank 1, fails-to-ignore 2): after one failed download the peer's files come
+    after everyone else's, after two they are left out; a download that goes through counts for the peer."""
+    FAKE.responses["Artist Song"] = [
+        response("flaky", file("Music\\Artist\\Artist - Song.flac")),
+        response("other", file("Music\\Artist\\Artist - Song.mp3", ext="mp3", bitrate=320)),
+    ]
+
+    def ranked() -> list[str]:
+        job = client.search("Artist", "Song", 200, soulseek.search_settings())
+        client.wait(job, threading.Event(), 1e12)
+        return [c.user for c in client.results(job)]
+
+    assert ranked() == ["flaky", "other"]  # the FLAC first
+    FAKE.deliver = "Rejected"
+    job = client.search("Artist", "Song", 200, soulseek.search_settings())
+    client.wait(job, threading.Event(), 1e12)
+    flaky = client.results(job)[0]
+    assert client.transfer(client.download(job, flaky, "echolot/a", {})).state == "failed"
+    assert ranked() == ["other", "flaky"]
+    assert client.transfer(client.download(job, flaky, "echolot/b", {})).state == "failed"
+    assert ranked() == ["other"]
+    FAKE.deliver = "Succeeded"
+    other = client.results(job)[-1]
+    assert client.transfer(client.download(job, other, "echolot/c", {})).state == "done"
+    assert slskd._peer("other") == 1 and slskd._peer("flaky") == -2
+
+
+def test_a_download_without_progress_is_given_up(client: slskd.Slskd, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Queued at the peer (or the peer does not answer) for maxStaleTime: given up, as Sockseek does, and the
+    next file is tried; it counts as the peer's failure."""
+    FAKE.responses["Artist Song"] = [response("u", file("Music\\Artist\\Artist - Song.flac"))]
+    job = client.search("Artist", "Song", 200, soulseek.search_settings())
+    client.wait(job, threading.Event(), 1e12)
+    FAKE.deliver = "Queued"
+    dl = client.download(job, client.results(job)[0], "echolot/q", soulseek.search_settings())
+    assert client.transfer(dl).state == "running"
+    clock = slskd.time.monotonic() + soulseek.SEARCH["maxStaleTime"] / 1000 + 1
+    monkeypatch.setattr(slskd.time, "monotonic", lambda: clock)
+    t = client.transfer(dl)
+    assert (t.state, t.reason) == ("failed", "no progress for 90 s")
+    assert not FAKE.transfers and slskd._peer("u") == -1  # cancelled in slskd
