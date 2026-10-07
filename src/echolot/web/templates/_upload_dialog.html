@@ -20,6 +20,12 @@
     const refresh = () => {  // the bar; once every file is done: Import (for something to import)
       const go = body.querySelector("[data-import]");
       if (!go) return;
+      const all = body.querySelector("[data-force-all]"), forces = [...body.querySelectorAll("[data-force]")];
+      if (all) {  // Replace all: every file that is no better replaces its copy too (also those added later)
+        all.hidden = !forces.length;
+        if (all.querySelector("input").checked) for (const force of forces) force.checked = true;
+        for (const force of forces) force.closest("tr").querySelector("input[name^='song_']").disabled = !force.checked;
+      }
       const pending = queue.length + active.length;
       const bar = body.querySelector("[data-progress]");
       const open = jobs.filter((j) => j.done !== undefined);
@@ -124,8 +130,15 @@
     body.addEventListener("change", (e) => {
       const input = e.target.closest("[data-files]");
       if (input) { addFiles([...input.files]); input.value = ""; return; }  // (the same file can be added again)
+      const all = e.target.closest("[data-force-all] input");
+      if (all) {
+        for (const force of body.querySelectorAll("[data-force]")) force.checked = all.checked;
+        refresh();
+        return;
+      }
       const force = e.target.closest("[data-force]");
       if (!force) return;
+      if (!force.checked) body.querySelector("[data-force-all] input").checked = false;  // (one left out: not all)
       force.closest("tr").querySelector("input[name^='song_']").disabled = !force.checked;
       refresh();
     });

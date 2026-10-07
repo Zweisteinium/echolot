@@ -1,7 +1,9 @@
 """Filing into the library (filing.py) and applying review decisions (review.py), on real files."""
 
 import datetime
+import shutil
 import sqlite3
+import subprocess
 import threading
 import wave
 from pathlib import Path
@@ -595,3 +597,30 @@ def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pyt
     calls.clear()
     audio.prepare(f, keep_hires=True)
     assert calls == []
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_levels_of_a_file_recorded_at_a_quarter(tmp_path: Path) -> None:
+    """A tone at full scale peaks at 0 dB; the same at a quarter (Spotify at 25 % in the mixer) 12 dB lower."""
+    for name, gain in (("full", 1.0), ("quarter", 0.25)):
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"sine=f=440:d=2,volume={gain * 2:g}",
+                "-af",
+                "alimiter=limit=1:level=false",
+                "-c:a",
+                "flac",
+                str(tmp_path / f"{name}.flac"),
+            ],
+            check=True,
+        )
+    full, quarter = audio.levels(tmp_path / "full.flac"), audio.levels(tmp_path / "quarter.flac")
+    assert full[0] is not None and quarter[0] is not None and full[1] is not None and quarter[1] is not None
+    assert abs((full[0] - quarter[0]) - 12.0) < 0.3 and abs((full[1] - quarter[1]) - 12.0) < 0.3
+    assert audio.levels(tmp_path / "missing.flac") == (None, None)
