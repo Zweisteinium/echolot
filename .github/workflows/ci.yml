@@ -2,13 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev, "feat/**", "fix/**"] # releases come from main only (job meta)
   pull_request:
   workflow_dispatch: # a branch's image on both platforms, without a release
 
-concurrency: # a newer push to a pull request supersedes its running check; main runs every commit (releases)
+concurrency: # a newer push supersedes a branch's running check; main runs every commit (releases)
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
