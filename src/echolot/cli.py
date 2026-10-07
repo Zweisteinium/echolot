@@ -186,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     admin.add_argument("--off", action="store_true")
     permit = user_actions.add_parser("permit", help="set what a user who is no admin may do (none: nothing more)")
     permit.add_argument("name")
-    permit.add_argument("permissions", nargs="*", choices=["review", "run"])
+    permit.add_argument("permissions", nargs="*", choices=["review", "upload", "run"])
 
     config = commands.add_parser("config", help="the configuration as one YAML file (echolot.yml)")
     config_actions = config.add_subparsers(dest="action", required=True)

@@ -1,9 +1,9 @@
 """Users, browser sessions and API tokens.
 
 The users are Navidrome's accounts: Navidrome checks the password at each login (web/access), Echolot keeps
-no password, only the account and what it may do here. An admin may do everything, for everyone; a
-Navidrome admin is always one, and an admin can make any user one. Everyone else manages their own
-accounts and lists, and may be given PERMISSIONS for their own songs. Navidrome's user list (sync_users)
+no password, only the account and what it may do here. An admin may do everything, for everyone, except
+make someone an admin or no admin any more: only a Navidrome admin (always an admin here) can. Everyone else
+manages their own accounts and lists, and may be given PERMISSIONS for their own songs. Navidrome's user list (sync_users)
 renews who is a Navidrome admin and disables accounts gone from Navidrome.
 
 A session is a random cookie value; the database keeps its SHA-256 only, with a CSRF token that every form
@@ -23,7 +23,8 @@ from datetime import datetime, timedelta
 COOKIE = "echolot_session"
 PERMISSIONS = {  # what an admin may give a user who is no admin, always for the user's own songs and lists
     "review": "Review: decide the downloads of their songs",
-    "run": "Run: check their lists and search their missing songs now",
+    "upload": "Upload: add files they got elsewhere for their songs",
+    "run": "Run Jobs: check their lists and search their missing songs now",
 }
 VIEWS = ("mine", "everyone")
 USER_COLUMNS = "u.id, u.name, u.admin, u.navidrome_admin, u.permissions, u.view"
@@ -51,6 +52,7 @@ class User:
     admin: bool = False  # everything, for everyone (an Echolot admin, or a Navidrome admin)
     permissions: frozenset[str] = field(default_factory=frozenset)
     view: str = "mine"  # an admin's pages: their own lists, or everyone's
+    navidrome_admin: bool = False  # also gives and takes admin rights
 
     def can(self, permission: str) -> bool:
         return self.admin or permission in self.permissions
@@ -64,7 +66,8 @@ class User:
 def _user(row: sqlite3.Row) -> User:
     perms = frozenset(p for p in (row["permissions"] or "").split(",") if p in PERMISSIONS)
     view = row["view"] if row["view"] in VIEWS else "mine"
-    return User(row["id"], row["name"], bool(row["admin"] or row["navidrome_admin"]), perms, view)
+    nd_admin = bool(row["navidrome_admin"])
+    return User(row["id"], row["name"], bool(row["admin"]) or nd_admin, perms, view, nd_admin)
 
 
 def get_user(con: sqlite3.Connection, name: str) -> User | None:

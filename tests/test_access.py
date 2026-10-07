@@ -99,38 +99,64 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
     fake_navidrome["boss"] = True
     boss = TestClient(app)
     assert log_in(boss, "boss") == 303 and boss.get("/sources").status_code == 200  # Navidrome's admin
+    boss = login(app, "boss", admin=False)  # (with the CSRF token): an admin by being Navidrome's
     david = login(app, "david")  # an admin given in Echolot
     assert david.get("/users").status_code == 200 and "boss" in david.get("/users").text
     con = db.connect(app.state.settings.db_path)
     ids = {u["name"]: u["id"] for u in auth.users(con)}
     con.close()
-    assert david.post(f"/users/{ids['timon']}", data={"review": "1"}, follow_redirects=False).status_code == 303
-    r = david.post(f"/users/{ids['david']}", data={}, follow_redirects=True)
-    assert "take your own admin rights away" in r.text
-    assert david.post(f"/users/{ids['boss']}", data={}, follow_redirects=False).status_code == 303
-    con = db.connect(app.state.settings.db_path)
-    timon_now, boss_now, david_now = (auth.get_user(con, n) for n in ("timon", "boss", "david"))
-    con.close()
-    assert timon_now and timon_now.permissions == {"review"} and not timon_now.admin and timon_now.can("review")
-    assert boss_now and boss_now.admin  # a Navidrome admin's box is locked
-    assert david_now and david_now.admin and david_now.view == "mine"
-    # timon made an admin: Review and Run show ticked and locked, what is stored ("review") stays; no admin
-    # any more, he has just that again (an admin form sends no permissions: its boxes are locked)
-    assert david.post(f"/users/{ids['timon']}", data={"admin": "1"}, follow_redirects=False).status_code == 303
+
+    def rights(name: str) -> auth.User:
+        con = db.connect(app.state.settings.db_path)
+        try:
+            u = auth.get_user(con, name)
+        finally:
+            con.close()
+        assert u is not None
+        return u
+
+    # david sets permissions, but admin rights are only a Navidrome admin's to give or take
+    form = {"admin": "1", "review": "1", "upload": "1"}
+    assert david.post(f"/users/{ids['timon']}", data=form, follow_redirects=False).status_code == 303
+    assert not rights("timon").admin and rights("timon").permissions == {"review", "upload"}
+    assert david.post(f"/users/{ids['david']}", data={}, follow_redirects=False).status_code == 303
+    assert rights("david").admin and rights("david").view == "mine"  # his own box is locked as well
     page = david.get("/users").text
-    row = page[page.index(">timon<") :][:1500]
-    assert (
-        row.count("data-permission data-stored") == 2
-        and 'data-stored="1"' in row
-        and row.count('disabled title="An admin') == 2
-    )
-    assert david.post(f"/users/{ids['timon']}", data={"locked": "1"}, follow_redirects=False).status_code == 303
-    con = db.connect(app.state.settings.db_path)
-    again = auth.get_user(con, "timon")
-    con.close()
-    assert again and not again.admin and again.permissions == {"review"}
+    assert page[page.index(">timon<") :][:1500].count("only a Navidrome admin gives or takes admin rights") == 1
+    assert boss.post(f"/users/{ids['boss']}", data={}, follow_redirects=False).status_code == 303
+    assert rights("boss").admin  # a Navidrome admin's box is locked
+    # boss makes timon an admin: Review, Upload and Run Jobs show ticked and locked, what is stored stays;
+    # no admin any more, he has just that again (an admin form sends no permissions: its boxes are locked)
+    assert boss.post(f"/users/{ids['timon']}", data={"admin": "1"}, follow_redirects=False).status_code == 303
+    assert rights("timon").admin
+    page = boss.get("/users").text
+    row = page[page.index(">timon<") :][:1800]
+    assert row.count("data-permission data-stored") == 3 and row.count('data-stored="1"') == 2
+    assert row.count('disabled title="An admin') == 3 and "Run Jobs" in page
+    assert boss.post(f"/users/{ids['timon']}", data={"locked": "1"}, follow_redirects=False).status_code == 303
+    assert not rights("timon").admin and rights("timon").permissions == {"review", "upload"}
     assert david.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
     assert timon.post("/account/view", data={"view": "everyone"}).status_code == 403  # a view is an admin's
+
+
+def test_upload_is_a_permission_of_its_own(app, login: Callable[..., TestClient]) -> None:
+    """Uploading files by hand needs the upload permission, not review (and the buttons show only with it)."""
+    timon = login(app, "timon", admin=False)
+
+    def permit(*permissions: str) -> None:
+        con = db.connect(app.state.settings.db_path)
+        try:
+            auth.set_rights(con, auth.get_user(con, "timon").id, False, set(permissions))
+        finally:
+            con.close()
+
+    permit("review")
+    r = timon.get("/missing/upload", headers=HTML)
+    assert r.status_code == 403 and "the upload permission" in r.text
+    assert "/missing/upload" not in timon.get("/missing").text
+    permit("upload")
+    assert timon.get("/missing/upload").status_code == 200 and "/missing/upload" in timon.get("/missing").text
+    assert timon.get("/review", headers=HTML).status_code == 403
 
 
 def test_navidrome_users_renew_the_rights(app, login: Callable[..., TestClient]) -> None:

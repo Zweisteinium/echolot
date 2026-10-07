@@ -16,7 +16,7 @@
 
 <section class="card">
   <table class="rows">
-    {% set upload = user.can('review') %}
+    {% set upload = user.can('upload') %}
     <thead><tr><th class="num">#</th><th>Artist</th><th>Title</th><th class="num">Length</th><th>Quality</th><th class="hide-narrow">File</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}

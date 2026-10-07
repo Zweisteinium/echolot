@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 25
+VERSION = 26
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -198,7 +198,7 @@ CREATE TABLE users (               -- Navidrome's accounts that logged in (Navid
     admin INTEGER NOT NULL DEFAULT 0,       -- Echolot admin, given in Echolot (a Navidrome admin is one anyway)
     navidrome_id TEXT,
     navidrome_admin INTEGER NOT NULL DEFAULT 0,  -- as Navidrome last said (login, or its user list)
-    permissions TEXT NOT NULL DEFAULT '',   -- what a user who is no admin may do besides their own: 'review,run'
+    permissions TEXT NOT NULL DEFAULT '',   -- what a user who is no admin may do besides their own: 'review,run,upload'
     view TEXT NOT NULL DEFAULT 'mine',      -- an admin's pages: mine or everyone
     disabled INTEGER NOT NULL DEFAULT 0,    -- gone from Navidrome: no login, sessions and tokens ended
     soundcloud_user TEXT NOT NULL DEFAULT ''  -- whose likes their SoundCloud likes are
@@ -296,6 +296,10 @@ MIGRATIONS = {
     25: [  # snapshot times in UTC, not local time (SQLite converts with the server's time zone)
         "UPDATE snapshots SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'utc') "
         "WHERE ts NOT LIKE '%Z' AND strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'utc') IS NOT NULL"
+    ],
+    26: [  # uploading by hand is a permission of its own: who could (with review) still can
+        "UPDATE users SET permissions = CASE WHEN ',' || permissions || ',' LIKE '%,run,%' "
+        "THEN 'review,run,upload' ELSE 'review,upload' END WHERE ',' || permissions || ',' LIKE '%,review,%'"
     ],
 }
 

@@ -23,7 +23,7 @@
       </select>
       <noscript><button>Show</button></noscript>
     </form>
-    {% set upload = user.can('review') %}
+    {% set upload = user.can('upload') %}
     {% if upload %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload') }} Upload files</button>{% endif %}
   </div>
   <table class="rows missing">
@@ -100,9 +100,9 @@
         <td class="num muted">{{ s.length|mmss }}</td>
         <td><span title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span> <span class="muted small">{{ s.duration|mmss }}</span></td>
         <td class="nowrap row-actions">
-          <form method="post" action="/songs/{{ s.key }}/search" class="inline">{{ csrf_input }}<button title="Look for the perfect match again; the close match stays a file of its own">Search again</button></form>
-          {% if upload %}<form method="post" action="/songs/{{ s.key }}/close-remove" class="inline" onsubmit="return confirm('Remove this close match from the library? It is kept 30 days in inbox/replaced, and the song is searched again.')">{{ csrf_input }}<button class="danger" title="Take the close match out of the library (kept 30 days in inbox/replaced) and search for the song again">Remove</button></form>
-          <button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the song itself; the close match stays unless you remove it" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}
+          {% if user.can('run') %}<form method="post" action="/songs/{{ s.key }}/search" class="inline">{{ csrf_input }}<button title="Look for the perfect match again; the close match stays a file of its own">Search again</button></form>{% endif %}
+          {% if user.can('review') %}<form method="post" action="/songs/{{ s.key }}/close-remove" class="inline" onsubmit="return confirm('Remove this close match from the library? It is kept 30 days in inbox/replaced, and the song is searched again.')">{{ csrf_input }}<button class="danger" title="Take the close match out of the library (kept 30 days in inbox/replaced) and search for the song again">Remove</button></form>{% endif %}
+          {% if upload %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the song itself; the close match stays unless you remove it" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}
         </td>
       </tr>
       {% endfor %}
