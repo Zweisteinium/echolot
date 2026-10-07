@@ -29,7 +29,7 @@
         </div>
         {{ growth_chart(g, 'growth-' ~ key, 'Growth of ' ~ what ~ ' since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
         {% else %}
-        <p class="muted growth-empty">The graph of {{ what }} starts with the second hourly snapshot.</p>
+        <p class="muted growth-empty">The graph of {{ what }} starts with the first hourly snapshot.</p>
         {% endif %}
       </div>
       {% endfor %}
@@ -123,7 +123,9 @@
 <section class="card">
   <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
   {% set groups = o.lists|groupby('service') %}
-  {% for svc, group in (groups|selectattr('grouper', 'equalto', 'spotify')|list) + (groups|rejectattr('grouper', 'equalto', 'spotify')|reverse|list) %}
+  {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube'] %}
+  {% for svc in order + (by_service|reject('in', order)|list) if svc in by_service %}
+  {% set group = by_service[svc] %}
   {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
   <details class="group" data-remember="lists-{{ svc }}" open>
     <summary>

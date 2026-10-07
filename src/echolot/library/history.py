@@ -39,6 +39,7 @@ METRICS: dict[str, tuple[str | None, str]] = {
     "songs_by_quality": ("quality", "Wanted songs by the quality of their best library copy"),
     "user_songs_wanted": ("user", "A user's songs: on the lists they follow"),
     "user_songs_in_library": ("user", "A user's songs that are in the library"),
+    "user_library_files": ("user", "Library files a user's songs have (a file several songs share counts once)"),
     "user_songs_missing": ("user", "A user's songs that are not in the library"),
     "user_songs_by_quality": ("user_quality", "A user's songs by the quality of their best copy ('<user id>:<tier>')"),
     "user_songs_missing_by_reason": ("user_reason", "A user's missing songs by reason ('<user id>:<reason>')"),
@@ -125,6 +126,7 @@ def _per_user(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
         quality = Counter(r[2] or "unknown" for r in have)
         reasons = Counter("unavailable" if r[1] else "not_found" if r[3] else "waiting" for r in songs if not r[0])
         rows += [("user_songs_wanted", f"{uid}", len(songs)), ("user_songs_in_library", f"{uid}", len(have))]
+        rows += [("user_library_files", f"{uid}", len({r[0] for r in have}))]
         rows += [("user_songs_missing", f"{uid}", len(songs) - len(have))]
         rows += [("user_songs_by_quality", f"{uid}:{q}", quality.get(q, 0)) for q, _ in QUALITY]
         rows += [("user_songs_missing_by_reason", f"{uid}:{r}", reasons[r]) for r in REASONS]
