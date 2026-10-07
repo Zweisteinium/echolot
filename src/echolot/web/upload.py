@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from echolot.library import filing, upload
+from echolot.settings import options
 from echolot.web import stats
 from echolot.web.common import DB, page
 
@@ -59,8 +60,9 @@ def upload_file(
 ) -> HTMLResponse:
     """One file of the batch: saved, checked, its song found (the one asked for, else the one it names; no
     song: not imported) and how it fits; its row for the dialog."""
+    keep_hires = options.get(con, options.Files).keep_hires
     try:
-        f = upload.add(_paths(request), batch, file.filename or "", file.file)
+        f = upload.add(_paths(request), batch, file.filename or "", file.file, keep_hires)
     except ValueError as e:
         raise HTTPException(404, "That upload is gone (imported, cancelled, or older than a day).") from e
     songs = _songs(request, con)

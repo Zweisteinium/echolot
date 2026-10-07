@@ -26,6 +26,7 @@ def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
         tasks=[(t, [(schedule.BY_NAME[n], schedule.when_text(rules[n])) for n in t.jobs]) for t in schedule.TASKS],
         settings=request.app.state.settings,
         soulseek=options.get(con, options.Soulseek),
+        files=options.get(con, options.Files),
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
         navidrome=options.get(con, options.Navidrome),
@@ -49,9 +50,11 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
             **options.get(con, options.Soulseek).model_dump(),
             **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},
         })  # fmt: skip
+        files = options.validate(options.Files, {"keep_hires": form.get("keep_hires") == "1"})
         with con:
             schedule.store(con, values)
             options.put(con, soulseek)
+            options.put(con, files)
     except (ConfigError, options.OptionsError) as err:
         return back("/settings", error=str(err))
     return back("/settings", ok="Settings saved.")

@@ -182,7 +182,7 @@ class FakeYtDlp:
 
 def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
-    monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
     monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
     message = lists.soundcloud(run)
     assert message == "2 lists, 2 changed; 1 new songs"
@@ -238,7 +238,7 @@ def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: 
     """Night Drive is in the library under another artist name and sounds the same: the SoundCloud song is
     linked to that file, nothing is filed twice."""
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
-    monkeypatch.setattr(audio, "prepare", lambda p: audio.Prepared(p, False, None))
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
     monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
     monkeypatch.setattr("echolot.library.identity.alike", lambda a, b: 0.95)
     there = run.paths.tracks / "Night Rider" / "Night Rider - Night Drive (Original Mix).wav"

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from echolot import db
-from echolot.library import catalog, filing, review, tagging
+from echolot.library import audio, catalog, filing, review, tagging
 from echolot.library.filing import Paths, Want
 from echolot.library.identity import Evidence
 from echolot.settings import vault
@@ -579,3 +579,19 @@ def test_review_items_are_compared_with_your_copy_once(env, monkeypatch) -> None
     }
     assert hints == {"spotify:rn": "same audio", "spotify:gone": ""}
     assert review.compare_open(con, paths.music) == 0  # not again
+
+
+def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A FLAC above 48 kHz becomes 48 kHz (96 kHz is no multiple of 44.1), 24 bit; with keep_hires it stays."""
+    f = tmp_path / "hires.flac"
+    f.write_bytes(b"x")
+    monkeypatch.setattr(audio, "stream", lambda path, field: {"codec_name": "flac", "sample_rate": "96000"}[field])
+    monkeypatch.setattr(audio, "_flac_ok", lambda path: True)
+    monkeypatch.setattr(audio, "spectrum", lambda path: {"verdict": "ok"})
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(audio, "_to_flac", lambda src, dest, *extra: bool(calls.append(extra)) or True)
+    audio.prepare(f)
+    assert len(calls) == 1 and "48000" in calls[0] and "24" in calls[0]
+    calls.clear()
+    audio.prepare(f, keep_hires=True)
+    assert calls == []

@@ -5,7 +5,8 @@ prepare() is what every download goes through:
   1. the codec must match the extension (an MP3 renamed to .flac, an unreadable file: rejected)
   2. a FLAC mutagen cannot read (junk before the header) is remuxed, else re-encoded (lossless)
   3. WAV, AIFF and ALAC become FLAC (lossless, smaller, standard tags)
-  4. hi-res FLAC (> 48 kHz) becomes 44.1 or 48 kHz, 24 bit (inaudible, about half the size)
+  4. hi-res FLAC (> 48 kHz) becomes 44.1 or 48 kHz, 24 bit (inaudible, about half the size; keep_hires:
+     stays as it is, options.Files)
   5. the spectrum check: a FLAC with an encoder's low-pass edge is marked fake (made from lossy); an edge
      from 19 kHz up only with the encoder's traces below it (a mastering filter can cut there too)
 """
@@ -89,7 +90,7 @@ class Prepared:
     spectrum: dict | None
 
 
-def prepare(path: Path) -> Prepared:
+def prepare(path: Path, keep_hires: bool = False) -> Prepared:
     """Check and normalise a download (see the module doc); Rejected if it is no usable audio. The
     file may be replaced by a converted one (the returned path)."""
     ext = path.suffix.lower().lstrip(".")
@@ -109,7 +110,7 @@ def prepare(path: Path) -> Prepared:
     if ext != "flac":
         return Prepared(path, False, None)
     rate = int(stream(path, "sample_rate") or 0)
-    if rate > 48000:
+    if rate > 48000 and not keep_hires:
         target = "44100" if rate % 44100 == 0 else "48000"
         _to_flac(path, path, "-af", "aresample=resampler=soxr:precision=28", "-ar", target,
                  "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24",

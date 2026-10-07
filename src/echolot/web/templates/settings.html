@@ -8,6 +8,7 @@
   <nav aria-label="Sections">
     <a href="#jobs">Jobs</a>
     <a href="#soulseek">Soulseek</a>
+    <a href="#files">Files</a>
     <a href="#access">Access</a>
     <a href="#data">Data and backup</a>
   </nav>
@@ -51,6 +52,17 @@
     <div class="field">
       <label for="stall_minutes">Stuck downloads<span class="hint">minutes without progress (queued at the peer) before the next file is tried</span></label>
       <div class="control"><input id="stall_minutes" type="number" name="stall_minutes" value="{{ soulseek.stall_minutes }}" min="2" max="120" class="short"></div>
+    </div>
+  </div>
+  <div class="section-actions"><button class="primary">Save</button></div>
+</section>
+
+<section class="card" id="files">
+  <div class="section-head"><h2>Files</h2></div>
+  <div class="fields">
+    <div class="field">
+      <div class="label">Hi-res FLAC<span class="hint">above 48 kHz: by default made 44.1 or 48 kHz, 24 bit (inaudible, about half the size, plays everywhere). Kept, a file stays as downloaded</span></div>
+      <div class="control"><label><input type="checkbox" name="keep_hires" value="1" {% if files.keep_hires %}checked{% endif %}> Keep hi-res as it is</label></div>
     </div>
   </div>
   <div class="section-actions"><button class="primary">Save</button></div>

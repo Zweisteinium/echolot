@@ -76,7 +76,7 @@ def start(paths: Paths) -> str:
 _NUMBER = threading.Lock()  # files added at the same time get numbers of their own
 
 
-def add(paths: Paths, batch: str, name: str, fileobj: Any) -> File:
+def add(paths: Paths, batch: str, name: str, fileobj: Any, keep_hires: bool = False) -> File:
     """Save one uploaded file into the batch and check it (audio.prepare, its length, quality and tags);
     its number in the batch is the next free one. ValueError when the batch is gone (cancelled)."""
     d = folder(paths, batch)
@@ -93,7 +93,7 @@ def add(paths: Paths, batch: str, name: str, fileobj: Any) -> File:
         shutil.copyfileobj(fileobj, out)
     f = File(n, base)
     try:
-        prepared = audio.prepare(dest)
+        prepared = audio.prepare(dest, keep_hires)
         f.path = prepared.path
         f.seconds, f.kbps = audio.probe(prepared.path)
         f.tier = tier(prepared.path, f.kbps, prepared.fake)
