@@ -25,11 +25,13 @@ from echolot.web import (
     admin,
     api,
     changes,
+    discover,
     jobs,
     pages,
     review,
     sources,
     stats,
+    subsonic,
     upload,
     users,
 )
@@ -38,7 +40,22 @@ from echolot.web.format import FILTERS, pct, share
 
 HERE = Path(__file__).parent
 log = logging.getLogger(__name__)
-ROUTERS = (access, account, users, pages, changes, jobs, review, upload, sources, accounts, admin, api)
+ROUTERS = (
+    access,
+    account,
+    users,
+    pages,
+    discover,
+    subsonic,
+    changes,
+    jobs,
+    review,
+    upload,
+    sources,
+    accounts,
+    admin,
+    api,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

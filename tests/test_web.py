@@ -32,7 +32,7 @@ def test_healthz(client: TestClient) -> None:
 
 
 def test_overview(client: TestClient) -> None:
-    html = client.get("/").text
+    html = client.get("/stats").text
     assert "Playlist A" in html
     assert 'href="/lists/spotify:playlist:BBB222"' in html
     assert "no playlist" in html
@@ -56,7 +56,7 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
     with con:
         con.execute("DELETE FROM snapshots")
     con.close()
-    html = client.get("/").text
+    html = client.get("/stats").text
     assert "starts with the first hourly snapshot" in html and '<figure class="growth"' not in html
     con = db.connect(settings.db_path)
     history.snapshot(con)
@@ -64,7 +64,7 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
         con.execute("UPDATE snapshots SET ts = '2026-09-27T10:00:00Z'")
         con.execute("UPDATE snapshots SET value = 1 WHERE metric = 'user_library_files'")  # (one file then)
     con.close()
-    html = client.get("/").text
+    html = client.get("/stats").text
     assert html.count('<figure class="growth"') == 2 and 'name="growth" value="size"' in html
     assert 'data-panel="size" hidden' in html and '<span class="figure">3 songs</span>' in html  # the owner's 3 files
     assert "&#34;1 songs&#34;" in html and ">+2 songs</span>" in html  # one file at the snapshot, two more since
@@ -149,7 +149,7 @@ def test_activity_upgrade_is_one_entry(settings: Settings, why: str, source: str
 
 def test_jobs(client: TestClient) -> None:
     response = client.post("/jobs/library/run", follow_redirects=False)
-    assert response.status_code == 303 and response.headers["location"].startswith("/?ok=")
+    assert response.status_code == 303 and response.headers["location"].startswith("/stats?ok=")
     assert set(client.app.state.worker.requested) == {"library"}
     assert client.post("/jobs/nope/run").status_code == 404
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
@@ -256,7 +256,8 @@ def test_add_by_link(client: TestClient, monkeypatch) -> None:
 
 
 def test_accounts_page(client: TestClient, settings: Settings) -> None:
-    html = client.get("/accounts").text
+    """Connecting Spotify is on the Playlists page (its old page, /accounts, leads there)."""
+    html = client.get("/playlists").text
     assert "developer.spotify.com/dashboard" in html and "http://127.0.0.1:0/accounts/spotify/callback" in html
     r = client.post("/accounts/spotify/app", data={"client_id": "short"}, follow_redirects=False)
     assert "32+characters" in r.headers["location"]
@@ -286,7 +287,7 @@ def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
 
 
 def test_connection_line(client: TestClient) -> None:
-    assert 'hx-get="/accounts/line"' in client.get("/").text
+    assert 'hx-get="/accounts/line"' in client.get("/stats").text
     html = client.get("/accounts/line").text
     assert "Spotify: not connected" in html and "SoundCloud: not connected" in html
     assert "Soulseek: daemon not reachable" in html and " free</span>" in html
@@ -422,7 +423,7 @@ def test_close_matches_on_the_missing_page(client: TestClient, settings: Setting
         con.execute(close, (path, link))
     html = client.get("/missing").text
     assert "Covered by a close match" in html and "Artist A - First Song (Extended Mix)" in html
-    assert "· 1 close match<" in client.get("/").text
+    assert "· 1 close match<" in client.get("/stats").text
     r = client.post("/songs/spotify:s1/search", follow_redirects=False)
     assert "ok=" in r.headers["location"]
     song = con.execute("SELECT link, close_match FROM songs WHERE key = 'spotify:s1'").fetchone()
@@ -497,7 +498,7 @@ def test_soulseek_backend_choice(client: TestClient, settings: Settings) -> None
     assert (opts.backend, opts.slskd_url, opts.slskd_downloads) == ("slskd", "http://slskd:5030", "/music/inbox/slskd")
     assert client.app.state.vault.get(con, "slskd.secret") == "pw"
     con.close()
-    html = client.get("/accounts").text
+    html = client.get("/settings").text
     assert "through slskd" in html and "Soulseek client: slskd" in html
     client.post("/accounts/soulseek/backend", data={"backend": "sockseek"})
     con = db.connect(settings.db_path)
@@ -512,10 +513,10 @@ def test_spotify_403_says_to_check_the_users_email(client: TestClient, monkeypat
 
     error = "Spotify: HTTP 403 for https://api.spotify.com/v1/me"
     monkeypatch.setattr(accounts, "_spotify_status", lambda state, uid: {"connected": False, "error": error})
-    html = client.get("/accounts").text
+    html = client.get("/playlists").text
     assert "exactly this account's e-mail address under User Management" in html
     monkeypatch.setattr(
         accounts, "_spotify_status", lambda state, uid: {"connected": False, "error": "Spotify: timeout"}
     )
-    html = client.get("/accounts").text
+    html = client.get("/playlists").text
     assert "User Management in the Spotify developer app" not in html and "no longer has Premium" in html

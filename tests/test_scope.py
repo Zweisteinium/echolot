@@ -49,7 +49,7 @@ def test_a_user_sees_their_own_songs(app, login: Callable[..., TestClient]) -> N
     owner = login(app)  # an admin: their own, then everyone's
     assert "Gone Song" in owner.get("/missing").text
     assert owner.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
-    home = owner.get("/").text
+    home = owner.get("/stats").text
     assert "<h2>Library</h2>" in home and "owner, timon" in home  # everyone's; who follows Playlist A
 
 

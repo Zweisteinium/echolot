@@ -71,7 +71,7 @@ def _tasks(rows: list[dict], finished: dict) -> list[dict]:
 def answer(request: Request, con: sqlite3.Connection, ok: str) -> Response:
     if request.headers.get("hx-request"):
         return page(request, "_jobs.html", **status(request, con))
-    return back("/", ok=ok)
+    return back("/stats", ok=ok)
 
 
 @router.get("/jobs", response_class=HTMLResponse, include_in_schema=False)

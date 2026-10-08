@@ -17,7 +17,7 @@ from echolot.web.format import num, size
 router = APIRouter(include_in_schema=False)
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/stats", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
     """The user's songs (an admin's, or everyone's as they chose), with the library's size besides."""
     o, vault = stats.overview(con, stats.scope(request.state.user)), request.app.state.vault
@@ -28,9 +28,7 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         jobs.status(request, con),
     )  # the library's files by quality, and the songs missing
     growth = _growth(con, stats.scope(request.state.user), o)
-    return page(
-        request, "overview.html", nav="overview", o=o, donut=donut, growth=growth, connected=connected, **running
-    )
+    return page(request, "overview.html", nav="stats", o=o, donut=donut, growth=growth, connected=connected, **running)
 
 
 def _growth(con: sqlite3.Connection, uid: int | None, o: dict) -> dict[str, charts.Growth | None]:
@@ -84,7 +82,7 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     songs = stats.list_songs(con, key)
     same = stats.same_as(songs)  # (the quality bar counts such a song once)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
-    return page(request, "list.html", nav="overview", lst=lst, songs=songs, same=same, tiers=tiers)
+    return page(request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers)
 
 
 @router.get("/activity", response_class=HTMLResponse)

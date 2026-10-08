@@ -6,6 +6,7 @@ are noted in done.txt, so a run that stopped (paused, a deploy) goes on where it
 the last 10 minutes waits for the next run.
 """
 
+import json
 import logging
 import sqlite3
 import time
@@ -33,6 +34,7 @@ class Covers:
     """The cover of a song, each Spotify album and picture fetched once."""
 
     def __init__(self, con: sqlite3.Connection, run: "Run") -> None:
+        self.con = con
         self.cache: dict[str, bytes | None] = {}
         self.token = sc_api.any_token(con, run.vault)
         try:
@@ -41,13 +43,14 @@ class Covers:
             self.sp = None
 
     def of(self, song: sqlite3.Row) -> bytes | None:
-        """The song's cover: its Spotify album's, or its SoundCloud artwork; a YouTube song's from the album
-        of the Spotify track with its ISRC; None if it has none."""
+        """The song's cover: its Spotify album's, or its SoundCloud artwork; a YouTube or Discover song's
+        from the album of the Spotify track with its ISRC (a Discover song without one: the picture Discover
+        showed, large); None if it has none."""
         service, _, sid = song["key"].partition(":")
-        if service == "youtube" and self.sp and song["isrc"]:
+        if service in ("youtube", "discover") and self.sp and song["isrc"]:
             time.sleep(0.25)
-            hits = self.sp.search(f"isrc:{song['isrc']}", 1)
-            service, sid = ("spotify", hits[0]["id"]) if hits else ("", "")
+            if hits := self.sp.search(f"isrc:{song['isrc']}", 1):
+                service, sid = "spotify", hits[0]["id"]
         if service == "spotify" and self.sp:
             time.sleep(0.25)  # gently: thousands of songs, one request each
             album = self.sp.track(sid).get("album") or {}
@@ -55,7 +58,16 @@ class Covers:
             return self._fetch(album.get("id") or sid, images[0]["url"] if images else None)
         if service == "soundcloud" and self.token:
             return self._fetch(song["key"], sc_api.artwork(self.token, sid))
+        if service == "discover":
+            return self._fetch(song["key"], self._discovered(sid))
         return None
+
+    def _discovered(self, sid: str) -> str | None:
+        """The picture Discover showed of a song (web/subsonic: Deezer's, Apple Music's, SoundCloud's), in its
+        large size."""
+        row = self.con.execute("SELECT data FROM discover_songs WHERE id = ?", (f"ex-{sid}",)).fetchone()
+        url = json.loads(row[0]).get("cover") if row else None
+        return url.replace("250x250", "1000x1000").replace("-t300x300.", "-t500x500.") if url else None
 
     def _fetch(self, key: str, url: str | None) -> bytes | None:
         if key not in self.cache:

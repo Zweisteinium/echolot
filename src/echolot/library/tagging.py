@@ -33,6 +33,7 @@ JUNK = [
     rf"\s*[\(\[]\s*(?:{_DECOR}|{_OFFICIAL})\s*[\)\]]",
     rf"\s*\[\s*(?!{_VERSION})[A-Za-z]{{2,10}}\s?-?\d{{2,5}}\s*\]",  # catalogue numbers: [ARONAVA08], [HAK003]
     r"\s+[|•]\s.*$",
+    r"\s*\[[^\]]{0,40}\breleased?\s*\]",  # a label's tag: "[NCS Release]", "[Monstercat Release]"
     # "[NOW ON SPOTIFY]", "( deleting soon save it on spotify )"; not a version ("(Spotify Singles)")
     r"\s*[\(\[](?![^\)\]]*\b(?:remix|edit|mix|vip|version|rework|bootleg|flip|live|singles?|sessions?|studios?)\b)[^\)\]]*\b(?:spotify|deleting|deleted)\b[^\)\]]*[\)\]]",
 ]
@@ -84,7 +85,7 @@ def clean_title(title: str, artist: str) -> str:
     return t or title
 
 
-NAMED = ("spotify", "youtube", "soundcloud")  # whose names a file takes first (Spotify's, YouTube Music's)
+NAMED = ("spotify", "youtube", "discover", "soundcloud")  # whose names a file takes first (Spotify's, ...)
 
 
 def page(song: sqlite3.Row) -> str:
