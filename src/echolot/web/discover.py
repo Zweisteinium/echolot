@@ -8,12 +8,13 @@ import json
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as done
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from echolot.library import catalog, discover
@@ -21,6 +22,7 @@ from echolot.library.discover import Hit
 from echolot.services import catalogs, ytdlp
 from echolot.services import soundcloud as sc_api
 from echolot.settings import options
+from echolot.web import wishes
 from echolot.web.common import DB, page
 
 router = APIRouter(include_in_schema=False)
@@ -92,8 +94,8 @@ def search(
 
 @router.get("/discover", response_class=HTMLResponse)
 def discover_page(request: Request, con: DB, q: Annotated[str, Query()] = "") -> HTMLResponse:
-    liked = _liked(con, request.state.user.id)
-    return page(request, "discover.html", nav="discover", q=q, liked=liked, **_answer(request, con, q))
+    wished = _wished(request, con)
+    return page(request, "discover.html", nav="discover", q=q, **{**wished, **_answer(request, con, q)})
 
 
 @router.get("/discover/results", response_class=HTMLResponse)
@@ -105,26 +107,114 @@ NAMES = {"deezer": "Deezer", "apple": "Apple Music", "soundcloud": "SoundCloud"}
 
 
 def _answer(request: Request, con: DB, q: str) -> dict:
+    """The results: each with what ▶ plays (play) and either the library's file (have) or its id to Get it
+    by and the user's state of it (ids, states: new, wished, here; wishes.state)."""
     q = q.strip()
+    out: dict = {"results": [], "failed": {}, "have": {}, "ids": {}, "states": {}, "plays": {}, "names": NAMES}
     if len(q) < MIN_LENGTH:
-        return {"results": [], "failed": {}, "have": {}, "seconds": 0, "names": NAMES}
+        return {**out, "seconds": 0}
     t0 = time.monotonic()
     hits, failed = search(request, con, q)
     results = discover.merge(hits)[:40]
-    cat = catalog.Catalog.from_db(con)
-    have = {}  # result index -> the library's file of the song
+    cat, now, user = catalog.Catalog.from_db(con), datetime.now().isoformat(timespec="seconds"), request.state.user
     for n, r in enumerate(results):
+        out["plays"][n] = play(r.sources)
         if entries := cat.song(r.artist, r.title, r.seconds):
-            have[n] = entries[0]
-    return {"results": results, "failed": failed, "have": have, "seconds": time.monotonic() - t0, "names": NAMES}
+            out["have"][n] = entries[0]
+        else:
+            out["ids"][n] = sid = wishes.keep(con, r, now)[0]
+            out["states"][n] = wishes.state(con, user, sid)
+    wishes.forget_old(con)
+    con.commit()
+    return {**out, "results": results, "failed": failed, "seconds": time.monotonic() - t0}
 
 
-def _liked(con: sqlite3.Connection, user_id: int) -> list[dict]:
-    """The user's hearts in a player on songs the library lacked (web/subsonic), newest first; file: the
-    library's, once fetched (their Wished list)."""
+def play(hits: Sequence[Hit | dict[str, Any]]) -> dict[str, str] | None:
+    """What ▶ plays of a song: a 30 s preview (Deezer's, Apple Music's), else the track in SoundCloud's own
+    player (its widget, driven by the page's player line); None without either."""
+
+    def get(h: Hit | dict[str, Any], name: str) -> str:
+        return str(h.get(name) or "") if isinstance(h, dict) else str(getattr(h, name) or "")
+
+    if pre := next((h for h in hits if get(h, "preview")), None):
+        return {"kind": "preview", "src": get(pre, "preview"), "source": get(pre, "source"), "page": get(pre, "url")}
+    if sc := next((h for h in hits if get(h, "source") == "soundcloud" and get(h, "url")), None):
+        return {"kind": "soundcloud", "src": get(sc, "url"), "source": "soundcloud", "page": get(sc, "url")}
+    return None
+
+
+@router.post("/discover/{sid}/get", response_class=HTMLResponse)
+def get_song(request: Request, con: DB, sid: str) -> HTMLResponse:
+    """Get: the user wishes the song; it is searched at once and filed into their "Echolot · Wished"."""
+    if (song := wishes.song(con, sid)) is None:
+        raise HTTPException(404, "Echolot does not know this song (any more): search it again.")
+    wishes.like(con, request.state.user, sid, song, True, "on the Discover page")
+    wishes.wish(request, con, request.state.user)
+    response = page(request, "_discover_get.html", sid=sid, state="wished")
+    response.headers["HX-Trigger"] = "wished"  # the Wished list shows it
+    return response
+
+
+@router.post("/discover/{sid}/forget", response_class=HTMLResponse)
+def forget_song(request: Request, con: DB, sid: str) -> HTMLResponse:
+    """The user no longer wishes the song (a file already fetched stays in the library)."""
+    if (song := wishes.song(con, sid)) is not None:
+        wishes.like(con, request.state.user, sid, song, False, "on the Discover page")
+        wishes.wish(request, con, request.state.user)
+    return page(request, "_discover_wished.html", **_wished(request, con))
+
+
+@router.get("/discover/wished", response_class=HTMLResponse)
+def wished_list(request: Request, con: DB) -> HTMLResponse:
+    return page(request, "_discover_wished.html", **_wished(request, con))
+
+
+STAGES = {  # a fetch's stage (acquire.track) as the Wished list says it
+    "searching": "Searching Soulseek",
+    "downloading": "Downloading",
+    "checking": "Checking the audio",
+    "other sources": "Searching YouTube and SoundCloud",
+}
+
+
+def _wished(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
+    """The user's wished songs, newest first, each with how far it is: in the library, being fetched (the
+    running job's stage, a download's percent: acquire.track), waiting for its search, or not found yet
+    (searched again later). active: one is still on its way (the list asks again every few seconds)."""
+    runs, _ = request.app.state.worker.state()
+    fetching = {key: f for run in runs.values() for key, f in dict(run.fetching).items()}
     rows = con.execute(
-        "SELECT s.data, l.liked, so.file FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id "
-        "LEFT JOIN songs so ON so.key = 'discover:' || substr(s.id, 4) WHERE l.user_id = ? ORDER BY l.liked DESC",
-        (user_id,),
+        "SELECT s.id, s.data, l.liked, so.file, coalesce(a.tries, 0) FROM discover_likes l "
+        "JOIN discover_songs s ON s.id = l.song_id LEFT JOIN songs so ON so.key = 'discover:' || substr(s.id, 4) "
+        "LEFT JOIN attempts a ON a.song_key = so.key WHERE l.user_id = ? ORDER BY l.liked DESC",
+        (request.state.user.id,),
     )
-    return [{"liked": when, "file": file, **json.loads(data)} for data, when, file in rows]
+    wished = []
+    for sid, data, when, file, tries in rows:
+        d = json.loads(data)
+        f = fetching.get(wishes.song_key(sid))
+        percent = None
+        if file:
+            status = "In your library"
+        elif f:
+            status = STAGES.get(f["stage"], f["stage"])
+            if f["stage"] == "downloading" and f["total"]:
+                percent = min(100, round(100 * f["done"] / f["total"]))
+                status += f" {percent} %"
+        elif tries:
+            status = f"Not found yet · searched {tries}× · again later"
+        else:
+            status = "Waiting for its search"
+        wished.append(
+            {
+                **d,
+                "id": sid,
+                "liked": when,
+                "file": file,
+                "status": status,
+                "fetching": bool(f),
+                "percent": percent,
+                "play": play(d["hits"]),
+            }
+        )
+    return {"wished": wished, "active": any(not w["file"] for w in wished), "names": NAMES}

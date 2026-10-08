@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block title %}Discover · Echolot{% endblock %}
+{% block body_class %} class="with-player"{% endblock %}
 {% block content %}
 <section class="card discover">
   <h1>Discover</h1>
@@ -13,44 +14,105 @@
   </form>
   <div id="discover-results" aria-live="polite">{% include "_discover_results.html" %}</div>
 </section>
-{% if liked %}
-<section class="card discover">
-  <h2>Wished</h2>
-  <p class="muted small">Songs you hearted in Feishin or another player while the library didn't have them. Echolot fetches them into your playlist “Echolot · Wished”.</p>
-  <ol class="discover-list">
-    {% for s in liked %}
-    <li class="discover-item">
-      <div class="discover-cover">{% if s.cover %}<img src="{{ s.cover }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}{{ icon('songs', 22) }}{% endif %}</div>
-      <div class="discover-body">
-        <div class="discover-title">{{ s.title }}</div>
-        <div class="muted small">{{ s.artist }}{% if s.album and s.album != s.title %} · {{ s.album }}{% endif %}{% if s.year %} · {{ s.year }}{% endif %}</div>
-      </div>
-      <div class="discover-facts">
-        {% if s.file %}<span class="pill ok-pill" title="{{ s.file }}">In your library</span>{% else %}<span class="pill">On its way</span>{% endif %}
-        <span class="muted small" title="{{ s.liked }}">{{ s.liked|ago }}</span>
-        <span class="num muted small">{{ s.seconds|mmss if s.seconds else '' }}</span>
-        <span class="discover-sources">{% for h in s.hits %}<a href="{{ h.url }}" target="_blank" rel="noopener" title="{{ names[h.source] }}" aria-label="{{ names[h.source] }}">{{ icon(h.source, 15) }}</a>{% endfor %}</span>
-      </div>
-    </li>
-    {% endfor %}
-  </ol>
-</section>
-{% endif %}
+{% include "_discover_wished.html" %}
+<div class="player" id="player" hidden aria-live="off">
+  <div class="player-cover"><img alt="" referrerpolicy="no-referrer" hidden>{{ icon('songs', 18) }}</div>
+  <button type="button" class="player-toggle" aria-label="Pause"><span class="when-paused">{{ icon('play', 20) }}</span><span class="when-playing">{{ icon('pause', 20) }}</span></button>
+  <div class="player-body">
+    <div class="player-line"><span class="player-title"></span><span class="muted player-artist"></span></div>
+    <div class="player-bar" title="Jump"><span></span></div>
+  </div>
+  <span class="num muted small player-time">0:00</span>
+  <a class="player-source" target="_blank" rel="noopener">{% for s in ('deezer', 'apple', 'soundcloud') %}<span class="src-{{ s }}">{{ icon(s, 16) }}</span>{% endfor %}</a>
+  <button type="button" class="link player-close" aria-label="Close the player">{{ icon('close', 16) }}</button>
+  <div class="player-sc"></div>
+</div>
 <script>
-  // one player for the page: ▶ plays a song's preview (again: pauses), the button shows which is playing
+  // the player line: ▶ on a song plays its 30 s preview (an audio element) or the SoundCloud track (SoundCloud's own
+  // player, its widget, driven by these buttons; the line names SoundCloud and links the track, as it asks of players)
   (() => {
-    const player = new Audio();
-    let playing = null;
-    const show = () => document.querySelectorAll("[data-preview]").forEach((b) => b.classList.toggle("playing", b === playing && !player.paused));
+    const bar = document.getElementById("player");
+    const $ = (s) => bar.querySelector(s);
+    const audio = new Audio();
+    let now = null; // what plays: {kind, src, ...the button's data}
+    let sc = null, scFrame = null, scState = { playing: false, at: 0, of: 0 };
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    const playing = () => (now?.kind === "soundcloud" ? scState.playing : !audio.paused);
+    const position = () => (now?.kind === "soundcloud" ? [scState.at, scState.of] : [audio.currentTime, audio.duration || 30]);
+
+    function render() {
+      const on = playing();
+      bar.classList.toggle("playing", on);
+      $(".player-toggle").setAttribute("aria-label", on ? "Pause" : "Play");
+      document.querySelectorAll(".discover-play").forEach((b) => b.classList.toggle("playing", on && b.dataset.src === now?.src));
+      const [at, of] = position();
+      $(".player-bar span").style.width = of ? `${Math.min(100, (100 * at) / of)}%` : "0";
+      $(".player-time").textContent = of ? `${mmss(at)} / ${mmss(of)}` : mmss(at);
+    }
+
+    function soundcloud(url) {
+      const load = () => {
+        if (!scFrame) {
+          scFrame = document.createElement("iframe");
+          scFrame.allow = "autoplay";
+          scFrame.title = "SoundCloud player";
+          scFrame.src = "https://w.soundcloud.com/player/?visual=false&auto_play=true&show_artwork=false&url=" + encodeURIComponent(url);
+          $(".player-sc").append(scFrame);
+          sc = SC.Widget(scFrame);
+          const E = SC.Widget.Events;
+          sc.bind(E.PLAY, () => { scState.playing = true; sc.getDuration((d) => { scState.of = d / 1000; render(); }); });
+          sc.bind(E.PAUSE, () => { scState.playing = false; render(); });
+          sc.bind(E.FINISH, () => { scState.playing = false; render(); });
+          sc.bind(E.PLAY_PROGRESS, (e) => { scState.at = e.currentPosition / 1000; render(); });
+        } else {
+          sc.load(url, { auto_play: true, visual: false, show_artwork: false });
+        }
+      };
+      if (window.SC) return load();
+      const js = document.createElement("script");
+      js.src = "https://w.soundcloud.com/player/api.js";
+      js.onload = load;
+      document.head.append(js);
+    }
+
+    function start(b) {
+      audio.pause();
+      sc?.pause();
+      now = { ...b.dataset };
+      scState = { playing: false, at: 0, of: 0 };
+      bar.hidden = false;
+      bar.dataset.source = now.source;
+      $(".player-title").textContent = now.title;
+      $(".player-artist").textContent = now.artist;
+      const img = $(".player-cover img");
+      img.hidden = !now.cover;
+      if (now.cover) img.src = now.cover;
+      $(".player-source").href = now.page;
+      $(".player-source").title = now.kind === "soundcloud" ? "On SoundCloud" : `Preview from ${now.source === "apple" ? "Apple Music" : "Deezer"}`;
+      if (now.kind === "soundcloud") soundcloud(now.src);
+      else { audio.src = now.src; audio.play(); }
+      render();
+    }
+
+    function toggle() {
+      if (!now) return;
+      if (now.kind === "soundcloud") sc?.toggle();
+      else if (audio.paused) audio.play(); else audio.pause();
+    }
+
     document.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-preview]");
-      if (!b) return;
-      if (b === playing && !player.paused) { player.pause(); return; }
-      if (b !== playing) { player.src = b.dataset.preview; playing = b; }
-      player.play();
+      const b = e.target.closest(".discover-play");
+      if (b) return b.dataset.src === now?.src ? toggle() : start(b);
+      if (e.target.closest(".player-toggle")) return toggle();
+      if (e.target.closest(".player-close")) { audio.pause(); sc?.pause(); now = null; bar.hidden = true; return render(); }
+      const seek = e.target.closest(".player-bar");
+      if (seek && now) {
+        const box = seek.getBoundingClientRect(), share = (e.clientX - box.left) / box.width, [, of] = position();
+        if (now.kind === "soundcloud") sc?.seekTo(share * of * 1000); else audio.currentTime = share * of;
+      }
     });
-    for (const ev of ["play", "pause", "ended"]) player.addEventListener(ev, show);
-    document.addEventListener("htmx:beforeSwap", () => { player.pause(); playing = null; });
+    for (const ev of ["play", "pause", "ended", "timeupdate", "loadedmetadata"]) audio.addEventListener(ev, render);
+    document.addEventListener("htmx:afterSettle", render); // new results: the song playing keeps its mark
   })();
 </script>
 {% endblock %}
