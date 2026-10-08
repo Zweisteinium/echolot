@@ -1,6 +1,7 @@
 """Discover: the merged search over Deezer, Apple Music and SoundCloud (library/discover, services, web), and\nin the players (web/subsonic)."""
 
 import json
+import types
 
 import pytest
 
@@ -235,7 +236,7 @@ def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.Monkey
     detail = client.get("/rest/getSong.view", params={**who, "id": sid}).json()["subsonic-response"]
     assert detail["song"]["album"] == "On its way · Deezer · 30 s preview"
     mine = login(client.app, "owner").get("/discover").text
-    assert "Wished" in mine and "On its way" in mine
+    assert "Wished" in mine and "Waiting for its search" in mine
     with con:
         con.execute("UPDATE songs SET file = 'New Artist/New Artist - New Song.flac' WHERE key = ?", (key,))
     detail = client.get("/rest/getSong.view", params={**who, "id": sid}).json()["subsonic-response"]
@@ -253,6 +254,59 @@ def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.Monkey
     client.get("/rest/unstar.view", params={**who, "id": sid})
     assert not con.execute("SELECT 1 FROM list_songs WHERE list_key = 'discover:wished:1'").fetchone()
     con.close()
-    assert "On its way" not in login(client.app, "owner").get("/discover").text
+    assert "Waiting for its search" not in login(client.app, "owner").get("/discover").text
     gone = client.get("/rest/getSong", params={**who, "f": "", "id": "ex-0000"})
     assert 'code="70"' in gone.text and gone.text.startswith("<?xml")  # XML when not asked for JSON
+
+
+def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Get wishes a result (searched at once, the Wished list says so); the list shows how far each song is: the
+    running job's stage and a download's percent, waiting, in the library. ▶ plays a preview, else SoundCloud."""
+    from echolot import db
+    from echolot.jobs import acquire
+    from echolot.web import create_app
+    from echolot.web import discover as page
+
+    new_song = Hit("deezer", 0, "New Artist", "New Song", 215, "New Album", "https://www.deezer.com/track/9")
+    new_song.preview = "https://p/9"
+    sc_only = Hit("soundcloud", 1, "Other Artist", "Edit", 300, url="https://soundcloud.com/o/edit")
+    monkeypatch.setattr(catalogs, "deezer", lambda q: [new_song])
+    monkeypatch.setattr(catalogs, "apple", lambda q, country="US": [])
+    monkeypatch.setattr(catalogs, "track", lambda track_id: {"isrc": "USAB12345678"})
+    monkeypatch.setattr(page, "_soundcloud", lambda request, con, user_id: lambda q: [sc_only])
+    page._cache.clear()
+    page._resting.clear()
+    client = login(create_app(settings), "owner")
+    triggered: list[str] = []
+    monkeypatch.setattr(client.app.state.worker, "trigger", lambda name, only=None: triggered.append(name))
+    html = client.get("/discover/results", params={"q": "new song"}).text
+    assert 'data-kind="preview" data-src="https://p/9"' in html  # a preview first
+    assert 'data-kind="soundcloud" data-src="https://soundcloud.com/o/edit"' in html  # else SoundCloud's player
+    assert html.count('class="discover-get"') == 2
+    con = db.connect(settings.db_path)
+    sid = con.execute("SELECT id FROM discover_songs WHERE data LIKE '%New Song%'").fetchone()[0]
+    got = client.post(f"/discover/{sid}/get")
+    assert "On its way" in got.text and got.headers["HX-Trigger"] == "wished"
+    assert triggered == ["search_new", "library"]
+    key = "discover:" + sid.removeprefix("ex-")
+    wished = client.get("/discover/wished").text
+    assert "Waiting for its search" in wished and "every 2s" in wished  # on its way: the list asks again
+
+    run = types.SimpleNamespace(fetching={key: {"stage": "downloading", "done": 50, "total": 200}})
+    monkeypatch.setattr(client.app.state.worker, "state", lambda: ({"search_new": run}, set()))
+    wished = client.get("/discover/wished").text
+    assert "Downloading 25 %" in wished and 'aria-valuenow="25"' in wished
+    with con:
+        con.execute("UPDATE songs SET file = 'New Artist/New Artist - New Song.flac' WHERE key = ?", (key,))
+    wished = client.get("/discover/wished").text
+    assert "In your library" in wished and "every 2s" not in wished  # nothing on its way: no more asking
+    assert "In your library" in client.get("/discover/results", params={"q": "new song"}).text
+    gone = client.post(f"/discover/{sid}/forget").text
+    assert "New Song" not in gone and not con.execute("SELECT 1 FROM discover_likes").fetchone()
+    con.close()
+
+    run = types.SimpleNamespace(fetching={})
+    acquire.track(run, "k", "downloading", 10, 100)
+    assert run.fetching == {"k": {"stage": "downloading", "done": 10, "total": 100}}
+    acquire.track(run, "k", None)
+    assert run.fetching == {}

@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from xml.sax.saxutils import quoteattr
 
@@ -34,20 +34,19 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from echolot import __version__, db
-from echolot.jobs import lists
 from echolot.library import catalog, discover
 from echolot.services import catalogs, navidrome, ytdlp
 from echolot.services import soundcloud as sc_api
 from echolot.settings import auth
 from echolot.web import discover as discover_page
+from echolot.web import wishes
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
-PREFIX = "ex-"  # the ids of Discover's songs
+PREFIX = wishes.PREFIX
 EXTRA = 10  # Discover songs a search's first page gets
 WAIT = 4.0  # s Discover's sources get within a player's search (a slower one is left out)
 MIN_QUERY = 3  # characters a search needs before Discover is asked too
-KEEP_DAYS = 30  # a song shown and not liked is forgotten after this long
 PREVIEW = 30  # s of a preview
 AUTH = ("u", "p", "t", "s", "apiKey", "v", "c")  # a player's login and who it is
 CHECK_SECONDS = 600  # a login Navidrome took is not asked about again for this long
@@ -164,25 +163,6 @@ def _pass_on(con: sqlite3.Connection, method: str, params: Params) -> Response:
 # ---------------------------------------------------------------- Discover's songs
 
 
-def _record(r: discover.Result) -> dict[str, Any]:
-    hits = [{"source": h.source, "url": h.url, "preview": h.preview, "seconds": h.seconds} for h in r.sources]
-    return {
-        "artist": r.artist,
-        "title": r.title,
-        "seconds": r.seconds,
-        "album": r.album,
-        "year": r.year,
-        "cover": r.cover,
-        "hits": hits,
-    }
-
-
-def _id(song: dict[str, Any]) -> str:
-    first = song["hits"][0] if song["hits"] else {}
-    seed = f"{first.get('source')}|{first.get('url')}|{song['artist']}|{song['title']}"
-    return PREFIX + hashlib.sha256(seed.encode()).hexdigest()[:20]
-
-
 def _plays(song: dict[str, Any]) -> tuple[str, str, float]:
     """What a player hears: ('soundcloud', page, seconds) in full, ('preview', source, 30), or ('', '', 0)."""
     if sc := next((h for h in song["hits"] if h["source"] == "soundcloud" and h["url"]), None):
@@ -197,21 +177,6 @@ STATES = {  # a Discover song for a user: what its artist line adds and its albu
     "wished": "on its way",  # liked, not in the library yet
     "here": "in your library",  # liked and fetched
 }
-
-
-def _state(con: sqlite3.Connection, user: auth.User | None, sid: str) -> str:
-    if (
-        not user
-        or not con.execute("SELECT 1 FROM discover_likes WHERE user_id = ? AND song_id = ?", (user.id, sid)).fetchone()
-    ):
-        return "new"
-    row = con.execute("SELECT file FROM songs WHERE key = ?", (song_key(sid),)).fetchone()
-    return "here" if row and row[0] else "wished"
-
-
-def song_key(sid: str) -> str:
-    """The songs row a liked Discover song is wanted as."""
-    return "discover:" + sid.removeprefix(PREFIX)
 
 
 def _base(sid: str) -> str:
@@ -257,39 +222,20 @@ def _entry(sid: str, song: dict[str, Any], state: str, starred: str | None) -> d
     return out
 
 
-def _song(con: sqlite3.Connection, sid: str) -> dict[str, Any] | None:
-    row = con.execute("SELECT data FROM discover_songs WHERE id = ?", (sid,)).fetchone()
-    return json.loads(row[0]) if row else None
-
-
-def _likes(con: sqlite3.Connection, user: auth.User | None) -> dict[str, str]:
-    if not user:
-        return {}
-    rows = con.execute("SELECT song_id, liked FROM discover_likes WHERE user_id = ?", (user.id,))
-    return dict(rows.fetchall())
-
-
 def _found(request: Request, con: sqlite3.Connection, query: str, user: auth.User | None) -> list[dict[str, Any]]:
     """Discover's songs for a search that the library lacks, kept for the player to come back to."""
     hits, failed = discover_page.search(request, con, query, user.id if user else None, wait=WAIT)
     if failed:
         log.info("player search %r: %s", query, "; ".join(f"{k}: {v}" for k, v in failed.items()))
-    cat, liked, now, out = catalog.Catalog.from_db(con), _likes(con, user), _now(), []
+    cat, liked, now, out = catalog.Catalog.from_db(con), wishes.likes(con, user), _now(), []
     for r in discover.merge(hits):
         if len(out) >= EXTRA:
             break
         if not r.title or cat.song(r.artist, r.title, r.seconds):
             continue
-        song = _record(r)
-        sid = _id(song)
-        con.execute(
-            "INSERT INTO discover_songs (id, data, seen) VALUES (?, ?, ?) "
-            "ON CONFLICT (id) DO UPDATE SET data = excluded.data, seen = excluded.seen",
-            (sid, json.dumps(song), now),
-        )
-        out.append(_entry(sid, song, _state(con, user, sid), liked.get(sid)))
-    old = (datetime.now() - timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
-    con.execute("DELETE FROM discover_songs WHERE seen < ? AND id NOT IN (SELECT song_id FROM discover_likes)", (old,))
+        sid, song = wishes.keep(con, r, now)
+        out.append(_entry(sid, song, wishes.state(con, user, sid), liked.get(sid)))
+    wishes.forget_old(con)
     con.commit()
     return out
 
@@ -336,74 +282,30 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
             if not isinstance(user, auth.User):
                 return _answer(params, error=(50, "Log in to Echolot once first, then like it again."))
             for sid in ids:
-                if (song := _song(con, sid)) is None:
+                if (song := wishes.song(con, sid)) is None:
                     return _answer(params, error=NOT_FOUND)
-                _like(con, user, sid, song, method == "star")
-            _wish(request, con, user)
+                wishes.like(con, user, sid, song, method == "star")
+            wishes.wish(request, con, user)
             return _pass_on(con, f"{method}.view", rest) if others else _answer(params)
         if method in ("scrobble", "reportPlayback"):  # not the library's: nothing to count
             return _pass_on(con, f"{method}.view", rest) if others and method == "scrobble" else _answer(params)
-        song = _song(con, ids[0])
+        song = wishes.song(con, ids[0])
         if song is None:
             return _answer(params, error=NOT_FOUND)
         who = user if isinstance(user, auth.User) else None
         if method == "getSong":
-            starred = _likes(con, who).get(ids[0])
-            return _answer(params, {"song": _entry(ids[0], song, _state(con, who, ids[0]), starred)})
+            starred = wishes.likes(con, who).get(ids[0])
+            return _answer(params, {"song": _entry(ids[0], song, wishes.state(con, who, ids[0]), starred)})
         if method == "getCoverArt":  # (an id without the state: the state as of now, not kept by the browser)
             state = next((v for k, v in params if k == "id"), "").partition("~")[2]
             if state in STATES:
                 return _cover(song, state, 86400)
-            return _cover(song, _state(con, who, ids[0]), 0)
+            return _cover(song, wishes.state(con, who, ids[0]), 0)
         if method in ("stream", "download"):
             return "stream", song, ids[0]
         return _answer(params, error=(0, "Echolot has not got this song yet."))
     finally:
         con.close()
-
-
-def _like(con: sqlite3.Connection, user: auth.User, sid: str, song: dict[str, Any], liked: bool) -> None:
-    if liked and "isrc" not in song:  # the recording's code (Deezer's): the audio check compares with its preview
-        song["isrc"] = ""
-        deezer = next((h["url"] for h in song["hits"] if h["source"] == "deezer"), "")
-        if (track := deezer.rstrip("/").rsplit("/", 1)[-1]).isdigit():
-            try:
-                song["isrc"] = catalogs.track(track).get("isrc") or ""
-            except catalogs.CatalogError as e:
-                log.info("Deezer's ISRC of %s – %s: %s", song["artist"], song["title"], e)
-        con.execute("UPDATE discover_songs SET data = ? WHERE id = ?", (json.dumps(song), sid))
-    if liked:
-        con.execute(
-            "INSERT OR IGNORE INTO discover_likes (user_id, song_id, liked) VALUES (?, ?, ?)", (user.id, sid, _now())
-        )
-    else:
-        con.execute("DELETE FROM discover_likes WHERE user_id = ? AND song_id = ?", (user.id, sid))
-    con.commit()
-    log.info(
-        "%s %s %s – %s (Discover, in a player)",
-        user.name,
-        "liked" if liked else "unliked",
-        song["artist"],
-        song["title"],
-    )
-
-
-def _wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
-    """The user's Wished list as their hearts are now (jobs/lists.store_wished), and its songs searched at once
-    (search_new: the songs never searched) and the playlist written (library)."""
-    rows = con.execute(
-        "SELECT s.id, s.data FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id WHERE l.user_id = ? "
-        "ORDER BY l.liked DESC, s.id",
-        (user.id,),
-    )
-    songs = []
-    for sid, data in rows:
-        d = json.loads(data)
-        pages = [h["url"] for h in sorted(d["hits"], key=lambda h: h["source"] != "soundcloud") if h["url"]]
-        songs.append((song_key(sid), {**d, "url": pages[0] if pages else ""}))
-    lists.store_wished(con, user.id, songs)
-    for job in ("search_new", "library"):
-        request.app.state.worker.trigger(job)
 
 
 @router.get("/rest/navidrome/song/{sid}")
@@ -415,10 +317,10 @@ def native_song(request: Request, sid: str) -> Response:
         name = _token_user(con, request.headers.get("x-nd-authorization", ""))
         if name is None:
             return JSONResponse({"error": "Not authenticated"}, 401)
-        song, user = _song(con, _base(sid)), auth.get_user(con, name)
+        song, user = wishes.song(con, _base(sid)), auth.get_user(con, name)
         if song is None:
             return JSONResponse({"error": "data not found"}, 404)
-        return JSONResponse(_native(_base(sid), song, _state(con, user, _base(sid)), _likes(con, user)))
+        return JSONResponse(_native(_base(sid), song, wishes.state(con, user, _base(sid)), wishes.likes(con, user)))
     except navidrome.NavidromeError as e:
         log.warning("player call song: %s", e)
         return JSONResponse({"error": "Navidrome is not reachable"}, 502)

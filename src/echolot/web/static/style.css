@@ -829,4 +829,48 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
 .discover-sources { display: inline-flex; gap: 0.35rem; }
 .discover-sources a { color: var(--muted); line-height: 0; }
 .discover-sources a:hover { color: var(--accent); }
-@media (max-width: 640px) { .discover-item { grid-template-columns: 3rem 1fr; } .discover-facts { grid-column: 2; justify-content: flex-start; } }
+.pill.accent-pill { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pill .icon { vertical-align: -2px; }
+.discover-get { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.65rem; border-radius: 999px; color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: transparent; }
+.discover-get:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.discover-get.htmx-request { opacity: 0.6; pointer-events: none; }
+.discover-forget { color: var(--muted); line-height: 0; padding: 0.2rem; }
+.discover-forget:hover { color: var(--bad); }
+.discover-wished .discover-facts .small { white-space: nowrap; }
+.wish-progress { height: 4px; margin-top: 0.4rem; border-radius: 2px; background: var(--track); overflow: hidden; max-width: 22rem; }
+.wish-progress span { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.6s ease; }
+.wish-progress.busy span { width: 35% !important; animation: wish-busy 1.4s ease-in-out infinite; }
+@keyframes wish-busy { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .wish-progress.busy span { animation: none; width: 100% !important; opacity: 0.5; } }
+@media (max-width: 640px) { .discover-item { grid-template-columns: 3rem 1fr; } .discover-facts { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; } }
+
+/* the player line (Discover): what plays, play/pause, where it is; fixed at the bottom */
+body.with-player main { padding-bottom: 5rem; }
+.player { position: fixed; left: 50%; bottom: 0.75rem; transform: translateX(-50%); z-index: 20; width: min(46rem, calc(100% - 1.5rem));
+  display: grid; grid-template-columns: 2.5rem auto 1fr auto auto auto; align-items: center; gap: 0.7rem; padding: 0.45rem 0.7rem 0.45rem 0.45rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 24px rgb(16 24 40 / 0.18); }
+.player[hidden] { display: none; }
+.player-cover { position: relative; width: 2.5rem; height: 2.5rem; border-radius: var(--radius-sm); overflow: hidden; background: var(--track);
+  display: grid; place-items: center; color: var(--muted); }
+.player-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.player-toggle { width: 2.25rem; height: 2.25rem; padding: 0; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.player-toggle .when-playing, .player.playing .player-toggle .when-paused { display: none; }
+.player.playing .player-toggle .when-playing { display: flex; }
+.player-body { min-width: 0; }
+.player-line { display: flex; gap: 0.4rem; font-size: 0.9rem; white-space: nowrap; overflow: hidden; }
+.player-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.player-artist { overflow: hidden; text-overflow: ellipsis; }
+.player-artist::before { content: "· "; }
+.player-bar { position: relative; height: 4px; margin-top: 0.4rem; border-radius: 2px; background: var(--track); cursor: pointer; }
+.player-bar::after { content: ""; position: absolute; inset: -6px 0; }
+.player-bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+.player-time { white-space: nowrap; }
+.player-source { color: var(--muted); line-height: 0; }
+.player-source:hover { color: var(--accent); }
+.player-source span { display: none; }
+.player[data-source="deezer"] .src-deezer, .player[data-source="apple"] .src-apple, .player[data-source="soundcloud"] .src-soundcloud { display: inline; }
+.player-close { color: var(--muted); line-height: 0; padding: 0.2rem; }
+.player-sc { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+@media (max-width: 640px) { .player { grid-template-columns: 2.5rem auto 1fr auto; } .player-time, .player-source { display: none; } }
