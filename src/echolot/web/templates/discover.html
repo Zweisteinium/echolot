@@ -7,6 +7,7 @@
   <h1>Search</h1>
   <p class="muted">Find a song in Deezer, Apple Music and SoundCloud at once, play it, and get it. Or paste a link: a playlist to follow, or a song.</p>
   <form method="get" action="/" class="discover-search" role="search">
+    <span class="search-icon" aria-hidden="true">{{ icon('search', 20) }}</span>
     <input type="search" name="q" value="{{ q }}" placeholder="Artist, title, or a link" aria-label="Search songs, or paste a link" autocomplete="off" autofocus
            hx-get="/discover/results" hx-trigger="input changed delay:450ms, search" hx-target="#discover-results" hx-sync="this:replace" hx-indicator=".discover-search"
            hx-push-url="false">
