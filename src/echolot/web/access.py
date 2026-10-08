@@ -34,6 +34,8 @@ PUBLIC = {"/healthz", "/login", "/favicon.ico"}
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for their own
     ("GET", "/"),
+    ("GET", "/stats"),
+    ("GET", "/playlists"),
     ("GET", "/account"),
     ("POST", "/account/tokens"),
     ("POST", "/account/tokens/{token_id}/revoke"),

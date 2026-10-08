@@ -12,6 +12,7 @@ from echolot.jobs import schedule
 from echolot.services import navidrome
 from echolot.settings import configfile, options
 from echolot.settings.sources import ConfigError
+from echolot.web import accounts
 from echolot.web.common import DB, back, page
 
 router = APIRouter()
@@ -33,6 +34,8 @@ def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
         navidrome_env=os.environ.get("ECHOLOT_NAVIDROME_URL", ""),
         navidrome_ok=_service_state(request, con),
         vault_source=request.app.state.vault.source,
+        s=accounts.status(request, con),  # the Soulseek card (_soulseek.html)
+        has_daemon_dir=request.app.state.settings.daemon_dir is not None,
     )
 
 

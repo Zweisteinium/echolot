@@ -1,9 +1,30 @@
 {% from "_icons.html" import icon %}{% from "_macros.html" import quality %}{% from "_discover_macros.html" import play_button, get_action %}
-{% if q and q|length < 2 %}
+{% set follow = link.follow if link else none %}
+{% if follow %}
+<article class="link-card">
+  <div class="discover-cover link-cover">{% if follow.image %}<img src="{{ follow.image }}" alt="" referrerpolicy="no-referrer">{% else %}{{ icon('playlist', 22) }}{% endif %}</div>
+  <div class="discover-body">
+    <div class="muted small">{{ icon(follow.service, 14) }} {{ {'spotify': 'Spotify playlist', 'soundcloud': 'SoundCloud list', 'youtube': 'YouTube playlist'}[follow.service] }}</div>
+    <div class="discover-title">{{ follow.name }}</div>
+  </div>
+  <form method="post" action="/sources/add" class="link-follow">{{ csrf_input }}
+    <input type="hidden" name="url" value="{{ follow.url }}">
+    <span class="seg" role="radiogroup" aria-label="Follow as">
+      <label title="Songs into the library"><input type="radio" name="mode" value="songs"> Songs</label>
+      <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> Playlist</label>
+    </span>
+    <button class="primary">Follow</button>
+  </form>
+</article>
+<p class="muted small">Echolot fetches its songs and keeps the list up to date; manage it under <a href="/playlists">Playlists</a>.</p>
+{% elif link and link.error %}
+<p class="warn-text">{{ link.error }} Paste a playlist link, or a Spotify, SoundCloud or YouTube track link.</p>
+{% elif q and q|length < 2 %}
 <p class="muted small">A little more, please.</p>
 {% elif q and not results and not failed %}
 <p class="muted">Nothing found for “{{ q }}”.</p>
 {% elif results %}
+{% if link and link.song %}<p class="small discover-from">{{ icon('songs', 14) }} From your link: <b>{{ link.song[0] }} – {{ link.song[1] }}</b></p>{% endif %}
 <p class="muted small discover-meta">{{ results|length }} song{{ 's' if results|length != 1 }} · {{ '%.1f'|format(seconds) }} s{% for name, why in failed.items() %} · <span class="warn-text" title="{{ why }}">{{ names[name] }} did not answer</span>{% endfor %}</p>
 <ol class="discover-list">
   {% for r in results %}
@@ -28,5 +49,5 @@
 {% elif failed %}
 <p class="warn-text">{% for name, why in failed.items() %}{{ names[name] }}: {{ why }}{{ '; ' if not loop.last }}{% endfor %}</p>
 {% else %}
-<p class="muted small discover-hint">{{ icon('deezer', 15) }} {{ icon('apple', 15) }} {{ icon('soundcloud', 15) }} &nbsp;Type an artist or a song.</p>
+<p class="muted small discover-hint">{{ icon('deezer', 15) }} {{ icon('apple', 15) }} {{ icon('soundcloud', 15) }} &nbsp;Type an artist or a song, or paste a link.</p>
 {% endif %}

@@ -2,6 +2,7 @@
 {% from "_icons.html" import icon %}
 {% block title %}Review · Echolot{% endblock %}
 {% block content %}
+{% from "_subnav.html" import inbox %}{{ inbox(user, 'review') }}
 <section class="card">
   <div class="card-head">
     <h1>Please confirm <span class="count">{{ songs.filed|length|num }}</span></h1>

@@ -1,6 +1,6 @@
 {# the Soulseek card; reloaded every few seconds while the daemon is not ready #}
 {% from "_icons.html" import icon %}
-<section class="card account" id="soulseek" {% if not s.soulseek.ready and s.soulseek.backend != 'slskd' %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
+<section class="card account" id="soulseek-client" {% if not s.soulseek.ready and s.soulseek.backend != 'slskd' %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
   <div class="section-head">
     <h2 class="group-name">{{ icon('soulseek', 20) }} Soulseek</h2>
     {% if s.soulseek.ready %}<span class="pill ok-pill">logged in as {{ s.soulseek.user }}</span>

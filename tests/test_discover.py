@@ -310,3 +310,41 @@ def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: p
     assert run.fetching == {"k": {"stage": "downloading", "done": 10, "total": 100}}
     acquire.track(run, "k", None)
     assert run.fetching == {}
+
+
+def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Search is the start page: a pasted playlist link offers to follow it, a track link searches that song.
+    The menu: Search, Stats, Playlists, Inbox (Missing, Review), History; the old addresses lead to the new."""
+    from echolot.web import create_app
+    from echolot.web import discover as page
+    from echolot.web import sources as sources_page
+
+    monkeypatch.setattr(sources_page, "_preview", lambda con, request, service, url: ("Trance Set", "https://i/c.jpg"))
+    monkeypatch.setattr(catalogs, "deezer", lambda q: [Hit("deezer", 0, "Artist Z", "Track Z", 200)])
+    monkeypatch.setattr(catalogs, "apple", lambda q, country="US": [])
+    monkeypatch.setattr(page, "_soundcloud", lambda request, con, user_id: lambda q: [])
+    asked: list[str] = []
+    monkeypatch.setattr(page, "_track", lambda request, con, url: asked.append(url) or ("Artist Z", "Track Z"))
+    page._cache.clear()
+    page._resting.clear()
+    client = login(create_app(settings), "owner")
+    html = client.get("/", params={"q": "https://soundcloud.com/someone/sets/trance-set"}).text
+    assert (
+        "Trance Set" in html
+        and 'action="/sources/add"' in html
+        and 'value="https://soundcloud.com/someone/sets/trance-set"' in html
+    )
+    html = client.get("/discover/results", params={"q": "https://soundcloud.com/artist-z/track-z"}).text
+    assert "From your link: <b>Artist Z – Track Z</b>" in html and "Track Z" in html
+    assert asked == ["https://soundcloud.com/artist-z/track-z"]
+    monkeypatch.setattr(page, "_track", lambda request, con, url: None)
+    assert "Paste a playlist link" in client.get("/discover/results", params={"q": "https://example.com/x"}).text
+    for old, new in (("/discover?q=x", "/?q=x"), ("/sources", "/playlists"), ("/accounts", "/playlists")):
+        r = client.get(old, follow_redirects=False)
+        assert (r.status_code, r.headers["location"]) == (301, new), old
+    nav = client.get("/missing").text
+    assert all(f'data-label="{n}"' in nav for n in ("Search", "Stats", "Playlists", "Inbox", "History"))
+    assert 'aria-label="Inbox"' in nav and 'href="/review"' in nav and 'href="/settings" role="menuitem"' in nav
+    playlists = client.get("/playlists").text
+    assert "Connect Spotify" in playlists and 'id="soundcloud"' in playlists and "By link" in playlists
+    assert 'id="soulseek-client"' in client.get("/settings").text

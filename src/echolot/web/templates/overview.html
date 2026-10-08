@@ -2,15 +2,13 @@
 {% from "_macros.html" import qbar, share %}
 {% from "_icons.html" import icon %}
 {% from "_chart.html" import donut_chart, growth_chart %}
+{% block title %}Stats · Echolot{% endblock %}
 {% block content %}
 {% set missing = o.wanted - o.have %}
 <div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
 <section class="card stats" data-stats>
   <div class="card-head">
     <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
-    <div class="stats-actions">
-      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: better copies of songs you have, or missing songs">{{ icon('upload') }} Upload files</button>{% endif %}
-    </div>
   </div>
   <div class="stats-main">
     <div class="growth-panels">
@@ -121,7 +119,10 @@
 </script>
 
 <section class="card">
-  <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
+  <div class="card-head">
+    <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
+    <a href="/playlists" class="small">Manage in Playlists →</a>
+  </div>
   {% set groups = o.lists|groupby('service') %}
   {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube'] %}
   {% for svc in order + (by_service|reject('in', order)|list) if svc in by_service %}
@@ -151,12 +152,11 @@
     </table>
   </details>
   {% else %}
-  <p class="muted">No lists yet. <a href="/sources">Choose the lists to follow</a>{% if not connected %} after <a href="/accounts">connecting your accounts</a>{% endif %}.</p>
+  <p class="muted">No lists yet. <a href="/playlists">Choose the lists to follow</a>{% if not connected %}, after connecting your Spotify or SoundCloud there{% endif %}.</p>
   {% endfor %}
 </section>
 
 <section class="card">
   {% include "_jobs.html" %}
 </section>
-{% if user.can('upload') %}{% include "_upload_dialog.html" %}{% endif %}
 {% endblock %}
