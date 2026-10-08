@@ -19,9 +19,9 @@
     {% set inbox = nav in ('missing', 'review') %}{% set history = nav in ('activity', 'changes') %}
     <nav aria-label="Pages">
       <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>Search</a>
-      <a href="/stats" data-label="Stats" {% if nav == 'stats' %}aria-current="page"{% endif %}>Stats</a>
       <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>Playlists</a>
       <a href="/missing" data-label="Inbox" {% if inbox %}aria-current="page"{% endif %}>Inbox</a>
+      <a href="/stats" data-label="Stats" {% if nav == 'stats' %}aria-current="page"{% endif %}>Stats</a>
       <a href="/activity" data-label="History" {% if history %}aria-current="page"{% endif %}>History</a>
     </nav>
     {% if user.admin %}

@@ -140,13 +140,15 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
 
 /* the user menu: account, the admin's pages, log out */
 .user-menu { position: relative; }
-.user-menu summary { list-style: none; display: flex; align-items: center; gap: 0.45rem; cursor: pointer; padding: 0.2rem 0.5rem 0.2rem 0.25rem;
-  border-radius: 999px; color: var(--muted); font-size: 0.85rem; }
+.user-menu { align-self: center; }
+.user-menu summary { list-style: none; display: flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.15rem 0.5rem 0.15rem 0.15rem;
+  border-radius: 999px; color: var(--muted); font-size: 0.85rem; line-height: 1; }
 .user-menu summary::-webkit-details-marker { display: none; }
-.user-menu summary::after { content: ""; width: 0.4rem; height: 0.4rem; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg) translateY(-2px); }
+.user-menu summary::after { content: ""; width: 0.35rem; height: 0.35rem; margin: 0 0.1rem 0.2rem; border: solid currentColor; border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg); }
 .user-menu summary:hover, .user-menu[open] summary { background: var(--track); color: var(--text); }
 .user-menu summary[aria-current] { color: var(--accent); }
-.user-menu .avatar { width: 1.65rem; height: 1.65rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 0.8rem;
+.user-menu .avatar { width: 1.4rem; height: 1.4rem; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 0.72rem;
   color: var(--accent-text); background: var(--accent); }
 .user-menu .menu { position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 30; min-width: 11rem; display: grid; padding: 0.3rem;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgb(16 24 40 / 0.16); }
@@ -301,7 +303,7 @@ input.short { width: 6rem; }
 select { max-width: 20rem; }
 label { cursor: pointer; }
 
-input[type="text"], input[type="password"], input[type="url"], input[type="number"], select, textarea {
+input[type="text"], input[type="password"], input[type="url"], input[type="number"], input[type="search"], select, textarea {
   font: inherit;
   font-size: 0.9rem;
   color: var(--text);
@@ -311,6 +313,7 @@ input[type="text"], input[type="password"], input[type="url"], input[type="numbe
   padding: 0.38rem 0.6rem;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+input[type="search"] { -webkit-appearance: none; appearance: none; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 textarea { width: 100%; font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg);
@@ -836,7 +839,17 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
 
 /* Discover: a search over Deezer, Apple Music and SoundCloud */
 .discover-search { position: relative; margin: 1rem 0 0.75rem; }
-.discover-search input { width: 100%; font-size: 1.05rem; padding: 0.7rem 2.6rem 0.7rem 0.9rem; border-radius: var(--radius-sm); }
+.discover-search input { -webkit-appearance: none; appearance: none; width: 100%; font: inherit; font-size: 1.05rem; color: var(--text);
+  padding: 0.8rem 2.8rem 0.8rem 2.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); transition: border-color 0.15s, box-shadow 0.15s; }
+.discover-search input::placeholder { color: var(--muted); opacity: 0.8; }
+.discover-search input:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.discover-search input:focus-visible { outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow); }
+.discover-search input::-webkit-search-cancel-button, .discover-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.discover-search .search-icon { position: absolute; left: 0.95rem; top: 50%; transform: translateY(-50%); line-height: 0; color: var(--muted);
+  pointer-events: none; transition: color 0.15s; }
+.discover-search:focus-within .search-icon { color: var(--accent); }
 .discover-search .spinner { position: absolute; right: 0.9rem; top: 50%; width: 1rem; height: 1rem; margin-top: -0.5rem; border-radius: 50%;
   border: 2px solid var(--border); border-top-color: var(--accent); opacity: 0; transition: opacity 0.2s; animation: spin 0.8s linear infinite; }
 .discover-search.htmx-request .spinner { opacity: 1; }
