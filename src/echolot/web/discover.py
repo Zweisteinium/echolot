@@ -188,6 +188,7 @@ def _track(request: Request, con: sqlite3.Connection, url: str) -> tuple[str, st
         return None
     title, author = d.get("title") or "", d.get("author_name") or ""
     title = title.removesuffix(f" by {author}") if service == "soundcloud" else title
+    author = author.removesuffix(" - Topic")  # YouTube's channels of an artist's releases: "Disfigure - Topic"
     artist, title = ytdlp.artist_title(author, "", title)
     return (artist, tagging.clean_title(title, artist)) if title else None
 
