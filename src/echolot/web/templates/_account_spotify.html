@@ -1,29 +1,4 @@
-{% extends "base.html" %}
-{% from "_icons.html" import icon %}
-{% block title %}Accounts · Echolot{% endblock %}
-{% block content %}
-{% macro state(ok, bad) %}<span class="dot{{ ' ok' if ok else ' err' if bad }}" aria-hidden="true"></span>{% endmacro %}
-<div class="with-rail">
-<aside class="rail">
-  <h1>Accounts</h1>
-  <p class="muted small">Your own accounts: Echolot follows your playlists and likes on Spotify and SoundCloud and gets the songs from Soulseek. YouTube playlists need no account.</p>
-  <nav aria-label="Accounts">
-    <a href="#spotify">{{ icon('spotify') }} Spotify {{ state(s.spotify.connected and not s.spotify.error, s.spotify.error) }}</a>
-    <a href="#soundcloud">{{ icon('soundcloud') }} SoundCloud {{ state(s.soundcloud.connected and not s.soundcloud.error, s.soundcloud.error) }}</a>
-    {% if user.admin %}<a href="#soulseek">{{ icon('soulseek') }} Soulseek {{ state(s.soulseek.ready, not s.soulseek.reachable) }}</a>{% endif %}
-  </nav>
-  <p class="small"><a href="/sources">Then choose the lists to follow →</a></p>
-</aside>
-
-<div class="sections">
-
-{# ------------------------------------------------------------ Spotify #}
-<section class="card account" id="spotify">
-  <div class="section-head">
-    <h2 class="group-name">{{ icon('spotify', 20) }} Spotify</h2>
-    {% if s.spotify.connected and not s.spotify.error %}<span class="pill ok-pill">connected as {{ s.spotify.name }}</span>
-    {% elif s.spotify.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
-  </div>
+{# connecting Spotify (Playlists): set up the app (admin), log in, reconnect, disconnect; s.spotify: accounts.status #}
   {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }}
     {%- if '403' in s.spotify.error %} Spotify refuses this account: make sure the app's owner added exactly this account's e-mail address under User Management in the Spotify developer app (and that the owner still has Premium), then connect again below.
     {%- else %} Connect again below. (Spotify also stops apps whose owner no longer has Premium.){% endif %}</p>{% endif %}
@@ -86,39 +61,3 @@
       {% endif %}</li>
   </ol>
   {% endif %}
-</section>
-
-{# ------------------------------------------------------------ SoundCloud #}
-<section class="card account" id="soundcloud">
-  <div class="section-head">
-    <h2 class="group-name">{{ icon('soundcloud', 20) }} SoundCloud</h2>
-    {% if s.soundcloud.connected %}<span class="pill ok-pill">connected as {{ s.soundcloud.name }}</span>
-    {% elif s.soundcloud.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}
-  </div>
-  {% if s.soundcloud.error %}<p class="flash error">{{ s.soundcloud.error }} Paste a new token below.</p>{% endif %}
-  {% if s.soundcloud.connected %}
-  <p class="muted">Echolot reads your likes and sets and downloads the songs, originals in their own quality where the uploader allows it. The token stops working when you log out of SoundCloud in that browser: then paste a new one.</p>
-  {% else %}
-  <p class="muted">SoundCloud gives out no app keys, so Echolot uses your browser's login token:</p>
-  <ol class="steps">
-    <li>Open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com ↗</a> and log in.</li>
-    <li>Open the developer tools (<kbd>F12</kbd>, or right click → Inspect), tab <b>Network</b>, and reload the page.</li>
-    <li>Type <code>api-v2</code> into the filter, click any request, and find <b>Authorization</b> under <i>Request Headers</i>. Its value looks like <code>OAuth 2-123456-…</code>.</li>
-    <li>Copy it and paste it here (with or without "OAuth"):</li>
-  </ol>
-  {% endif %}
-  <form method="post" action="/accounts/soundcloud" class="row-form">{{ csrf_input }}
-    <input type="password" name="token" class="grow" placeholder="OAuth 2-…" aria-label="SoundCloud token" autocomplete="off" required>
-    <button class="{{ 'primary' if not s.soundcloud.connected }}">{{ 'Replace token' if s.soundcloud.connected else 'Connect SoundCloud' }}</button>
-  </form>
-  {% if s.soundcloud.connected %}
-  <form method="post" action="/accounts/soundcloud/disconnect" class="spaced" onsubmit="return confirm('Disconnect SoundCloud? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>
-  {% endif %}
-</section>
-
-{# ------------------------------------------------------------ Soulseek #}
-{% if user.admin %}{% include "_soulseek.html" %}
-<p class="muted small credit">Soulseek icon by <a href="https://icons8.com" target="_blank" rel="noopener">Icons8</a></p>{% endif %}
-</div>
-</div>
-{% endblock %}

@@ -56,6 +56,8 @@ class Run:
         self.left = 0  # songs this run left when it gave way
         self.skip: frozenset[str] = frozenset()  # songs (files) the runs it goes on from did already
         self.handled: set[str] = set()  # songs this run did: handed on when it gives way
+        self.fetching: dict[str, dict[str, Any]] = {}  # song key -> how far its fetch is (acquire.track): stage,
+        # and while downloading bytes done and total (Discover's Wished list shows it)
         self.while_paused = False  # started while the jobs were paused (by hand): a pause leaves it alone
         self.only: set[int] | None = None  # by hand for these users: only their songs (None: everyone's)
         self.claim_resource: Callable[[Run], None] = lambda run: None  # the worker's (Worker._claim)

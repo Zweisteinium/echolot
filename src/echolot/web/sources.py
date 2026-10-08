@@ -127,12 +127,17 @@ def _soundcloud_cards(app: FastAPI, con: sqlite3.Connection, uid: int) -> list[d
     return cards
 
 
-@router.get("/sources", response_class=HTMLResponse)
+@router.get("/sources")
+def sources_redirect() -> RedirectResponse:
+    return RedirectResponse("/playlists", status_code=301)
+
+
+@router.get("/playlists", response_class=HTMLResponse)
 def sources_page(request: Request, con: DB) -> HTMLResponse:
-    from echolot.web.accounts import known
+    from echolot.web.accounts import connections
 
     followed = collections.Counter(x.service for x in sources.user_lists(con, request.state.user.id))
-    return page(request, "sources.html", nav="sources", s=known(request, con), followed=followed)
+    return page(request, "sources.html", nav="playlists", followed=followed, **connections(request, con))
 
 
 @router.get("/sources/found/{service}", response_class=HTMLResponse)
@@ -158,7 +163,7 @@ def other(request: Request, con: DB) -> HTMLResponse:
             shown |= {c["key"] for c in _cards_of(request.app, service, uid)}
     state, cards = _state(con, uid), []
     for s in sources.user_lists(con, uid):
-        if s.key in shown or s.name in sources.LIKES:
+        if s.key in shown or s.name in sources.LIKES or s.service == sources.WISHED:
             continue
         row = con.execute("SELECT title, cover_url FROM lists WHERE key = ?", (s.key,)).fetchone()
         cards.append(_card({"key": s.key, "service": s.service, "url": s.url,
@@ -183,7 +188,7 @@ def _db_card(con: sqlite3.Connection, key: str, service: str, url: str) -> dict[
 def _card_answer(request: Request, con: sqlite3.Connection, card: dict[str, Any], error: str = "") -> Response:
     if request.headers.get("hx-request"):
         return page(request, "_card.html", c=_card(card, _state(con, request.state.user.id)), error=error)
-    return back("/sources", **({"error": error} if error else {"ok": "Saved."}))
+    return back("/playlists", **({"error": error} if error else {"ok": "Saved."}))
 
 
 @router.post("/sources/follow")
@@ -264,9 +269,9 @@ def add(
         name, image = _preview(con, request, service, canonical)
         key = sources.add_list(con, request.state.user.id, canonical, "", mode != "songs")
     except ConfigError as e:
-        return back("/sources", error=str(e))
+        return back("/playlists", error=str(e))
     lists.sync_table(con)
     with con:
         con.execute("UPDATE lists SET title = ?, cover_url = ? WHERE key = ? AND NOT fetched", (name, image, key))
     request.app.state.worker.trigger(JOB[service])
-    return back("/sources", ok=f"Following {name}. Its songs are fetched now.")
+    return back("/playlists", ok=f"Following {name}. Its songs are fetched now.")

@@ -113,12 +113,20 @@ def _daemon_status(url: str, client: Any = None) -> dict[str, Any]:
         return {"reachable": False, "ready": False, "error": str(e)}
 
 
-@router.get("/accounts", response_class=HTMLResponse)
-def accounts_page(request: Request, con: DB) -> HTMLResponse:
-    market = options.get(con, options.Spotify).market
-    return page(request, "accounts.html", nav="accounts", s=status(request, con), market=market,
-                redirect_uri=redirect_uri(request), automatic=request.url.scheme == "https",
-                has_daemon_dir=request.app.state.settings.daemon_dir is not None)  # fmt: skip
+@router.get("/accounts")
+def accounts_redirect() -> RedirectResponse:
+    """The accounts' old page: Spotify and SoundCloud are on Playlists, Soulseek in Settings."""
+    return RedirectResponse("/playlists", status_code=301)
+
+
+def connections(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
+    """What the Playlists page needs to show and set up the user's Spotify and SoundCloud accounts."""
+    return {
+        "s": status(request, con),
+        "market": options.get(con, options.Spotify).market,
+        "redirect_uri": redirect_uri(request),
+        "automatic": request.url.scheme == "https",
+    }
 
 
 @router.get("/accounts/line", response_class=HTMLResponse)
@@ -149,19 +157,21 @@ def spotify_app(
 ) -> RedirectResponse:
     client_id, client_secret, market = client_id.strip(), client_secret.strip(), market.strip().upper()
     if market and len(market) != 2:
-        return back("/accounts", error="The country is its two letters, e.g. DE or US.")
+        return back("/playlists#spotify", error="The country is its two letters, e.g. DE or US.")
     if len(client_id) != 32:
-        return back("/accounts", error="The client ID is the 32 characters under the app's name.")
+        return back("/playlists#spotify", error="The client ID is the 32 characters under the app's name.")
     vault = request.app.state.vault
     if not client_secret and not vault.get(con, spotify.SECRET):
-        return back("/accounts", error="Paste the client secret too (the app's Settings, 'View client secret').")
+        return back(
+            "/playlists#spotify", error="Paste the client secret too (the app's Settings, 'View client secret')."
+        )
     with con:
         options.update(con, options.Spotify, client_id=client_id)
         if market:
             options.update(con, options.Spotify, market=market)
         if client_secret:
             vault.set(con, spotify.SECRET, client_secret)
-    return back("/accounts", ok="Spotify app saved. Now connect your account.")
+    return back("/playlists#spotify", ok="Spotify app saved. Now connect your account.")
 
 
 @router.post("/accounts/spotify/market")
@@ -171,8 +181,8 @@ def spotify_market(con: DB, market: Annotated[str, Form()]) -> RedirectResponse:
         with con:
             options.update(con, options.Spotify, market=market.strip().upper())
     except options.OptionsError:
-        return back("/accounts", error="The country is its two letters, e.g. DE or US.")
-    return back("/accounts", ok="Country saved; the next availability check asks its catalogue.")
+        return back("/playlists#spotify", error="The country is its two letters, e.g. DE or US.")
+    return back("/playlists#spotify", ok="Country saved; the next availability check asks its catalogue.")
 
 
 @router.post("/accounts/spotify/login")
@@ -180,7 +190,7 @@ def spotify_login(request: Request, con: DB) -> Response:
     """Off to Spotify's login; it comes back to the redirect address with a code."""
     sp = options.get(con, options.Spotify)
     if not sp.client_id:
-        return back("/accounts", error="Save your Spotify app's client ID and secret first.")
+        return back("/playlists#spotify", error="Save your Spotify app's client ID and secret first.")
     state, redirect = secrets.token_urlsafe(16), redirect_uri(request)
     with con:
         db.set_meta(con, f"{STATE}:{request.state.user.id}", f"{state} {int(time.time())} {redirect}")
@@ -190,19 +200,19 @@ def spotify_login(request: Request, con: DB) -> Response:
 
 def _finish_login(request: Request, con: sqlite3.Connection, query: dict[str, list[str]]) -> RedirectResponse:
     if error := (query.get("error") or [""])[0]:
-        return back("/accounts", error=f"Spotify: {error.replace('_', ' ')}.")
+        return back("/playlists#spotify", error=f"Spotify: {error.replace('_', ' ')}.")
     code, state, uid = (query.get("code") or [""])[0], (query.get("state") or [""])[0], request.state.user.id
     expected, started, redirect = ([*db.get_meta(con, f"{STATE}:{uid}").split(" "), "", ""])[:3]
     if not code or not state or state != expected or not redirect or time.time() - int(started or 0) > 1800:
-        return back("/accounts", error="That is not the address of the last Spotify login (or it is older "
+        return back("/playlists#spotify", error="That is not the address of the last Spotify login (or it is older "
                                        "than 30 min). Click 'Connect Spotify' again.")  # fmt: skip
     try:
         spotify.exchange(con, request.app.state.vault, code, redirect, uid)  # the address the login used
     except spotify.SpotifyError as e:
-        return back("/accounts", error=str(e))
+        return back("/playlists#spotify", error=str(e))
     with con:
         db.set_meta(con, f"{STATE}:{uid}", "")
-    return back("/accounts", ok="Spotify connected.")
+    return back("/playlists#spotify", ok="Spotify connected.")
 
 
 @router.get(CALLBACK)
@@ -215,7 +225,7 @@ def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> Red
     """The address the browser showed after the login (it could not open 127.0.0.1)."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url.strip()).query)
     if not query.get("code") and not query.get("error"):
-        return back("/accounts", error="Paste the whole address from the address bar (it contains ?code=...).")
+        return back("/playlists#spotify", error="Paste the whole address from the address bar (it contains ?code=...).")
     return _finish_login(request, con, query)
 
 
@@ -223,7 +233,7 @@ def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> Red
 def spotify_disconnect(request: Request, con: DB) -> RedirectResponse:
     with con:
         request.app.state.vault.delete(con, spotify.refresh_name(request.state.user.id))
-    return back("/accounts", ok="Spotify disconnected. Your lists and songs stay.")
+    return back("/playlists#spotify", ok="Spotify disconnected. Your lists and songs stay.")
 
 
 # ------------------------------------------------------------ SoundCloud
@@ -235,19 +245,19 @@ def soundcloud_token(request: Request, con: DB, token: Annotated[str, Form()]) -
     try:
         me = soundcloud.me(token)
     except soundcloud.SoundCloudError as e:
-        return back("/accounts", error=str(e))
+        return back("/playlists#soundcloud", error=str(e))
     uid = request.state.user.id
     with con:
         request.app.state.vault.set(con, soundcloud.token_name(uid), token)
         con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (me["user"], uid))
-    return back("/accounts", ok=f"SoundCloud connected as {me['name']}.")
+    return back("/playlists#soundcloud", ok=f"SoundCloud connected as {me['name']}.")
 
 
 @router.post("/accounts/soundcloud/disconnect")
 def soundcloud_disconnect(request: Request, con: DB) -> RedirectResponse:
     with con:
         request.app.state.vault.delete(con, soundcloud.token_name(request.state.user.id))
-    return back("/accounts", ok="SoundCloud disconnected. Your lists and songs stay.")
+    return back("/playlists#soundcloud", ok="SoundCloud disconnected. Your lists and songs stay.")
 
 
 # ------------------------------------------------------------ Soulseek
@@ -261,15 +271,15 @@ def soulseek_account(
     vault = request.app.state.vault
     password = password or vault.get(con, "soulseek.password") or ""
     if not user or not password or any(c in user + password for c in "\n\r"):
-        return back("/accounts", error="Soulseek needs a user name and a password.")
+        return back("/settings#soulseek-client", error="Soulseek needs a user name and a password.")
     folder = request.app.state.settings.daemon_dir
     if folder is None:
-        return back("/accounts", error="No daemon directory configured (ECHOLOT_DAEMON_DIR).")
+        return back("/settings#soulseek-client", error="No daemon directory configured (ECHOLOT_DAEMON_DIR).")
     with con:
         options.update(con, options.Soulseek, user=user)
         vault.set(con, "soulseek.password", password)
     soulseek.write_conf(folder, user, password)
-    return back("/accounts", ok="Soulseek account saved; the daemon logs in with it in a moment.")
+    return back("/settings#soulseek-client", ok="Soulseek account saved; the daemon logs in with it in a moment.")
 
 
 @router.post("/accounts/soulseek/backend")
@@ -298,9 +308,9 @@ def soulseek_backend(
             if backend == "slskd" and slskd_secret:
                 vault.set(con, slskd.SECRET, slskd_secret)
     except options.OptionsError as e:
-        return back("/accounts", error=str(e))
+        return back("/settings#soulseek-client", error=str(e))
     name = "slskd" if backend == "slskd" else "the Sockseek daemon"
-    return back("/accounts", ok=f"Soulseek through {name} from the next search on.")
+    return back("/settings#soulseek-client", ok=f"Soulseek through {name} from the next search on.")
 
 
 @router.post("/accounts/soulseek/url")
@@ -309,5 +319,5 @@ def soulseek_url(con: DB, url: Annotated[str, Form()]) -> RedirectResponse:
         with con:
             options.update(con, options.Soulseek, url=url.strip().rstrip("/"))
     except options.OptionsError as e:
-        return back("/accounts", error=str(e))
-    return back("/accounts", ok="Daemon address saved.")
+        return back("/settings#soulseek-client", error=str(e))
+    return back("/settings#soulseek-client", ok="Daemon address saved.")

@@ -1,0 +1,10 @@
+{# the pages of one menu entry, above the page (Inbox: Missing, Review; History: Activity, Changes) #}
+{% macro subnav(label, items, current) -%}
+<nav class="subnav" aria-label="{{ label }}">{% for key, href, name in items %}<a href="{{ href }}"{% if key == current %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}</nav>
+{%- endmacro %}
+{% macro inbox(user, current) -%}
+{{ subnav('Inbox', [('missing', '/missing', 'Missing')] + ([('review', '/review', 'Review')] if user.can('review') else []), current) }}
+{%- endmacro %}
+{% macro history(current) -%}
+{{ subnav('History', [('activity', '/activity', 'Activity'), ('changes', '/changes', 'Changes')], current) }}
+{%- endmacro %}

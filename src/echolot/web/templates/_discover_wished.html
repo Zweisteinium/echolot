@@ -1,0 +1,32 @@
+{% from "_icons.html" import icon %}{% from "_discover_macros.html" import play_button %}
+{# the user's wished songs and how far each is (discover._wished); asks again every 2 s while one is on its way #}
+<section class="card discover discover-wished" id="wished" hx-get="/discover/wished" hx-swap="outerHTML"
+         hx-trigger="wished from:body{% if active %}, every 2s[document.visibilityState === 'visible']{% endif %}"{% if not wished %} hidden{% endif %}>
+  <h2>Wished <span class="count">{{ wished|length }}</span></h2>
+  <p class="muted small">What you got here or hearted in a player. Echolot fetches each into your library and your playlist “Echolot · Wished”.</p>
+  <ol class="discover-list">
+    {% for s in wished %}
+    <li class="discover-item{{ ' in-library' if s.file }}">
+      <div class="discover-cover">{% if s.cover %}<img src="{{ s.cover }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}{{ icon('songs', 22) }}{% endif %}
+        {{ play_button(s.play, s.title, s.artist, s.cover) }}
+      </div>
+      <div class="discover-body">
+        <div class="discover-title">{{ s.title }}</div>
+        <div class="muted small">{{ s.artist }}{% if s.album and s.album != s.title %} · {{ s.album }}{% endif %}</div>
+        {% if not s.file %}
+        <div class="wish-progress{{ ' busy' if s.fetching and s.percent is none }}" role="progressbar" aria-label="{{ s.status }}"{% if s.percent is not none %} aria-valuenow="{{ s.percent }}" aria-valuemin="0" aria-valuemax="100"{% endif %}>
+          <span style="width: {{ s.percent if s.percent is not none else (100 if s.fetching else 0) }}%"></span>
+        </div>
+        {% endif %}
+      </div>
+      <div class="discover-facts">
+        {% if s.file %}<span class="pill ok-pill" title="{{ s.file }}">{{ icon('check', 13) }} In your library</span>
+        {% else %}<span class="small{{ ' muted' if not s.fetching }}">{{ s.status }}</span>{% endif %}
+        <span class="discover-sources">{% for h in s.hits %}<a href="{{ h.url }}" target="_blank" rel="noopener" title="{{ names[h.source] }}" aria-label="{{ names[h.source] }}">{{ icon(h.source, 15) }}</a>{% endfor %}</span>
+        <button type="button" class="link discover-forget" hx-post="/discover/{{ s.id }}/forget" hx-target="#wished" hx-swap="outerHTML"
+                title="{{ 'Take it off your Wished list (the file stays in the library)' if s.file else 'No longer get it' }}" aria-label="Remove {{ s.title }} from Wished">{{ icon('close', 15) }}</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>

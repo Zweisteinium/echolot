@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 27
+VERSION = 28
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -221,6 +221,17 @@ CREATE TABLE api_tokens (           -- bearer tokens for scripts
     created TEXT NOT NULL,
     last_used TEXT
 );
+CREATE TABLE discover_songs (       -- songs a player's search got from Discover (web/subsonic), the library lacks
+    id TEXT PRIMARY KEY,            -- ex-<hash>: the player's id of it
+    data TEXT NOT NULL,             -- JSON: names, length, cover, each source's page and preview
+    seen TEXT NOT NULL              -- last in a search (one not liked is forgotten after 30 days)
+);
+CREATE TABLE discover_likes (       -- a heart in a player on such a song
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    song_id TEXT NOT NULL REFERENCES discover_songs(id) ON DELETE CASCADE,
+    liked TEXT NOT NULL,
+    PRIMARY KEY (user_id, song_id)
+);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
@@ -304,6 +315,12 @@ MIGRATIONS = {
         "THEN 'review,run,upload' ELSE 'review,upload' END WHERE ',' || permissions || ',' LIKE '%,review,%'"
     ],
     27: ["ALTER TABLE songs ADD COLUMN artist_alias TEXT"],  # Spotify's English name of a non-Latin artist
+    28: [  # Discover in the players: the songs their searches showed, and the likes
+        "CREATE TABLE IF NOT EXISTS discover_songs (id TEXT PRIMARY KEY, data TEXT NOT NULL, seen TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS discover_likes (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE "
+        "CASCADE, song_id TEXT NOT NULL REFERENCES discover_songs(id) ON DELETE CASCADE, liked TEXT NOT NULL, "
+        "PRIMARY KEY (user_id, song_id))",
+    ],
 }
 
 

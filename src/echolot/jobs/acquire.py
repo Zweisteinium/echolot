@@ -213,9 +213,11 @@ class Fetcher:
         local_dir = self.local_inbox / name
         try:
             job = self.daemon.download(search_job, c, f"{self.daemon_inbox}/{name}", settings)
-            t = self.watch(job)
+            t = self.watch(job, want.key)
             if t.state != "done" or not t.path:
+                track(self.run, want.key, "searching")
                 return Outcome("failed", t.reason)
+            track(self.run, want.key, "checking")
             try:
                 prepared = audio.prepare(self.local(t.path), self.keep_hires)
             except audio.Rejected as e:
@@ -239,9 +241,10 @@ class Fetcher:
         finally:
             shutil.rmtree(local_dir, ignore_errors=True)
 
-    def watch(self, job: str) -> soulseek.Transfer:
-        """Wait for a download; give it up when it makes no progress for stall_minutes (queued at the
-        peer: Sockseek keeps such a download alive while the peer serves others)."""
+    def watch(self, job: str, key: str = "") -> soulseek.Transfer:
+        """Wait for a download (of the song `key`: its progress noted, see track); give it up when it makes no
+        progress for stall_minutes (queued at the peer: Sockseek keeps such a download alive while the peer
+        serves others)."""
         start = last_change = time.monotonic()
         last_bytes = -1
         while True:
@@ -249,6 +252,8 @@ class Fetcher:
             if t.state != "running":
                 return t
             now = time.monotonic()
+            if key:
+                track(self.run, key, "downloading", t.done_bytes, t.total_bytes)
             if t.done_bytes != last_bytes:
                 last_bytes, last_change = t.done_bytes, now
             stalled = now - last_change > self.opts.stall_minutes * 60
@@ -257,6 +262,17 @@ class Fetcher:
                 why = "no progress (queued at the peer)" if stalled else "stopped"
                 return soulseek.Transfer("cancelled", None, t.done_bytes, t.total_bytes, why)
             self.run.stop.wait(POLL_SECONDS)
+
+
+STAGES = ("searching", "downloading", "checking", "other sources")  # a song's fetch (Run.fetching), in order
+
+
+def track(run: "Run", key: str, stage: str | None, done: int = 0, total: int = 0) -> None:
+    """Note how far a song's fetch is (None: over); downloading: its bytes done and total (0: unknown)."""
+    if stage is None:
+        run.fetching.pop(key, None)
+    else:
+        run.fetching[key] = {"stage": stage, "done": done, "total": total}
 
 
 def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None) -> None:
@@ -314,11 +330,11 @@ def _download(url: str) -> bytes:
 # ---------------------------------------------------------------- the jobs
 
 
-SEARCHED = "s.service IN ('spotify', 'youtube')"  # the songs searched for (SoundCloud's are downloaded)
+SEARCHED = "s.service IN ('spotify', 'youtube', 'discover')"  # the songs searched for (SoundCloud's: downloaded)
 
 
 def _missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Wanted Spotify and YouTube songs not in the library, greyed-out ones first (most at risk); one song
+    """Wanted Spotify, YouTube and Discover songs not in the library, greyed-out ones first (most at risk); one song
     per recording (recordings.twins)."""
     rows = con.execute(
         "SELECT s.*, coalesce(a.tries, 0) AS tries, coalesce(a.last_try, 0) AS last_try FROM wanted s "
@@ -379,6 +395,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         if run.stop.is_set() or run.give_way.is_set() or time.monotonic() > deadline:
             return
         want = _want(row)
+        track(run, want.key, "searching")
         try:
             outcome = _in_library(run, want, index) if purpose == "search" else None
             outcome = outcome or fetcher.song(want, row["tries"])
@@ -389,6 +406,8 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         except Exception as e:  # one song's trouble never stops the others
             log.exception("%s: %s - %s", purpose, want.artist, want.title)
             outcome = Outcome("failed", str(e))
+        finally:
+            track(run, want.key, None)
         if outcome.action not in FOUND and not _logged_in(fetcher.daemon):
             # not the song's fault: no try counted; the rest waits until Soulseek is back, or the next run
             outcome = Outcome("interrupted", "Soulseek not logged in")
@@ -658,7 +677,13 @@ def fallback(run: "Run") -> str:
                     (want.key, int(time.time())),
                 )
             listed = row["url"] if row["service"] == "youtube" else None
-            action, report = _fallback_song(run, con, ydl, want, row["tries"], row["service"] != "soundcloud", listed)
+            track(run, want.key, "other sources")
+            try:
+                action, report = _fallback_song(
+                    run, con, ydl, want, row["tries"], row["service"] != "soundcloud", listed
+                )
+            finally:
+                track(run, want.key, None)
             with con:
                 con.execute(
                     "UPDATE attempts SET fallback_result = ? WHERE song_key = ?", (json.dumps(report), want.key)
@@ -697,9 +722,12 @@ def _fallback_song(
     at a time; one discarded in review is not kept again. Returns the action and what the search saw, per site."""
 
     def fetch(site: str, r: dict) -> tuple[str, str]:
+        track(run, want.key, "downloading")
         got, error = ydl.fetch(r["url"], run.paths.inbox("fallback") / want.key.replace(":", "-"), run.stop)
         if not got:
+            track(run, want.key, "other sources")
             return "download failed", error
+        track(run, want.key, "checking")
         try:
             prepared = audio.prepare(got, options.get(con, options.Files).keep_hires)
         except audio.Rejected as e:

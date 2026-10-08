@@ -1,0 +1,13 @@
+{% from "_icons.html" import icon %}
+{# ▶ on a song's cover: plays it in the page's player line (discover.html); p: discover.play #}
+{% macro play_button(p, title, artist, cover) -%}
+{% if p %}<button type="button" class="discover-play" data-kind="{{ p.kind }}" data-src="{{ p.src }}" data-page="{{ p.page }}" data-source="{{ p.source }}"
+  data-title="{{ title }}" data-artist="{{ artist }}" data-cover="{{ cover or '' }}" aria-label="Play {{ artist }} – {{ title }}"
+  title="{{ 'Play the 30 s preview' if p.kind == 'preview' else 'Play on SoundCloud' }}"><span class="when-paused">{{ icon('play', 18) }}</span><span class="when-playing">{{ icon('pause', 18) }}</span></button>{% endif %}
+{%- endmacro %}
+{# what a result offers: Get, or how far it is (wishes.state: new, wished, here) #}
+{% macro get_action(sid, state) -%}
+{% if state == 'new' %}<button type="button" class="discover-get" hx-post="/discover/{{ sid }}/get" hx-swap="outerHTML" title="Fetch it into your library and your playlist “Echolot · Wished”">{{ icon('download', 15) }}<span>Get</span></button>
+{%- elif state == 'wished' %}<span class="pill accent-pill" title="Echolot is fetching it: see Wished below">On its way</span>
+{%- else %}<span class="pill ok-pill">{{ icon('check', 13) }} In your library</span>{% endif %}
+{%- endmacro %}
