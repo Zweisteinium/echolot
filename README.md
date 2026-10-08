@@ -32,12 +32,15 @@ cannot find yet, it tells you, and why.
   A file you have yourself can be uploaded and is checked the same way.
 - **Statistics.** Growth over time, quality per list, and what changed on Spotify and SoundCloud (songs
   taken down, greyed out, re-uploaded).
+- **Search.** Find a single song in Deezer, Apple Music and SoundCloud at once, hear a preview, and get
+  it: it lands in your playlist "Echolot · Wished". Paste a playlist link to follow it.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
 
 ## What it doesn't do
 
-Echolot won't find you new music, and it never changes your lists on Spotify, SoundCloud or YouTube: it
-only reads them. No artist pages, no album hunting, no recommendations. If that's what you're after,
+Echolot won't recommend you new music, and it never changes your lists on Spotify, SoundCloud or YouTube:
+it only reads them. Its search gets a song you already know; there are no artist pages, no album hunting,
+no recommendations. If that's what you're after,
 [SoulSync](https://github.com/Nezreka/SoulSync) is the better fit; it does much of what Echolot does,
 and a lot more. If your goal is an archive of what you already listen to, complete, correct and in the
 best quality (niche stuff included, SoundCloud and all), give Echolot a try. The two also run fine side
@@ -80,20 +83,21 @@ The first start builds the Soulseek daemon, which takes a few minutes.
 
 **5. Connect and pick**
 
-1. **Accounts** walks you through the Spotify app, the SoundCloud login and a Soulseek name.
-2. **Sources**: pick the lists to follow.
+1. **Settings → Soulseek account**: pick a Soulseek name (admins).
+2. **Playlists** walks you through the Spotify app and the SoundCloud login, then you pick the lists to
+   follow. A single song: **Search**.
 
 The first songs show up within minutes. Listen in Navidrome or any Subsonic app.
 
 ## Accounts
 
-- **Spotify.** One person creates a developer app (free, two minutes, the Accounts page has the steps)
+- **Spotify.** One person creates a developer app (free, two minutes, the Playlists page has the steps)
   with a Premium account; it stops working when that Premium ends. Others need no Premium: the app's
   owner adds their Spotify accounts in the app's User Management, up to five. Spotify's own mixes and
   editorial playlists can't be read; copy their songs into a playlist of yours. (Spotify's limits for
   apps like this: [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).)
 - **SoundCloud.** SoundCloud hands out no app keys, so Echolot uses your browser's login token (the
-  Accounts page shows where to find it). After you log out of SoundCloud in that browser, paste a new one.
+  Playlists page shows where to find it). After you log out of SoundCloud in that browser, paste a new one.
 - **Soulseek.** Nothing to register: pick a name and a password, and the first login creates the
   account. There is no password recovery, so keep them. A name can only be online in one client at a
   time. Many people on Soulseek don't share with accounts that share nothing, and the bundled daemon
@@ -137,7 +141,7 @@ With a provider that forwards a port, peers behind a firewall can send to you to
 <summary><b>slskd as the Soulseek client</b></summary>
 
 [slskd](https://github.com/slskd/slskd) is a full Soulseek client: it shares, so fewer peers turn you
-down. On **Accounts → Soulseek**, choose slskd and enter its address, its web login (or an API key)
+down. On **Settings → Soulseek account**, choose slskd and enter its address, its web login (or an API key)
 and its downloads folder as Echolot sees it. Two things matter:
 
 - the downloads folder has to be on Echolot's music volume (`MUSIC/inbox/slskd` is a good place),
@@ -153,7 +157,7 @@ is then unused.
 
 Add `FORWARDED_ALLOW_IPS` with the proxy's address to Echolot's `environment` in `compose.yaml`, so it
 trusts the proxy's headers. Over https, the Spotify login comes back to Echolot by itself; over plain
-http you paste one address back (the Accounts page shows where).
+http you paste one address back (the Playlists page shows where).
 </details>
 
 <details>
@@ -240,8 +244,8 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 
 ## Running it
 
-- **Jobs** run on their own schedule (Settings); the Overview starts, stops and pauses them.
-- **Activity** lists everything filed and rejected; `docker compose logs echolot` has the details.
+- **Jobs** run on their own schedule (Settings); **Stats** starts, stops and pauses them.
+- **History** lists everything filed and rejected; `docker compose logs echolot` has the details.
 - **Users** are Navidrome's accounts; Navidrome admins are admins here too, and **Users** gives others
   more rights. Locked out: `docker compose exec echolot echolot user admin <name>`.
 - **Backups:** `deploy/data/` and your music folder. Stop Echolot first for a clean copy of its database.
