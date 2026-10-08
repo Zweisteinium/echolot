@@ -126,63 +126,80 @@ def fetch_spotify(run: "Run") -> str:
     requests), so a run without changes costs next to nothing. A list two users follow is read once; one
     whose follower is not connected is read with another follower's login, and a public playlist none of its
     followers connected to Spotify with Echolot's own app (no login; likes need their owner's). Which songs
-    Spotify greys out, the daily availability check finds (every list's)."""
+    Spotify greys out, the daily availability check finds (every list's). While Spotify asks Echolot to wait
+    (too many requests: spotify.rest) no list is read, and none counts as unreadable."""
     con = run.connect()
     try:
         sync_table(con)
-        done, read, failed, seen, tried = 0, 0, [], set(), set()
-
-        def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, str], likes: str | None) -> None:
-            nonlocal done, read
-            run.say(f"reading {s.title or s.url}")
-            tried.add(s.key)
-            try:
-                if _fetch_spotify_list(con, sp, s, known, likes):
-                    read += 1
-                    run.note(f"Spotify: {s.title or s.url} changed, read again")
-                done += 1
-                seen.add(s.key)
-                availability.list_readable(con, s.key, True)
-            except spotify.SpotifyError as e:
-                log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
-                failed.append(f"{s.title or s.key}: {e}")
-                availability.list_readable(con, s.key, False, str(e))
-
-        for uid in _active(con):
-            mine = [s for s in sources.user_lists(con, uid) if s.service == "spotify" and s.key not in seen]
-            if not mine:
-                continue
-            try:
-                sp = spotify.Spotify(con, run.vault, uid)
-                known, likes = sp.snapshots(), sp.likes_state()
-            except spotify.SpotifyError as e:
-                log.info("spotify lists of user %s: %s", uid, e)
-                continue  # another follower may have a login
-            for s in mine:
-                read_list(sp, s, known, likes)
-            try:
-                if aliased := _aliases(con, sp):
-                    run.note(f"Spotify: {aliased} artists' English names (searched as well)")
-            except spotify.SpotifyError as e:
-                log.info("spotify: English names: %s", e)
-        public = [s for s in sources.followed(con) if s.service == "spotify" and s.key not in tried]
-        public = [s for s in public if s.name != "Spotify Liked Songs" and spotify.playlist_id(s.url)]
-        if public:  # nobody connected follows them: Echolot's app reads public playlists without a login
-            try:
-                app = spotify.Spotify(con, run.vault, None)
-            except spotify.SpotifyError as e:
-                log.info("spotify app: %s", e)
-            else:
-                for s in public:
-                    read_list(app, s, {}, None)
-        message = f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
-        unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in tried)
-        return message + (f", {unread} not read (no follower connected to Spotify)" if unread else "")
+        if (until := spotify.resting_until(con)) > time.time():
+            return str(spotify.SpotifyResting(until))
+        try:
+            return _fetch_spotify(run, con)
+        except spotify.SpotifyResting as e:  # (from one of the lists: the others wait too)
+            return str(e)
     finally:
         con.close()
 
 
-ALIASES_PER_RUN = 50  # songs asked for their artist's English name per run (one request each)
+def _fetch_spotify(run: "Run", con: sqlite3.Connection) -> str:
+    """The lists as fetch_spotify says (its connection open; Spotify not resting)."""
+    done, read, failed, seen, tried = 0, 0, [], set(), set()
+
+    def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, str], likes: str | None) -> None:
+        nonlocal done, read
+        run.say(f"reading {s.title or s.url}")
+        tried.add(s.key)
+        try:
+            if _fetch_spotify_list(con, sp, s, known, likes):
+                read += 1
+                run.note(f"Spotify: {s.title or s.url} changed, read again")
+            done += 1
+            seen.add(s.key)
+            availability.list_readable(con, s.key, True)
+        except spotify.SpotifyResting:
+            raise
+        except spotify.SpotifyError as e:
+            log.warning("spotify %s: %s (keeping the last listing)", s.key, e)
+            failed.append(f"{s.title or s.key}: {e}")
+            availability.list_readable(con, s.key, False, str(e))
+
+    for uid in _active(con):
+        mine = [s for s in sources.user_lists(con, uid) if s.service == "spotify" and s.key not in seen]
+        if not mine:
+            continue
+        try:
+            sp = spotify.Spotify(con, run.vault, uid)
+            known, likes = sp.snapshots(), sp.likes_state()
+        except spotify.SpotifyResting:
+            raise
+        except spotify.SpotifyError as e:
+            log.info("spotify lists of user %s: %s", uid, e)
+            continue  # another follower may have a login
+        for s in mine:
+            read_list(sp, s, known, likes)
+        try:
+            if aliased := _aliases(con, sp):
+                run.note(f"Spotify: {aliased} artists' English names (searched as well)")
+        except spotify.SpotifyResting:
+            raise
+        except spotify.SpotifyError as e:
+            log.info("spotify: English names: %s", e)
+    public = [s for s in sources.followed(con) if s.service == "spotify" and s.key not in tried]
+    public = [s for s in public if s.name != "Spotify Liked Songs" and spotify.playlist_id(s.url)]
+    if public:  # nobody connected follows them: Echolot's app reads public playlists without a login
+        try:
+            app = spotify.Spotify(con, run.vault, None)
+        except spotify.SpotifyError as e:
+            log.info("spotify app: %s", e)
+        else:
+            for s in public:
+                read_list(app, s, {}, None)
+    message = f"{done} lists, {read} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
+    unread = sum(1 for s in sources.followed(con) if s.service == "spotify" and s.key not in tried)
+    return message + (f", {unread} not read (no follower connected to Spotify)" if unread else "")
+
+
+ALIASES_PER_RUN = 50  # requests per run for English names (one per artist; per song for blanked names)
 
 
 def _blanked(artist: str, artists: str | list | None) -> bool:
@@ -195,27 +212,43 @@ def _blanked(artist: str, artists: str | list | None) -> bool:
 def _aliases(con: sqlite3.Connection, sp: spotify.Spotify) -> int:
     """Spotify songs whose artist is written in another script (祖堅 正慶): its English name, if Spotify has
     one that differs (Masayoshi Soken), as songs.artist_alias, searched and matched as well ('' = asked, the
-    same). A song whose names Spotify blanked ("."): the English names instead, if they are names. Asked once
-    per song; returns how many got a name."""
+    same). Asked once per artist (one of its songs), for all its songs. A song whose names Spotify blanked
+    ("."): the English names instead, if they are names (asked per song). Returns how many got a name."""
     rows = con.execute(
-        "SELECT key, artist, artists FROM songs WHERE service = 'spotify' AND artist_alias IS NULL"
+        "SELECT key, artist, artists FROM songs WHERE service = 'spotify' AND artist_alias IS NULL ORDER BY key"
     ).fetchall()
+    blanked = [r for r in rows if _blanked(r["artist"], r["artists"])]
+    by_artist: dict[str, sqlite3.Row] = {}  # each artist with its first song
+    for r in rows:
+        if rules.non_latin(r["artist"]) and r not in blanked:
+            by_artist.setdefault(r["artist"], r)
     found = 0
-    for r in [r for r in rows if rules.non_latin(r["artist"]) or _blanked(r["artist"], r["artists"])][:ALIASES_PER_RUN]:
-        track = sp.track(r["key"].removeprefix("spotify:"), lang="en")
-        names = [(a.get("name") or "").strip() for a in track.get("artists") or []]
-        if names and _blanked(r["artist"], r["artists"]) and not _blanked(names[0], names):
-            with con:
+    for r in blanked[:ALIASES_PER_RUN]:
+        names = [
+            (a.get("name") or "").strip()
+            for a in sp.track(r["key"].removeprefix("spotify:"), lang="en").get("artists") or []
+        ]
+        with con:
+            if names and not _blanked(names[0], names):
                 con.execute(
                     "UPDATE songs SET artist = ?, artists = ?, artist_alias = '' WHERE key = ?",
                     (names[0], json.dumps(names), r["key"]),
                 )
-            found += 1
-            continue
-        alias = names[0] if names and names[0] and names[0] != r["artist"] and not _blanked(names[0], []) else ""
+                found += 1
+            else:
+                con.execute("UPDATE songs SET artist_alias = '' WHERE key = ?", (r["key"],))
+    for artist, r in list(by_artist.items())[: max(0, ALIASES_PER_RUN - len(blanked))]:
+        names = [
+            (a.get("name") or "").strip()
+            for a in sp.track(r["key"].removeprefix("spotify:"), lang="en").get("artists") or []
+        ]
+        alias = names[0] if names and names[0] and names[0] != artist and not _blanked(names[0], []) else ""
         with con:
-            con.execute("UPDATE songs SET artist_alias = ? WHERE key = ?", (alias, r["key"]))
-        found += bool(alias)
+            n = con.execute(
+                "UPDATE songs SET artist_alias = ? WHERE service = 'spotify' AND artist = ? AND artist_alias IS NULL",
+                (alias, artist),
+            ).rowcount
+        found += n if alias else 0
     return found
 
 
@@ -247,8 +280,28 @@ def _fetch_spotify_list(
     else:
         meta = sp.playlist(pid)
         title, cover, creator = meta["name"], meta["image"], meta.get("owner")
+    before = [
+        r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = ? ORDER BY position", (s.key,))
+    ]
+    if pid is None and before and (added := sp.liked_since({k.removeprefix("spotify:") for k in before}, len(before))):
+        with con:  # only songs liked since: read up to the first known one (120 requests less for 6000 likes)
+            for it in added:
+                _song(
+                    con,
+                    f"spotify:{it['id']}",
+                    "spotify",
+                    artist=it["artist"],
+                    title=it["title"],
+                    album=it["album"],
+                    length=it["length"],
+                    artists=json.dumps(it["artists"]),
+                    isrc=it["isrc"],
+                    **{k: it.get(k) for k in FACTS},
+                )
+        _store(con, s, [f"spotify:{it['id']}" for it in added] + before, title, cover, snapshot, creator)
+        return True
     items = sp.items(pid)
-    if not items and con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (s.key,)).fetchone():
+    if not items and before:
         raise spotify.SpotifyError("no songs listed although it had some (Spotify may withhold others' playlists)")
     with con:
         for it in items:

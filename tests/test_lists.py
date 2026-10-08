@@ -37,6 +37,15 @@ class FakeSpotify:
         FakeSpotify.calls.append(f"items {pid}")
         return FakeSpotify.liked if pid is None else [song("s1", "Artist A", "First Song")]
 
+    def liked_since(self, known: set[str], count: int) -> list[dict] | None:
+        FakeSpotify.calls.append("liked since")
+        new = []
+        for s in FakeSpotify.liked:
+            if s["id"] in known:
+                return new if len(FakeSpotify.liked) == count + len(new) else None
+            new.append(s)
+        return None
+
     def playlist(self, pid: str) -> dict:
         FakeSpotify.calls.append(f"playlist {pid}")
         return {"name": f"Name {pid}", "image": f"https://img/{pid}", "snapshot": "snap1", "owner": "Timon"}
@@ -115,19 +124,29 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     FakeSpotify.calls = []
     monkeypatch.setattr(FakeSpotify, "liked", [song("s10", "Artist N", "Newest Song"), *FakeSpotify.liked])  # a like
     assert lists.fetch_spotify(run) == "3 lists, 1 changed"
-    assert FakeSpotify.calls == ["items None", "playlist BBB222"]
+    assert FakeSpotify.calls == ["liked since", "playlist BBB222"]  # only the new like read, not all
 
 
 def test_an_artist_in_another_script_gets_its_english_name(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Spotify writes 祖堅 正慶 as Masayoshi Soken only when asked in English: asked once per such song (not for
-    Latin names; one with no other English name is marked as asked); renamed, it is asked again."""
-    soken, other = song("k1", "祖堅 正慶", "Dynamis"), song("k2", "川子", "Song K")
-    monkeypatch.setattr(FakeSpotify, "liked", [*FakeSpotify.liked[:2], soken, other])
+    """Spotify writes 祖堅 正慶 as Masayoshi Soken only when asked in English: asked once per such artist, for
+    all its songs (not for Latin names; one with no other English name is marked as asked); renamed, it is
+    asked again."""
+    soken, other, more = (
+        song("k1", "祖堅 正慶", "Dynamis"),
+        song("k2", "川子", "Song K"),
+        song("k3", "祖堅 正慶", "Endwalker"),
+    )
+    monkeypatch.setattr(FakeSpotify, "liked", [*FakeSpotify.liked[:2], soken, other, more])
     monkeypatch.setattr(FakeSpotify, "english", {"k1": "Masayoshi Soken"})
     lists.fetch_spotify(run)
     con = run.connect()
     aliases = dict(con.execute("SELECT key, artist_alias FROM songs WHERE key LIKE 'spotify:%'").fetchall())
-    assert [aliases[k] for k in ("spotify:k1", "spotify:k2", "spotify:s9")] == ["Masayoshi Soken", "", None]
+    assert [aliases[k] for k in ("spotify:k1", "spotify:k3", "spotify:k2", "spotify:s9")] == [
+        "Masayoshi Soken",
+        "Masayoshi Soken",
+        "",
+        None,
+    ]
     asked = [c for c in FakeSpotify.calls if c.startswith("track")]
     assert sorted(asked) == ["track k1 en", "track k2 en"]
     with con:

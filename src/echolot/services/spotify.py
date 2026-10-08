@@ -37,6 +37,49 @@ def refresh_name(user_id: int) -> str:
 
 _tokens: dict[str, tuple[str, float]] = {}  # refresh token hash -> (access token, expires)
 _lock = threading.Lock()
+REST_KEY = "spotify_resting_until"  # meta: the unix time until which Spotify asked to be left alone (429)
+SHORT_WAIT = 60  # s: a Retry-After this short is waited out; a longer one stops every request until then
+SPACING = 0.3  # s at least between two requests of this Echolot (Spotify counts per 30 s: no bursts)
+ME_SECONDS = 3600  # an account's own details (/me) are asked again after this long
+_rest = {"until": 0.0}
+_pace = {"last": 0.0}
+_pace_lock = threading.Lock()
+_me: dict[str, tuple[float, dict[str, Any]]] = {}  # refresh token hash -> (when, /me)
+
+
+def resting_until(con: sqlite3.Connection) -> float:
+    """Until when Spotify asked Echolot to wait (unix time; past: it may ask). Kept in the database, so a
+    restart or a deploy keeps waiting too: asking before then makes Spotify wait longer."""
+    from echolot import db
+
+    try:
+        stored = float(db.get_meta(con, REST_KEY, "0") or 0)
+    except (sqlite3.Error, ValueError):
+        stored = 0.0
+    return max(_rest["until"], stored)
+
+
+def rest(con: sqlite3.Connection, seconds: float) -> float:
+    """Spotify said to wait `seconds` (Retry-After): nothing is asked before then."""
+    from echolot import db
+
+    until = time.time() + seconds
+    _rest["until"] = max(_rest["until"], until)
+    try:
+        with con:
+            db.set_meta(con, REST_KEY, str(until))
+    except sqlite3.Error as e:  # (kept in memory meanwhile)
+        log.warning("spotify: the wait until %s not stored: %s", until, e)
+    log.warning("spotify: too many requests, asked to wait %d s: no requests until then", seconds)
+    return until
+
+
+def _space() -> None:
+    with _pace_lock:
+        wait = _pace["last"] + SPACING - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _pace["last"] = time.monotonic()
 
 
 def release_facts(t: dict[str, Any]) -> dict[str, Any]:
@@ -50,6 +93,17 @@ def release_facts(t: dict[str, Any]) -> dict[str, Any]:
 
 class SpotifyError(RuntimeError):
     """Spotify is not connected or refused (message for the user)."""
+
+
+class SpotifyResting(SpotifyError):
+    """Spotify asked Echolot to wait (too many requests): no request is made until then."""
+
+    def __init__(self, until: float) -> None:
+        self.until = until
+        when = time.strftime("%H:%M" if until - time.time() < 20 * 3600 else "%d.%m. %H:%M", time.localtime(until))
+        super().__init__(
+            f"Spotify asked Echolot to wait until {when} (too many requests); nothing is asked before then."
+        )
 
 
 def playlist_id(url: str) -> str | None:
@@ -115,6 +169,24 @@ def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str
         _tokens.clear()
 
 
+def _song_of(it: dict[str, Any]) -> dict[str, Any] | None:
+    """A list entry as a song (items); None for a local file or a podcast episode."""
+    t = it.get("item") or it.get("track")
+    if not t or t.get("type") not in (None, "track") or t.get("is_local") or not t.get("id"):
+        return None
+    artists = [a.get("name", "") for a in t.get("artists") or []]
+    return {
+        "id": t["id"],
+        "artist": artists[0] if artists else "",
+        "artists": artists,
+        "title": t.get("name") or "",
+        "album": (t.get("album") or {}).get("name") or "",
+        "length": round((t.get("duration_ms") or 0) / 1000),
+        "isrc": (t.get("external_ids") or {}).get("isrc"),
+        **release_facts(t),
+    }
+
+
 class Spotify:
     """Spotify's Web API as a user (their login: their lists and likes), or as the app itself (no user:
     the catalogue only, e.g. covers and artist pictures; Spotify's client credentials)."""
@@ -159,14 +231,19 @@ class Spotify:
         artist's own: 祖堅 正慶, in English Masayoshi Soken)."""
         url = url if url.startswith("http") else API + url
         for attempt in range(6):
+            if (until := resting_until(self.con)) > time.time():
+                raise SpotifyResting(until)
             headers = {"Authorization": f"Bearer {self.token()}"} | ({"Accept-Language": lang} if lang else {})
             req = urllib.request.Request(url, headers=headers)
+            _space()
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
                     return json.load(r)
             except urllib.error.HTTPError as e:
                 if e.code == 429 or e.code >= 500:
                     wait = int(e.headers.get("Retry-After") or 10 * (attempt + 1))
+                    if e.code == 429 and wait > SHORT_WAIT:  # asking again before then makes it longer
+                        raise SpotifyResting(rest(self.con, wait)) from e
                     log.info("spotify: HTTP %s, waiting %s s", e.code, wait)
                     time.sleep(min(wait, 120))
                     continue
@@ -191,7 +268,13 @@ class Spotify:
     # ------------------------------------------------------------ account and lists
 
     def me(self) -> dict[str, Any]:
-        return self.get("/me")
+        """The account's own details: id, display_name, ... (asked once per ME_SECONDS)."""
+        key = str(hash(self.creds.refresh_token))
+        if (cached := _me.get(key)) and time.monotonic() - cached[0] < ME_SECONDS:
+            return cached[1]
+        d = self.get("/me")
+        _me[key] = (time.monotonic(), d)
+        return d
 
     def playlists(self) -> list[dict[str, Any]]:
         """The account's playlists (own and followed): id, name, owner, own, collaborative, readable, songs,
@@ -235,19 +318,25 @@ class Spotify:
         """Songs of a playlist (None: Liked Songs) in list order: id, artist (first), artists, title,
         album, length (s), isrc and the release_facts. Local files and podcast episodes are left out."""
         url = "/me/tracks?limit=50" if pid is None else f"/playlists/{pid}/items?limit=50"
-        out = []
-        for it in self.pages(url):
-            t = it.get("item") or it.get("track")
-            if not t or t.get("type") not in (None, "track") or t.get("is_local") or not t.get("id"):
-                continue
-            artists = [a.get("name", "") for a in t.get("artists") or []]
-            out.append({
-                "id": t["id"], "artist": artists[0] if artists else "", "artists": artists,
-                "title": t.get("name") or "", "album": (t.get("album") or {}).get("name") or "",
-                "length": round((t.get("duration_ms") or 0) / 1000),
-                "isrc": (t.get("external_ids") or {}).get("isrc"), **release_facts(t),
-            })  # fmt: skip
-        return out
+        return [song for it in self.pages(url) if (song := _song_of(it))]
+
+    def liked_since(self, known: set[str], count: int) -> list[dict[str, Any]] | None:
+        """The Liked Songs added since a reading that had `count` songs (`known`: their ids), newest first,
+        read page by page only up to the first known one; None when more changed than that (songs unliked,
+        others liked again): then they are all read (items)."""
+        new: list[dict[str, Any]] = []
+        url: str | None = "/me/tracks?limit=50"
+        while url:
+            d = self.get(url)
+            for it in d.get("items") or []:
+                song = _song_of(it)
+                if song is None:
+                    return None
+                if song["id"] in known:  # the last reading goes on from here, if only songs were added
+                    return new if d.get("total") == count + len(new) else None
+                new.append(song)
+            url = d.get("next")
+        return None
 
     def track(self, track_id: str, lang: str = "") -> dict[str, Any]:
         return self.get(f"/tracks/{track_id}", lang)
