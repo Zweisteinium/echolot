@@ -1,0 +1,20 @@
+{# connecting SoundCloud (Playlists): paste the browser's login token, replace it, disconnect #}
+  {% if s.soundcloud.error %}<p class="flash error">{{ s.soundcloud.error }} Paste a new token below.</p>{% endif %}
+  {% if s.soundcloud.connected %}
+  <p class="muted">Echolot reads your likes and sets and downloads the songs, originals in their own quality where the uploader allows it. The token stops working when you log out of SoundCloud in that browser: then paste a new one.</p>
+  {% else %}
+  <p class="muted">SoundCloud gives out no app keys, so Echolot uses your browser's login token:</p>
+  <ol class="steps">
+    <li>Open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com ↗</a> and log in.</li>
+    <li>Open the developer tools (<kbd>F12</kbd>, or right click → Inspect), tab <b>Network</b>, and reload the page.</li>
+    <li>Type <code>api-v2</code> into the filter, click any request, and find <b>Authorization</b> under <i>Request Headers</i>. Its value looks like <code>OAuth 2-123456-…</code>.</li>
+    <li>Copy it and paste it here (with or without "OAuth"):</li>
+  </ol>
+  {% endif %}
+  <form method="post" action="/accounts/soundcloud" class="row-form">{{ csrf_input }}
+    <input type="password" name="token" class="grow" placeholder="OAuth 2-…" aria-label="SoundCloud token" autocomplete="off" required>
+    <button class="{{ 'primary' if not s.soundcloud.connected }}">{{ 'Replace token' if s.soundcloud.connected else 'Connect SoundCloud' }}</button>
+  </form>
+  {% if s.soundcloud.connected %}
+  <form method="post" action="/accounts/soundcloud/disconnect" class="spaced" onsubmit="return confirm('Disconnect SoundCloud? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>
+  {% endif %}

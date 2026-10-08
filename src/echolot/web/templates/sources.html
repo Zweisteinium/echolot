@@ -1,14 +1,11 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, sprite, use %}
 {% macro loading(n) %}<div class="cards skeleton" aria-busy="true" aria-label="Loading">{% for _ in range(n) %}<div class="src-card"><div class="cover"></div><div class="body"><span class="line"></span><span class="line short"></span><span class="line tall"></span></div></div>{% endfor %}</div>{% endmacro %}
-{% block title %}Sources · Echolot{% endblock %}
+{% block title %}Playlists · Echolot{% endblock %}
 {% block content %}
 <section class="card intro">
-  <div class="card-head">
-    <h1>Sources</h1>
-    <a href="/accounts">Accounts</a>
-  </div>
-  <p class="lead">The lists Echolot follows. For each one choose:</p>
+  <h1>Playlists</h1>
+  <p class="lead">The lists Echolot follows: yours on Spotify and SoundCloud, or anyone's by its link. Looking for a single song? <a href="/">Search</a> for it. For each list choose:</p>
   <p class="mode-legend">
     <span>{{ use('songs') }} <b>Songs</b>: downloaded into the library</span>
     <span>{{ use('playlist') }} <b>Playlist</b>: the songs, and the list as a playlist in your music server</span>
@@ -17,25 +14,35 @@
 </section>
 
 {{ sprite(['songs', 'playlist']) }}
-{% for service, label, what in (('spotify', 'Spotify', 'playlists'), ('soundcloud', 'SoundCloud', 'likes and sets')) %}
-{% set account = s[service] %}
-<section class="card">
-  <details class="group" data-remember="sources-{{ service }}" open>
+{% for service, label, what in (('spotify', 'Spotify', 'playlists and liked songs'), ('soundcloud', 'SoundCloud', 'likes and sets')) %}
+{% set a = s[service] %}{% set ok = a.connected and not a.error %}
+<section class="card" id="{{ service }}">
+  <details class="group" data-remember="playlists-{{ service }}" open>
     <summary><h2 class="group-name">{{ icon(service, 20) }} {{ label }}</h2>
-      <span class="muted small">found automatically in your account</span>
+      <span class="muted small">your {{ what }}</span>
       {% if followed[service] %}<span class="pill">{{ followed[service] }} followed</span>{% endif %}
-      {% if account.name %}<span class="pill ok-pill">{{ account.name }}</span>{% endif %}</summary>
-    {% if account.connected %}
+      {% if ok %}<span class="pill ok-pill" title="Connected">{{ icon('check', 13) }} {{ a.name }}</span>
+      {% elif a.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}</summary>
+    {% if ok %}
     <div hx-get="/sources/found/{{ service }}" hx-trigger="load" hx-swap="outerHTML">{{ loading(6) }}</div>
-    {% else %}<p class="muted"><a href="/accounts#{{ service }}">Connect {{ label }}</a> to see your {{ what }} here.</p>{% endif %}
+    <details class="connection" data-remember="connection-{{ service }}">
+      <summary>{{ label }} account <span class="muted">· connected as {{ a.name }}</span></summary>
+      <div class="connection-body account">{% include "_account_" ~ service ~ ".html" %}</div>
+    </details>
+    {% else %}
+    <div class="connect account">
+      <h3>Connect {{ label }} <span class="muted small">to see your {{ what }} here</span></h3>
+      {% include "_account_" ~ service ~ ".html" %}
+    </div>
+    {% endif %}
   </details>
 </section>
 {% endfor %}
 
-<section class="card">
+<section class="card" id="link">
   <details class="group" data-remember="sources-manual" open>
-    <summary><h2 class="group-name">Added manually</h2>
-      <span class="muted small">anyone's public Spotify playlist, SoundCloud set or likes page, or a YouTube playlist, by its link</span></summary>
+    <summary><h2 class="group-name">By link</h2>
+      <span class="muted small">anyone's public Spotify playlist, SoundCloud set or likes page, or a YouTube playlist; no account needed</span></summary>
     <form method="post" action="/sources/add" class="add">{{ csrf_input }}
       <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/…, https://soundcloud.com/…/sets/… or https://www.youtube.com/playlist?list=…" aria-label="Link" class="grow">
       <span class="seg" role="radiogroup" aria-label="Follow as">

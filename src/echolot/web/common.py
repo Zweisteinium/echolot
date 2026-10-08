@@ -58,5 +58,9 @@ class Assets(StaticFiles):
 
 
 def back(path: str, **message: str) -> RedirectResponse:
+    """Back to a page (path, with or without #section) with a message: ok=… or error=…."""
+    path, _, section = path.partition("#")
     query = urllib.parse.urlencode(message)
-    return RedirectResponse(f"{path}?{query}" if query else path, status_code=303)
+    return RedirectResponse(
+        (f"{path}?{query}" if query else path) + (f"#{section}" if section else ""), status_code=303
+    )

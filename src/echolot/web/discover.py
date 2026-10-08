@@ -5,9 +5,12 @@ by the same names-and-length rule the lists use (catalog.Catalog.song). A source
 seconds (Apple Music answers 403 when asked too often; a player's search asks with every typed letter)."""
 
 import json
+import re
 import sqlite3
 import threading
 import time
+import urllib.parse
+import urllib.request
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as done
@@ -15,13 +18,14 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
-from echolot.library import catalog, discover
+from echolot.library import catalog, discover, tagging
 from echolot.library.discover import Hit
-from echolot.services import catalogs, ytdlp
+from echolot.services import catalogs, spotify, ytdlp
 from echolot.services import soundcloud as sc_api
-from echolot.settings import options
+from echolot.settings import options, sources
+from echolot.settings.sources import ConfigError
 from echolot.web import wishes
 from echolot.web.common import DB, page
 
@@ -92,10 +96,17 @@ def search(
     return hits, failed
 
 
-@router.get("/discover", response_class=HTMLResponse)
+@router.get("/discover")
+def discover_redirect(request: Request) -> RedirectResponse:
+    """Discover's old address: Search is the start page."""
+    query = request.url.query
+    return RedirectResponse("/" + (f"?{query}" if query else ""), status_code=301)
+
+
+@router.get("/", response_class=HTMLResponse)
 def discover_page(request: Request, con: DB, q: Annotated[str, Query()] = "") -> HTMLResponse:
     wished = _wished(request, con)
-    return page(request, "discover.html", nav="discover", q=q, **{**wished, **_answer(request, con, q)})
+    return page(request, "discover.html", nav="search", q=q, **{**wished, **_answer(request, con, q)})
 
 
 @router.get("/discover/results", response_class=HTMLResponse)
@@ -114,6 +125,11 @@ def _answer(request: Request, con: DB, q: str) -> dict:
     if len(q) < MIN_LENGTH:
         return {**out, "seconds": 0}
     t0 = time.monotonic()
+    if LINK.match(q):  # a pasted link: a list to follow, or a song to search for by its names
+        out["link"] = link = _link(request, con, q)
+        if "song" not in link:
+            return {**out, "seconds": time.monotonic() - t0}
+        q = " ".join(link["song"])
     hits, failed = search(request, con, q)
     results = discover.merge(hits)[:40]
     cat, now, user = catalog.Catalog.from_db(con), datetime.now().isoformat(timespec="seconds"), request.state.user
@@ -127,6 +143,53 @@ def _answer(request: Request, con: DB, q: str) -> dict:
     wishes.forget_old(con)
     con.commit()
     return {**out, "results": results, "failed": failed, "seconds": time.monotonic() - t0}
+
+
+LINK = re.compile(r"(?:https?://|spotify:|(?:www\.|m\.)?(?:open\.spotify|soundcloud|youtube)\.com/|youtu\.be/)", re.I)
+SPOTIFY_TRACK = re.compile(r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?track/|spotify:track:)(\w+)")
+
+
+def _link(request: Request, con: sqlite3.Connection, url: str) -> dict[str, Any]:
+    """What a pasted link is: a list to follow ({follow: service, url, name, image}), a song to search for
+    ({song: (artist, title)}: a Spotify, SoundCloud or YouTube track), or neither ({error})."""
+    from echolot.web import sources as sources_page
+
+    try:
+        service, canonical = sources.parse_url(url)
+        name, image = sources_page._preview(con, request, service, canonical)
+        return {"follow": {"service": service, "url": canonical, "name": name, "image": image}}
+    except ConfigError as e:
+        why = str(e)
+    if song := _track(request, con, url):
+        return {"song": song}
+    return {"error": why}
+
+
+def _track(request: Request, con: sqlite3.Connection, url: str) -> tuple[str, str] | None:
+    """A track link's artist and title: Spotify's catalogue (the app's own access), else the page's oEmbed
+    (SoundCloud, YouTube: the uploader and the title, split as the lists split them)."""
+    if m := SPOTIFY_TRACK.search(url):
+        try:
+            t = spotify.Spotify(con, request.app.state.vault).track(m.group(1))
+            return ", ".join(a["name"] for a in t.get("artists") or []), t.get("name") or ""
+        except spotify.SpotifyError:
+            return None
+    host = urllib.parse.urlparse(url if "://" in url else "https://" + url).hostname or ""
+    service = "soundcloud" if host.endswith("soundcloud.com") else "youtube" if "youtu" in host else ""
+    if not service:
+        return None
+    from echolot.web.sources import OEMBED
+
+    try:
+        req = urllib.request.Request(OEMBED[service] + urllib.parse.quote(url, safe=""), headers=catalogs.UA)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            d = json.load(r)
+    except (OSError, ValueError):
+        return None
+    title, author = d.get("title") or "", d.get("author_name") or ""
+    title = title.removesuffix(f" by {author}") if service == "soundcloud" else title
+    artist, title = ytdlp.artist_title(author, "", title)
+    return (artist, tagging.clean_title(title, artist)) if title else None
 
 
 def play(hits: Sequence[Hit | dict[str, Any]]) -> dict[str, str] | None:

@@ -4,10 +4,11 @@
 <div class="with-rail">
 <aside class="rail">
   <h1>Settings</h1>
-  <p class="muted small">For everyone: when the jobs run, how Echolot uses Soulseek, who may log in, where the data is.</p>
+  <p class="muted small">For everyone: the Soulseek account, when the jobs run, how Echolot uses Soulseek, who may log in, where the data is.</p>
   <nav aria-label="Sections">
+    <a href="#soulseek-client">Soulseek account</a>
     <a href="#jobs">Jobs</a>
-    <a href="#soulseek">Soulseek</a>
+    <a href="#soulseek">Soulseek search</a>
     <a href="#files">Files</a>
     <a href="#access">Access</a>
     <a href="#data">Data and backup</a>
@@ -15,6 +16,7 @@
 </aside>
 
 <div class="sections">
+{% include "_soulseek.html" %}
 <form method="post" action="/settings">{{ csrf_input }}
 <section class="card" id="jobs">
   <div class="section-head"><h2>When the jobs run</h2></div>
@@ -110,7 +112,7 @@
       <div class="control"><code>{{ settings.data_dir }}</code></div>
     </div>
     <div class="field">
-      <div class="label">Secrets<span class="hint">the credentials of the <a href="/accounts">accounts</a>, stored encrypted and never shown again</span></div>
+      <div class="label">Secrets<span class="hint">the credentials of the <a href="/playlists">accounts</a>, stored encrypted and never shown again</span></div>
       <div class="control"><span>Key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}<span class="hint">a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing</span>{% endif %}</span></div>
     </div>
     <div class="field">

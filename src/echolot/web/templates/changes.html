@@ -2,6 +2,7 @@
 {% from "_macros.html" import song_link %}
 {% block title %}Changes · Echolot{% endblock %}
 {% block content %}
+{% from "_subnav.html" import history %}{{ history('changes') }}
 {% set states = {'taken_down': 'Taken down', 'blocked': 'Not in this country', 'gone': 'Gone', 'preview': 'Preview only'} %}
 <section class="card">
   <div class="card-head">

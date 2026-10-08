@@ -16,28 +16,30 @@
   <header>
     <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
     {% if user %}
-    <nav>
-      <a href="/" data-label="Overview" {% if nav == 'overview' %}aria-current="page"{% endif %}>Overview</a>
-      <a href="/discover" data-label="Discover" {% if nav == 'discover' %}aria-current="page"{% endif %}>Discover</a>
-      <a href="/sources" data-label="Sources" {% if nav == 'sources' %}aria-current="page"{% endif %}>Sources</a>
-      <a href="/missing" data-label="Missing" {% if nav == 'missing' %}aria-current="page"{% endif %}>Missing</a>
-      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}
-      <a href="/activity" data-label="Activity" {% if nav == 'activity' %}aria-current="page"{% endif %}>Activity</a>
-      <a href="/changes" data-label="Changes" {% if nav == 'changes' %}aria-current="page"{% endif %}>Changes</a>
-      <a href="/accounts" data-label="Accounts" {% if nav == 'accounts' %}aria-current="page"{% endif %}>Accounts</a>
-      {% if user.admin %}
-      <a href="/users" data-label="Users" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
-      <a href="/settings" data-label="Settings" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
-      {% endif %}
+    {% set inbox = nav in ('missing', 'review') %}{% set history = nav in ('activity', 'changes') %}
+    <nav aria-label="Pages">
+      <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>Search</a>
+      <a href="/stats" data-label="Stats" {% if nav == 'stats' %}aria-current="page"{% endif %}>Stats</a>
+      <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>Playlists</a>
+      <a href="/missing" data-label="Inbox" {% if inbox %}aria-current="page"{% endif %}>Inbox</a>
+      <a href="/activity" data-label="History" {% if history %}aria-current="page"{% endif %}>History</a>
     </nav>
     {% if user.admin %}
     <form method="post" action="/account/view" class="view-switch" title="Whose lists and songs the pages show">{{ csrf_input }}
       <button name="view" value="mine" {% if user.view != 'everyone' %}aria-pressed="true"{% endif %}>Mine</button><button name="view" value="everyone" {% if user.view == 'everyone' %}aria-pressed="true"{% endif %}>Everyone</button>
     </form>
     {% endif %}
-    <form method="post" action="/logout" class="account">{{ csrf_input }}
-      <a href="/account" class="muted small" {% if nav == 'account' %}aria-current="page"{% endif %}>{{ user.name }}</a> <button class="link">Log out</button>
-    </form>
+    <details class="user-menu">
+      <summary{% if nav in ('account', 'users', 'settings') %} aria-current="page"{% endif %}><span class="avatar" aria-hidden="true">{{ user.name[:1]|upper }}</span><span class="user-name">{{ user.name }}</span></summary>
+      <div class="menu" role="menu">
+        <a href="/account" role="menuitem" {% if nav == 'account' %}aria-current="page"{% endif %}>Your account</a>
+        {% if user.admin %}
+        <a href="/users" role="menuitem" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
+        <a href="/settings" role="menuitem" {% if nav == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+        {% endif %}
+        <form method="post" action="/logout">{{ csrf_input }}<button class="link" role="menuitem">Log out</button></form>
+      </div>
+    </details>
     {% endif %}
     <span class="muted version"{% if commit %} title="commit {{ commit }}"{% endif %}>v{{ version }}</span>
   </header>
@@ -68,6 +70,10 @@
       showInfo(b.dataset.info, open);
     });
     document.addEventListener("htmx:load", () => openInfo.forEach((id) => showInfo(id, true)));
+    document.addEventListener("click", (e) => {  // the user menu closes on a click elsewhere
+      const menu = document.querySelector(".user-menu[open]");
+      if (menu && !menu.contains(e.target)) menu.open = false;
+    });
     document.addEventListener("DOMContentLoaded", () => {
       Idiomorph.defaults.callbacks.beforeAttributeUpdated = (name, el) =>
         !((name === "hidden" || name === "aria-expanded") && (openInfo.has(el.id) || openInfo.has(el.dataset?.info)));
