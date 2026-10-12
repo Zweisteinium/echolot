@@ -28,6 +28,7 @@ from echolot.web import (
     discover,
     jobs,
     pages,
+    recorders,
     review,
     sources,
     stats,
@@ -51,6 +52,7 @@ ROUTERS = (
     jobs,
     review,
     upload,
+    recorders,
     sources,
     accounts,
     admin,
@@ -97,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.templates = templates
     for module in ROUTERS:
         app.include_router(module.router)
+    app.include_router(recorders.api)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> Response:

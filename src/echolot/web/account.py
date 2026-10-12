@@ -1,5 +1,6 @@
 """Account page: who you are here (an admin, or your permissions), which pages an admin sees (theirs or
-everyone's), your API tokens and your logins. The password is Navidrome's: it is changed there."""
+everyone's), your recorder devices (web/recorders), your API tokens and your logins. The password is
+Navidrome's: it is changed there."""
 
 import sqlite3
 import urllib.parse
@@ -8,6 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from echolot.library import recording
 from echolot.settings import auth
 from echolot.web.common import DB, back, page
 
@@ -15,8 +17,20 @@ router = APIRouter(include_in_schema=False)
 
 
 def _account_page(request: Request, con: sqlite3.Connection, **extra: Any) -> HTMLResponse:
-    tokens = auth.tokens(con, request.state.user)
-    return page(request, "account.html", nav="account", tokens=tokens, permissions=auth.PERMISSIONS, **extra)
+    user = request.state.user
+    tokens = auth.tokens(con, user)
+    devices = recording.devices(con, user.id) if user.can("upload") else []
+    base = str(request.base_url).rstrip("/")
+    return page(
+        request,
+        "account.html",
+        nav="account",
+        tokens=tokens,
+        permissions=auth.PERMISSIONS,
+        devices=devices,
+        base=base,
+        **extra,
+    )
 
 
 @router.get("/account", response_class=HTMLResponse)

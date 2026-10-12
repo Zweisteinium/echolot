@@ -1,0 +1,42 @@
+{# the Record dialog's form (web/recorders.record_dialog): what, on which of your devices, how long at most #}
+{% from "_icons.html" import icon %}
+{% set nothing = not choices[0].songs %}
+<form method="post" action="/recordings" class="record-form">{{ csrf_input }}
+  {% if lst %}<input type="hidden" name="list" value="{{ lst.key }}">{% endif %}
+  <h2><span class="record-dot">{{ icon('record', 18) }}</span> Record {{ '“' ~ lst.title ~ '”' if lst else 'all your Spotify lists' }}</h2>
+  <p class="muted small">Mitschnitt plays each song in Spotify on your PC, records it bit-exact and puts it into your library: the worst first, each song once.</p>
+  {% if nothing %}
+  <p class="flash ok">Nothing to record: Echolot has every song here in lossless.</p>
+  {% else %}
+  <fieldset class="record-what">
+    <legend>What</legend>
+    {% for c in choices %}
+    <label class="record-choice{{ ' empty' if not c.songs }}">
+      <input type="radio" name="below" value="{{ c.below }}" data-seconds="{{ c.seconds|round|int }}"{{ ' checked' if loop.first }}{{ ' disabled' if not c.songs }}>
+      <span class="record-label">{{ c.label }}</span>
+      <span class="muted small">{{ c.songs|num }} song{{ 's' if c.songs != 1 }}{% if c.songs %} · {{ c.seconds|span }}{% endif %}</span>
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% endif %}
+  {% if devices %}
+  <div class="record-where">
+    <label>Device
+      <select name="recorder" required>
+        {% for d in devices %}<option value="{{ d.id }}"{{ ' disabled' if d.session }}>{{ d.name }} · {{ 'recording' if d.session else 'online' if d.online else 'offline' }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>At most
+      <select name="hours">{% for h in hours %}<option value="{{ h }}"{{ ' selected' if h == default_hours }}>{{ h }} h</option>{% endfor %}</select>
+    </label>
+  </div>
+  {% if not nothing %}<p class="muted small" data-estimate></p>{% endif %}
+  {% else %}
+  <p class="flash">No device yet: <a href="/account#recorders">connect Mitschnitt</a> on your Windows PC first.</p>
+  {% endif %}
+  <div class="dialog-actions">
+    {% if not nothing %}<a class="small record-file" data-export="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}" href="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}below=lossless" title="For Mitschnitt without a connection: Import queue">{{ icon('download', 15) }} As a file</a>{% endif %}
+    <button type="button" data-close>Cancel</button>
+    <button class="primary"{{ ' disabled' if nothing or not devices or devices|rejectattr('session')|list|length == 0 }}>Record</button>
+  </div>
+</form>

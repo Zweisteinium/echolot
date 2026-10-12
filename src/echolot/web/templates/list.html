@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% from "_macros.html" import legend, qbar, quality, service, song_link %}
-{% from "_icons.html" import use %}
+{% from "_icons.html" import icon, use %}
 {% block title %}{{ lst.title }} · Echolot{% endblock %}
 {% block content %}
 {% set missing = tiers[-1][2] %}
 <section class="card">
   <div class="card-head">
     <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
-    <span>{{ service(lst.service) }} <a class="small" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a></span>
+    <span class="list-actions">{% if lst.service == 'spotify' and user.can('upload') %}<button type="button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}{{ service(lst.service) }} <a class="small" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a></span>
   </div>
   <p class="lead">{{ (songs|length - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
   {{ qbar(tiers, large=True) }}
   {{ legend(tiers) }}
 </section>
+{% if lst.service == 'spotify' and user.can('upload') %}<div id="recording" hx-get="/recordings/panel?list={{ lst.key|urlencode }}" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
 
 <section class="card">
   <table class="rows">
@@ -35,4 +36,5 @@
   </table>
 </section>
 {% if upload %}{% include "_upload_dialog.html" %}{% endif %}
+{% if lst.service == 'spotify' and user.can('upload') %}{% include "_record.html" %}{% endif %}
 {% endblock %}

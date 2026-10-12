@@ -75,4 +75,10 @@ def source(name: str | None) -> str:
     return SOURCES.get(name or "", (name or "").capitalize())
 
 
+def span(seconds: float | None) -> str:
+    """How long: '40 min', '2.5 h'."""
+    return _span(seconds or 0)
+
+
 FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes, "source": source}
+FILTERS["span"] = span

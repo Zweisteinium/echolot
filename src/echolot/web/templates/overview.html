@@ -6,6 +6,7 @@
 {% block content %}
 {% set missing = o.wanted - o.have %}
 <div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
+{% if user.can('upload') %}<div id="recording" hx-get="/recordings/panel" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
 <section class="card stats" data-stats>
   <div class="card-head">
     <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
@@ -121,7 +122,7 @@
 <section class="card">
   <div class="card-head">
     <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
-    <a href="/playlists" class="small">Manage in Playlists →</a>
+    <span class="list-actions">{% if user.can('upload') and o.lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}<a href="/playlists" class="small">Manage in Playlists →</a></span>
   </div>
   {% set groups = o.lists|groupby('service') %}
   {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube'] %}
@@ -159,4 +160,5 @@
 <section class="card">
   {% include "_jobs.html" %}
 </section>
+{% if user.can('upload') %}{% include "_record.html" %}{% endif %}
 {% endblock %}

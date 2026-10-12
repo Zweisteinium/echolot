@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Connect Mitschnitt · Echolot{% endblock %}
+{% block content %}
+<section class="card connect-recorder">
+  {% if step == 'ask' %}
+  <h1><span class="record-dot">{{ icon('record', 20) }}</span> Connect Mitschnitt</h1>
+  <p><strong>{{ ask.name }}</strong>{% if ask.app %} <span class="muted small">({{ ask.app }})</span>{% endif %} asks to be connected to your account <strong>{{ user.name }}</strong>.</p>
+  <ul class="small">
+    <li>It may start Spotify on that PC and record the songs you choose here.</li>
+    <li>Its recordings go into your library, like files you upload.</li>
+    <li>It is yours alone: nobody else here sees it or records on it. Disconnect it any time under Account.</li>
+  </ul>
+  <form method="post" action="/recorders/connect" class="dialog-actions">{{ csrf_input }}
+    {% for k, v in ask.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <button name="decision" value="cancel">Cancel</button>
+    <button class="primary" name="decision" value="connect">Connect</button>
+  </form>
+  {% elif step == 'done' %}
+  <h1><span class="record-dot">{{ icon('record', 20) }}</span> Connected</h1>
+  <p>Back to Mitschnitt: it finishes the connection by itself.</p>
+  <p><a class="button primary" href="{{ target }}" data-auto>Open Mitschnitt</a></p>
+  <p class="muted small">Mitschnitt did not open? Paste this code there (it works once, for 10 minutes):</p>
+  <div class="copy-row"><input id="recorder-code" type="text" value="{{ code }}" readonly aria-label="Code"><button type="button" data-copy="#recorder-code">Copy</button></div>
+  <script>location.href = document.querySelector("[data-auto]").href;</script>
+  {% else %}
+  <h1>Not connected</h1>
+  <p>Nothing changed. <a href="{{ target }}">Back to Mitschnitt</a></p>
+  <script>location.href = {{ target|tojson }};</script>
+  {% endif %}
+</section>
+{% endblock %}

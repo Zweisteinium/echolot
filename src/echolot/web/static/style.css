@@ -798,6 +798,43 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
   .sonar span:nth-child(4) { display: none; }
 }
 
+/* recording with Mitschnitt (web/recorders): the Record buttons and dialog, a session's panel, the devices */
+.list-actions { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.list-actions button { display: inline-flex; align-items: center; gap: 0.35rem; }
+.list-actions button .icon, .record-dot { color: var(--bad); }
+.record-dot { display: inline-flex; vertical-align: -2px; }
+.record-dot.live { animation: record-pulse 1.6s ease-in-out infinite; }
+@keyframes record-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .record-dot.live { animation: none; } }
+dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
+.record-form h2 { display: flex; align-items: center; gap: 0.45rem; }
+.record-what { border: 0; padding: 0; margin: 0.9rem 0 0.6rem; display: grid; gap: 0.4rem; }
+.record-what legend { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; }
+.record-choice { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.65rem;
+  padding: 0.55rem 0.8rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s; }
+.record-choice:hover { border-color: var(--muted); }
+.record-choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.record-choice.empty { opacity: 0.5; cursor: default; }
+.record-label { font-weight: 550; }
+.record-where { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.6rem 0 0.3rem; }
+.record-where label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }
+.record-file { margin-right: auto; align-self: center; display: inline-flex; align-items: center; gap: 0.3rem; }
+.recording .card-head h2 { display: flex; align-items: center; gap: 0.45rem; }
+.recording .record-progress { max-width: none; height: 6px; margin: 0.65rem 0 0.4rem; border-radius: 3px; }
+.record-summary { margin: 0.5rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
+.record-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+a.button { display: inline-block; font-size: 0.85rem; font-weight: 550; padding: 0.36rem 0.85rem; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+a.button:hover { text-decoration: none; border-color: var(--muted); }
+a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 1px 2px rgb(16 24 40 / 0.15); }
+a.button.primary:hover { filter: brightness(1.08); }
+.recorders .rename { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
+.recorders .rename input { width: min(13rem, 40vw); }
+.connect-recorder h1 { display: flex; align-items: center; gap: 0.5rem; }
+.connect-recorder ul { margin: 0.75rem 0 1rem; padding-left: 1.2rem; display: grid; gap: 0.25rem; }
+
 /* ------------------------------------------------------------------ small screens */
 @media (max-width: 960px) {
   .with-rail { grid-template-columns: minmax(0, 1fr); gap: var(--gap); }
@@ -820,6 +857,13 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
   .card { padding: 0.9rem 1rem; }
   .schedule td:first-child { min-width: 9rem; }
   .hide-narrow { display: none; }
+  .recorders .rename { flex-wrap: wrap; gap: 0.15rem 0.5rem; }
+  .recorders .rename input { width: 100%; min-width: 6rem; }
+  .recorders td:last-child button { padding: 0.32rem 0.55rem; }
+}
+@media (max-width: 380px) {
+  .recorders td:last-child button { padding: 0; border: 0; background: none; }
+  .recorders .rename input { min-width: 5rem; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1.1rem -1rem 0; }
   .kpi:nth-child(n) { grid-column: span 1; padding: 0.7rem 1rem 0.8rem; border-left: 1px solid var(--border); border-top: 1px solid var(--border); }
   .kpi:first-child { grid-column: span 2; border-left: 0; border-top: 0; }  /* 1 + 2 + 2 */

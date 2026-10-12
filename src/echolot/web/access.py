@@ -3,7 +3,8 @@
 The accounts are Navidrome's: the login form's name and password go to Navidrome (services/navidrome);
 Echolot keeps no password (settings/auth). Every request needs a session or a token, except /healthz,
 the login page, the static files, the players' Subsonic calls under /rest (Navidrome's login, checked by
-web/subsonic) and, when the metrics setting allows it, /metrics. A session's
+web/subsonic), the recorder apps' API under /api/recorder (their own tokens, checked by web/recorders; not
+its export, the user's) and, when the metrics setting allows it, /metrics. A session's
 changing requests (POST, PUT, ...) also need its CSRF token: the csrf_token form field or the
 X-CSRF-Token header (htmx sends it for every request).
 
@@ -78,6 +79,15 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permiss
     ("POST", "/songs/{key:path}/search"): "run",
     ("POST", "/songs/{key:path}/close-remove"): "review",
     ("POST", "/jobs/mine"): "run",
+    ("GET", "/recorders/connect"): "upload",  # recording puts files into the library (web/recorders)
+    ("POST", "/recorders/connect"): "upload",
+    ("POST", "/recorders/{recorder_id}/rename"): "upload",
+    ("POST", "/recorders/{recorder_id}/disconnect"): "upload",
+    ("GET", "/recordings/new"): "upload",
+    ("POST", "/recordings"): "upload",
+    ("GET", "/recordings/panel"): "upload",
+    ("POST", "/recordings/{session_id}/{action}"): "upload",
+    ("GET", "/api/recorder/export"): "upload",
 }
 NO_NAVIDROME = "Echolot does not know Navidrome's address yet: set ECHOLOT_NAVIDROME_URL and restart it."
 
@@ -88,6 +98,7 @@ def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
     try:
         path = request.url.path
         public = path in PUBLIC or path.startswith(("/static/", "/rest/"))
+        public = public or (path.startswith("/api/recorder/") and path != "/api/recorder/export")
         if path == "/metrics":
             public = options.get(con, options.Metrics).public
         header = request.headers.get("authorization", "")

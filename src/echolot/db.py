@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 29
+VERSION = 30
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -234,6 +234,52 @@ CREATE TABLE discover_likes (       -- a heart in a player on such a song
     liked TEXT NOT NULL,
     PRIMARY KEY (user_id, song_id)
 );
+CREATE TABLE recorders (            -- the users' recording apps (Mitschnitt): each its user's alone (library/recording)
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,     -- SHA-256 of its token
+    app TEXT NOT NULL DEFAULT '',   -- the app and its version, as it said
+    created TEXT NOT NULL,
+    last_seen TEXT,                 -- when it last asked for work
+    state TEXT NOT NULL DEFAULT '', -- as it said then: idle, busy, recording, setup
+    detail TEXT NOT NULL DEFAULT '',
+    spotify TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE recorder_codes (       -- connections the user approved, for the app to trade for its token (once)
+    code TEXT PRIMARY KEY,          -- SHA-256 of the code
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    app TEXT NOT NULL,
+    challenge TEXT NOT NULL,        -- PKCE: base64url(SHA-256(the app's verifier))
+    expires TEXT NOT NULL
+);
+CREATE TABLE recordings (           -- recording sessions on a device
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    recorder_id INTEGER NOT NULL REFERENCES recorders(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    list_key TEXT,                  -- NULL: all the user's Spotify lists
+    below TEXT NOT NULL,            -- what it records (recording.BELOW)
+    state TEXT NOT NULL,            -- running, paused, done, stopped
+    reason TEXT NOT NULL DEFAULT '',  -- paused: by_user, took_over (the user played Spotify)
+    created TEXT NOT NULL,
+    ended TEXT,
+    dismissed INTEGER NOT NULL DEFAULT 0  -- its summary closed on the pages
+);
+CREATE TABLE recording_items (      -- a session's songs, fixed when it starts
+    id INTEGER PRIMARY KEY,
+    recording_id INTEGER NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    song_key TEXT NOT NULL,
+    state TEXT NOT NULL,            -- queued, recording (handed out), done
+    result TEXT,                    -- done: filed, not_better, rejected, lossy_only, wrong_song, found, failed
+    detail TEXT,
+    tries INTEGER NOT NULL DEFAULT 0,  -- how often it was handed out
+    lease_until REAL,               -- recording: the device's until then (unix time)
+    finished TEXT
+);
+CREATE INDEX recording_items_session ON recording_items(recording_id, state);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
@@ -324,6 +370,24 @@ MIGRATIONS = {
         "PRIMARY KEY (user_id, song_id))",
     ],
     29: ["ALTER TABLE availability ADD COLUMN searched TEXT"],
+    30: [  # recording with the users' own recorder apps (library/recording)
+        "CREATE TABLE IF NOT EXISTS recorders (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) "
+        "ON DELETE CASCADE, name TEXT NOT NULL, token TEXT NOT NULL UNIQUE, app TEXT NOT NULL DEFAULT '', "
+        "created TEXT NOT NULL, last_seen TEXT, state TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '', "
+        "spotify TEXT NOT NULL DEFAULT '')",
+        "CREATE TABLE IF NOT EXISTS recorder_codes (code TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES "
+        "users(id) ON DELETE CASCADE, name TEXT NOT NULL, app TEXT NOT NULL, challenge TEXT NOT NULL, "
+        "expires TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS recordings (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) "
+        "ON DELETE CASCADE, recorder_id INTEGER NOT NULL REFERENCES recorders(id) ON DELETE CASCADE, "
+        "title TEXT NOT NULL, list_key TEXT, below TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', "
+        "created TEXT NOT NULL, ended TEXT, dismissed INTEGER NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS recording_items (id INTEGER PRIMARY KEY, recording_id INTEGER NOT NULL "
+        "REFERENCES recordings(id) ON DELETE CASCADE, position INTEGER NOT NULL, song_key TEXT NOT NULL, "
+        "state TEXT NOT NULL, result TEXT, detail TEXT, tries INTEGER NOT NULL DEFAULT 0, lease_until REAL, "
+        "finished TEXT)",
+        "CREATE INDEX IF NOT EXISTS recording_items_session ON recording_items(recording_id, state)",
+    ],
 }
 
 

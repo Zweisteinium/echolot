@@ -1,0 +1,30 @@
+{# the Record dialog (web/recorders), on the pages that open it: a button with
+   hx-get="/recordings/new[?list=<key>]" hx-target="#record-body". The session panel is the page's own:
+   <div id="recording" hx-get="/recordings/panel[?list=<key>]" hx-trigger="load" hx-swap="outerHTML"> #}
+<dialog id="record" class="modal record-dialog" aria-label="Record with Mitschnitt"><div id="record-body"></div></dialog>
+<script>
+  // the dialog opens with its form; the choice sets how long it takes and what the file link downloads
+  (() => {
+    const dialog = document.getElementById("record");
+    const body = document.getElementById("record-body");
+    const span = (s) => s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : `${(s / 3600).toFixed(1).replace(".0", "")} h`;
+    const update = () => {
+      const below = body.querySelector("input[name=below]:checked");
+      const hours = body.querySelector("select[name=hours]");
+      const link = body.querySelector("[data-export]");
+      if (link && below) link.href = `${link.dataset.export}below=${below.value}`;
+      const note = body.querySelector("[data-estimate]");
+      if (note && below && hours) {
+        const all = +below.dataset.seconds, most = +hours.value * 3600;
+        note.textContent = all > most ? `About ${span(most)} of ${span(all)}: the worst songs first; record the rest in another session.` : `All of it, about ${span(all)}.`;
+      }
+    };
+    document.addEventListener("htmx:afterSwap", (e) => {
+      if (e.target !== body) return;
+      update();
+      if (body.firstElementChild && !dialog.open) dialog.showModal();
+    });
+    body.addEventListener("change", update);
+    dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
+  })();
+</script>
