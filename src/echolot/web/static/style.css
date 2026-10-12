@@ -140,8 +140,7 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
 
 /* the user menu: account, the admin's pages, log out */
 .user-menu { position: relative; }
-.user-menu { align-self: center; }
-.user-menu summary { list-style: none; display: flex; align-items: center; gap: 0.4rem; cursor: pointer; padding: 0.15rem 0.5rem 0.15rem 0.15rem;
+.user-menu summary { list-style: none; display: flex; align-items: center; gap: 0.4rem; cursor: pointer; margin: 0; padding: 0.15rem 0.5rem 0.15rem 0.15rem;
   border-radius: 999px; color: var(--muted); font-size: 0.85rem; line-height: 1; }
 .user-menu summary::-webkit-details-marker { display: none; }
 .user-menu summary::after { content: ""; width: 0.35rem; height: 0.35rem; margin: 0 0.1rem 0.2rem; border: solid currentColor; border-width: 0 1.5px 1.5px 0;
@@ -157,6 +156,7 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
 .user-menu .menu a:hover, .user-menu .menu button:hover { background: var(--track); }
 .user-menu .menu a[aria-current] { color: var(--accent); font-weight: 600; }
 .user-menu .menu form { margin: 0; border-top: 1px solid var(--border); padding-top: 0.3rem; margin-top: 0.3rem; }
+.user-menu .menu .version { display: none; padding: 0.45rem 0.65rem 0.15rem; }  /* small screens: the header's */
 
 /* the pages of one menu entry (Inbox, History), above the page */
 .subnav { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 0.85rem; background: var(--track); border-radius: var(--radius-sm); }
@@ -808,11 +808,14 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
 }
 @media (max-width: 720px) {
   .field { grid-template-columns: minmax(0, 1fr); }
-  header { gap: 0.25rem 0.75rem; flex-wrap: wrap; padding: 0.6rem 1rem; }
+  header { gap: 0.25rem 0.6rem; flex-wrap: wrap; padding: 0.6rem 1rem; }
+  header .view-switch button { padding: 0.15rem 0.4rem; }
+  .logo { gap: 0.45rem; }
   header nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; margin: 0 -0.25rem; }
   header nav a { white-space: nowrap; }
-  .version, header .user-menu { margin-left: auto; }
-  header .user-menu + .version { margin-left: 0; }
+  header .user-menu { margin-left: auto; }
+  header > .version, .user-menu .user-name { display: none; }  /* logo, view and avatar fit one row */
+  .user-menu .menu .version { display: block; }
   main { padding: 0 1rem; margin-top: 1rem; }
   .card { padding: 0.9rem 1rem; }
   .schedule td:first-child { min-width: 9rem; }
