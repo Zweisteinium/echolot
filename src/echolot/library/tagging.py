@@ -19,6 +19,7 @@ from echolot.library import rules
 
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "manual": "by hand"}
 SOURCES["soundcloud-search"] = "SoundCloud"
+SOURCES["mitschnitt"] = "Mitschnitt"  # recorded by the user's recorder (web/recorders)
 OLD_PAGE = re.compile(r"YouTube ([\w-]{11})")  # how an older pipeline noted a YouTube download
 # where yt-dlp puts the page it downloaded (the video's description, links and all, goes elsewhere)
 PAGE_FIELDS = {"vorbis": ["purl", "comment", "description"], "mp4": ["\xa9cmt"], "id3": ["COMM", "TXXX:purl"]}

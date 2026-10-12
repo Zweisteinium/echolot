@@ -20,4 +20,15 @@
     body.addEventListener("change", update);
     dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
   })();
+  // a session's panel: the song's time runs on by the second (the device says where it is every 30 s, the
+  // panel comes anew every 5 s), the bar with it (the session's songs' time heard)
+  setInterval(() => {
+    const clock = document.querySelector("#recording [data-clock]");
+    if (!clock) return;
+    clock.t0 ??= Date.now();
+    const at = Math.min(+clock.dataset.total, +clock.dataset.at + Math.floor((Date.now() - clock.t0) / 1000));
+    clock.textContent = `${Math.floor(at / 60)}:${String(at % 60).padStart(2, "0")}`;
+    const bar = document.querySelector("#recording [data-all]");
+    if (bar && +bar.dataset.all) bar.firstElementChild.style.width = `${(100 * (+bar.dataset.done + at)) / +bar.dataset.all}%`;
+  }, 1000);
 </script>

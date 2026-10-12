@@ -13,6 +13,7 @@ then it is queued again once (TRIES).
 import base64
 import hashlib
 import json
+import re
 import secrets
 import sqlite3
 from dataclasses import asdict, dataclass
@@ -329,16 +330,17 @@ def session_of(con: sqlite3.Connection, user_id: int, session_id: int) -> sqlite
 
 
 def summary(con: sqlite3.Connection, session_id: int) -> dict:
-    """A session as the device and the pages show it: its state and its songs' counts."""
+    """A session as the device and the pages show it: its state, its songs' counts and lengths (s: all, done)."""
     s = con.execute("SELECT * FROM recordings WHERE id = ?", (session_id,)).fetchone()
     counts: dict[str, int] = {}
-    left = 0.0
+    left = everything = 0.0
     for r in con.execute(
         "SELECT i.state, i.result, s.length FROM recording_items i LEFT JOIN songs s ON s.key = i.song_key "
         "WHERE i.recording_id = ?",
         (session_id,),
     ):
         counts[r["result"] or r["state"]] = counts.get(r["result"] or r["state"], 0) + 1
+        everything += r["length"] or 0
         if r["state"] != "done":
             left += r["length"] or 0
     total = sum(counts.values())
@@ -348,7 +350,22 @@ def summary(con: sqlite3.Connection, session_id: int) -> dict:
     out |= {"not_better": n("not_better", 0), "skipped": sum(n(k, 0) for k in (*SKIPS, "found"))}
     out |= {"found": n("found", 0), "lossy_only": n("lossy_only", 0), "wrong_song": n("wrong_song", 0)}
     out |= {"failed": n("failed", 0) + n("rejected", 0), "minutes_left": round(left / 60)}
+    out |= {"seconds_total": round(everything), "seconds_done": round(everything - left)}
     return out | {"recording": current(con, session_id)}
+
+
+TIME = re.compile(r"(\d+):(\d{2}) / (\d+):(\d{2})")  # a recording device's detail: where it is in the song
+
+
+def clock(device: dict) -> dict | None:
+    """Where a recording device is in its song now: its last word ("1:12 / 3:45", sent every 30 s) and the
+    time since (s: at, total); None when it records nothing."""
+    m = TIME.search(device.get("detail") or "")
+    if device.get("state") != "recording" or not m or not device.get("last_seen"):
+        return None
+    at, total = int(m[1]) * 60 + int(m[2]), int(m[3]) * 60 + int(m[4])
+    since = (datetime.now() - datetime.fromisoformat(device["last_seen"])).total_seconds()
+    return {"at": round(min(at + max(since, 0), total)), "total": total}
 
 
 def current(con: sqlite3.Connection, session_id: int) -> dict | None:

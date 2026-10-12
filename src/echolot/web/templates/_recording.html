@@ -20,11 +20,13 @@
     {%- elif not device.online %}<span class="warn-text">{{ name }} is offline:</span> it starts as soon as Mitschnitt runs there.
     {%- elif device.state == 'setup' %}<span class="warn-text">{{ name }}: {{ device.detail or 'a setup check fails' }}</span> (Mitschnitt's Setup tab).
     {%- elif device.state == 'busy' %}{{ name }}: waiting until Spotify is free there.
-    {%- elif session.recording %}{{ name }} records <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if device.state == 'recording' and device.detail %} <span class="muted">({{ device.detail }})</span>{% endif %}.
+    {%- elif session.recording %}{{ name }} records <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if clock %} <span class="muted">(<span data-clock data-at="{{ clock.at }}" data-total="{{ clock.total }}">{{ clock.at|mmss }}</span> / {{ clock.total|mmss }})</span>{% endif %}.
     {%- else %}{{ name }} is starting the next song.{% endif %}
   </p>
-  <div class="wish-progress record-progress" role="progressbar" aria-label="{{ session.done }} of {{ session.total }} songs" aria-valuenow="{{ session.done }}" aria-valuemin="0" aria-valuemax="{{ session.total }}">
-    <span style="width: {{ (100 * session.done / session.total)|round|int if session.total else 0 }}%"></span>
+  {% set heard = session.seconds_done + (clock.at if clock else 0) %}
+  <div class="wish-progress record-progress" role="progressbar" aria-label="{{ session.done }} of {{ session.total }} songs" aria-valuenow="{{ session.done }}" aria-valuemin="0" aria-valuemax="{{ session.total }}"
+       data-done="{{ session.seconds_done }}" data-all="{{ session.seconds_total }}">
+    <span style="width: {{ (100 * heard / session.seconds_total)|round(2) if session.seconds_total else 0 }}%"></span>
   </div>
   {% endif %}
   <p class="muted small">{{ session.done }} of {{ session.total }} songs

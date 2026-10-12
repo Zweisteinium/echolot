@@ -344,11 +344,13 @@ def import_files(
     batch: str,
     chosen: dict[int, str],
     remove: set[int] = frozenset(),
+    source: str = "manual",
 ) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file
     (one covered by a close match too: the version stays its own file, unless n is in `remove`), a song in
     the library the file in place of its copy (better, or replaced anyway: filing.file_into replace); delete
     the batch.
+    `source`: where the files come from, as History shows it (manual: by hand; mitschnitt: recorded).
     Returns one line per file, with the song key when the song has the file now."""
     from echolot.jobs.acquire import finish
 
@@ -370,7 +372,7 @@ def import_files(
             "replaces": have or "",
             "replace": bool(have),
         }
-        action, dest = filing.file_into(con, paths, f.path, want, "manual", **info)  # a better copy takes over
+        action, dest = filing.file_into(con, paths, f.path, want, source, **info)  # a better copy takes over
         if dest and action in ("new", "upgrade"):
             finish(_Run(paths, vault), con, dest, want)
         if not have and action in ("new", "upgrade", "duplicate"):

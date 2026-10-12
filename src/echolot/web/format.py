@@ -68,6 +68,7 @@ def mmss(seconds: float | None) -> str:
 
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "spotify": "Spotify"}
 SOURCES |= {"soundcloud-search": "SoundCloud", "manual": "By hand"}  # the search fallback's downloads; added by hand
+SOURCES["mitschnitt"] = "Mitschnitt"  # recorded by the user's recorder (web/recorders)
 
 
 def source(name: str | None) -> str:
