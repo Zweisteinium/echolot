@@ -4,7 +4,6 @@
 {% from "_chart.html" import donut_chart, growth_chart %}
 {% block title %}Library · Echolot{% endblock %}
 {% block content %}
-{% from "_subnav.html" import library %}{{ library('library') }}
 {% set missing = o.wanted - o.have %}
 <div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
 {% if user.can('upload') %}<div id="recording" hx-get="/recordings/panel" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}

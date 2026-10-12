@@ -125,9 +125,6 @@ header nav a, .tabs a { color: var(--muted); padding: 0.3rem 0.65rem; border-rad
 /* each link as wide as its bold self (data-label): the current one turning bold moves nothing beside it */
 header nav a[data-label]::after, .tabs a[data-label]::after { content: attr(data-label); font-weight: 600;
   height: 0; overflow: hidden; visibility: hidden; user-select: none; pointer-events: none; }
-header nav .nav-count { display: inline-block; min-width: 1.15rem; margin-left: 0.35rem; padding: 0 0.3rem; border-radius: 999px;
-  font-size: 0.7rem; font-weight: 700; line-height: 1.15rem; text-align: center; vertical-align: 1px;
-  color: var(--accent-text); background: var(--accent); }  /* Review: the songs waiting */
 header nav a:hover, .tabs a:hover { color: var(--text); background: var(--track); text-decoration: none; }
 header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-weight: 600;
   background: color-mix(in srgb, var(--accent) 11%, transparent); }

@@ -314,7 +314,7 @@ def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: p
 
 def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
     """Search is the start page: a pasted playlist link offers to follow it, a track link searches that song.
-    The menu: Search, Playlists, Library (Overview, Missing), Review, History; your account (Account, Recorders,
+    The menu: Search, Playlists, Library (Missing from there), Review, History; your account (Account, Recorders,
     API tokens) and Server settings at the top right; the old addresses lead to the new."""
     from echolot.web import create_app
     from echolot.web import discover as page
@@ -351,7 +351,7 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
         assert (r.status_code, r.headers["location"]) == (301, new), old
     nav = client.get("/missing").text
     assert all(f'data-label="{n}"' in nav for n in ("Search", "Playlists", "Library", "Review", "History"))
-    assert 'aria-label="Library"' in nav and 'href="/library"' in nav and 'hx-get="/review/badge"' in nav
+    assert 'href="/library" data-label="Library" aria-current="page"' in nav and 'aria-label="Library"' not in nav
     assert ">Server settings</a>" in nav and "Inbox" not in nav and "Stats" not in nav
     account = client.get("/account").text
     assert (
@@ -359,7 +359,6 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
         and 'href="/account/recorders"' in account
         and 'href="/account/tokens"' in account
     )
-    assert client.get("/review/badge").status_code == 200
     playlists = client.get("/playlists").text
     assert "Connect Spotify" in playlists and 'id="soundcloud"' in playlists and "By link" in playlists
     assert 'id="soulseek-client"' in client.get("/settings").text

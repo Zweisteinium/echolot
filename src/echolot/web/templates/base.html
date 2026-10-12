@@ -21,7 +21,7 @@
       <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>Search</a>
       <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>Playlists</a>
       <a href="/library" data-label="Library" {% if library %}aria-current="page"{% endif %}>Library</a>
-      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review<span hx-get="/review/badge" hx-trigger="load" hx-swap="outerHTML"></span></a>{% endif %}
+      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}
       <a href="/activity" data-label="History" {% if history %}aria-current="page"{% endif %}>History</a>
     </nav>
     {% if user.admin %}

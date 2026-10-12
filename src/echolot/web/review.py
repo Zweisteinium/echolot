@@ -47,14 +47,6 @@ def review_page(request: Request, con: DB) -> HTMLResponse:
     return page(request, "review.html", nav="review", songs=songs, items=found, **extra)
 
 
-@router.get("/review/badge", response_class=HTMLResponse)
-def review_badge(request: Request, con: DB) -> HTMLResponse:
-    """The menu's count of the songs waiting for a decision in Review (nothing when none)."""
-    found = review.items(con, music_dir(request), stats.scope(request.state.user))
-    n = sum(len(review.groups(rows)) for rows in found.values())
-    return HTMLResponse(f'<span class="nav-count" title="{n} waiting for you">{n}</span>' if n else "")
-
-
 def _hidden(music: Path, found: dict[str, list[review.Item]]) -> int:
     """Kept downloads in inbox/review that are no longer up for review (their song was found since, or
     they are far off in length): they wait for the purge after 30 days."""
