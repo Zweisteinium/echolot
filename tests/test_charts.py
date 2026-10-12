@@ -31,7 +31,18 @@ def test_growth_downsamples_and_breaks_at_gaps() -> None:
     assert len(json.loads(g.points)) <= 51 and g.line.count("M") == 1
     assert g.rebuilt == ""  # nothing rebuilt: no dashed part (and no note under the graph)
     gap = [("2026-09-01T00:00:00Z", 1), ("2026-09-02T00:00:00Z", 2), ("2026-09-05T00:00:00Z", 3)]
-    assert charts.growth(gap, fmt, axis).line.count("M") == 2  # 3 days without a snapshot
+    g = charts.growth(gap, fmt, axis)
+    assert g.line.count("M") == 2  # 3 days without a snapshot
+    assert g.area.count("Z") == 1 and g.area.count("M") == 1  # an area under the first stretch only
+    assert g.gaps.count("M") == 1 and g.end[0] == 100  # dotted to the lone last point, which is marked
+
+
+def test_growth_skips_a_count_before_the_first_scan() -> None:
+    """A measured 0 before the first real count (the library not read yet) is no growth; a rebuilt 0 is."""
+    points = [("2026-10-07T17:55:00Z", 0), ("2026-10-07T18:55:00Z", 10.5e9), ("2026-10-08T18:55:00Z", 10.6e9)]
+    g = charts.growth(points, fmt, axis)
+    assert g.since == "7 Oct" and g.total == "+100000000 songs"
+    assert charts.growth(points, fmt, axis, rebuilt_until="2026-10-07T18:00:00Z").total == "+10600000000 songs"
 
 
 def test_growth_needs_two_points() -> None:
