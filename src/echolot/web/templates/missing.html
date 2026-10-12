@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import song_link %}
+{% from "_macros.html" import song_link, spotify_best %}
 {% from "_icons.html" import icon, use %}
 {% block title %}Missing · Echolot{% endblock %}
 {% set STAGES = [
@@ -32,7 +32,7 @@
     {% for s in songs %}
     <tr data-song="{{ s.key }}">
       <td>{{ s.artist }}</td>
-      <td>{{ song_link(s.key, s.url, s.title) }}</td>
+      <td>{{ song_link(s.key, s.url, s.title) }}{{ spotify_best(s.key, best, upload) }}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
       <td class="muted small hide-narrow">{{ s.in_lists }}</td>
       <td class="small tried">

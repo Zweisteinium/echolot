@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException
 from echolot import COMMIT, __version__, db
 from echolot.config import Settings
 from echolot.jobs.worker import Worker
-from echolot.library import filing
+from echolot.library import filing, recording
 from echolot.settings import auth, vault
 from echolot.settings.sources import adopt
 from echolot.web import (
@@ -96,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates.env.globals.update(pct=pct, percent=share, tier_counts=stats.tier_counts, tiers=stats.TIERS)
     templates.env.globals.update(version=__version__, commit=COMMIT)
     templates.env.globals["asset"] = asset_urls(HERE / "static")
+    templates.env.globals["spotify_best_why"] = recording.BEST
     app.state.templates = templates
     for module in ROUTERS:
         app.include_router(module.router)

@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from echolot import db
 from echolot.config import Settings
 from echolot.library import recording, upload
-from echolot.settings import auth
+from echolot.settings import auth, sources
 from echolot.web import create_app
 
 APP = "Mitschnitt 0.4.0"
@@ -263,3 +263,79 @@ def test_the_panels_clock_runs_on(app: FastAPI, login: Callable[..., TestClient]
     dev.post("/api/recorder/poll?wait=0", json={"state": "recording", "detail": "0:30 / 3:20"})
     panel = owner.get("/recordings/panel").text
     assert re.search(r'data-clock data-at="3[01]"', panel) and 'data-all="500"' in panel  # s1 200 s + s2 300 s
+
+
+def test_spotify_has_nothing_better(
+    app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A song Spotify plays lossy only, or whose recording is not genuine lossless (filed, or no better than the
+    library's copy), is not offered again, for anyone, while Spotify plays it as that track; the lists mark it,
+    the Record dialog counts it out. A genuine lossless recording leaves no mark; a relink or Try again lifts it."""
+    tiers = {"spotify:s1": "lossless", "spotify:s2": "fake"}
+
+    def add(paths, batch, name, fileobj, keep_hires=False):
+        return upload.File(1, name, Path("/x/rec.flac"), 200, 900, tiers[name])
+
+    monkeypatch.setattr(upload, "add", add)
+    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(
+        upload, "compare", lambda paths, f, song: upload.Copy(False, "~128 kbps source, your copy fake FLAC")
+    )
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    for _ in range(2):
+        item = poll(device)["item"]
+        device.post(f"/api/recorder/items/{item['id']}/file", files={"file": (item["key"], b"fLaC", "audio/flac")})
+    con = db.connect(app.state.settings.db_path)
+    best = recording.blocks(con)
+    assert list(best) == ["spotify:s2"] and best["spotify:s2"]["reason"] == "same"  # s1 was genuine lossless
+    assert best["spotify:s2"]["uri"] == "spotify:track:s2"
+    assert "spotify:s2" not in [t.key for t in recording.candidates(con, 1)]
+    assert recording.held_back(con, 1) == 1
+    timon = auth.logged_in(con, "timon", "nd-timon", False).id
+    sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111")
+    con.close()
+    page = owner.get("/lists/spotify:likes:1").text
+    assert (
+        'class="icon-button spotify-best"' in page
+        and "Spotify has nothing better: Spotify&#39;s stream is no better" in page
+    )
+    assert "1 song left out: Spotify has nothing better" in owner.get("/recordings/new").text
+    con = db.connect(app.state.settings.db_path)
+    with con:  # Spotify plays s2 as another release now: it may be better there
+        con.execute("INSERT INTO availability VALUES ('spotify:s2', 'replaced', '', 'x', 'spotify:s2new', NULL)")
+    assert recording.blocks(con) == {}
+    with con:
+        con.execute("DELETE FROM availability WHERE song_key = 'spotify:s2'")
+    assert list(recording.blocks(con)) == ["spotify:s2"]
+    con.close()
+    assert owner.post("/songs/spotify:s2/spotify-again").status_code == 200  # Try again
+    con = db.connect(app.state.settings.db_path)
+    assert recording.blocks(con) == {} and recording.held_back(con, 1) == 0
+    con.close()
+
+
+def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None:
+    """lossy_only blocks for good (not 30 days); schema 31 turns the earlier lossy_only and not_better answers into
+    blocks."""
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("INSERT INTO recorders (user_id, name, token, created) VALUES (1, 'PC', 't', 'x')")
+        con.execute(
+            "INSERT INTO recordings (user_id, recorder_id, title, below, state, created) VALUES (1, 1, 'S', 'lossless', 'done', 'x')"
+        )
+        item = "INSERT INTO recording_items (recording_id, position, song_key, state, result, detail, finished) "
+        con.execute(
+            item + "VALUES (1, 0, 'spotify:s1', 'done', 'lossy_only', 'grid check failed', '2020-01-01T00:00:00')"
+        )
+        con.execute("DROP TABLE spotify_best")
+        con.execute("ALTER TABLE recording_items DROP COLUMN uri")
+        con.execute("PRAGMA user_version = 30")
+    con.close()
+    db.init(settings.db_path)
+    con = db.connect(settings.db_path)
+    row = recording.blocks(con)["spotify:s1"]
+    assert (row["reason"], row["uri"], row["since"]) == ("lossy", "spotify:track:s1", "2020-01-01T00:00:00")
+    assert "spotify:s1" not in [t.key for t in recording.candidates(con, 1)]  # years later: still not offered
+    con.close()

@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 {% macro service(name) -%}
 <span class="service">{{ name|source }}</span>
 {%- endmacro %}
@@ -46,4 +47,15 @@
   <li class="q-{{ k }}"><span class="swatch" aria-hidden="true"></span>{{ label }} <span class="num">{{ n|num }} · {{ share(n, total) }}</span></li>
   {% endfor %}
 </ul>
+{%- endmacro %}
+
+{# a song Spotify has nothing better of (recording.blocks: `best`): its mark, with why; who may record clicks it to
+   offer the song for recording again #}
+{% macro spotify_best(key, best, can) -%}
+{% set b = best.get(key) if best else none %}
+{%- if b %}{% set why = 'Spotify has nothing better: ' ~ spotify_best_why.get(b.reason, b.reason) ~ ' (since ' ~ b.since[:10] ~ ')' %}
+{%- if can %}<button type="button" class="icon-button spotify-best" title="{{ why }}. Click to try recording it again." aria-label="{{ why }}; try again"
+  hx-post="/songs/{{ key|urlencode }}/spotify-again" hx-swap="outerHTML" hx-confirm="Offer this song for recording again?">{{ icon('spotify', 13) }}</button>
+{%- else %}<span class="spotify-best" title="{{ why }}" aria-label="{{ why }}">{{ icon('spotify', 13) }}</span>{% endif %}
+{%- endif %}
 {%- endmacro %}

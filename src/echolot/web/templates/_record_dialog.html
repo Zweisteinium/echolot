@@ -18,6 +18,7 @@
     </label>
     {% endfor %}
   </fieldset>
+  {% if held %}<p class="muted small">{{ held }} song{{ 's' if held != 1 }} left out: Spotify has nothing better of {{ 'them' if held != 1 else 'it' }} than your {{ 'copies' if held != 1 else 'copy' }} (marked {{ icon('spotify', 12) }} in the lists).</p>{% endif %}
   {% endif %}
   {% if devices %}
   <div class="record-where">

@@ -107,7 +107,13 @@ def record_dialog(request: Request, con: DB) -> HTMLResponse:
     tracks = recording.candidates(con, user.id, key)
     devices = recording.devices(con, user.id)
     return page(
-        request, "_record_dialog.html", lst=lst, choices=recording.choices(tracks), devices=devices, base=_base(request)
+        request,
+        "_record_dialog.html",
+        lst=lst,
+        choices=recording.choices(tracks),
+        held=recording.held_back(con, user.id, key),
+        devices=devices,
+        base=_base(request),
     )
 
 
@@ -126,6 +132,13 @@ def record_start(
     except recording.RecordingError as e:
         return back(where, error=str(e))
     return back(where, ok="Recording: your device starts as soon as Spotify is free.")
+
+
+@router.post("/songs/{key:path}/spotify-again", response_class=HTMLResponse)
+def song_spotify_again(request: Request, con: DB, key: str) -> HTMLResponse:
+    """Offer a song Spotify had nothing better of for recording again (its mark on the pages goes)."""
+    recording.unblock(con, key)
+    return HTMLResponse("")
 
 
 @router.get("/recordings/panel", response_class=HTMLResponse)
@@ -257,11 +270,14 @@ def api_file(
     item_id: int,
     file: Annotated[UploadFile, File()],
     note: Annotated[str, Form()] = "",
+    stream: Annotated[str, Form()] = "",
 ) -> dict[str, Any]:
     """A recording of a song handed out: checked as the upload dialog checks a file, filed into exactly that
     song when it is the song and better than the library's copy. A song answered for already answers the same;
     one whose lease ran out still comes in unless it was handed out again (recording.open_for). `note`: the
-    device's word on the recording (kept with the result)."""
+    device's word on the recording (kept with the result); `stream`: lossless or lossy, as the device heard
+    Spotify's stream (a lossy one is uploaded too: better than no song). A recording that is not genuine
+    lossless means Spotify has nothing better of the song (recording.answer)."""
     try:
         item = recording.item_of(con, device["id"], item_id)
     except recording.RecordingError as e:
@@ -275,38 +291,38 @@ def api_file(
     library = request.app.state.settings.library_dir
     if library is None:
         raise HTTPException(409, "No library configured.")
-    result, detail = _check_and_file(request, con, item, file, filing.Paths(library.parent))
+    result, detail, tier = _check_and_file(request, con, item, file, filing.Paths(library.parent))
     detail = f"{detail} · {note.strip()}" if note.strip() else detail
-    recording.answer(con, item, result, detail)
+    recording.answer(con, item, result, detail, tier, stream.strip().lower())
     return _answer(con, item, result, detail)
 
 
 def _check_and_file(
     request: Request, con: sqlite3.Connection, item: sqlite3.Row, file: UploadFile, paths: filing.Paths
-) -> tuple[str, str]:
-    """(result, detail) of a recording: rejected (not audio, another recording than the release's), not_better
-    (the library's copy is as good), or filed."""
+) -> tuple[str, str, str]:
+    """(result, detail, the recording's tier) of a recording: rejected (not audio, another recording than the
+    release's), not_better (the library's copy is as good), or filed."""
     song = next(iter(stats.upload_songs(con, item["user_id"], item["song_key"])), None)
     if song is None:
-        return "rejected", "the song is no longer in your lists"
+        return "rejected", "the song is no longer in your lists", ""
     batch = upload.start(paths)
     try:
         keep_hires = options.get(con, options.Files).keep_hires
         f = upload.add(paths, batch, file.filename or "recording.flac", file.file, keep_hires)
         if f.error:
-            return "rejected", f"not audio: {f.error}"
+            return "rejected", f"not audio: {f.error}", ""
         fit = upload.fit(con, f, song)
         if fit and fit.fingerprint is not None and fit.fingerprint <= identity.OTHER:
-            return "rejected", "Sounds different: another recording than the release's"
+            return "rejected", "Sounds different: another recording than the release's", f.tier
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
-            return "not_better", copy.why
+            return "not_better", copy.why, f.tier
         lines = upload.import_files(con, paths, request.app.state.vault, batch, {f.n: song["key"]}, source="mitschnitt")
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
-            return "rejected", line
+            return "rejected", line, f.tier
         # (filing found a better copy after all: "the library has a better copy", import_files' line)
-        return ("not_better", line) if "has a better copy" in line else ("filed", line)
+        return ("not_better" if "has a better copy" in line else "filed"), line, f.tier
     finally:
         upload.cancel(paths, batch)
 

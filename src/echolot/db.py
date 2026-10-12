@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 30
+VERSION = 31
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -277,7 +277,17 @@ CREATE TABLE recording_items (      -- a session's songs, fixed when it starts
     detail TEXT,
     tries INTEGER NOT NULL DEFAULT 0,  -- how often it was handed out
     lease_until REAL,               -- recording: the device's until then (unix time)
-    finished TEXT
+    finished TEXT,
+    uri TEXT                        -- the Spotify track it was handed out as (spotify:track:<id>)
+);
+CREATE TABLE spotify_best (         -- songs Spotify has nothing better of than the library: not offered for recording
+                                    -- again while Spotify plays them as `uri` (library/recording), for everyone
+    song_key TEXT PRIMARY KEY,
+    uri TEXT NOT NULL,              -- the track that was recorded (spotify:track:<id>)
+    reason TEXT NOT NULL,           -- lossy (its stream is lossy), same (no better than the library's copy),
+                                    -- recorded (its best, not lossless, is the library's copy now)
+    detail TEXT NOT NULL DEFAULT '',
+    since TEXT NOT NULL
 );
 CREATE INDEX recording_items_session ON recording_items(recording_id, state);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
@@ -387,6 +397,16 @@ MIGRATIONS = {
         "state TEXT NOT NULL, result TEXT, detail TEXT, tries INTEGER NOT NULL DEFAULT 0, lease_until REAL, "
         "finished TEXT)",
         "CREATE INDEX IF NOT EXISTS recording_items_session ON recording_items(recording_id, state)",
+    ],
+    31: [  # what Spotify has nothing better of, for good (library/recording.block); the earlier answers saying so
+        "ALTER TABLE recording_items ADD COLUMN uri TEXT",
+        "CREATE TABLE IF NOT EXISTS spotify_best (song_key TEXT PRIMARY KEY, uri TEXT NOT NULL, reason TEXT NOT NULL, "
+        "detail TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)",
+        "INSERT OR REPLACE INTO spotify_best (song_key, uri, reason, detail, since) SELECT i.song_key, "
+        "'spotify:track:' || CASE WHEN a.state = 'replaced' AND a.detail LIKE 'spotify:%' THEN substr(a.detail, 9) "
+        "ELSE substr(i.song_key, 9) END, CASE i.result WHEN 'lossy_only' THEN 'lossy' ELSE 'same' END, "
+        "coalesce(i.detail, ''), coalesce(i.finished, '') FROM recording_items i "
+        "LEFT JOIN availability a ON a.song_key = i.song_key WHERE i.result IN ('lossy_only', 'not_better') ORDER BY i.id",
     ],
 }
 

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from echolot import db
-from echolot.library import filing, history
+from echolot.library import filing, history, recording
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, jobs, stats
 from echolot.web.common import DB, page
@@ -80,7 +80,10 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
     uid = stats.scope(request.state.user)
     songs = stats.missing(con, list_key or None, filing.Paths(library.parent) if library else None, uid)
     lists, close = stats.lists(con, uid), stats.close_matches(con, uid)
-    return page(request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key)
+    best = recording.blocks(con)  # (Spotify has nothing better of these)
+    return page(
+        request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, best=best
+    )
 
 
 @router.get("/lists/{key:path}", response_class=HTMLResponse)
@@ -91,7 +94,8 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     songs = stats.list_songs(con, key)
     same = stats.same_as(songs)  # (the quality bar counts such a song once)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
-    return page(request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers)
+    best = recording.blocks(con) if lst["service"] == "spotify" else {}  # (Spotify has nothing better of these)
+    return page(request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers, best=best)
 
 
 @router.get("/activity", response_class=HTMLResponse)

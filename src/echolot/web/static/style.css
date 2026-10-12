@@ -805,6 +805,9 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
 .list-actions button { display: inline-flex; align-items: center; gap: 0.35rem; }
 .list-actions button .icon, .record-dot { color: var(--bad); }
 .record-dot { display: inline-flex; vertical-align: -2px; }
+.spotify-best { display: inline-flex; vertical-align: -2px; margin-left: 0.35rem; color: var(--muted); }  /* Spotify has nothing better */
+button.spotify-best { padding: 0.1rem; }
+button.spotify-best:hover { color: var(--text); }
 .record-dot.live { animation: record-pulse 1.6s ease-in-out infinite; }
 @keyframes record-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .record-dot.live { animation: none; } }

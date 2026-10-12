@@ -85,6 +85,7 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permiss
     ("POST", "/recorders/connect"): "upload",
     ("GET", "/account/recorders"): "upload",
     ("POST", "/recorders/{recorder_id}/rename"): "upload",
+    ("POST", "/songs/{key:path}/spotify-again"): "upload",
     ("POST", "/recorders/{recorder_id}/disconnect"): "upload",
     ("GET", "/recordings/new"): "upload",
     ("POST", "/recordings"): "upload",

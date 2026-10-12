@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V28 = "ALTER TABLE availability DROP COLUMN searched; "  # schema 28
+V30 = "ALTER TABLE recording_items DROP COLUMN uri; DROP TABLE spotify_best; "  # schema 30
+V28 = "ALTER TABLE availability DROP COLUMN searched; " + V30  # schema 28
 V26_SONGS = "ALTER TABLE songs DROP COLUMN artist_alias; " + V28  # schema 26
 V22_SONGS += "ALTER TABLE lists DROP COLUMN creator; " + V26_SONGS  # schema 23
 
@@ -45,6 +46,7 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     assert {"close_match", "released", "track", "tracks", "disc", "artist_alias"} <= columns(con, "songs")
     assert {"name", "user_id"} <= columns(con, "review_decisions")
     assert "searched" in columns(con, "availability")
+    assert "uri" in columns(con, "recording_items") and "song_key" in columns(con, "spotify_best")
     assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
     assert {"songs_file", "songs_stem"} <= {r[1] for r in con.execute("PRAGMA index_list(songs)")}
     plan = " ".join(
