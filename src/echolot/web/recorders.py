@@ -107,14 +107,7 @@ def record_dialog(request: Request, con: DB) -> HTMLResponse:
     tracks = recording.candidates(con, user.id, key)
     devices = recording.devices(con, user.id)
     return page(
-        request,
-        "_record_dialog.html",
-        lst=lst,
-        choices=recording.choices(tracks),
-        devices=devices,
-        hours=recording.HOURS,
-        default_hours=recording.DEFAULT_HOURS,
-        base=_base(request),
+        request, "_record_dialog.html", lst=lst, choices=recording.choices(tracks), devices=devices, base=_base(request)
     )
 
 
@@ -124,13 +117,12 @@ def record_start(
     con: DB,
     recorder: Annotated[int, Form()],
     below: Annotated[str, Form()],
-    hours: Annotated[float, Form()] = recording.DEFAULT_HOURS,
     list_key: Annotated[str, Form(alias="list")] = "",
 ) -> Response:
     user = request.state.user
     where = f"/lists/{list_key}" if list_key else "/stats"
     try:
-        recording.start(con, user.id, recorder, list_key or None, below, hours)
+        recording.start(con, user.id, recorder, list_key or None, below)
     except recording.RecordingError as e:
         return back(where, error=str(e))
     return back(where, ok="Recording: your device starts as soon as Spotify is free.")

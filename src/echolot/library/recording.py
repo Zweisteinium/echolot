@@ -31,8 +31,6 @@ BELOW_LABELS = {
     "lossy-mid": "Below 160 kbps",
     "missing": "Missing only",
 }
-HOURS = (1, 3, 8)  # a session's longest (the songs' lengths), the first the default
-DEFAULT_HOURS = 3
 CODE_MINUTES = 10  # an approved connection's code works this long, once
 ONLINE_SECONDS = 75  # a device that asked this lately is online (it asks at least every 30 s)
 LEASE_SLACK = 15 * 60  # seconds a device has beyond the song's length to answer for it
@@ -239,17 +237,9 @@ def _have(row: sqlite3.Row) -> str:
     return row["quality"] or "missing"
 
 
-def select(tracks: list[Track], below: str, hours: float | None = None) -> list[Track]:
-    """The tracks of a choice (BELOW), up to `hours` of their lengths (at least one)."""
-    chosen, total = [], 0.0
-    for t in tracks:
-        if t.have not in BELOW[below]:
-            continue
-        if hours is not None and chosen and total + t.length > hours * 3600:
-            break
-        chosen.append(t)
-        total += t.length
-    return chosen
+def select(tracks: list[Track], below: str) -> list[Track]:
+    """The tracks of a choice (BELOW)."""
+    return [t for t in tracks if t.have in BELOW[below]]
 
 
 def choices(tracks: list[Track]) -> list[dict]:
@@ -264,17 +254,15 @@ def choices(tracks: list[Track]) -> list[dict]:
 # ---------------------------------------------------------------- sessions
 
 
-def start(
-    con: sqlite3.Connection, user_id: int, recorder_id: int, list_key: str | None, below: str, hours: float
-) -> int:
-    """A new session on the user's device: the chosen songs, fixed now. RecordingError when the device is
-    another's or busy with a session, or there is nothing to record."""
+def start(con: sqlite3.Connection, user_id: int, recorder_id: int, list_key: str | None, below: str) -> int:
+    """A new session on the user's device: every song of the choice, fixed now. RecordingError when the device
+    is another's or busy with a session, or there is nothing to record."""
     if below not in BELOW:
         raise RecordingError("Choose what to record.")
     device(con, user_id, recorder_id)
     if active(con, recorder_id):
         raise RecordingError("That device is recording already: stop its session first.")
-    tracks = select(candidates(con, user_id, list_key), below, min(max(hours, 0.25), max(HOURS)))
+    tracks = select(candidates(con, user_id, list_key), below)
     if not tracks:
         raise RecordingError("Nothing to record: every song is there in that quality.")
     name = "All Spotify lists"
@@ -447,7 +435,8 @@ def open_for(item: sqlite3.Row) -> bool:
 
 def answer(con: sqlite3.Connection, item: sqlite3.Row, result: str, detail: str = "") -> None:
     """What became of a song handed out: done (UPLOADED, SKIPS), queued again (AGAIN: until it was handed out
-    TRIES times), or queued again as it was and its session paused (took_over: the user played Spotify)."""
+    TRIES times), or queued again as it was and its session paused (took_over: the user played Spotify, or
+    stopped the device; a session paused already keeps its reason, by_user from the device's own Stop)."""
     if result in (*UPLOADED, *SKIPS):
         _finish(con, item["id"], result, detail)
     elif result == "took_over":

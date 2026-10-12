@@ -219,3 +219,26 @@ def test_the_export(app: FastAPI, login: Callable[..., TestClient]) -> None:
     ]
     assert {"uri", "duration_ms", "isrc", "have", "artists"} <= set(data["tracks"][0])
     assert owner.get("/api/recorder/export", params={"below": "nope"}).status_code == 400
+
+
+def test_the_devices_own_stop_keeps_its_reason(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """Mitschnitt's Stop pauses the session first (by_user), then reports the cut-off song as took_over: the
+    session stays paused by the user, and the song is queued again without costing a try."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    item = poll(device)["item"]
+    panel = owner.get("/recordings/panel").text
+    assert "Pause after this song" in panel and "Stop after this song" in panel
+    assert device.post("/api/recorder/session", json={"action": "pause"}).json()["session"]["reason"] == "by_user"
+    assert "Pausing after this song" in owner.get("/recordings/panel").text
+    r = device.post(
+        f"/api/recorder/items/{item['id']}/result", json={"result": "took_over", "detail": "listening was stopped"}
+    )
+    assert (r.json()["session"]["state"], r.json()["session"]["reason"]) == ("paused", "by_user")
+    device.post("/api/recorder/session", json={"action": "resume"})
+    again = poll(device)["item"]
+    assert again["key"] == item["key"]
+    con = db.connect(app.state.settings.db_path)
+    assert con.execute("SELECT tries FROM recording_items WHERE id = ?", (item["id"],)).fetchone()[0] == 1
+    con.close()

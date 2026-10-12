@@ -14,6 +14,7 @@
   {% if live %}
   <p class="small">
     {%- if session.state == 'paused' and session.reason == 'took_over' %}<span class="warn-text">You took over Spotify on {{ name }}.</span> Resume when you're done listening.
+    {%- elif session.state == 'paused' and session.recording %}Pausing after this song: {{ name }} records <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>.
     {%- elif session.state == 'paused' %}Paused. Resume to go on.
     {%- elif not device %}The device was disconnected.
     {%- elif not device.online %}<span class="warn-text">{{ name }} is offline:</span> it starts as soon as Mitschnitt runs there.
@@ -44,9 +45,10 @@
   </ul>
   {% endif %}
   <div class="record-actions">
-    {% if session.state == 'running' %}<button hx-post="/recordings/{{ session.id }}/pause{{ q }}" hx-target="#recording" hx-swap="outerHTML">Pause</button>
+    {% set after = ' after this song' if session.recording else '' %}
+    {% if session.state == 'running' %}<button hx-post="/recordings/{{ session.id }}/pause{{ q }}" hx-target="#recording" hx-swap="outerHTML">Pause{{ after }}</button>
     {% elif session.state == 'paused' %}<button class="primary" hx-post="/recordings/{{ session.id }}/resume{{ q }}" hx-target="#recording" hx-swap="outerHTML">Resume</button>{% endif %}
-    {% if live %}<button class="danger" hx-post="/recordings/{{ session.id }}/stop{{ q }}" hx-target="#recording" hx-swap="outerHTML" hx-confirm="Stop recording? The song being recorded still comes in.">Stop</button>
+    {% if live %}<button class="danger" hx-post="/recordings/{{ session.id }}/stop{{ q }}" hx-target="#recording" hx-swap="outerHTML" hx-confirm="Stop recording?{{ ' The song being recorded still comes in.' if session.recording }}">Stop{{ after }}</button>
     {% else %}<button hx-post="/recordings/{{ session.id }}/dismiss{{ q }}" hx-target="#recording" hx-swap="outerHTML">Close</button>{% endif %}
   </div>
 </section>

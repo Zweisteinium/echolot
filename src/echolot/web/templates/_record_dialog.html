@@ -1,4 +1,4 @@
-{# the Record dialog's form (web/recorders.record_dialog): what, on which of your devices, how long at most #}
+{# the Record dialog's form (web/recorders.record_dialog): what, and on which of your devices #}
 {% from "_icons.html" import icon %}
 {% set nothing = not choices[0].songs %}
 <form method="post" action="/recordings" class="record-form">{{ csrf_input }}
@@ -26,11 +26,7 @@
         {% for d in devices %}<option value="{{ d.id }}"{{ ' disabled' if d.session }}>{{ d.name }} · {{ 'recording' if d.session else 'online' if d.online else 'offline' }}</option>{% endfor %}
       </select>
     </label>
-    <label>At most
-      <select name="hours">{% for h in hours %}<option value="{{ h }}"{{ ' selected' if h == default_hours }}>{{ h }} h</option>{% endfor %}</select>
-    </label>
   </div>
-  {% if not nothing %}<p class="muted small" data-estimate></p>{% endif %}
   {% else %}
   <p class="flash">No device yet: <a href="/account#recorders">connect Mitschnitt</a> on your Windows PC first.</p>
   {% endif %}
