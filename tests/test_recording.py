@@ -452,3 +452,63 @@ def test_a_song_that_fails_to_start_goes_to_the_end(app: FastAPI, login: Callabl
     order = [x[0] for x in con.execute("SELECT song_key FROM recording_items WHERE recording_id = 2 ORDER BY position")]
     con.close()
     assert order == [second["key"], first["key"]]  # the one that failed to start: last
+
+
+def test_stop_start_stop_start(app: FastAPI, login: Callable[..., TestClient], files_in: list[str]) -> None:
+    """David's evening: the same list started and stopped again and again (in the browser, on the device), the
+    device restarted in between. After each step: one session at most runs, nothing stays leased, no try is
+    lost, the recording made meanwhile still comes in, and every song is still offered."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    upload_ = {"file": ("r.flac", b"fLaC", "audio/flac")}
+
+    def state() -> tuple[list, list]:
+        con = db.connect(app.state.settings.db_path)
+        active = [
+            tuple(r) for r in con.execute("SELECT id, state FROM recordings WHERE state IN ('running', 'paused')")
+        ]
+        leased = [tuple(r) for r in con.execute("SELECT id, tries FROM recording_items WHERE state = 'recording'")]
+        con.close()
+        return active, leased
+
+    def start() -> int:
+        assert (
+            owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, follow_redirects=False).status_code
+            == 303
+        )
+        con = db.connect(app.state.settings.db_path)
+        sid = con.execute("SELECT max(id) FROM recordings").fetchone()[0]
+        con.close()
+        return sid
+
+    s1 = start()
+    a = poll(device)["item"]  # recording song A
+    owner.post(f"/recordings/{s1}/stop")  # 1. stop in the browser while A records
+    assert state() == ([], [])
+    s2 = start()  # 2. start again: A is first again, its try not lost
+    b = poll(device)["item"]
+    assert b["key"] == a["key"] and item_row(app, b["id"])[1] == 1
+    up = device.post(f"/api/recorder/items/{a['id']}/file", files=upload_)  # A of session 1 finishes and comes in
+    assert up.json()["result"] == "filed" and files_in == [a["key"]]
+    device.post("/api/recorder/session", json={"action": "pause"})  # 3. the device's own Stop: pause, then took_over
+    device.post(
+        f"/api/recorder/items/{b['id']}/result", json={"result": "took_over", "detail": "listening was stopped"}
+    )
+    assert state() == ([(s2, "paused")], []) and item_row(app, b["id"])[:2] == ("queued", 0)
+    s3 = start()  # 4. start again while paused: the paused one is stopped
+    assert state() == ([(s3, "running")], [])
+    c = poll(device)["item"]
+    r = device.post("/api/recorder/poll?wait=0", json={"state": "idle", "fresh": True})  # 5. the device restarts
+    d = r.json()["item"]
+    assert d["id"] == c["id"] and item_row(app, c["id"])[:2] == ("recording", 1)  # released, at once handed out again
+    assert state() == ([(s3, "running")], [(c["id"], 1)])  # (its try not counted twice)
+    owner.post(f"/recordings/{s3}/stop")  # 6. stop, 7. start
+    assert state() == ([], [])
+    s4 = start()
+    e = poll(device)["item"]
+    assert state() == ([(s4, "running")], [(e["id"], 1)])
+    con = db.connect(app.state.settings.db_path)
+    offered = [t.key for t in recording.candidates(con, 1)]
+    failed = con.execute("SELECT count(*) FROM recording_items WHERE result = 'failed'").fetchone()[0]
+    con.close()
+    assert failed == 0 and e["key"] in offered  # nothing burnt, nothing blocked
