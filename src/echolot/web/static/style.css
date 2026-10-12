@@ -125,6 +125,9 @@ header nav a, .tabs a { color: var(--muted); padding: 0.3rem 0.65rem; border-rad
 /* each link as wide as its bold self (data-label): the current one turning bold moves nothing beside it */
 header nav a[data-label]::after, .tabs a[data-label]::after { content: attr(data-label); font-weight: 600;
   height: 0; overflow: hidden; visibility: hidden; user-select: none; pointer-events: none; }
+header nav .nav-count { display: inline-block; min-width: 1.15rem; margin-left: 0.35rem; padding: 0 0.3rem; border-radius: 999px;
+  font-size: 0.7rem; font-weight: 700; line-height: 1.15rem; text-align: center; vertical-align: 1px;
+  color: var(--accent-text); background: var(--accent); }  /* Review: the songs waiting */
 header nav a:hover, .tabs a:hover { color: var(--text); background: var(--track); text-decoration: none; }
 header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-weight: 600;
   background: color-mix(in srgb, var(--accent) 11%, transparent); }
@@ -824,6 +827,7 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-file { margin-right: auto; align-self: center; display: inline-flex; align-items: center; gap: 0.3rem; }
 .recording .card-head h2 { display: flex; align-items: center; gap: 0.45rem; }
 .recording .record-progress { max-width: none; height: 6px; margin: 0.65rem 0 0.4rem; border-radius: 3px; }
+.recording .record-progress span { transition: width 1s linear; }  /* moves on by the second */
 .record-summary { margin: 0.5rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
 .record-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
 a.button { display: inline-block; font-size: 0.85rem; font-weight: 550; padding: 0.36rem 0.85rem; color: var(--text);

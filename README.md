@@ -36,7 +36,7 @@ cannot find yet, it tells you, and why.
   it: it lands in your playlist "Echolot · Wished". Paste a playlist link to follow it.
 - **Recording.** With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your Windows PC, press
   Record on a Spotify list: Mitschnitt plays the songs Echolot lacks in lossless, records each bit-exact and
-  puts it straight into your library. Connect it under Account; a device is only ever its owner's.
+  puts it straight into your library. Connect it under Account, Recorders; a device is only ever its owner's.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
 
 ## What it doesn't do
@@ -82,11 +82,11 @@ The first start builds the Soulseek daemon, which takes a few minutes.
 1. Open Navidrome at `http://<host>:4533` and create its admin account. Do this first: Echolot's
    users are Navidrome's users.
 2. Open Echolot at `http://<host>:8490` and log in with that account.
-3. In **Settings → Access**, enter the same account as the service account.
+3. In **Server settings → Access**, enter the same account as the service account.
 
 **5. Connect and pick**
 
-1. **Settings → Soulseek account**: pick a Soulseek name (admins).
+1. **Server settings → Soulseek account**: pick a Soulseek name (admins).
 2. **Playlists** walks you through the Spotify app and the SoundCloud login, then you pick the lists to
    follow. A single song: **Search**.
 
@@ -144,7 +144,7 @@ With a provider that forwards a port, peers behind a firewall can send to you to
 <summary><b>slskd as the Soulseek client</b></summary>
 
 [slskd](https://github.com/slskd/slskd) is a full Soulseek client: it shares, so fewer peers turn you
-down. On **Settings → Soulseek account**, choose slskd and enter its address, its web login (or an API key)
+down. On **Server settings → Soulseek account**, choose slskd and enter its address, its web login (or an API key)
 and its downloads folder as Echolot sees it. Two things matter:
 
 - the downloads folder has to be on Echolot's music volume (`MUSIC/inbox/slskd` is a good place),
@@ -216,7 +216,7 @@ http you paste one address back (the Playlists page shows where).
 
 ## Configuration
 
-Nearly everything lives in the web app (**Settings**: schedule, Soulseek, access; and `echolot.yml`, all
+Nearly everything lives in the web app (**Server settings**: schedule, Soulseek, access; and `echolot.yml`, all
 lists and settings in one file for a backup or a second install). `.env` only has the basics:
 
 | Variable | Default | |
@@ -237,7 +237,7 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 |---|---|---|
 | `ECHOLOT_LIBRARY_DIR` | `/music/tracks` | the library; must end in `tracks`, with `inbox/` and `playlists/` next to it |
 | `ECHOLOT_DAEMON_DIR` | `/daemon` | where Echolot writes the Soulseek daemon's login |
-| `ECHOLOT_NAVIDROME_URL` | `http://navidrome:4533` | Navidrome's address, unless Settings has another |
+| `ECHOLOT_NAVIDROME_URL` | `http://navidrome:4533` | Navidrome's address, unless Server settings has another |
 | `ECHOLOT_DATA_DIR` | `/data` | the database and Echolot's own files |
 | `ECHOLOT_SECRET_KEY`, `ECHOLOT_SECRET_KEY_FILE` | | the key for stored passwords and tokens; without one, `data/secret.key` is made (so a copy of `data/` holds both) |
 | `ECHOLOT_WORKER` | `on` | `off` runs no jobs (for a test copy) |
@@ -247,7 +247,7 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 
 ## Running it
 
-- **Jobs** run on their own schedule (Settings); **Stats** starts, stops and pauses them.
+- **Jobs** run on their own schedule (Server settings); **Library** starts, stops and pauses them.
 - **History** lists everything filed and rejected; `docker compose logs echolot` has the details.
 - **Users** are Navidrome's accounts; Navidrome admins are admins here too, and **Users** gives others
   more rights. Locked out: `docker compose exec echolot echolot user admin <name>`.

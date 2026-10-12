@@ -1,10 +1,14 @@
-{# the pages of one menu entry, above the page (Inbox: Missing, Review; History: Activity, Changes) #}
+{# the pages of one menu entry, above the page (Library: Overview, Missing; History: Activity, Changes;
+   your account: Account, Recorders, API tokens) #}
 {% macro subnav(label, items, current) -%}
 <nav class="subnav" aria-label="{{ label }}">{% for key, href, name in items %}<a href="{{ href }}"{% if key == current %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}</nav>
 {%- endmacro %}
-{% macro inbox(user, current) -%}
-{{ subnav('Inbox', [('missing', '/missing', 'Missing')] + ([('review', '/review', 'Review')] if user.can('review') else []), current) }}
+{% macro library(current) -%}
+{{ subnav('Library', [('library', '/library', 'Overview'), ('missing', '/missing', 'Missing')], current) }}
 {%- endmacro %}
 {% macro history(current) -%}
 {{ subnav('History', [('activity', '/activity', 'Activity'), ('changes', '/changes', 'Changes')], current) }}
+{%- endmacro %}
+{% macro account(user, current) -%}
+{{ subnav('Your account', [('account', '/account', 'Account')] + ([('recorders', '/account/recorders', 'Recorders')] if user.can('upload') else []) + [('tokens', '/account/tokens', 'API tokens')], current) }}
 {%- endmacro %}

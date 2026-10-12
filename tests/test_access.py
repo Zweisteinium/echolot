@@ -242,7 +242,7 @@ def test_api_tokens(app, login: Callable[..., TestClient]) -> None:
     (tid,) = con.execute("SELECT id FROM api_tokens").fetchone()
     assert con.execute("SELECT last_used FROM api_tokens").fetchone()[0]
     con.close()
-    assert "grafana" in client.get("/account").text and token not in client.get("/account").text
+    assert "grafana" in client.get("/account/tokens").text and token not in client.get("/account/tokens").text
     client.post(f"/account/tokens/{tid}/revoke")
     assert bearer.get("/api/stats").status_code == 401
     timon = login(app, "timon", admin=False)  # a token may do what its user may

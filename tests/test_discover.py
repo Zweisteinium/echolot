@@ -314,7 +314,8 @@ def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: p
 
 def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
     """Search is the start page: a pasted playlist link offers to follow it, a track link searches that song.
-    The menu: Search, Stats, Playlists, Inbox (Missing, Review), History; the old addresses lead to the new."""
+    The menu: Search, Playlists, Library (Overview, Missing), Review, History; your account (Account, Recorders,
+    API tokens) and Server settings at the top right; the old addresses lead to the new."""
     from echolot.web import create_app
     from echolot.web import discover as page
     from echolot.web import sources as sources_page
@@ -339,12 +340,26 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
     assert asked == ["https://soundcloud.com/artist-z/track-z"]
     monkeypatch.setattr(page, "_track", lambda request, con, url: None)
     assert "Paste a playlist link" in client.get("/discover/results", params={"q": "https://example.com/x"}).text
-    for old, new in (("/discover?q=x", "/?q=x"), ("/sources", "/playlists"), ("/accounts", "/playlists")):
+    old_new = (
+        ("/discover?q=x", "/?q=x"),
+        ("/sources", "/playlists"),
+        ("/accounts", "/playlists"),
+        ("/stats", "/library"),
+    )
+    for old, new in old_new:
         r = client.get(old, follow_redirects=False)
         assert (r.status_code, r.headers["location"]) == (301, new), old
     nav = client.get("/missing").text
-    assert all(f'data-label="{n}"' in nav for n in ("Search", "Stats", "Playlists", "Inbox", "History"))
-    assert 'aria-label="Inbox"' in nav and 'href="/review"' in nav and 'href="/settings" role="menuitem"' in nav
+    assert all(f'data-label="{n}"' in nav for n in ("Search", "Playlists", "Library", "Review", "History"))
+    assert 'aria-label="Library"' in nav and 'href="/library"' in nav and 'hx-get="/review/badge"' in nav
+    assert ">Server settings</a>" in nav and "Inbox" not in nav and "Stats" not in nav
+    account = client.get("/account").text
+    assert (
+        'aria-label="Your account"' in account
+        and 'href="/account/recorders"' in account
+        and 'href="/account/tokens"' in account
+    )
+    assert client.get("/review/badge").status_code == 200
     playlists = client.get("/playlists").text
     assert "Connect Spotify" in playlists and 'id="soundcloud"' in playlists and "By link" in playlists
     assert 'id="soulseek-client"' in client.get("/settings").text

@@ -1,4 +1,4 @@
-{# the Stats page's connection line; a pill leads to where it is set up (Playlists; Soulseek: Settings, for admins) #}
+{# the Library page's connection line; a pill leads to where it is set up (Playlists; Soulseek: Settings, for admins) #}
 {% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
 {% set to = '{{ to|safe }}' if user.admin else '' %}
 <nav class="connections" aria-label="Connections">

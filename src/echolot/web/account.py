@@ -1,6 +1,6 @@
-"""Account page: who you are here (an admin, or your permissions), which pages an admin sees (theirs or
-everyone's), your recorder devices (web/recorders), your API tokens and your logins. The password is
-Navidrome's: it is changed there."""
+"""Your account, in three pages: who you are here (an admin, or your permissions), which pages an admin sees
+(theirs or everyone's) and your logins; your recorder devices (web/recorders); your API tokens. The password
+is Navidrome's: it is changed there."""
 
 import sqlite3
 import urllib.parse
@@ -16,26 +16,29 @@ from echolot.web.common import DB, back, page
 router = APIRouter(include_in_schema=False)
 
 
-def _account_page(request: Request, con: sqlite3.Connection, **extra: Any) -> HTMLResponse:
-    user = request.state.user
-    tokens = auth.tokens(con, user)
-    devices = recording.devices(con, user.id) if user.can("upload") else []
-    base = str(request.base_url).rstrip("/")
-    return page(
-        request,
-        "account.html",
-        nav="account",
-        tokens=tokens,
-        permissions=auth.PERMISSIONS,
-        devices=devices,
-        base=base,
-        **extra,
-    )
-
-
 @router.get("/account", response_class=HTMLResponse)
-def account_page(request: Request, con: DB) -> HTMLResponse:
-    return _account_page(request, con)
+def account_page(request: Request) -> HTMLResponse:
+    return page(request, "account.html", nav="account", permissions=auth.PERMISSIONS)
+
+
+@router.get("/account/recorders", response_class=HTMLResponse)
+def recorders_page(request: Request, con: DB) -> HTMLResponse:
+    devices = recording.devices(con, request.state.user.id)
+    return page(request, "account_recorders.html", nav="recorders", devices=devices, base=_base(request))
+
+
+def _base(request: Request) -> str:
+    return str(request.base_url).rstrip("/")
+
+
+@router.get("/account/tokens", response_class=HTMLResponse)
+def tokens_page(request: Request, con: DB) -> HTMLResponse:
+    return _tokens_page(request, con)
+
+
+def _tokens_page(request: Request, con: sqlite3.Connection, **extra: Any) -> HTMLResponse:
+    tokens = auth.tokens(con, request.state.user)
+    return page(request, "account_tokens.html", nav="tokens", tokens=tokens, **extra)
 
 
 @router.post("/account/view")
@@ -65,13 +68,13 @@ def token_create(request: Request, con: DB, name: Annotated[str, Form()]) -> Res
     try:
         token = auth.create_token(con, request.state.user, name)
     except auth.AuthError as err:
-        return back("/account", error=str(err))
+        return back("/account/tokens", error=str(err))
     # shown once, in this response only (a redirect would put it into the URL)
-    return _account_page(request, con, new_token=token, new_token_name=name.strip())
+    return _tokens_page(request, con, new_token=token, new_token_name=name.strip())
 
 
 @router.post("/account/tokens/{token_id}/revoke")
 def token_revoke(request: Request, con: DB, token_id: int) -> RedirectResponse:
     if not auth.revoke_token(con, request.state.user, token_id):
-        return back("/account", error="No such token.")
-    return back("/account", ok="Token revoked.")
+        return back("/account/tokens", error="No such token.")
+    return back("/account/tokens", ok="Token revoked.")

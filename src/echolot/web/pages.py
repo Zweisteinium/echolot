@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from echolot import db
 from echolot.library import filing, history
@@ -17,7 +17,14 @@ from echolot.web.format import num, size
 router = APIRouter(include_in_schema=False)
 
 
-@router.get("/stats", response_class=HTMLResponse)
+@router.get("/stats")
+def old_overview(request: Request) -> RedirectResponse:
+    """The Library page was Stats (0.10)."""
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(f"/library{query}", status_code=301)
+
+
+@router.get("/library", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
     """The user's songs (an admin's, or everyone's as they chose), with the library's size besides."""
     o, vault = stats.overview(con, stats.scope(request.state.user)), request.app.state.vault
@@ -28,7 +35,9 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         jobs.status(request, con),
     )  # the library's files by quality, and the songs missing
     growth = _growth(con, stats.scope(request.state.user), o)
-    return page(request, "overview.html", nav="stats", o=o, donut=donut, growth=growth, connected=connected, **running)
+    return page(
+        request, "overview.html", nav="library", o=o, donut=donut, growth=growth, connected=connected, **running
+    )
 
 
 def _growth(con: sqlite3.Connection, uid: int | None, o: dict) -> dict[str, charts.Growth | None]:

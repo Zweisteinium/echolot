@@ -149,7 +149,7 @@ def test_activity_upgrade_is_one_entry(settings: Settings, why: str, source: str
 
 def test_jobs(client: TestClient) -> None:
     response = client.post("/jobs/library/run", follow_redirects=False)
-    assert response.status_code == 303 and response.headers["location"].startswith("/stats?ok=")
+    assert response.status_code == 303 and response.headers["location"].startswith("/library?ok=")
     assert set(client.app.state.worker.requested) == {"library"}
     assert client.post("/jobs/nope/run").status_code == 404
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume

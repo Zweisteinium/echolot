@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_subnav.html" import account %}
+{% block title %}Recorders · Echolot{% endblock %}
+{% block content %}
+{{ account(user, 'recorders') }}
+<section class="card" id="recorders">
+  <div class="card-head">
+    <h2>Recorders</h2>
+    <a class="button primary" href="mitschnitt://connect?url={{ base|urlencode }}">Connect Mitschnitt</a>
+  </div>
+  <p class="muted small">Mitschnitt on your Windows PC records songs from Spotify bit-exact and puts them into your library: choose what under Record, on a Spotify list or under Library. Your devices are yours alone: nobody else here sees them or records on them. In Mitschnitt, <em>Connect Echolot</em> with the address <code>{{ base }}</code> works too.</p>
+  {% if devices %}
+  <table class="rows recorders">
+    <thead><tr><th>Device</th><th>Status</th><th class="hide-narrow">App</th><th class="hide-narrow">Connected</th><th></th></tr></thead>
+    {% for d in devices %}
+    <tr>
+      <td><form method="post" action="/recorders/{{ d.id }}/rename" class="rename">{{ csrf_input }}<input type="text" name="name" value="{{ d.name }}" maxlength="60" aria-label="Device name" required><button class="link">Rename</button></form></td>
+      <td class="small">{% if d.session %}<span class="pill accent-pill">{{ 'Recording' if d.session.state == 'running' else 'Paused' }}</span> {{ d.session.done }}/{{ d.session.total }}
+        {% elif d.online %}<span class="pill ok-pill">Online</span>{% if d.state == 'setup' %} <span class="warn-text">{{ d.detail }}</span>{% elif d.state == 'busy' %} <span class="muted">Spotify in use</span>{% endif %}
+        {% else %}<span class="pill">Offline</span> <span class="muted">{{ d.last_seen|ago if d.last_seen else 'never seen' }}</span>{% endif %}</td>
+      <td class="small muted hide-narrow">{{ d.app or '–' }}</td>
+      <td class="small nowrap hide-narrow" title="{{ d.created }}">{{ d.created|ago }}</td>
+      <td><form method="post" action="/recorders/{{ d.id }}/disconnect" onsubmit="return confirm('Disconnect {{ d.name }}? It can no longer record for you; its sessions go.')">{{ csrf_input }}<button class="danger">Disconnect</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</section>
+{% endblock %}

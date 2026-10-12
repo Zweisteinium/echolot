@@ -65,7 +65,7 @@ def test_connecting_and_each_device_its_users_alone(app: FastAPI, login: Callabl
     assert me["user"] == "owner" and me["recorder"]["name"] == "DESKTOP-DAVID" and me["session"] is None
     assert TestClient(app).get("/api/recorder/me").status_code == 401  # no token
     assert as_device(app, "echolot_rec_nope").get("/api/recorder/me").status_code == 401
-    page = owner.get("/account").text
+    page = owner.get("/account/recorders").text
     assert "DESKTOP-DAVID" in page and "mitschnitt://connect?url=" in page
     bad = {"name": "x", "challenge": "c" * 43, "redirect": "https://evil.example/"}
     assert owner.get("/recorders/connect", params=bad).status_code == 400  # only Mitschnitt's own link
@@ -77,8 +77,8 @@ def test_connecting_and_each_device_its_users_alone(app: FastAPI, login: Callabl
     auth.set_rights(con, tid, False, {"upload"})
     con.close()
     timon_token = connect(timon, app, "TIMONS-PC")
-    assert "DESKTOP-DAVID" not in timon.get("/account").text  # (not even an admin sees another's devices)
-    assert "TIMONS-PC" not in owner.get("/account").text
+    assert "DESKTOP-DAVID" not in timon.get("/account/recorders").text  # (not even an admin sees another's devices)
+    assert "TIMONS-PC" not in owner.get("/account/recorders").text
     con = db.connect(app.state.settings.db_path)
     owners = con.execute("SELECT id FROM recorders WHERE name = 'DESKTOP-DAVID'").fetchone()[0]
     con.close()
@@ -87,7 +87,7 @@ def test_connecting_and_each_device_its_users_alone(app: FastAPI, login: Callabl
     assert (
         timon.post(f"/recorders/{owners}/disconnect", follow_redirects=False)
         .headers["location"]
-        .endswith("error=No+such+device.#recorders")
+        .endswith("/account/recorders?error=No+such+device.")
     )
     assert as_device(app, timon_token).delete("/api/recorder/me").status_code == 204  # disconnect itself
     assert as_device(app, timon_token).get("/api/recorder/me").status_code == 401
@@ -175,8 +175,8 @@ def test_found_meanwhile_and_leases(
 def test_the_upload_into_the_song(
     app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The recording runs through the upload dialog's checks and is filed into the song handed out; the same
-    upload again answers the same; the device's note stays with the result."""
+    """The recording runs through the upload dialog's checks and is filed into the song handed out, from
+    Mitschnitt (History's source); the same upload again answers the same; the device's note stays with it."""
     seen: list[tuple] = []
 
     def add(paths, batch, name, fileobj, keep_hires=False):
@@ -186,8 +186,8 @@ def test_the_upload_into_the_song(
     monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset()):
-        seen.append(dict(chosen))
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+        seen.append((dict(chosen), source))
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
 
     monkeypatch.setattr(upload, "import_files", import_files)
@@ -199,7 +199,8 @@ def test_the_upload_into_the_song(
     r = device.post(f"/api/recorder/items/{item['id']}/file", files=files, data={"note": "faded in 10 ms"})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["result"] == "filed" and "faded in 10 ms" in body["detail"] and seen == [{1: item["key"]}]
+    assert body["result"] == "filed" and "faded in 10 ms" in body["detail"]
+    assert seen == [({1: item["key"]}, "mitschnitt")]  # History shows it as recorded by Mitschnitt
     assert device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()["result"] == "filed"
     assert len(seen) == 1  # (not imported twice)
     monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.4, 0.1))  # another recording
@@ -242,3 +243,23 @@ def test_the_devices_own_stop_keeps_its_reason(app: FastAPI, login: Callable[...
     con = db.connect(app.state.settings.db_path)
     assert con.execute("SELECT tries FROM recording_items WHERE id = ?", (item["id"],)).fetchone()[0] == 1
     con.close()
+
+
+def test_the_panels_clock_runs_on(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """The device says where it is every 30 s; the panel adds the time since, and its bar counts the session's
+    songs' time heard."""
+    import datetime
+
+    then = (datetime.datetime.now() - datetime.timedelta(seconds=10)).isoformat(timespec="seconds")
+    device = {"state": "recording", "detail": "1:12 / 3:45", "last_seen": then}
+    now = recording.clock(device)
+    assert now["total"] == 225 and 82 <= now["at"] <= 83  # (the time is stored in whole seconds)
+    assert recording.clock(device | {"detail": "3:40 / 3:45"})["at"] == 225  # never past the end
+    assert recording.clock(device | {"state": "idle"}) is None
+    owner = login(app)
+    dev = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    poll(dev)
+    dev.post("/api/recorder/poll?wait=0", json={"state": "recording", "detail": "0:30 / 3:20"})
+    panel = owner.get("/recordings/panel").text
+    assert re.search(r'data-clock data-at="3[01]"', panel) and 'data-all="500"' in panel  # s1 200 s + s2 300 s

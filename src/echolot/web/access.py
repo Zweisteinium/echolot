@@ -36,6 +36,8 @@ UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for their own
     ("GET", "/"),
     ("GET", "/stats"),
+    ("GET", "/library"),
+    ("GET", "/account/tokens"),
     ("GET", "/playlists"),
     ("GET", "/account"),
     ("POST", "/account/tokens"),
@@ -68,6 +70,7 @@ USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for th
 }
 PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
     ("GET", "/review"): "review",
+    ("GET", "/review/badge"): "review",
     ("GET", "/review/{event_id}/audio"): "review",
     ("POST", "/review/{event_id}"): "review",
     ("POST", "/review/{event_id}/discard-all"): "review",
@@ -81,6 +84,7 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permiss
     ("POST", "/jobs/mine"): "run",
     ("GET", "/recorders/connect"): "upload",  # recording puts files into the library (web/recorders)
     ("POST", "/recorders/connect"): "upload",
+    ("GET", "/account/recorders"): "upload",
     ("POST", "/recorders/{recorder_id}/rename"): "upload",
     ("POST", "/recorders/{recorder_id}/disconnect"): "upload",
     ("GET", "/recordings/new"): "upload",

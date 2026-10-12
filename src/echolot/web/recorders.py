@@ -78,8 +78,8 @@ def device_rename(request: Request, con: DB, recorder_id: int, name: Annotated[s
     try:
         recording.rename(con, request.state.user.id, recorder_id, name)
     except recording.RecordingError as e:
-        return back("/account#recorders", error=str(e))
-    return back("/account#recorders", ok="Device renamed.")
+        return back("/account/recorders", error=str(e))
+    return back("/account/recorders", ok="Device renamed.")
 
 
 @router.post("/recorders/{recorder_id}/disconnect")
@@ -87,9 +87,9 @@ def device_disconnect(request: Request, con: DB, recorder_id: int) -> RedirectRe
     try:
         recording.device(con, request.state.user.id, recorder_id)
     except recording.RecordingError as e:
-        return back("/account#recorders", error=str(e))
+        return back("/account/recorders", error=str(e))
     recording.disconnect(con, recorder_id)
-    return back("/account#recorders", ok="Device disconnected: it can no longer record for you.")
+    return back("/account/recorders", ok="Device disconnected: it can no longer record for you.")
 
 
 # ---------------------------------------------------------------- recording (browser)
@@ -120,7 +120,7 @@ def record_start(
     list_key: Annotated[str, Form(alias="list")] = "",
 ) -> Response:
     user = request.state.user
-    where = f"/lists/{list_key}" if list_key else "/stats"
+    where = f"/lists/{list_key}" if list_key else "/library"
     try:
         recording.start(con, user.id, recorder, list_key or None, below)
     except recording.RecordingError as e:
@@ -153,7 +153,8 @@ def _panel(request: Request, con: sqlite3.Connection, list_key: str | None) -> H
     device = None
     if s:
         device = next((d for d in recording.devices(con, request.state.user.id) if d["id"] == s["recorder_id"]), None)
-    return page(request, "_recording.html", session=session, device=device, list_key=list_key or "")
+    clock = recording.clock(device) if device else None
+    return page(request, "_recording.html", session=session, device=device, clock=clock, list_key=list_key or "")
 
 
 def panel_context(con: sqlite3.Connection, user: auth.User, list_key: str | None) -> dict[str, Any]:
@@ -300,7 +301,7 @@ def _check_and_file(
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
             return "not_better", copy.why
-        lines = upload.import_files(con, paths, request.app.state.vault, batch, {f.n: song["key"]})
+        lines = upload.import_files(con, paths, request.app.state.vault, batch, {f.n: song["key"]}, source="mitschnitt")
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
             return "rejected", line
