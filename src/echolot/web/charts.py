@@ -1,6 +1,7 @@
 """The overview's charts, server-rendered SVG: the quality ring and the library's growth (a few lines of
 JavaScript only show the value under the pointer)."""
 
+import itertools
 import json
 import math
 from collections.abc import Callable
@@ -60,7 +61,8 @@ class Tick:
 class Growth:
     line: str  # SVG path in the W x H box
     rebuilt: str  # the part rebuilt from the events (dashed)
-    area: str
+    area: str  # under each stretch of the line (not under a gap)
+    gaps: str  # dotted across the gaps (Echolot was off), from the point before to the one after
     values: list[Tick]
     dates: list[Tick]
     end: tuple[float, float]  # the last point, percent from the left and the top
@@ -97,7 +99,11 @@ def growth(
 ) -> Growth | None:
     """A metric over time ((UTC ts, value), oldest first) as a line over an area from 0; at most `most`
     points (the last of each stretch of time); `value` formats a value, `axis` an axis label. Points before
-    `rebuilt_until` were rebuilt from the events. None for fewer than two points."""
+    `rebuilt_until` were rebuilt from the events. A count of 0 before the first that is not, measured (not
+    rebuilt), is none: taken before the library was first read. Where GAP passed without a point, the line
+    and its area break, and a dotted line bridges it. None for fewer than two points."""
+    while len(points) > 1 and points[0][1] == 0 and points[1][1] != 0 and not points[0][0] < (rebuilt_until or ""):
+        points = points[1:]
     if len(points) < 2:
         return None
     when = [datetime.fromisoformat(ts).astimezone() for ts, _ in points]  # local time
@@ -120,16 +126,31 @@ def growth(
             prev = i
         return "".join(out)
 
+    runs: list[list[int]] = []  # the stretches without a gap
+    for i in keep:
+        if runs and when[i] - when[runs[-1][-1]] <= GAP:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+
+    def under(run: list[int]) -> str:
+        return f"{path(run)}L{xy(run[-1])[0]:.1f},{H}L{xy(run[0])[0]:.1f},{H}Z"
+
+    def bridge(a: int, b: int) -> str:
+        (x0, y0), (x1, y1) = xy(a), xy(b)
+        return f"M{x0:.1f},{y0:.1f}L{x1:.1f},{y1:.1f}"
+
     old = [i for i in keep if rebuilt_until and points[i][0] < rebuilt_until]
     real = [i for i in keep if i not in old]
-    first, last = xy(keep[0]), xy(keep[-1])
+    last = xy(keep[-1])
     week_ago = next((points[i][1] for i in reversed(keep) if when[i] <= t1 - timedelta(days=7)), points[0][1])
     hour = span <= 2 * 86400
     dates = [t0 + timedelta(seconds=span * k / 4) for k in range(5)]
     return Growth(
         line=path(old[-1:] + real),
         rebuilt=path(old + real[:1]) if old else "",  # (nothing rebuilt: no dashed part, no note)
-        area=f"{path(keep)}L{last[0]:.1f},{H}L{first[0]:.1f},{H}Z",
+        area="".join(under(r) for r in runs if len(r) > 1),
+        gaps="".join(bridge(a[-1], b[0]) for a, b in itertools.pairwise(runs)),
         values=[Tick(100 - 100 * k * step / top, axis(k * step)) for k in range(round(top / step) + 1)],
         dates=[Tick(25 * k, f"{d:%H:%M}" if hour else f"{d.day} {d:%b}") for k, d in enumerate(dates)],
         end=(100 * last[0] / W, 100 * last[1] / H),

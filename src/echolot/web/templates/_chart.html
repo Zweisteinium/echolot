@@ -20,7 +20,7 @@
 
 
 {# the library's growth (charts.growth): a line over an area, stretched to its frame; labels, the last point and
-   the pointer's value are HTML on top (they keep their shape); the rebuilt start is dashed #}
+   the pointer's value are HTML on top (they keep their shape); the rebuilt start is dashed, a gap dotted #}
 {% macro growth_chart(g, name, caption) -%}
 <figure class="growth" data-growth data-points="{{ g.points }}">
   <div class="plot">
@@ -34,6 +34,7 @@
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
       <path class="area" d="{{ g.area }}" fill="url(#{{ name }}-fill)"></path>
       {% if g.rebuilt %}<path class="line rebuilt" d="{{ g.rebuilt }}"></path>{% endif %}
+      {% if g.gaps %}<path class="line gap" d="{{ g.gaps }}"></path>{% endif %}
       <path class="line" d="{{ g.line }}" stroke="url(#{{ name }}-line)"></path>
     </svg>
     <span class="end" style="left: {{ g.end[0] }}%; top: {{ g.end[1] }}%" aria-hidden="true"></span>
@@ -42,6 +43,7 @@
   </div>
   <div class="dates" aria-hidden="true">{% for t in g.dates %}<span style="left: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}</div>
   {% if g.rebuilt %}<p class="rebuilt-note"><span class="dash" aria-hidden="true"></span>rebuilt from the activity log</p>{% endif %}
+  {% if g.gaps %}<p class="rebuilt-note"><span class="dash dots" aria-hidden="true"></span>no figures: Echolot was off</p>{% endif %}
   <figcaption class="sr-only">{{ caption }}</figcaption>
 </figure>
 {%- endmacro %}

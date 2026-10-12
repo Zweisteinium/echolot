@@ -461,6 +461,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth .fill-bottom { stop-color: var(--chart-b); stop-opacity: 0; }
 .growth .line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .growth .line.rebuilt { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 3 5; opacity: 0.75; }
+.growth .line.gap { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 0.5 6; opacity: 0.7; }
 .growth .line-a { stop-color: var(--chart-a); } .growth .line-b { stop-color: var(--chart-b); } .growth .line-c { stop-color: var(--chart-c); }
 .growth .y { position: absolute; left: 0; width: 3rem; text-align: right; transform: translateY(-50%); font-size: 0.72rem;
   color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -480,6 +481,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .rebuilt-note { margin: 0.35rem 0 0 3.6rem; font-size: 0.72rem; color: var(--muted); }
 .rebuilt-note .dash { display: inline-block; width: 1.4rem; margin-right: 0.45rem; vertical-align: middle;
   border-top: 2px dashed color-mix(in srgb, var(--muted) 75%, transparent); }
+.rebuilt-note .dash.dots { border-top-style: dotted; }
 .growth .dates span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .growth .dates span:first-child { transform: none; }
 .growth .dates span:last-child { transform: translateX(-100%); }
