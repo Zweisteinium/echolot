@@ -34,6 +34,9 @@ cannot find yet, it tells you, and why.
   taken down, greyed out, re-uploaded).
 - **Search.** Find a single song in Deezer, Apple Music and SoundCloud at once, hear a preview, and get
   it: it lands in your playlist "Echolot · Wished". Paste a playlist link to follow it.
+- **Recording.** With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your Windows PC, press
+  Record on a Spotify list: Mitschnitt plays the songs Echolot lacks in lossless, records each bit-exact and
+  puts it straight into your library. Connect it under Account; a device is only ever its owner's.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
 
 ## What it doesn't do
