@@ -7,8 +7,11 @@ trades the code for its token (exchange). What to record is a user's Spotify son
 than a tier (BELOW), worst first, each recording once, without what Spotify plays nowhere, what played as
 another song lately (SKIP_DAYS) or what Spotify has nothing better of (block: its stream is lossy, or no better
 than the library's copy; for good, while Spotify plays the song as that track); a session's songs are fixed
-when it starts, one that got better meanwhile is skipped when its turn comes (found). A song handed out is the
-device's until its lease ends (its length and LEASE_SLACK), then it is queued again once (TRIES).
+when it starts, one that got better meanwhile is skipped when its turn comes (found); a song whose start
+failed goes to the end of the queue, and to the end of the next session within TROUBLE_HOURS. A song handed
+out is the device's until its lease ends (its length and LEASE_SLACK), then it is queued again once (TRIES);
+a device that restarts (fresh) or a session stopped releases it at once, without costing it a try. One
+session runs on a device at a time: a new one stops the old.
 """
 
 import base64
@@ -53,6 +56,10 @@ UPLOADED = ("filed", "not_better", "rejected")  # what Echolot made of a recordi
 AGAIN = ("stalled", "failed")  # the device could not record it: queued again until TRIES
 TOKEN = "echolot_rec_"
 EXPIRED = "no answer from the device"  # an item's detail once its lease ran out
+STOPPED = "its session was stopped while it was recorded"
+RELEASED = "the device restarted while it was recorded"
+LATE = (EXPIRED, STOPPED, RELEASED)  # queued again so: the device's late answer for it still counts (open_for)
+TROUBLE_HOURS = 24  # a song whose start failed this lately comes after the others in a new session
 
 
 class RecordingError(ValueError):
@@ -308,11 +315,18 @@ def start(con: sqlite3.Connection, user_id: int, recorder_id: int, list_key: str
     if below not in BELOW:
         raise RecordingError("Choose what to record.")
     device(con, user_id, recorder_id)
-    if active(con, recorder_id):
-        raise RecordingError("That device is recording already: stop its session first.")
     tracks = select(candidates(con, user_id, list_key), below)
     if not tracks:
         raise RecordingError("Nothing to record: every song is there in that quality.")
+    if old := active(con, recorder_id):  # one session per device: the new one replaces it
+        control(con, old["id"], "stop")
+    since = _stamp(-timedelta(hours=TROUBLE_HOURS))
+    failed = (  # songs whose start failed lately: a try counted, not done
+        "SELECT i.song_key FROM recording_items i JOIN recordings r ON r.id = i.recording_id WHERE r.user_id = ? "
+        "AND r.created >= ? AND (i.result = 'failed' OR (i.state = 'queued' AND i.tries > 0))"
+    )
+    trouble = {r[0] for r in con.execute(failed, (user_id, since))}
+    tracks.sort(key=lambda t: t.key in trouble)  # (stable: worst first otherwise)
     name = "All Spotify lists"
     if list_key:
         row = con.execute("SELECT title FROM lists WHERE key = ?", (list_key,)).fetchone()
@@ -355,10 +369,14 @@ def latest(con: sqlite3.Connection, user_id: int, list_key: str | None = None, h
 
 
 def control(con: sqlite3.Connection, session_id: int, action: str, reason: str = "by_user") -> None:
-    """Pause, resume or stop a session (a song being recorded may still come in), or dismiss an ended one."""
+    """Pause, resume or stop a session, or dismiss an ended one. Stopping releases the song being recorded (queued,
+    no try counted); its upload still comes in (open_for)."""
     s = con.execute("SELECT * FROM recordings WHERE id = ?", (session_id,)).fetchone()
     if s is None:
         raise RecordingError("No such session.")
+    if action == "stop" and s["state"] in ("running", "paused"):
+        leased = "SELECT id FROM recording_items WHERE recording_id = ? AND state = 'recording'"
+        _release(con, [r[0] for r in con.execute(leased, (session_id,))], STOPPED)
     with con:
         if action == "pause" and s["state"] == "running":
             con.execute("UPDATE recordings SET state = 'paused', reason = ? WHERE id = ?", (reason, session_id))
@@ -498,10 +516,35 @@ def item_of(con: sqlite3.Connection, recorder_id: int, item_id: int) -> sqlite3.
 
 
 def open_for(item: sqlite3.Row) -> bool:
-    """Whether the device may still answer for an item: handed to it, or its lease ran out and it was neither
-    handed out again nor answered for since (an upload retried for a while still comes in)."""
-    late = item["detail"] == EXPIRED and (item["state"] == "queued" or item["result"] == "failed")
+    """Whether the device may still answer for an item: handed to it, or let go of (LATE: its lease ran out, its
+    session was stopped, the device restarted) and neither handed out again nor answered for since (an upload
+    retried for a while, or after a restart, still comes in)."""
+    late = item["detail"] in LATE and (item["state"] == "queued" or item["result"] == "failed")
     return item["state"] == "recording" or late
+
+
+def fresh(con: sqlite3.Connection, recorder_id: int) -> int:
+    """The device (re)started: whatever it was recording is released (queued, no try counted). How many."""
+    sql = (
+        "SELECT i.id FROM recording_items i JOIN recordings r ON r.id = i.recording_id "
+        "WHERE r.recorder_id = ? AND i.state = 'recording'"
+    )
+    ids = [r[0] for r in con.execute(sql, (recorder_id,))]
+    _release(con, ids, RELEASED)
+    return len(ids)
+
+
+def _release(con: sqlite3.Connection, item_ids: list[int], why: str) -> None:
+    """Items handed out, queued again as they were (the try they were handed out for does not count)."""
+    if not item_ids:
+        return
+    marks = ", ".join("?" * len(item_ids))
+    sql = (
+        "UPDATE recording_items SET state = 'queued', tries = max(tries - 1, 0), lease_until = NULL, detail = ? "
+        f"WHERE id IN ({marks}) AND state = 'recording'"
+    )
+    with con:
+        con.execute(sql, (why, *item_ids))
 
 
 def answer(
@@ -538,13 +581,19 @@ def answer(
 
 
 def _again(con: sqlite3.Connection, item_id: int, detail: str) -> None:
-    row = con.execute("SELECT tries FROM recording_items WHERE id = ?", (item_id,)).fetchone()
+    """A song that failed: failed once it was tried TRIES times, else queued again at the end of its session (it
+    does not hold up the others)."""
+    row = con.execute("SELECT tries, recording_id FROM recording_items WHERE id = ?", (item_id,)).fetchone()
     if row["tries"] >= TRIES:
         _finish(con, item_id, "failed", detail)
     else:
+        last = "SELECT max(position) + 1 FROM recording_items WHERE recording_id = ?"
+        end = con.execute(last, (row["recording_id"],)).fetchone()[0]
         with con:
-            sql = "UPDATE recording_items SET state = 'queued', lease_until = NULL, detail = ? WHERE id = ?"
-            con.execute(sql, (detail[:300], item_id))
+            sql = (
+                "UPDATE recording_items SET state = 'queued', lease_until = NULL, detail = ?, position = ? WHERE id = ?"
+            )
+            con.execute(sql, (detail[:300], end, item_id))
 
 
 def _finish(con: sqlite3.Connection, item_id: int, result: str, detail: str) -> None:

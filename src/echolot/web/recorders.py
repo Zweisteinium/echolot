@@ -128,10 +128,12 @@ def record_start(
     user = request.state.user
     where = f"/lists/{list_key}" if list_key else "/library"
     try:
+        old = recording.active(con, recording.device(con, user.id, recorder)["id"])
         recording.start(con, user.id, recorder, list_key or None, below)
     except recording.RecordingError as e:
         return back(where, error=str(e))
-    return back(where, ok="Recording: your device starts as soon as Spotify is free.")
+    stopped = f" Its previous session ({old['title']}) was stopped." if old else ""
+    return back(where, ok=f"Recording: your device starts as soon as Spotify is free.{stopped}")
 
 
 @router.post("/songs/{key:path}/spotify-again", response_class=HTMLResponse)
@@ -234,6 +236,7 @@ class Poll(BaseModel):
     spotify: str = ""
     app: str = ""
     item: int | None = None  # recording: the item (the session knows it)
+    fresh: bool = False  # the first poll after the device (re)started: what it was recording is released
 
 
 @api.post("/poll")
@@ -242,6 +245,12 @@ async def api_poll(request: Request, device: Device, body: Poll, wait: float = 2
     once, or within `wait` seconds), else none."""
     path, rid = request.app.state.settings.db_path, device["id"]
     wait = min(max(wait, 0), MAX_WAIT)
+    if body.fresh:  # (once, before the long poll)
+        con = db.connect(path)
+        try:
+            recording.fresh(con, rid)
+        finally:
+            con.close()
 
     def look() -> tuple[dict | None, dict | None]:
         con = db.connect(path)

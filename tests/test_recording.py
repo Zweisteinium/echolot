@@ -111,8 +111,6 @@ def test_a_session_song_by_song(app: FastAPI, login: Callable[..., TestClient]) 
     rid = 1
     r = owner.post("/recordings", data={"recorder": rid, "below": "lossless", "list": "spotify:likes:1"})
     assert r.status_code == 200 and "Recording: your device starts" in r.text
-    again = owner.post("/recordings", data={"recorder": rid, "below": "lossless"}, follow_redirects=False)
-    assert "recording+already" in again.headers["location"]
 
     assert poll(device, "busy")["item"] is None  # the user plays Spotify: nothing for it
     first = poll(device)
@@ -356,3 +354,101 @@ def test_closing_a_sessions_summary_closes_it(app: FastAPI, login: Callable[...,
     assert "Close" in panel and "hx-get=" not in panel.split("<section", 1)[1].split(">", 1)[0]
     after = owner.post(f"/recordings/{sid}/dismiss").text
     assert 'id="recording" hidden' in after  # not the older one
+
+
+@pytest.fixture
+def files_in(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Uploads pass the checks and are filed (the keys filed, in turn)."""
+    filed: list[str] = []
+    monkeypatch.setattr(
+        upload,
+        "add",
+        lambda paths, batch, name, fileobj, keep_hires=False: upload.File(
+            1, name, Path("/x/r.flac"), 200, 900, "lossless"
+        ),
+    )
+    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(upload, "compare", lambda paths, f, song: None)
+
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+        filed.extend(chosen.values())
+        return [(f"{k}: filed as x", k) for k in chosen.values()]
+
+    monkeypatch.setattr(upload, "import_files", import_files)
+    return filed
+
+
+def item_row(app: FastAPI, item_id: int) -> tuple:
+    con = db.connect(app.state.settings.db_path)
+    row = con.execute(
+        "SELECT state, tries, detail, lease_until FROM recording_items WHERE id = ?", (item_id,)
+    ).fetchone()
+    con.close()
+    return tuple(row)
+
+
+def test_a_restart_or_a_stop_releases_the_song(
+    app: FastAPI, login: Callable[..., TestClient], files_in: list[str]
+) -> None:
+    """The device's first poll after a (re)start (fresh) or a stopped session releases the song being recorded:
+    queued again, no try counted; its upload still comes in (a recording saved before the crash)."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    item = poll(device)["item"]
+    r = device.post("/api/recorder/poll?wait=0", json={"state": "busy", "fresh": True})
+    assert r.json()["item"] is None and item_row(app, item["id"])[:3] == ("queued", 0, recording.RELEASED)
+    up = device.post(f"/api/recorder/items/{item['id']}/file", files={"file": ("r.flac", b"fLaC", "audio/flac")})
+    assert up.json()["result"] == "filed" and files_in == [item["key"]]  # the sidecar's upload after the restart
+    again = poll(device)["item"]
+    assert again["key"] != item["key"]
+    owner.post(f"/recordings/{1}/stop")  # stopped while recording: released, still uploadable
+    assert item_row(app, again["id"])[:3] == ("queued", 0, recording.STOPPED)
+    late = device.post(f"/api/recorder/items/{again['id']}/file", files={"file": ("r.flac", b"fLaC", "audio/flac")})
+    assert late.json()["result"] == "filed" and late.json()["session"]["state"] == "stopped"
+    assert (
+        device.post(f"/api/recorder/items/{again['id']}/file", files={"file": ("r.flac", b"x", "audio/flac")}).json()[
+            "result"
+        ]
+        == "filed"
+    )
+
+
+def test_a_new_request_stops_the_old_session(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """One session per device: a new request stops the running one (its song released) and says so."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    assert "recording (stops that session)" not in owner.get("/recordings/new").text
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    item = poll(device)["item"]
+    assert "recording (stops that session)" in owner.get("/recordings/new").text
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, follow_redirects=False)
+    assert "previous+session" in r.headers["location"] and "stopped" in r.headers["location"]
+    con = db.connect(app.state.settings.db_path)
+    states = [tuple(x) for x in con.execute("SELECT id, state FROM recordings ORDER BY id")]
+    con.close()
+    assert states == [(1, "stopped"), (2, "running")] and item_row(app, item["id"])[:2] == ("queued", 0)
+    assert poll(device)["session"]["id"] == 2
+
+
+def test_a_song_that_fails_to_start_goes_to_the_end(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """A song whose start fails is queued at the end of its session (the others go first), failed after TRIES; a
+    new session within a day starts it after the others."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    first = poll(device)["item"]
+    device.post(
+        f"/api/recorder/items/{first['id']}/result", json={"result": "stalled", "detail": "No silence before the track"}
+    )
+    second = poll(device)["item"]
+    assert second["key"] != first["key"]  # not the same song again
+    device.post(f"/api/recorder/items/{second['id']}/result", json={"result": "took_over"})  # (no try, keeps its place)
+    device.post("/api/recorder/session", json={"action": "resume"})
+    assert poll(device)["item"]["key"] == second["key"]
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, follow_redirects=False)
+    assert r.status_code == 303
+    con = db.connect(app.state.settings.db_path)
+    order = [x[0] for x in con.execute("SELECT song_key FROM recording_items WHERE recording_id = 2 ORDER BY position")]
+    con.close()
+    assert order == [second["key"], first["key"]]  # the one that failed to start: last

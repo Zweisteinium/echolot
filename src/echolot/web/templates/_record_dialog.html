@@ -24,7 +24,7 @@
   <div class="record-where">
     <label>Device
       <select name="recorder" required>
-        {% for d in devices %}<option value="{{ d.id }}"{{ ' disabled' if d.session }}>{{ d.name }} · {{ 'recording' if d.session else 'online' if d.online else 'offline' }}</option>{% endfor %}
+        {% for d in devices %}<option value="{{ d.id }}">{{ d.name }} · {{ 'recording (stops that session)' if d.session else 'online' if d.online else 'offline' }}</option>{% endfor %}
       </select>
     </label>
   </div>
@@ -34,6 +34,6 @@
   <div class="dialog-actions">
     {% if not nothing %}<a class="small record-file" data-export="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}" href="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}below=lossless" title="For Mitschnitt without a connection: Import queue">{{ icon('download', 15) }} As a file</a>{% endif %}
     <button type="button" data-close>Cancel</button>
-    <button class="primary"{{ ' disabled' if nothing or not devices or devices|rejectattr('session')|list|length == 0 }}>Record</button>
+    <button class="primary"{{ ' disabled' if nothing or not devices }}>Record</button>
   </div>
 </form>
