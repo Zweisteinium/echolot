@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from sqlite3 import Connection, Row
 from typing import Any
 
+from echolot import db
 from echolot.jobs import acquire
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
 from echolot.library import catalog, filing, recordings
@@ -145,7 +146,8 @@ def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:
 
 def list_songs(con: Connection, key: str) -> list[Row]:
     return con.execute(
-        "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, s.isrc, "
+        "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
+        f"{db.play_url()} AS url, s.isrc, "
         "s.file, f.quality, f.kbps FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
         "LEFT JOIN files f ON f.path = s.file WHERE ls.list_key = ? ORDER BY ls.position",
         (key,),
@@ -191,7 +193,7 @@ def missing(
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
     rows = con.execute(
-        "SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, s.url, s.isrc, "
+        f"SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, {db.play_url()} AS url, s.isrc, "
         "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
         "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
         " FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key "
@@ -242,7 +244,7 @@ def close_matches(con: Connection, uid: int | None = None) -> list[Row]:
     """Wanted songs (a user's, or everyone's) covered by a close match: another version, taken in review."""
     mine, args = _mine(uid)
     return con.execute(
-        "SELECT key, service, artist, title, length, url, file, f.duration FROM wanted s "
+        f"SELECT key, service, artist, title, length, {db.play_url()} AS url, file, f.duration FROM wanted s "
         f"JOIN files f ON f.path = s.file WHERE s.close_match AND {mine} "
         "ORDER BY artist COLLATE NOCASE, title COLLATE NOCASE",
         args,
@@ -307,7 +309,7 @@ def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None 
         where = f"({where} OR (e.action = 'retired' AND e.song IS NULL))"
     if actions:
         where += f" AND e.action IN ({', '.join('?' * len(actions))})"
-    sql = f"SELECT e.*, s.url AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song WHERE {where} "
+    sql = f"SELECT e.*, {db.play_url()} AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song WHERE {where} "
     rows = con.execute(f"{sql} ORDER BY e.id DESC LIMIT ?", (*args, *(actions or ()), 2 * limit)).fetchall()
     replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(UPGRADED)}
     partners = {e["id"]: was for e in rows if e["action"] == "upgrade" and (was := _replaced(e, replaced))}
@@ -443,7 +445,7 @@ def changes(con: Connection, uid: int | None = None, kind: str = "", limit: int 
         where += f" AND c.change IN ({', '.join('?' * len(kinds))})"
         args = (*args, *kinds)
     return con.execute(
-        "SELECT c.*, s.artist, s.title, s.service, s.url, s.file, l.title AS list_title, "
+        f"SELECT c.*, s.artist, s.title, s.service, {db.play_url()} AS url, s.file, l.title AS list_title, "
         "r.artist AS new_artist, r.title AS new_title FROM changes c LEFT JOIN songs s ON s.key = c.song_key "
         "LEFT JOIN lists l ON l.key = c.list_key "
         "LEFT JOIN songs r ON r.key = c.detail AND c.change IN ('replaced', 're-uploaded') "

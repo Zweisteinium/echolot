@@ -351,5 +351,12 @@ class Spotify:
         url = f"/search?q={urllib.parse.quote(q)}&type=track&limit={limit}"
         return (self.get(url).get("tracks") or {}).get("items") or []
 
+    def by_isrc(self, isrc: str, market: str) -> dict[str, Any] | None:
+        """A release of the recording `isrc` that plays in `market`, if Spotify has one."""
+        url = f"/search?q={urllib.parse.quote(f'isrc:{isrc}')}&type=track&limit=10&market={market}"
+        items = (self.get(url).get("tracks") or {}).get("items") or []
+        same = (t for t in items if ((t.get("external_ids") or {}).get("isrc") or "").upper() == isrc.upper())
+        return next((t for t in same if t.get("is_playable") is not False), None)
+
     def artist_image(self, artist_id: str) -> str | None:
         return ((self.get(f"/artists/{artist_id}").get("images") or [{}])[0] or {}).get("url")

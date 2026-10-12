@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V26_SONGS = "ALTER TABLE songs DROP COLUMN artist_alias; "  # schema 26
+V28 = "ALTER TABLE availability DROP COLUMN searched; "  # schema 28
+V26_SONGS = "ALTER TABLE songs DROP COLUMN artist_alias; " + V28  # schema 26
 V22_SONGS += "ALTER TABLE lists DROP COLUMN creator; " + V26_SONGS  # schema 23
 
 
@@ -43,6 +44,7 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     assert con.execute("PRAGMA user_version").fetchone()[0] == db.VERSION
     assert {"close_match", "released", "track", "tracks", "disc", "artist_alias"} <= columns(con, "songs")
     assert {"name", "user_id"} <= columns(con, "review_decisions")
+    assert "searched" in columns(con, "availability")
     assert {"url", "compared", "peer_bytes"} <= columns(con, "events")
     assert {"songs_file", "songs_stem"} <= {r[1] for r in con.execute("PRAGMA index_list(songs)")}
     plan = " ".join(
@@ -83,7 +85,7 @@ def test_the_local_accounts_go(tmp_path: Path) -> None:
         "INSERT INTO users (id, name, password, created, source, admin) VALUES (2, 'david', '', '2026-10-02', 'navidrome', 1); "
         "INSERT INTO sessions VALUES ('s1', 1, 'c', 'now', '2099-01-01', 'now'), ('s2', 2, 'c', 'now', '2099-01-01', 'now'); "
         "ALTER TABLE review_decisions DROP COLUMN user_id; ALTER TABLE review_decisions DROP COLUMN overridden; "
-        f"DROP TABLE availability; DROP TABLE changes; {V22_SONGS} PRAGMA user_version = 17;"
+        f"{V22_SONGS} DROP TABLE availability; DROP TABLE changes; PRAGMA user_version = 17;"
     )
     con.close()
     db.init(path)
@@ -116,8 +118,8 @@ def test_the_history_becomes_the_owners(tmp_path: Path) -> None:
         "INSERT INTO sources (user_id, key, service, url, position, added) VALUES (7, 'k', 'spotify', 'u', 0, 'x'); "
         "INSERT INTO snapshots VALUES ('t1', 'songs_wanted', 'spotify', 10), ('t1', 'songs_wanted', 'soundcloud', 5), "
         "('t1', 'songs_by_quality', 'lossless', 8); "
-        "ALTER TABLE review_decisions DROP COLUMN overridden; DROP TABLE availability; DROP TABLE changes; "
-        f"{V22_SONGS} PRAGMA user_version = 19;"
+        f"ALTER TABLE review_decisions DROP COLUMN overridden; {V22_SONGS} DROP TABLE availability; "
+        "DROP TABLE changes; PRAGMA user_version = 19;"
     )
     con.close()
     db.init(path)

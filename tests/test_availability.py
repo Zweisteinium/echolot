@@ -4,6 +4,7 @@ read, the daily check of every song's state at Spotify and SoundCloud, the Chang
 import datetime
 import threading
 from collections.abc import Callable
+from typing import ClassVar
 
 import pytest
 from fastapi.testclient import TestClient
@@ -59,10 +60,18 @@ def test_a_lists_songs_coming_and_going(settings: Settings) -> None:
 
 class FakeSpotify:
     """s1 plays, s2 is taken down (no market has it), s3 does not play here (others have it), s9 is gone,
-    s7 plays as another release (relinked)."""
+    s7 plays as another release (relinked). A search by ISRC finds the releases in `releases` (ISRC -> id)."""
+
+    releases: ClassVar[dict[str, str]] = {}
+    searched: ClassVar[list[str]] = []
+    unplayable: ClassVar[set[str]] = set()
 
     def __init__(self, con, vault, user_id=None) -> None:
         pass
+
+    def by_isrc(self, isrc: str, market: str) -> dict | None:
+        self.searched.append(isrc)
+        return {"id": self.releases[isrc]} if isrc in self.releases else None
 
     def get(self, url: str) -> dict:
         ids = url.split("ids=")[1].split("&")[0].split(",")
@@ -74,7 +83,10 @@ class FakeSpotify:
             elif sid in ("s2", "s3") and with_market:
                 out.append({"id": sid, "is_playable": False, "restrictions": {"reason": "market"}})
             elif sid in ("s2", "s3"):
-                out.append({"id": sid, "available_markets": [] if sid == "s2" else ["US"]})
+                isrc = {"isrc": f"ISRC{sid[1]}"}
+                out.append({"id": sid, "available_markets": [] if sid == "s2" else ["US"], "external_ids": isrc})
+            elif sid in self.unplayable:
+                out.append({"id": sid, "is_playable": False})
             elif sid == "s7" and with_market:
                 out.append({"id": "s7b", "is_playable": True, "linked_from": {"id": "s7"}})
             elif sid == "s7":  # the release in the list
@@ -90,6 +102,9 @@ class FakeSpotify:
 @pytest.fixture
 def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     monkeypatch.setattr(spotify, "Spotify", FakeSpotify)
+    monkeypatch.setattr(FakeSpotify, "releases", {})
+    monkeypatch.setattr(FakeSpotify, "searched", [])
+    monkeypatch.setattr(FakeSpotify, "unplayable", set())
     monkeypatch.setattr(sc_api, "any_token", lambda con, vault: "token")
     found = {"1001": {"id": 1001, "policy": "MONETIZE"}}  # 1002 is gone
     monkeypatch.setattr(sc_api, "tracks", lambda token, ids: [found[i] for i in ids if i in found])
@@ -134,6 +149,49 @@ def test_the_daily_check(run: Run) -> None:
     con.close()
 
 
+def test_another_release_by_its_isrc(run: Run, login: Callable[..., TestClient]) -> None:
+    """A song that plays nowhere as its own release plays as another one with its ISRC, which Spotify does not
+    relink it to: that one's track is checked again each day, and looked for anew only after a week (or when it
+    plays no more). Song links open the release that plays: a relinked song's own link starts its album by
+    position, and a greyed-out track before it shifts that."""
+    FakeSpotify.releases["ISRC2"] = "s2c"
+    con = run.connect()
+    with con:  # s2 and s7 (relinked) on the playlist
+        con.execute(
+            "INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:s7', 'spotify', 'A', 'B', 1)"
+        )
+        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 8, 'spotify:s2')")
+        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')")
+    con.close()
+    assert "1 blocked, 1 gone, 2 replaced; 0 changes" in availability.check(run)
+    assert FakeSpotify.searched == ["ISRC2", "ISRC3"]
+    con = run.connect()
+    rows = {
+        r[0]: tuple(r[1:])
+        for r in con.execute("SELECT song_key, state, detail, searched IS NOT NULL FROM availability")
+    }
+    assert rows["spotify:s2"] == ("replaced", "spotify:s2c", 1) and rows["spotify:s3"] == ("blocked", None, 1)
+    assert rows["spotify:s7"] == ("replaced", "spotify:s7b", 0)  # relinked: nothing looked for
+    assert con.execute("SELECT unavailable FROM songs WHERE key = 'spotify:s2'").fetchone()[0] is None  # it plays
+    con.close()
+    availability.check(run)  # the next day: s2c checked, nothing looked for
+    assert FakeSpotify.searched == ["ISRC2", "ISRC3"]
+    FakeSpotify.unplayable.add("s2c")  # s2c plays no more: looked for anew, found nowhere
+    FakeSpotify.releases.clear()
+    availability.check(run)
+    assert FakeSpotify.searched == ["ISRC2", "ISRC3", "ISRC2"]
+    con = run.connect()
+    assert con.execute("SELECT state FROM availability WHERE song_key = 'spotify:s2'").fetchone()[0] == "taken_down"
+    with con:  # a week later: looked for again
+        con.execute("UPDATE availability SET searched = '2000-01-01T00:00:00'")
+    con.close()
+    availability.check(run)
+    assert FakeSpotify.searched[3:] == ["ISRC2", "ISRC3"]
+    page = login(create_app(run.settings)).get("/lists/spotify:playlist:AAA111").text
+    assert 'href="https://open.spotify.com/track/s7b" data-app="spotify:track:s7b"' in page  # the relinked release
+    assert 'data-app="spotify:track:s2"' in page  # plays nowhere: its own
+
+
 def test_the_changes_page(settings: Settings, login: Callable[..., TestClient]) -> None:
     """A user sees their songs' changes and their lists'; the owner's other songs not."""
     app = create_app(settings)
@@ -142,8 +200,9 @@ def test_the_changes_page(settings: Settings, login: Callable[..., TestClient]) 
     sources.add_list(con, uid, "https://open.spotify.com/playlist/AAA111")
     change = "INSERT INTO changes (ts, song_key, list_key, change) VALUES (?, ?, ?, ?)"
     with con:
-        con.execute("INSERT INTO availability VALUES ('spotify:s3', 'taken_down', '2026-10-01', 'x', NULL)")
-        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'blocked', '', 'x', NULL)")  # first check
+        state = "INSERT INTO availability (song_key, state, since, checked) VALUES (?, ?, ?, 'x')"
+        con.execute(state, ("spotify:s3", "taken_down", "2026-10-01"))
+        con.execute(state, ("spotify:s1", "blocked", ""))  # first check
         con.execute(change, ("2026-10-01T00:00:00", "spotify:s3", "spotify:likes:1", "taken_down"))
         con.execute(change, ("2026-10-02T00:00:00", "spotify:s2", "spotify:playlist:AAA111", "removed"))
     con.close()

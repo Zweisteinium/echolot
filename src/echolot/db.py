@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 28
+VERSION = 29
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -125,7 +125,9 @@ CREATE TABLE availability (         -- whether a song still plays at its source,
                                     -- gone (exists no more), preview (SoundCloud: 30 s without Go+), replaced
     since TEXT NOT NULL,            -- date it came to this state; '' when it was so at its first check
     checked TEXT NOT NULL,
-    detail TEXT                     -- replaced: the song key of the release it plays as now
+    detail TEXT,                    -- replaced: the song key of the release it plays as now
+    searched TEXT                   -- Spotify, one that plays nowhere here: when another release of its recording
+                                    -- was last looked for (by its ISRC; Spotify relinks only some)
 );
 CREATE TABLE changes (              -- what happened to the songs and lists of everyone (jobs/availability)
     id INTEGER PRIMARY KEY,
@@ -321,7 +323,19 @@ MIGRATIONS = {
         "CASCADE, song_id TEXT NOT NULL REFERENCES discover_songs(id) ON DELETE CASCADE, liked TEXT NOT NULL, "
         "PRIMARY KEY (user_id, song_id))",
     ],
+    29: ["ALTER TABLE availability ADD COLUMN searched TEXT"],
 }
+
+
+def play_url(songs: str = "s") -> str:
+    """SQL: where a song of the table aliased `songs` is played: its url (SoundCloud's track page), or the
+    track of the release Spotify plays it as here (availability: replaced). Its own link would open its own
+    release, and Spotify's desktop app starts that album at the song's place counting only what plays: a
+    greyed-out track before it starts the next song instead."""
+    return (
+        f"coalesce({songs}.url, (SELECT 'https://open.spotify.com/track/' || substr(detail, 9) FROM availability "
+        f"WHERE song_key = {songs}.key AND state = 'replaced' AND detail LIKE 'spotify:%'))"
+    )
 
 
 def connect(path: Path) -> sqlite3.Connection:

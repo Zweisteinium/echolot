@@ -2,8 +2,9 @@
 once a day (check), and what happened to them and to the lists (the changes table), for everyone.
 
 Spotify, through the app's own access in one country's catalogue (options.Spotify.market): a song plays
-(available), plays as another release of the same recording (replaced: Spotify relinks it), plays
-nowhere (taken_down: no country has it), not in that country (blocked), or exists no more (gone).
+(available), plays as another release of the same recording (replaced: Spotify relinks it, or one with its
+ISRC plays that Spotify does not link), plays nowhere (taken_down: no country has it), not in that country
+(blocked), or exists no more (gone).
 SoundCloud, through any user's token: a song is gone when it was deleted or made private (SoundCloud does
 not tell which), blocked in this country (policy BLOCK), or a 30-second preview without Go+ (preview); a
 label release that can't be downloaded still plays (available). YouTube, as its lists are read
@@ -41,6 +42,8 @@ WHY_REMOVED = {
     "gone": "it exists no more",
 }
 BATCH = 50  # songs per request (Spotify's and SoundCloud's limit)
+SEARCH_AGAIN = datetime.timedelta(days=7)  # another release of a song that plays nowhere: looked for again after
+SEARCHES = 50  # ... and at most this many per check
 
 
 def _now() -> str:
@@ -150,6 +153,7 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
     market = options.get(con, options.Spotify).market
     out: dict[str, tuple[str, str | None]] = {}
     facts = []  # each song's place on its release (spotify.release_facts), for the tags
+    lost: dict[str, str | None] = {}  # song key -> ISRC, of the ones that do not play here
     for n in range(0, len(keys), BATCH):
         if run.stop.is_set():
             break
@@ -175,6 +179,7 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
             for sid, t in zip(unplayable, everywhere, strict=False):
                 markets = (t or {}).get("available_markets") or []
                 out[f"spotify:{sid}"] = ("blocked" if markets else "taken_down", None)
+                lost[f"spotify:{sid}"] = ((t or {}).get("external_ids") or {}).get("isrc")
         if relinked:  # asked without a market: the release in the list, for its facts
             for sid, t in zip(relinked, sp.get(f"/tracks?ids={','.join(relinked)}").get("tracks") or [], strict=False):
                 if t and t.get("id") == sid:
@@ -183,7 +188,54 @@ def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, 
     with con:
         sql = "UPDATE songs SET released = ?, track = ?, tracks = ?, disc = ? WHERE key = ?"
         con.executemany(sql, facts)
-    return out
+    return out | _other_release(con, run, sp, market, lost, out)
+
+
+def _other_release(
+    con: sqlite3.Connection,
+    run: "Run",
+    sp: spotify.Spotify,
+    market: str,
+    lost: dict[str, str | None],
+    states: dict[str, tuple[str, str | None]],
+) -> dict[str, tuple[str, str | None]]:
+    """Songs that do not play here as the release in their list: another release of the recording (its ISRC)
+    that plays here, which Spotify does not relink them to (it links only some). One found before is checked
+    again (looked for anew when it plays no more); one not found is looked for again after SEARCH_AGAIN,
+    SEARCHES per check. Returns the ones found (replaced) and stores when each was looked for; `states`: the
+    ones' states without it."""
+    if not lost:
+        return {}
+    known = {r["song_key"]: r for r in con.execute("SELECT song_key, state, detail, searched FROM availability")}
+    found: dict[str, tuple[str, str | None]] = {}
+    before = {k: known[k]["detail"] for k in lost if k in known and known[k]["state"] == "replaced"}
+    before = {k: d for k, d in before.items() if (d or "").startswith("spotify:")}
+    keys = list(before)
+    for n in range(0, len(keys), BATCH):
+        ids = [before[k].removeprefix("spotify:") for k in keys[n : n + BATCH]]
+        tracks = sp.get(f"/tracks?ids={','.join(ids)}&market={market}").get("tracks") or []
+        for key, t in zip(keys[n : n + BATCH], tracks, strict=False):
+            if t and t.get("is_playable") is not False:
+                found[key] = ("replaced", f"spotify:{t['id']}")
+    due = (datetime.datetime.now() - SEARCH_AGAIN).isoformat(timespec="seconds")
+    ask = [(k, isrc) for k, isrc in lost.items() if isrc and k not in found]
+    ask = [(k, i) for k, i in ask if k in before or not (k in known and (known[k]["searched"] or "") > due)][:SEARCHES]
+    searched = []
+    for n, (key, isrc) in enumerate(ask):
+        if run.stop.is_set():
+            break
+        run.say(f"Spotify: other releases, {n + 1} of {len(ask)}", n, len(ask))
+        if t := sp.by_isrc(isrc, market):
+            found[key] = ("replaced", f"spotify:{t['id']}")
+        searched.append(key)
+    now, state = _now(), {k: found.get(k) or states[k] for k in searched}
+    with con:  # (a song checked the first time gets its row here; apply sees no change then)
+        con.executemany(
+            "INSERT INTO availability (song_key, state, since, checked, detail, searched) VALUES (?, ?, '', ?, ?, ?) "
+            "ON CONFLICT (song_key) DO UPDATE SET searched = excluded.searched",
+            [(k, state[k][0], now, state[k][1], now) for k in searched],
+        )
+    return found
 
 
 def _restriction(track: dict) -> str | None:
@@ -226,7 +278,8 @@ def apply(con: sqlite3.Connection, states: dict[str, tuple[str, str | None]]) ->
         for key, (state, detail) in states.items():
             old = known.get(key)
             if old is None:  # since when it is so: unknown
-                con.execute("INSERT INTO availability VALUES (?, ?, '', ?, ?)", (key, state, now, detail))
+                sql = "INSERT INTO availability (song_key, state, since, checked, detail) VALUES (?, ?, '', ?, ?)"
+                con.execute(sql, (key, state, now, detail))
             elif (old["state"], old["detail"]) != (state, detail):
                 sql = "UPDATE availability SET state = ?, since = ?, checked = ?, detail = ? WHERE song_key = ?"
                 con.execute(sql, (state, today, now, detail, key))

@@ -18,6 +18,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from echolot import db
 from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
 from echolot.library.filing import MUSIC, Want
 from echolot.settings.sources import ConfigError
@@ -193,7 +194,8 @@ def items(con: sqlite3.Connection, music_dir: Path, uid: int | None = None) -> d
     'confirm'). Newest first."""
     decisions = {r["id"]: r for r in con.execute("SELECT * FROM review_decisions")}
     rows = con.execute(
-        "SELECT e.*, s.length AS wanted_length, s.file AS song_file, s.artists AS song_artists, s.url AS song_url, "
+        "SELECT e.*, s.length AS wanted_length, s.file AS song_file, s.artists AS song_artists, "
+        f"{db.play_url()} AS song_url, "
         "f.quality AS song_quality, f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
         f"LEFT JOIN files f ON f.path = s.file WHERE (e.action IN {FILED} AND e.matched = 'probable') "
         "OR (e.action IN ('wrong-song', 'mismatch', 'confirm') AND e.path LIKE ?) ORDER BY e.id DESC",

@@ -3,8 +3,10 @@
 {%- endmacro %}
 
 {# a song's title linked to its page at the source: Spotify tries the desktop app first (base.html) #}
+{# url: where it plays (db.play_url): a Spotify song Spotify relinks plays as that release's track #}
 {% macro song_link(key, url, text) -%}
 {% set service, _, sid = (key or '').partition(':') -%}
+{% if service == 'spotify' and (url or '').startswith('https://open.spotify.com/track/') %}{% set sid = url.rpartition('/')[2] %}{% endif -%}
 {% if service == 'spotify' and sid %}<a href="https://open.spotify.com/track/{{ sid }}" data-app="spotify:track:{{ sid }}" target="_blank" rel="noopener">{{ text }}</a>
 {%- elif (service == 'soundcloud' and (url or '').startswith('https://soundcloud.com/')) or (service == 'youtube' and (url or '').startswith('https://www.youtube.com/')) %}<a href="{{ url }}" target="_blank" rel="noopener">{{ text }}</a>
 {%- else %}{{ text }}{% endif %}
