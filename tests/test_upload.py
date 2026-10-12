@@ -275,3 +275,19 @@ def test_files_added_one_by_one(tmp_path: Path) -> None:
     upload.cancel(paths, batch)
     with pytest.raises(ValueError):
         upload.add(paths, batch, "c.flac", io.BytesIO(b"x"))
+
+
+def test_an_upload_is_assigned_by_its_tags(settings: Settings) -> None:
+    """A file's SPOTIFY_TRACK_ID names its song (also as the release Spotify plays it as), else its ISRC."""
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("UPDATE songs SET isrc = 'GBX1' WHERE key = 'spotify:s2'")
+        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL)")
+    songs = {r["key"]: r for r in con.execute("SELECT * FROM songs")}
+    f = upload.File(1, "whatever.flac", Path("/x/whatever.flac"))
+    assert upload.tagged(con, f, songs) is None
+    assert upload.tagged(con, upload.File(1, "x", spotify_id="s2"), songs) == "spotify:s2"
+    assert upload.tagged(con, upload.File(1, "x", spotify_id="s1b"), songs) == "spotify:s1"  # relinked
+    assert upload.tagged(con, upload.File(1, "x", isrc="GBX1"), songs) == "spotify:s2"
+    assert upload.tagged(con, upload.File(1, "x", spotify_id="zzz", isrc="NONE"), songs) is None
+    con.close()

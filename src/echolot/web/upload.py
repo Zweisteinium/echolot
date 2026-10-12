@@ -58,15 +58,16 @@ def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
 def upload_file(
     request: Request, con: DB, batch: str, file: Annotated[UploadFile, File()], song: Annotated[str, Form()] = ""
 ) -> HTMLResponse:
-    """One file of the batch: saved, checked, its song found (the one asked for, else the one it names; no
-    song: not imported) and how it fits; its row for the dialog."""
+    """One file of the batch: saved, checked, its song found (the one its Spotify track or ISRC tag names,
+    else the one asked for, else the one its tags or name suggest; no song: not imported) and how it fits;
+    its row for the dialog."""
     keep_hires = options.get(con, options.Files).keep_hires
     try:
         f = upload.add(_paths(request), batch, file.filename or "", file.file, keep_hires)
     except ValueError as e:
         raise HTTPException(404, "That upload is gone (imported, cancelled, or older than a day).") from e
     songs = _songs(request, con)
-    key = song if song in songs else upload.guess(f, list(songs.values()))
+    key = upload.tagged(con, f, songs) or (song if song in songs else upload.guess(f, list(songs.values())))
     match = songs.get(key or "") if not f.error else None
     copy = upload.compare(_paths(request), f, match) if match else None  # a song you have: better?
     fit = upload.fit(con, f, match)

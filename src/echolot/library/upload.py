@@ -34,8 +34,9 @@ BATCH = re.compile(r"[0-9a-f]{16}")
 @dataclass
 class File:
     """An uploaded file as checked: n (its place in the batch), name (as uploaded), path (after prepare),
-    seconds, kbps, tier (catalog.QUALITY), tags (artist, title), error (not usable audio), what the
-    spectrum check saw (source, band) and its levels (peak, rms: dBFS)."""
+    seconds, kbps, tier (catalog.QUALITY), tags (artist, title; the Spotify track and ISRC a recorder or
+    tagger wrote), error (not usable audio), what the spectrum check saw (source, band) and its levels (peak,
+    rms: dBFS)."""
 
     n: int
     name: str
@@ -50,6 +51,8 @@ class File:
     band: int = 0  # Hz up to which it has sound (a lossy encoder's edge; 0: none, its full range)
     peak: float | None = None
     rms: float | None = None
+    spotify_id: str = ""
+    isrc: str = ""
 
 
 @dataclass
@@ -105,6 +108,7 @@ def add(paths: Paths, batch: str, name: str, fileobj: Any, keep_hires: bool = Fa
         artists, f.title = audio.read_tags(prepared.path)
         f.artist = ", ".join(dict.fromkeys(artists))
         f.peak, f.rms = audio.levels(prepared.path)
+        f.spotify_id, f.isrc = audio.read_spotify_id(prepared.path), audio.read_isrc(prepared.path).upper()
     except audio.Rejected as e:
         f.error = str(e)
     if d.is_dir():  # (cancelled meanwhile: nothing to keep)
@@ -140,6 +144,26 @@ def files(paths: Paths, batch: str) -> list[File]:
 def _save(d: Path, f: File) -> None:
     raw = dataclasses.asdict(f) | {"path": str(f.path) if f.path else None}
     (d / f"{f.n:02d}.json").write_text(json.dumps(raw))
+
+
+def tagged(con: sqlite3.Connection, f: File, songs: dict[str, sqlite3.Row]) -> str | None:
+    """The song a file's tags name exactly: its Spotify track (the song's own, or the release Spotify plays it
+    as: availability replaced), else its ISRC when one of the songs has it (a missing one first). None: no
+    such tag, or none of these songs."""
+    if f.error:
+        return None
+    if f.spotify_id:
+        if (key := f"spotify:{f.spotify_id}") in songs:
+            return key
+        sql = "SELECT song_key FROM availability WHERE state = 'replaced' AND detail = ?"
+        for (key,) in con.execute(sql, (f"spotify:{f.spotify_id}",)):
+            if key in songs:
+                return key
+    if f.isrc:
+        same = [s for s in songs.values() if (s["isrc"] or "").upper() == f.isrc]
+        if same:
+            return max(same, key=needs)["key"]
+    return None
 
 
 def guess(f: File, songs: list[sqlite3.Row]) -> str | None:

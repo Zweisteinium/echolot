@@ -274,6 +274,30 @@ def read_isrc(path: Path) -> str:
         return ""
 
 
+SPOTIFY_ID = re.compile(r"[0-9A-Za-z]{22}")
+
+
+def read_spotify_id(path: Path) -> str:
+    """The SPOTIFY_TRACK_ID tag (a recorder such as Mitschnitt writes it: the track it recorded; '' if none)."""
+    from mutagen import File
+
+    try:
+        m = File(path)
+        t = m.tags if m is not None and m.tags is not None else None
+        if t is None:
+            return ""
+        if hasattr(t, "getall"):  # ID3
+            values = [str(v) for f in t.getall("TXXX:SPOTIFY_TRACK_ID") for v in f.text]
+        elif "----:com.apple.iTunes:SPOTIFY_TRACK_ID" in t:  # MP4
+            values = [bytes(v).decode() for v in t["----:com.apple.iTunes:SPOTIFY_TRACK_ID"]]
+        else:  # Vorbis comments (FLAC, Ogg, Opus)
+            values = list(t.get("SPOTIFY_TRACK_ID") or [])
+        value = (values or [""])[0].strip().removeprefix("spotify:track:")
+        return value if SPOTIFY_ID.fullmatch(value) else ""
+    except Exception:
+        return ""
+
+
 def write_tags(path: Path, **values: str) -> None:
     """Set tags (artist=..., title=..., album=...); <tag>_if_empty=... only where the tag is empty."""
     from mutagen import File
