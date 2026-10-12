@@ -339,16 +339,19 @@ def active(con: sqlite3.Connection, recorder_id: int) -> sqlite3.Row | None:
 
 
 def latest(con: sqlite3.Connection, user_id: int, list_key: str | None = None, hours: int = 24) -> sqlite3.Row | None:
-    """The user's session to show: one that runs or is paused, else one that ended in the last `hours` and was
-    not dismissed. For a list page: that list's; None: any."""
+    """The user's session to show: one that runs or is paused, else the newest, if it ended in the last `hours`
+    and was not dismissed (never an older one: closing a session's summary closes it). For a list page: that
+    list's; None: any."""
     one = " AND list_key IS ?" if list_key is not None else ""
     args = (user_id, list_key) if list_key is not None else (user_id,)
-    since = _stamp(-timedelta(hours=hours))
-    return con.execute(
-        f"SELECT * FROM recordings WHERE user_id = ?{one} AND (state IN ('running', 'paused') OR "
-        "(ended >= ? AND NOT dismissed)) ORDER BY state IN ('running', 'paused') DESC, id DESC LIMIT 1",
-        (*args, since),
+    row = con.execute(
+        f"SELECT * FROM recordings WHERE user_id = ?{one} ORDER BY state IN ('running', 'paused') DESC, id DESC LIMIT 1",
+        args,
     ).fetchone()
+    if row is None or row["state"] in ("running", "paused"):
+        return row
+    fresh = (row["ended"] or "") >= _stamp(-timedelta(hours=hours))
+    return row if fresh and not row["dismissed"] else None
 
 
 def control(con: sqlite3.Connection, session_id: int, action: str, reason: str = "by_user") -> None:
@@ -365,8 +368,9 @@ def control(con: sqlite3.Connection, session_id: int, action: str, reason: str =
             con.execute(
                 "UPDATE recordings SET state = 'stopped', reason = '', ended = ? WHERE id = ?", (_stamp(), session_id)
             )
-        elif action == "dismiss" and s["state"] in ("done", "stopped"):
-            con.execute("UPDATE recordings SET dismissed = 1 WHERE id = ?", (session_id,))
+        elif action == "dismiss" and s["state"] in ("done", "stopped"):  # (and the user's older ones)
+            sql = "UPDATE recordings SET dismissed = 1 WHERE user_id = ? AND id <= ? AND state IN ('done', 'stopped')"
+            con.execute(sql, (s["user_id"], session_id))
 
 
 def session_of(con: sqlite3.Connection, user_id: int, session_id: int) -> sqlite3.Row:

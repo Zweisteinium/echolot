@@ -5,7 +5,8 @@
 {% set live = session.state in ('running', 'paused') %}
 {% set q = '?list=' ~ list_key|urlencode %}
 {% set name = device.name if device else 'the device' %}
-<section class="card recording" id="recording" hx-get="/recordings/panel{{ q }}" hx-swap="outerHTML"{% if live %} hx-trigger="every 5s[document.visibilityState === 'visible']"{% endif %}>
+{# (only a running or paused one asks again: without hx-trigger, htmx would ask on every click inside it, Close too) #}
+<section class="card recording" id="recording"{% if live %} hx-get="/recordings/panel{{ q }}" hx-swap="outerHTML" hx-trigger="every 5s[document.visibilityState === 'visible']"{% endif %}>
   <div class="card-head">
     <h2><span class="record-dot{{ ' live' if session.state == 'running' }}">{{ icon('record', 16) }}</span> {{ session.title }}</h2>
     {% set pills = {'running': ('Recording', 'accent-pill'), 'paused': ('Paused', 'warn-pill'), 'done': ('Done', 'ok-pill'), 'stopped': ('Stopped', '')} %}

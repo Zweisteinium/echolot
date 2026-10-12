@@ -87,7 +87,7 @@ def test_connecting_and_each_device_its_users_alone(app: FastAPI, login: Callabl
     assert (
         timon.post(f"/recorders/{owners}/disconnect", follow_redirects=False)
         .headers["location"]
-        .endswith("/account/recorders?error=No+such+device.")
+        .endswith("/account?error=No+such+device.#recorders")
     )
     assert as_device(app, timon_token).delete("/api/recorder/me").status_code == 204  # disconnect itself
     assert as_device(app, timon_token).get("/api/recorder/me").status_code == 401
@@ -339,3 +339,20 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
     assert (row["reason"], row["uri"], row["since"]) == ("lossy", "spotify:track:s1", "2020-01-01T00:00:00")
     assert "spotify:s1" not in [t.key for t in recording.candidates(con, 1)]  # years later: still not offered
     con.close()
+
+
+def test_closing_a_sessions_summary_closes_it(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """One Close is enough: an ended session's panel asks nothing on a click inside it (htmx's default trigger),
+    and no older ended session comes up after it."""
+    owner = login(app)
+    connect(owner, app)
+    for _ in range(2):
+        owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+        con = db.connect(app.state.settings.db_path)
+        sid = con.execute("SELECT max(id) FROM recordings").fetchone()[0]
+        recording.control(con, sid, "stop")
+        con.close()
+    panel = owner.get("/recordings/panel").text
+    assert "Close" in panel and "hx-get=" not in panel.split("<section", 1)[1].split(">", 1)[0]
+    after = owner.post(f"/recordings/{sid}/dismiss").text
+    assert 'id="recording" hidden' in after  # not the older one
