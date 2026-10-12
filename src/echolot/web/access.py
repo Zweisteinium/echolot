@@ -38,6 +38,7 @@ USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for th
     ("GET", "/stats"),
     ("GET", "/library"),
     ("GET", "/account/tokens"),
+    ("GET", "/account/recorders"),
     ("GET", "/playlists"),
     ("GET", "/account"),
     ("POST", "/account/tokens"),
@@ -83,7 +84,6 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permiss
     ("POST", "/jobs/mine"): "run",
     ("GET", "/recorders/connect"): "upload",  # recording puts files into the library (web/recorders)
     ("POST", "/recorders/connect"): "upload",
-    ("GET", "/account/recorders"): "upload",
     ("POST", "/recorders/{recorder_id}/rename"): "upload",
     ("POST", "/songs/{key:path}/spotify-again"): "upload",
     ("POST", "/recorders/{recorder_id}/disconnect"): "upload",

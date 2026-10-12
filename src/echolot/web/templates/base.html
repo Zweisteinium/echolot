@@ -30,9 +30,9 @@
     </form>
     {% endif %}
     <details class="user-menu">
-      <summary{% if nav in ('account', 'recorders', 'tokens', 'users', 'settings') %} aria-current="page"{% endif %}><span class="avatar" aria-hidden="true">{{ user.name[:1]|upper }}</span><span class="user-name">{{ user.name }}</span></summary>
+      <summary{% if nav in ('account', 'users', 'settings') %} aria-current="page"{% endif %}><span class="avatar" aria-hidden="true">{{ user.name[:1]|upper }}</span><span class="user-name">{{ user.name }}</span></summary>
       <div class="menu" role="menu">
-        <a href="/account" role="menuitem" {% if nav in ('account', 'recorders', 'tokens') %}aria-current="page"{% endif %}>Your account</a>
+        <a href="/account" role="menuitem" {% if nav == 'account' %}aria-current="page"{% endif %}>Your account</a>
         {% if user.admin %}
         <a href="/users" role="menuitem" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
         <a href="/settings" role="menuitem" {% if nav == 'settings' %}aria-current="page"{% endif %}>Server settings</a>

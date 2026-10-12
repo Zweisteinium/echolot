@@ -78,8 +78,8 @@ def device_rename(request: Request, con: DB, recorder_id: int, name: Annotated[s
     try:
         recording.rename(con, request.state.user.id, recorder_id, name)
     except recording.RecordingError as e:
-        return back("/account/recorders", error=str(e))
-    return back("/account/recorders", ok="Device renamed.")
+        return back("/account#recorders", error=str(e))
+    return back("/account#recorders", ok="Device renamed.")
 
 
 @router.post("/recorders/{recorder_id}/disconnect")
@@ -87,9 +87,9 @@ def device_disconnect(request: Request, con: DB, recorder_id: int) -> RedirectRe
     try:
         recording.device(con, request.state.user.id, recorder_id)
     except recording.RecordingError as e:
-        return back("/account/recorders", error=str(e))
+        return back("/account#recorders", error=str(e))
     recording.disconnect(con, recorder_id)
-    return back("/account/recorders", ok="Device disconnected: it can no longer record for you.")
+    return back("/account#recorders", ok="Device disconnected: it can no longer record for you.")
 
 
 # ---------------------------------------------------------------- recording (browser)

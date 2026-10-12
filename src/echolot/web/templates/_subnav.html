@@ -1,11 +1,7 @@
-{# the pages of one menu entry, above the page (History: Activity, Changes; your account: Account, Recorders,
-   API tokens) #}
+{# the pages of one menu entry, above the page (History: Activity, Changes) #}
 {% macro subnav(label, items, current) -%}
 <nav class="subnav" aria-label="{{ label }}">{% for key, href, name in items %}<a href="{{ href }}"{% if key == current %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}</nav>
 {%- endmacro %}
 {% macro history(current) -%}
 {{ subnav('History', [('activity', '/activity', 'Activity'), ('changes', '/changes', 'Changes')], current) }}
-{%- endmacro %}
-{% macro account(user, current) -%}
-{{ subnav('Your account', [('account', '/account', 'Account')] + ([('recorders', '/account/recorders', 'Recorders')] if user.can('upload') else []) + [('tokens', '/account/tokens', 'API tokens')], current) }}
 {%- endmacro %}

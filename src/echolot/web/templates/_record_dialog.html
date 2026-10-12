@@ -29,7 +29,7 @@
     </label>
   </div>
   {% else %}
-  <p class="flash">No device yet: <a href="/account/recorders">connect Mitschnitt</a> on your Windows PC first.</p>
+  <p class="flash">No device yet: <a href="/account#recorders">connect Mitschnitt</a> on your Windows PC first.</p>
   {% endif %}
   <div class="dialog-actions">
     {% if not nothing %}<a class="small record-file" data-export="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}" href="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}below=lossless" title="For Mitschnitt without a connection: Import queue">{{ icon('download', 15) }} As a file</a>{% endif %}

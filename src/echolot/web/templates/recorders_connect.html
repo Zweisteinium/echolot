@@ -9,7 +9,7 @@
   <ul class="small">
     <li>It may start Spotify on that PC and record the songs you choose here.</li>
     <li>Its recordings go into your library, like files you upload.</li>
-    <li>It is yours alone: nobody else here sees it or records on it. Disconnect it any time under Account, Recorders.</li>
+    <li>It is yours alone: nobody else here sees it or records on it. Disconnect it any time under Account.</li>
   </ul>
   <form method="post" action="/recorders/connect" class="dialog-actions">{{ csrf_input }}
     {% for k, v in ask.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}

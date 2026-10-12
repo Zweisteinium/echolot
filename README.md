@@ -36,7 +36,7 @@ cannot find yet, it tells you, and why.
   it: it lands in your playlist "Echolot · Wished". Paste a playlist link to follow it.
 - **Recording.** With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your Windows PC, press
   Record on a Spotify list: Mitschnitt plays the songs Echolot lacks in lossless, records each bit-exact and
-  puts it straight into your library. Connect it under Account, Recorders; a device is only ever its owner's.
+  puts it straight into your library. Connect it under Account; a device is only ever its owner's.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
 
 ## What it doesn't do
