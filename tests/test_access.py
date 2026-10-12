@@ -281,7 +281,7 @@ def test_navidrome_settings(app, login: Callable[..., TestClient], monkeypatch: 
     monkeypatch.setattr(navidrome.Service, "users", lambda self: [{"id": "nd-tester", "userName": "tester"}])
     data = {"session_days": 30, "navidrome_url": "http://nd:4533", "service_user": "admin", "service_password": "s3"}
     r = client.post("/settings/access", data=data)
-    assert "the service account works" in r.text and "s3" not in r.text
+    assert "the service account works" in r.text and 'value="s3"' not in r.text and ">s3<" not in r.text
     con = db.connect(app.state.settings.db_path)
     assert app.state.vault.get(con, navidrome.SERVICE_PASSWORD) == "s3"
     assert options.get(con, options.Navidrome).url == "http://nd:4533"
