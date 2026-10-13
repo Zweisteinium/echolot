@@ -3,6 +3,7 @@
 import pytest
 
 from echolot.library import rules
+from echolot.library.filing import Want
 from echolot.library.rules import artist_key, artist_keys, same_length, title_key
 
 
@@ -290,6 +291,17 @@ def test_an_artist_matches_by_its_english_name_too() -> None:
     assert match == "exact" and rules.identify("祖堅 正慶", "Dynamis", ["Masayoshi Soken"], "Dynamis")[0] is None
     assert rules.non_latin("祖堅 正慶") and rules.non_latin("Квашеная") and rules.non_latin("Dxrk ダーク")
     assert not rules.non_latin("Beyoncé") and not rules.non_latin("Ke$ha & 2Pac")
+
+
+def test_a_co_artist_counts_as_the_artist() -> None:
+    """para//e/ and Kissing Disease's "Rausch", uploaded by the label as "Kissing Disease - Rausch [///S006]"."""
+    want = Want("para//e/", "Rausch", 389, "spotify:r", ["para//e/", "Kissing Disease"])
+    assert want.aliases == ["Kissing Disease"]
+    found = ("Kissing Disease - Rausch [///S006]", ["parallelhh"])
+    assert rules.identify("para//e/", "Rausch", [], "", *found, 389, 389, 6, want.aliases)[0] == "exact"
+    assert rules.identify("para//e/", "Rausch", [], "", *found, 389, 389, 6)[0] is None
+    path = "music\\Kissing Disease\\Kissing Disease - Rausch.flac"
+    assert rules.prejudge("para//e/", "Rausch", path, 389, 389, aliases=want.aliases)[0] == "accept"
 
 
 def test_cjk_names_with_or_without_a_space() -> None:

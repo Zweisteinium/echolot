@@ -72,7 +72,9 @@ class Want:
 
     @property
     def aliases(self) -> list[str]:
-        return [self.alias] if self.alias else []
+        """Other names the artist check accepts: the English name and the co-artists ("Kissing Disease - Rausch"
+        for para//e/ and Kissing Disease's "Rausch")."""
+        return [a for a in [self.alias, *self.artists] if a and a != self.artist]
 
     @classmethod
     def of(cls, row: sqlite3.Row) -> "Want":
