@@ -803,14 +803,15 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
 /* recording with Mitschnitt (web/recorders): the Record buttons and dialog, a session's panel, the devices */
 .list-actions { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .list-actions button { display: inline-flex; align-items: center; gap: 0.35rem; }
-.list-actions button .icon, .record-dot { color: var(--bad); }
+.record-button .icon, .record-dot { color: var(--bad); }  /* the Upload button's icon stays in the text colour */
 .record-dot { display: inline-flex; vertical-align: -2px; }
-.spotify-best { display: inline-flex; vertical-align: -2px; margin-left: 0.35rem; color: var(--muted); }  /* Spotify has nothing better */
-button.spotify-best { padding: 0.1rem; }
-button.spotify-best:hover { color: var(--text); }
-.record-dot.live { animation: record-pulse 1.6s ease-in-out infinite; }
+/* a song Spotify can't give better (nothing better there, or it no longer plays it): a small info mark on a
+   faint tint, next to its quality */
+.spotify-best { display: inline-flex; vertical-align: -1.5px; margin-left: 0.3rem; padding: 0.1rem; border-radius: 50%;
+  color: var(--muted); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+button.spotify-best { border: 0; }
+button.spotify-best:hover, button.spotify-best:focus-visible { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 @keyframes record-pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .record-dot.live { animation: none; } }
 dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-form h2 { display: flex; align-items: center; gap: 0.45rem; }
 .record-what { border: 0; padding: 0; margin: 0.9rem 0 0.6rem; display: grid; gap: 0.4rem; }
@@ -825,11 +826,27 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-where { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.6rem 0 0.3rem; }
 .record-where label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }
 .record-file { margin-right: auto; align-self: center; display: inline-flex; align-items: center; gap: 0.3rem; }
-.recording .card-head h2 { display: flex; align-items: center; gap: 0.45rem; }
-.recording .record-progress { max-width: none; height: 6px; margin: 0.65rem 0 0.4rem; border-radius: 3px; }
+/* a session's panel: its mark (red and pulsing while recording, amber paused, green done, grey stopped), title
+   and state line, the X once it ended; then the song now, the progress, the counts */
+.recording-head { display: flex; align-items: flex-start; gap: 0.7rem; }
+.recording-mark { flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
+  color: var(--muted); background: var(--track); }
+.recording.running .recording-mark { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.recording.running .recording-mark .icon { animation: record-pulse 1.6s ease-in-out infinite; }
+.recording.paused .recording-mark { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.recording.done .recording-mark { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+@media (prefers-reduced-motion: reduce) { .recording.running .recording-mark .icon { animation: none; } }
+.recording-name { flex: 1; min-width: 0; }
+.recording-name h2 { margin: 0; font-size: 1.05rem; line-height: 1.3; overflow-wrap: anywhere; }
+.recording-name p { margin: 0.1rem 0 0; }
+.recording-close { flex: none; margin: -0.25rem -0.35rem 0 0; }
+.recording-now { margin: 0.8rem 0 0; }
+.recording .record-progress { max-width: none; height: 6px; margin: 0.55rem 0 0; border-radius: 3px; }
 .recording .record-progress span { transition: width 1s linear; }  /* moves on by the second */
-.record-summary { margin: 0.5rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
-.record-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.recording-counts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.7rem 0 0; }
+.record-summary { margin: 0.6rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
+.record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
+.record-actions button { display: inline-flex; align-items: center; gap: 0.35rem; }
 a.button { display: inline-block; font-size: 0.85rem; font-weight: 550; padding: 0.36rem 0.85rem; color: var(--text);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 a.button:hover { text-decoration: none; border-color: var(--muted); }

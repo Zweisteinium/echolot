@@ -6,6 +6,8 @@
 #   tools/deploy.sh <instance dir> --rollback   the image that ran before the last deploy
 #
 # ONLY_BRANCH=main (production's wrapper) refuses any other branch and takes main fast-forward only.
+# DEPLOY_REMOTE=local takes the branch from the clone's remote "local" (the development repository on this
+# server: `git -C src remote add local <path>`) instead of GitHub (origin), for a deploy before a push.
 # Steps: fetch and check out the branch (a clone with changes of its own is refused), build the image while
 # the jobs go on (tagged <image>-<commit> as well), pause the jobs and wait for the songs in progress (at
 # most WAIT_MINUTES, default 60), back up the database into data/backups/ when the schema version changes
@@ -66,12 +68,13 @@ was=?  # the commit that runs now (the image's, as /healthz reports it)
 if [ -n "$container" ]; then
     was=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n 's/^ECHOLOT_COMMIT=//p')
 fi
-git -C src fetch -q origin
+remote=${DEPLOY_REMOTE:-origin}
+git -C src fetch -q "$remote"
 if [ -n "${ONLY_BRANCH:-}" ]; then
     git -C src checkout -q "$target"
-    git -C src merge -q --ff-only "origin/$target"
+    git -C src merge -q --ff-only "$remote/$target"
 else
-    git -C src checkout -q --detach "origin/$target"
+    git -C src checkout -q --detach "$remote/$target"
 fi
 rev=$(git -C src rev-parse --short HEAD)
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' src/pyproject.toml)

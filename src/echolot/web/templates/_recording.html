@@ -1,28 +1,35 @@
 {# a recording session (web/recorders._panel): its device, progress and buttons; asks again every 5 s while it
-   runs or is paused; once it ended, what it brought, until closed #}
+   runs or is paused; once it ended, what it brought, until closed (the X) #}
 {% from "_icons.html" import icon %}
 {% if session %}
 {% set live = session.state in ('running', 'paused') %}
 {% set q = '?list=' ~ list_key|urlencode %}
 {% set name = device.name if device else 'the device' %}
-{# (only a running or paused one asks again: without hx-trigger, htmx would ask on every click inside it, Close too) #}
-<section class="card recording" id="recording"{% if live %} hx-get="/recordings/panel{{ q }}" hx-swap="outerHTML" hx-trigger="every 5s[document.visibilityState === 'visible']"{% endif %}>
-  <div class="card-head">
-    <h2><span class="record-dot{{ ' live' if session.state == 'running' }}">{{ icon('record', 16) }}</span> {{ session.title }}</h2>
-    {% set pills = {'running': ('Recording', 'accent-pill'), 'paused': ('Paused', 'warn-pill'), 'done': ('Done', 'ok-pill'), 'stopped': ('Stopped', '')} %}
-    <span class="pill {{ pills[session.state][1] }}">{{ pills[session.state][0] }}</span>
+{% set marks = {'running': ('record', 'Recording'), 'paused': ('pause', 'Paused'), 'done': ('check', 'Done'), 'stopped': ('stop', 'Stopped')} %}
+{# (only a running or paused one asks again: without hx-trigger, htmx would ask on every click inside it, the X too) #}
+<section class="card recording {{ session.state }}" id="recording"{% if live %} hx-get="/recordings/panel{{ q }}" hx-swap="outerHTML" hx-trigger="every 5s[document.visibilityState === 'visible']"{% endif %}>
+  <div class="recording-head">
+    <span class="recording-mark" title="{{ marks[session.state][1] }}">{{ icon(marks[session.state][0], 16) }}</span>
+    <div class="recording-name">
+      <h2>{{ session.title }}</h2>
+      <p class="small muted">{{ marks[session.state][1] }}
+        {%- if live %} on {{ name }}{% elif session.ended %} {{ session.ended|ago }}{% endif %}
+        · {{ session.done }} of {{ session.total }} song{{ 's' if session.total != 1 }}
+        {%- if live and session.minutes_left %} · about {{ (session.minutes_left * 60)|span }} left{% endif %}</p>
+    </div>
+    {% if not live %}<button type="button" class="icon-button recording-close" hx-post="/recordings/{{ session.id }}/dismiss{{ q }}" hx-target="#recording" hx-swap="outerHTML" title="Close" aria-label="Close">{{ icon('close', 18) }}</button>{% endif %}
   </div>
   {% if live %}
-  <p class="small">
+  <p class="recording-now">
     {%- if session.state == 'paused' and session.reason == 'took_over' %}<span class="warn-text">You took over Spotify on {{ name }}.</span> Resume when you're done listening.
-    {%- elif session.state == 'paused' and session.recording %}Pausing after this song: {{ name }} records <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>.
+    {%- elif session.state == 'paused' and session.recording %}Pausing after this song: <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>.
     {%- elif session.state == 'paused' %}Paused. Resume to go on.
     {%- elif not device %}The device was disconnected.
     {%- elif not device.online %}<span class="warn-text">{{ name }} is offline:</span> it starts as soon as Mitschnitt runs there.
     {%- elif device.state == 'setup' %}<span class="warn-text">{{ name }}: {{ device.detail or 'a setup check fails' }}</span> (Mitschnitt's Setup tab).
-    {%- elif device.state == 'busy' %}{{ name }}: waiting until Spotify is free there.
-    {%- elif session.recording %}{{ name }} records <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if clock %} <span class="muted">(<span data-clock data-at="{{ clock.at }}" data-total="{{ clock.total }}">{{ clock.at|mmss }}</span> / {{ clock.total|mmss }})</span>{% endif %}.
-    {%- else %}{{ name }} is starting the next song.{% endif %}
+    {%- elif device.state == 'busy' %}Waiting until Spotify is free on {{ name }}.
+    {%- elif session.recording %}<strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if clock %} <span class="muted"><span data-clock data-at="{{ clock.at }}" data-total="{{ clock.total }}">{{ clock.at|mmss }}</span> / {{ clock.total|mmss }}</span>{% endif %}
+    {%- else %}Starting the next song.{% endif %}
   </p>
   {% set heard = session.seconds_done + (clock.at if clock else 0) %}
   <div class="wish-progress record-progress" role="progressbar" aria-label="{{ session.done }} of {{ session.total }} songs" aria-valuenow="{{ session.done }}" aria-valuemin="0" aria-valuemax="{{ session.total }}"
@@ -30,30 +37,29 @@
     <span style="width: {{ (100 * heard / session.seconds_total)|round(2) if session.seconds_total else 0 }}%"></span>
   </div>
   {% endif %}
-  <p class="muted small">{{ session.done }} of {{ session.total }} songs
-    {%- if session.filed %} · <span class="ok-text">{{ session.filed }} filed</span>{% endif %}
-    {%- if session.not_better %} · {{ session.not_better }} not better{% endif %}
-    {%- if session.skipped %} · {{ session.skipped }} skipped{% endif %}
-    {%- if session.failed %} · <span class="bad-text">{{ session.failed }} failed</span>{% endif %}
-    {%- if live and session.minutes_left %} · about {{ (session.minutes_left * 60)|span }} left{% endif %}</p>
-  {% if not live %}
+  {% set counts = [(session.filed, 'filed', 'ok-pill'), (session.not_better, 'not better', ''), (session.skipped, 'skipped', ''), (session.failed, 'failed', 'bad-pill')] %}
+  {% if session.filed or session.not_better or session.skipped or session.failed %}
+  <p class="recording-counts">{% for n, what, kind in counts if n %}<span class="pill {{ kind }}">{{ n }} {{ what }}</span>{% endfor %}</p>
+  {% endif %}
+  {% if not live and (session.not_better or session.found or session.lossy_only or session.wrong_song or session.failed or session.state == 'stopped' or not session.done) %}
   <ul class="record-summary small">
-    {% if session.filed %}<li>{{ session.filed }} song{{ 's' if session.filed != 1 }} recorded into your library.</li>{% endif %}
     {% if session.not_better %}<li>{{ session.not_better }} not better than your copy: yours stayed.</li>{% endif %}
     {% if session.found %}<li>{{ session.found }} Echolot found on its own meanwhile: it kept those.</li>{% endif %}
-    {% if session.lossy_only %}<li>{{ session.lossy_only }} Spotify has only lossy: not offered again for 30 days.</li>{% endif %}
+    {% if session.lossy_only %}<li>{{ session.lossy_only }} Spotify has only lossy: not offered again.</li>{% endif %}
     {% if session.wrong_song %}<li>{{ session.wrong_song }} played as another song in Spotify: not offered again for 30 days.</li>{% endif %}
     {% if session.failed %}<li class="bad-text">{{ session.failed }} could not be recorded; they come up again next time.</li>{% endif %}
     {% if session.state == 'stopped' and session.done < session.total %}<li>Stopped: {{ session.total - session.done }} not recorded.</li>{% endif %}
+    {% if not session.done %}<li>Nothing was recorded.</li>{% endif %}
   </ul>
   {% endif %}
+  {% if live %}
   <div class="record-actions">
     {% set after = ' after this song' if session.recording else '' %}
-    {% if session.state == 'running' %}<button hx-post="/recordings/{{ session.id }}/pause{{ q }}" hx-target="#recording" hx-swap="outerHTML">Pause{{ after }}</button>
-    {% elif session.state == 'paused' %}<button class="primary" hx-post="/recordings/{{ session.id }}/resume{{ q }}" hx-target="#recording" hx-swap="outerHTML">Resume</button>{% endif %}
-    {% if live %}<button class="danger" hx-post="/recordings/{{ session.id }}/stop{{ q }}" hx-target="#recording" hx-swap="outerHTML" hx-confirm="Stop recording?{{ ' The song being recorded still comes in.' if session.recording }}">Stop{{ after }}</button>
-    {% else %}<button hx-post="/recordings/{{ session.id }}/dismiss{{ q }}" hx-target="#recording" hx-swap="outerHTML">Close</button>{% endif %}
+    {% if session.state == 'running' %}<button hx-post="/recordings/{{ session.id }}/pause{{ q }}" hx-target="#recording" hx-swap="outerHTML">{{ icon('pause', 14) }} Pause{{ after }}</button>
+    {% else %}<button class="primary" hx-post="/recordings/{{ session.id }}/resume{{ q }}" hx-target="#recording" hx-swap="outerHTML">{{ icon('play', 14) }} Resume</button>{% endif %}
+    <button class="danger" hx-post="/recordings/{{ session.id }}/stop{{ q }}" hx-target="#recording" hx-swap="outerHTML" hx-confirm="Stop recording?{{ ' The song being recorded still comes in.' if session.recording }}">{{ icon('stop', 14) }} Stop{{ after }}</button>
   </div>
+  {% endif %}
 </section>
 {% else %}
 <div id="recording" hidden></div>

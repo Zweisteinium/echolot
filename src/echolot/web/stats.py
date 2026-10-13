@@ -148,8 +148,9 @@ def list_songs(con: Connection, key: str) -> list[Row]:
     return con.execute(
         "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
         f"{db.play_url()} AS url, s.isrc, "
-        "s.file, f.quality, f.kbps FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
-        "LEFT JOIN files f ON f.path = s.file WHERE ls.list_key = ? ORDER BY ls.position",
+        "s.file, f.quality, f.kbps, a.state AS plays FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
+        "LEFT JOIN files f ON f.path = s.file LEFT JOIN availability a ON a.song_key = s.key "
+        "WHERE ls.list_key = ? ORDER BY ls.position",
         (key,),
     ).fetchall()
 

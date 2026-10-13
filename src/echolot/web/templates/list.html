@@ -7,7 +7,7 @@
 <section class="card">
   <div class="card-head">
     <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
-    <span class="list-actions">{% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button> {% endif %}{% if lst.service == 'spotify' and user.can('upload') %}<button type="button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}{{ service(lst.service) }} <a class="small" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a></span>
+    <span class="list-actions">{% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button> {% endif %}{% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}{{ service(lst.service) }} <a class="small" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a></span>
   </div>
   <p class="lead">{{ (songs|length - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
   {{ qbar(tiers, large=True) }}
@@ -27,7 +27,7 @@
       <td>{{ s.artist }}</td>
       <td>{{ song_link(s.key, s.url, s.title) }}</td>
       <td class="num muted">{{ s.length|mmss }}</td>
-      <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}{{ spotify_best(s.key, best, upload) }}</td>
+      <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}{{ spotify_best(s.key, best, upload, (s.plays if s.plays in ('taken_down', 'blocked', 'gone') else s.unavailable) if s.service == 'spotify' and s.file and s.quality != 'lossless') }}</td>
       <td class="hide-narrow">{% if twin is not none %}<span class="small muted" title="The list has this recording twice (another release at its source); it is one file and plays once in the playlist">same song as #{{ twin + 1 }}, another release</span>{% elif s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>
       {% if upload %}<td class="row-action">{% if twin is none and (not s.file or s.quality != 'lossless') %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="{{ 'Upload a file for this song' if not s.file else 'Upload a better copy of this song' }}" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
     </tr>

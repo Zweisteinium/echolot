@@ -415,6 +415,7 @@ def summary(con: sqlite3.Connection, session_id: int) -> dict:
     total = sum(counts.values())
     n = counts.get
     out = {"id": s["id"], "title": s["title"], "state": s["state"], "reason": s["reason"], "list": s["list_key"]}
+    out |= {"created": s["created"], "ended": s["ended"]}
     out |= {"total": total, "done": total - n("queued", 0) - n("recording", 0), "filed": n("filed", 0)}
     out |= {"not_better": n("not_better", 0), "skipped": sum(n(k, 0) for k in (*SKIPS, "found"))}
     out |= {"found": n("found", 0), "lossy_only": n("lossy_only", 0), "wrong_song": n("wrong_song", 0)}
