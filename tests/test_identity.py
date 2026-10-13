@@ -32,6 +32,17 @@ def test_similarity_finds_the_preview_inside_the_song() -> None:
     assert identity.similarity(preview, song[:100]) == 0.0  # shorter than the preview
 
 
+def test_similarity_lets_the_preview_begin_before_the_file() -> None:
+    """A recording of Spotify's stream can lack the release's silent lead-in (here 0.43 s, 3 frames) that the
+    preview has: its start is then still found."""
+    rng = np.random.default_rng(3)
+    song = rng.integers(0, 2**32, 900, dtype=np.uint32)
+    preview = noisy(song[:221], 0.95, rng)
+    assert identity._place(preview, song[3:]) == (-3, pytest.approx(0.95, abs=0.01))
+    assert identity.similarity(preview, song[3:]) > 0.9
+    assert identity.similarity(preview, song[identity.LEAD + 40 :]) < 0.6  # far past the start: not found
+
+
 def test_check(con, monkeypatch: pytest.MonkeyPatch) -> None:
     rng = np.random.default_rng(2)
     song, other = rng.integers(0, 2**32, (2, 1600), dtype=np.uint32)

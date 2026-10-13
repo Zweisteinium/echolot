@@ -71,8 +71,18 @@ def upload_file(
     match = songs.get(key or "") if not f.error else None
     copy = upload.compare(_paths(request), f, match) if match else None  # a song you have: better?
     fit = upload.fit(con, f, match)
-    go = upload.importable(f, match, copy)
-    return page(request, "_upload_row.html", f=f, song=match, labels=upload.labels(f, match, fit, copy), fit=fit, go=go)
+    go = upload.importable(f, match, copy, fit)
+    different = upload.sounds_different(fit)
+    return page(
+        request,
+        "_upload_row.html",
+        f=f,
+        song=match,
+        labels=upload.labels(f, match, fit, copy),
+        fit=fit,
+        go=go,
+        different=different,
+    )
 
 
 @router.post("/missing/upload/{batch}/import", response_class=HTMLResponse)

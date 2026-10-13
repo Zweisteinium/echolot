@@ -89,14 +89,30 @@ def fingerprint(source: Path | bytes) -> np.ndarray | None:
     return np.frombuffer(r.stdout, dtype="<u4") if r.returncode == 0 else None
 
 
+LEAD = 16  # fingerprint frames (2 s) a preview may begin before the file: a lead-in of silence the file lacks
+
+
 def similarity(ref: np.ndarray, cand: np.ndarray) -> float:
     """Share of equal bits of `ref` at its best position inside `cand` (about 0.5: unrelated audio)."""
+    return _place(ref, cand)[1]
+
+
+def _place(ref: np.ndarray, cand: np.ndarray) -> tuple[int, float]:
+    """Where `ref` fits `cand` best (the fingerprint frame of `cand` its start falls on; down to -LEAD when
+    `cand` starts after the release's silent lead-in, as a recording of Spotify's stream may) and the share of
+    equal bits there, of the frames both have. (0, 0.0) when `cand` is shorter than `ref`."""
     n = len(ref)
     if not n or len(cand) < n:
-        return 0.0
+        return 0, 0.0
     windows = np.lib.stride_tricks.sliding_window_view(cand, n)
     diff = _BITS[np.bitwise_xor(windows, ref).view(np.uint8)].reshape(len(windows), -1).sum(axis=1)
-    return 1 - float(diff.min()) / (32 * n)
+    at = int(diff.argmin())
+    best = 1 - float(diff[at]) / (32 * n)
+    for k in range(1, min(LEAD, n // 2) + 1):
+        share = 1 - float(_BITS[np.bitwise_xor(ref[k:], cand[: n - k]).view(np.uint8)].sum()) / (32 * (n - k))
+        if share > best:
+            at, best = -k, share
+    return at, best
 
 
 def _get(url: str, raw: bool = False) -> Any:
@@ -221,12 +237,11 @@ def waveform(path: Path, clip: bytes) -> float | None:
     fc, ff = fingerprint(clip), fingerprint(path)
     if fc is None or ff is None or len(fc) < 50 or len(ff) < len(fc):
         return None
-    windows = np.lib.stride_tricks.sliding_window_view(ff, len(fc))
-    at = int(_BITS[np.bitwise_xor(windows, fc).view(np.uint8)].reshape(len(windows), -1).sum(axis=1).argmin())
+    at = _place(fc, ff)[0]
     y, x = _pcm_of(clip), _pcm(path)
     if len(y) < 10 * _RATE or len(x) < len(y):
         return None
-    pad = 2 * _RATE  # room before the file's start
+    pad = 2 * _RATE  # room before the file's start (the clip may begin up to LEAD frames before it)
     x = np.concatenate([np.zeros(pad, dtype=x.dtype), x, np.zeros(pad, dtype=x.dtype)])
     base, near, n = pad + round(at * 0.1238 * _RATE), _RATE // 10, 5 * _RATE
     scores = []

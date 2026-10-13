@@ -265,9 +265,17 @@ def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
     return Copy(True, f"{what} against your {have}, {khz}")
 
 
-def importable(f: File, song: sqlite3.Row | None, copy: Copy | None) -> bool:
-    """A file is imported for a missing song, or as a better copy of one in the library."""
-    return song is not None and not f.error and (copy is None or copy.better)
+def importable(f: File, song: sqlite3.Row | None, copy: Copy | None, fit: Fit | None = None) -> bool:
+    """A file is imported for a missing song, or as a better copy of one in the library; not one that sounds like
+    another recording than the release's (unless imported anyway, by hand)."""
+    return song is not None and not f.error and (copy is None or copy.better) and not sounds_different(fit)
+
+
+def sounds_different(fit: Fit | None) -> bool:
+    """The file's audio is another recording than the release's preview (its fingerprint; or a weak one with a
+    waveform unlike it)."""
+    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
+    return fp is not None and (fp <= identity.OTHER or (fp < identity.SAME and wave is not None and wave < 0.3))
 
 
 def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | None:
@@ -307,8 +315,8 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None
         amount = f"{n // 60}:{n % 60:02d}" if n >= 60 else f"{n} s"
         detail = f"{_mmss(f.seconds)}, the song {_mmss(song['length'])}"
         out.append((f"{amount} {'longer' if fit.diff > 0 else 'shorter'}", "warn", detail))
-    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
-    if fp is not None and (fp <= identity.OTHER or (fp < identity.SAME and wave is not None and wave < 0.3)):
+    wave = fit.waveform if fit else None
+    if sounds_different(fit):
         out.append(("Sounds different", "bad", "Another recording than the release's (its fingerprint)"))
     elif wave is not None and wave < identity.WAVE_SAME:
         out.append(("Other master or mix", "warn", "The same recording, but its waveform is not the release's"))

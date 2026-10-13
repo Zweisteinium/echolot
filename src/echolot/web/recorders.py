@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from echolot import __version__, db
-from echolot.library import filing, identity, recording, upload
+from echolot.library import filing, recording, upload
 from echolot.settings import auth, options
 from echolot.web import stats
 from echolot.web.common import DB, back, page
@@ -321,7 +321,7 @@ def _check_and_file(
         if f.error:
             return "rejected", f"not audio: {f.error}", ""
         fit = upload.fit(con, f, song)
-        if fit and fit.fingerprint is not None and fit.fingerprint <= identity.OTHER:
+        if upload.sounds_different(fit):
             return "rejected", "Sounds different: another recording than the release's", f.tier
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
