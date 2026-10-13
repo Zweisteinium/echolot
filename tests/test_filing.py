@@ -600,6 +600,24 @@ def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pyt
     assert calls == []
 
 
+def test_bad_soulseek_files_are_skipped_for_any_song(env) -> None:
+    """A damaged file: skipped for KEEP_DAYS, for good once it came damaged twice. A fake FLAC: for good in
+    the upgrade, whatever song it came for. By name and exact size."""
+    con = env[0]
+    old = (datetime.datetime.now() - datetime.timedelta(days=filing.KEEP_DAYS + 5)).isoformat(timespec="seconds")
+    rows = [(old, "damaged", "spotify:a", "once", 0, 100), (old, "damaged", "spotify:a", "twice", 0, 200)]
+    rows += [(old, "damaged", "spotify:b", "twice", 0, 200), (old, "duplicate", "spotify:b", "fake", 1, 300)]
+    with con:
+        con.executemany(
+            "INSERT INTO events (ts, action, song, file_name, fake, peer_bytes) VALUES (?, ?, ?, ?, ?, ?)", rows
+        )
+    before = filing.rejected_before(con, "spotify:c")
+    assert not filing.was_rejected(before, "once", 0, 100)  # expired
+    assert filing.was_rejected(before, "twice", 0, 200) and not filing.was_rejected(before, "twice", 0, 201)
+    assert not filing.was_rejected(before, "fake", 0, 300)  # a missing song takes a fake FLAC
+    assert filing.was_rejected(filing.rejected_before(con, "spotify:c", fakes=True), "fake", 0, 300)
+
+
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_a_damaged_or_cut_off_flac_is_rejected(tmp_path: Path) -> None:
     """Bytes overwritten in the middle (a broken transfer): a frame fails its checksum. Cut off: the header

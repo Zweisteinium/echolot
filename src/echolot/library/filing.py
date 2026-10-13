@@ -28,6 +28,7 @@ from echolot.library.rules import artist_key, clean_name, first_artist, identify
 
 LOCK = threading.RLock()
 KEEP_DAYS = 30
+FAKE_RULE = "2026-09-01"  # the spectrum check's verdicts count from here: a change of it starts them afresh
 MUSIC = "/music/"  # how events name files outside the library (independent of the mount point)
 
 
@@ -251,15 +252,23 @@ def in_review(paths: Paths, artist: str, title: str) -> bool:
 def rejected_before(con: sqlite3.Connection, key: str, fakes: bool = False) -> list[tuple[str, int, int]]:
     """(name, seconds, peer bytes) of the downloads the checks rejected (or kept for a confirmation) for the
     song in the last KEEP_DAYS days. The same file would be rejected again, so it is not downloaded again
-    (after that a changed rule gets its chance). With `fakes` (the FLAC upgrade) also the Soulseek FLACs
-    found made from lossy files: no upgrade, whoever shares them; told by name and exact size (peer bytes:
-    0 for the others, which go by name and length). A damaged FLAC (audio.Damaged) is told the same way."""
+    (after that a changed rule gets its chance). Bad Soulseek files, for any song and whoever shares them,
+    told by name and exact size (peer bytes; 0 for the others, which go by name and length): a damaged FLAC
+    (audio.Damaged), and with `fakes` (the FLAC upgrade) the FLACs found made from lossy files (no
+    upgrade, for good)."""
     since = (datetime.datetime.now() - datetime.timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
-    which = "action IN ('wrong-song', 'mismatch', 'confirm') OR (action = 'damaged' AND peer_bytes > 0)"
-    which += " OR (fake = 1 AND peer_bytes > 0)" if fakes else ""
-    sql = f"SELECT file_name, seconds, action, peer_bytes FROM events WHERE song = ? AND ts >= ? AND ({which})"
-    rows = con.execute(sql, (norm_key(key), since))
-    return [(n.strip(), s or 0, b if a not in ("wrong-song", "mismatch", "confirm") else 0) for n, s, a, b in rows if n]
+    which = "action IN ('wrong-song', 'mismatch', 'confirm')"
+    sql = f"SELECT file_name, seconds FROM events WHERE song = ? AND ts >= ? AND {which}"
+    out = [(n.strip(), s or 0, 0) for n, s in con.execute(sql, (norm_key(key), since)) if n]
+    # bad files, whatever song they came for: a damaged one for KEEP_DAYS, for good once it came damaged twice
+    # (once can be the transfer's fault, the peer's file fine); with `fakes` a fake for good (it stays one)
+    bad = "SELECT file_name, peer_bytes FROM events WHERE action = 'damaged' AND peer_bytes > 0 AND file_name > '' "
+    bad += "GROUP BY file_name, peer_bytes HAVING count(*) >= 2 OR max(ts) >= ?"
+    rows = con.execute(bad, (since,)).fetchall()
+    if fakes:
+        sql = "SELECT DISTINCT file_name, peer_bytes FROM events WHERE fake = 1 AND peer_bytes > 0 AND ts >= ?"
+        rows += con.execute(sql, (FAKE_RULE,)).fetchall()
+    return out + [(n.strip(), 0, b) for n, b in rows]
 
 
 def was_rejected(before: list[tuple[str, int, int]], name: str, seconds: float, size: int = 0) -> bool:
@@ -318,6 +327,7 @@ def file_into(
     same_audio: str = "",
     replaces: str = "",
     peer_bytes: int = 0,
+    peer: tuple[str, str, int] = ("", "", 0),
     replace: bool = False,
     fake_source: str = "",
 ) -> tuple[str, Path | None]:
@@ -346,6 +356,7 @@ def file_into(
         tag_artists, tag_title = audio.read_tags(src)
         info.update(found=tag_title or file_name, file_name=file_name, fake=int(fake), tries=tries, audio=heard.detail)
         info["peer_bytes"] = peer_bytes or None
+        info["peer"], info["peer_path"], info["arrived"] = peer[0] or None, peer[1] or None, peer[2] or None
         tol = 3 if source == "soulseek" else 6  # videos have intros
         match, why = identify(
             want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol, want.aliases

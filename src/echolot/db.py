@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 31
+VERSION = 32
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -116,7 +116,10 @@ CREATE TABLE events (               -- everything that was filed into or taken o
     audio TEXT,                     -- what the audio check found
     url TEXT,                       -- the page a download came from (YouTube, SoundCloud)
     compared TEXT,                  -- review: what differs from your copy (identity.compare); '' = nothing to compare
-    peer_bytes INTEGER              -- Soulseek: the size of the peer's file (it tells the same file in later searches)
+    peer_bytes INTEGER,             -- Soulseek: the size of the peer's file (it tells the same file in later searches)
+    peer TEXT,                      -- Soulseek: the user it came from
+    peer_path TEXT,                 -- Soulseek: its path at the peer, folders and all
+    arrived INTEGER                 -- Soulseek: the bytes that arrived (a short transfer: fewer than peer_bytes)
 );
 CREATE INDEX events_ts ON events(ts);
 CREATE TABLE availability (         -- whether a song still plays at its source, as last checked (jobs/availability)
@@ -407,6 +410,11 @@ MIGRATIONS = {
         "ELSE substr(i.song_key, 9) END, CASE i.result WHEN 'lossy_only' THEN 'lossy' ELSE 'same' END, "
         "coalesce(i.detail, ''), coalesce(i.finished, '') FROM recording_items i "
         "LEFT JOIN availability a ON a.song_key = i.song_key WHERE i.result IN ('lossy_only', 'not_better') ORDER BY i.id",
+    ],
+    32: [  # a Soulseek download's peer, its path there and the bytes that arrived (filing.event: for later stats)
+        "ALTER TABLE events ADD COLUMN peer TEXT",
+        "ALTER TABLE events ADD COLUMN peer_path TEXT",
+        "ALTER TABLE events ADD COLUMN arrived INTEGER",
     ],
 }
 

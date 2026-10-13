@@ -218,14 +218,22 @@ class Fetcher:
                 track(self.run, want.key, "searching")
                 return Outcome("failed", t.reason)
             track(self.run, want.key, "checking")
+            got = self.local(t.path)
+            # Echolot's own copy (another inode): a late write of the daemon to its file reaches neither the
+            # check nor the library (it did: files damaged after they were filed)
+            own = self.local_inbox / f".{name}" / got.name
+            own.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(got, own)
+            peer = (c.user, c.path, own.stat().st_size)
             try:
-                prepared = audio.prepare(self.local(t.path), self.keep_hires)
+                prepared = audio.prepare(own, self.keep_hires)
             except audio.Damaged as e:  # the next result is tried; this file not again (filing.rejected_before)
                 con = self.run.connect()
                 try:
                     info = {"song": rules.norm_key(want.key), "artist": want.artist, "title": want.title}
                     info |= {"source": "soulseek", "file_name": c.name, "peer_bytes": c.size, "reason": str(e)}
-                    filing.event(con, self.run.paths, "damaged", self.local(t.path), **info)
+                    info |= {"peer": c.user, "peer_path": c.path, "arrived": peer[2]}
+                    filing.event(con, self.run.paths, "damaged", own, **info)
                 finally:
                     con.close()
                 return Outcome("bad file", str(e))
@@ -241,6 +249,7 @@ class Fetcher:
                     file_name=c.name, folders=c.folders, probable=self.purpose == "search",
                     tries=tries, fake=prepared.fake, heard=heard, confirm=confirm and not same,
                     same_audio=same[1] if same else "", replaces=same[0] if same else "", peer_bytes=c.size,
+                    peer=peer,
                 )  # fmt: skip
                 if dest and action in ("new", "upgrade"):
                     finish(self.run, con, dest, want)
@@ -249,6 +258,7 @@ class Fetcher:
             return Outcome(action, str(dest.relative_to(self.run.paths.tracks)) if dest else "")
         finally:
             shutil.rmtree(local_dir, ignore_errors=True)
+            shutil.rmtree(self.local_inbox / f".{name}", ignore_errors=True)
 
     def watch(self, job: str, key: str = "") -> soulseek.Transfer:
         """Wait for a download (of the song `key`: its progress noted, see track); give it up when it makes no

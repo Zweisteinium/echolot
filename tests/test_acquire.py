@@ -380,7 +380,10 @@ def test_a_damaged_download_is_skipped_for_the_next_result(run: Run, monkeypatch
     broken = "Music\\Artist C\\Artist C - Gone Song.wav"
     FakeDaemon.files["Gone Song"] = [("u1", broken, 180, "ok"), ("u2", "Share\\Artist C - Gone Song.wav", 180, "ok")]
 
+    checked: list[Path] = []
+
     def prepare(p: Path, keep_hires: bool = False) -> audio.Prepared:
+        checked.append(p)
         if FakeDaemon.downloads[-1] == broken:
             raise audio.Damaged("damaged FLAC (1 decoding error: invalid frame)")
         return audio.Prepared(p, False, None)
@@ -392,6 +395,9 @@ def test_a_damaged_download_is_skipped_for_the_next_result(run: Run, monkeypatch
     row = con.execute("SELECT song, file_name, peer_bytes, reason FROM events WHERE action = 'damaged'").fetchone()
     name = "Artist C - Gone Song"  # (a search result's name: without folders and extension)
     assert tuple(row) == ("spotify:s3", name, 1, "damaged FLAC (1 decoding error: invalid frame)")
+    facts = con.execute("SELECT peer, peer_path, arrived FROM events WHERE file_name = ? ORDER BY id", (name,))
+    assert [tuple(r) for r in facts] == [("u1", broken, 18044), ("u2", "Share\\Artist C - Gone Song.wav", 18044)]
+    assert all(p.parent.name.startswith(".") for p in checked)  # Echolot's own copy, not the daemon's file
     assert filing.was_rejected(filing.rejected_before(con, "spotify:s3"), name, 180, 1)
     assert not filing.was_rejected(filing.rejected_before(con, "spotify:s3"), name, 180, 2)  # another file
     con.close()

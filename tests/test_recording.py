@@ -348,6 +348,8 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         )
         con.execute("DROP TABLE spotify_best")
         con.execute("ALTER TABLE recording_items DROP COLUMN uri")
+        for column in ("peer", "peer_path", "arrived"):  # (schema 32's)
+            con.execute(f"ALTER TABLE events DROP COLUMN {column}")
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)
