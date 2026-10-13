@@ -374,6 +374,29 @@ def test_a_download_rejected_before_is_not_downloaded_again(run: Run) -> None:
     assert '"rejected before": 2' in result
 
 
+def test_a_damaged_download_is_skipped_for_the_next_result(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A FLAC that does not decode cleanly: the next result is filed, the damaged file is noted (Activity) and
+    not downloaded again, wherever it shows up with the same name and size."""
+    broken = "Music\\Artist C\\Artist C - Gone Song.wav"
+    FakeDaemon.files["Gone Song"] = [("u1", broken, 180, "ok"), ("u2", "Share\\Artist C - Gone Song.wav", 180, "ok")]
+
+    def prepare(p: Path, keep_hires: bool = False) -> audio.Prepared:
+        if FakeDaemon.downloads[-1] == broken:
+            raise audio.Damaged("damaged FLAC (1 decoding error: invalid frame)")
+        return audio.Prepared(p, False, None)
+
+    monkeypatch.setattr(audio, "prepare", prepare)
+    acquire._search(run, [r for r in missing(run) if r["key"] == "spotify:s3"], "search")
+    assert FakeDaemon.downloads == [broken, "Share\\Artist C - Gone Song.wav"]
+    con = run.connect()
+    row = con.execute("SELECT song, file_name, peer_bytes, reason FROM events WHERE action = 'damaged'").fetchone()
+    name = "Artist C - Gone Song"  # (a search result's name: without folders and extension)
+    assert tuple(row) == ("spotify:s3", name, 1, "damaged FLAC (1 decoding error: invalid frame)")
+    assert filing.was_rejected(filing.rejected_before(con, "spotify:s3"), name, 180, 1)
+    assert not filing.was_rejected(filing.rejected_before(con, "spotify:s3"), name, 180, 2)  # another file
+    con.close()
+
+
 def test_a_fallback_download_keeps_its_page(run: Run) -> None:
     """The page a YouTube download came from is kept with the event and in the DOWNLOAD tag."""
     want = Want("Artist C", "Gone Song", 180, "spotify:s3")

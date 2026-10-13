@@ -589,6 +589,7 @@ def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pyt
     f.write_bytes(b"x")
     monkeypatch.setattr(audio, "stream", lambda path, field: {"codec_name": "flac", "sample_rate": "96000"}[field])
     monkeypatch.setattr(audio, "_flac_ok", lambda path: True)
+    monkeypatch.setattr(audio, "damage", lambda path: "")
     monkeypatch.setattr(audio, "spectrum", lambda path: {"verdict": "ok"})
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(audio, "_to_flac", lambda src, dest, *extra: bool(calls.append(extra)) or True)
@@ -597,6 +598,29 @@ def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pyt
     calls.clear()
     audio.prepare(f, keep_hires=True)
     assert calls == []
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_a_damaged_or_cut_off_flac_is_rejected(tmp_path: Path) -> None:
+    """Bytes overwritten in the middle (a broken transfer): a frame fails its checksum. Cut off: the header
+    still claims the whole song. Both are Damaged; a clean FLAC passes, also with a tag or junk after its
+    last frame."""
+    good = tmp_path / "good.flac"
+    tone = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=20", "-ac", "2", "-c:a", "flac", str(good)]
+    subprocess.run(tone, check=True)
+    assert audio.damage(good) == ""
+    data = good.read_bytes()
+    middle = len(data) // 2
+    (tmp_path / "overwritten.flac").write_bytes(data[:middle] + bytes(24) + data[middle + 24 :])
+    (tmp_path / "cut.flac").write_bytes(data[: len(data) // 3])
+    assert audio.damage(tmp_path / "overwritten.flac").startswith("damaged FLAC")
+    (tmp_path / "tagged.flac").write_bytes(data + b"TAG" + bytes(125))  # an ID3v1 tag appended
+    (tmp_path / "junk.flac").write_bytes(data + data[100:4000])  # bytes after the last frame
+    assert audio.damage(tmp_path / "tagged.flac") == "" and audio.damage(tmp_path / "junk.flac") == ""
+    assert audio.damage(tmp_path / "cut.flac").startswith(("damaged FLAC", "cut-off FLAC"))
+    with pytest.raises(audio.Damaged):
+        audio.prepare(tmp_path / "overwritten.flac")
+    assert not (tmp_path / "overwritten.flac").exists()  # rejected downloads are deleted
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")

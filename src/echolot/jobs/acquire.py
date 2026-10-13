@@ -220,6 +220,15 @@ class Fetcher:
             track(self.run, want.key, "checking")
             try:
                 prepared = audio.prepare(self.local(t.path), self.keep_hires)
+            except audio.Damaged as e:  # the next result is tried; this file not again (filing.rejected_before)
+                con = self.run.connect()
+                try:
+                    info = {"song": rules.norm_key(want.key), "artist": want.artist, "title": want.title}
+                    info |= {"source": "soulseek", "file_name": c.name, "peer_bytes": c.size, "reason": str(e)}
+                    filing.event(con, self.run.paths, "damaged", self.local(t.path), **info)
+                finally:
+                    con.close()
+                return Outcome("bad file", str(e))
             except audio.Rejected as e:
                 return Outcome("bad file", str(e))
             con = self.run.connect()

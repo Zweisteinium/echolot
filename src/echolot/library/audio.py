@@ -2,7 +2,8 @@
 spectrum check for "lossless" files made from lossy ones, tags and embedded covers.
 
 prepare() is what every download goes through:
-  1. the codec must match the extension (an MP3 renamed to .flac, an unreadable file: rejected)
+  1. the codec must match the extension (an MP3 renamed to .flac, an unreadable file: rejected); a FLAC must
+     decode without an error and as long as its header says (damaged: Damaged)
   2. a FLAC mutagen cannot read (junk before the header) is remuxed, else re-encoded (lossless)
   3. WAV, AIFF and ALAC become FLAC (lossless, smaller, standard tags)
   4. hi-res FLAC (> 48 kHz) becomes 44.1 or 48 kHz, 24 bit (inaudible, about half the size; keep_hires:
@@ -32,6 +33,14 @@ CODECS = {  # extension -> codecs a file with it may hold
 
 class Rejected(Exception):
     """The file is no usable audio (message: why)."""
+
+
+class Damaged(Rejected):
+    """A FLAC whose audio is damaged: overwritten or missing bytes (it plays with noise or gaps, and seeking
+    lands in the wrong place) or cut off (its header still claims the whole song)."""
+
+
+SHORT = 0.5  # s: a FLAC that decodes this much shorter than its header says is cut off (a last frame is less)
 
 
 def _run(args: list[str], timeout: float = 600) -> subprocess.CompletedProcess:
@@ -91,6 +100,58 @@ def _flac_ok(path: Path) -> bool:
         return False
 
 
+def _stream_bytes(path: Path) -> tuple[int, int]:
+    """Where a FLAC's stream starts and ends in its file: after an ID3v2 tag some put before "fLaC", before an
+    ID3v1 or APE tag some append (a decoder reads those as broken frames)."""
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        head = f.read(10)
+        f.seek(max(size - 160, 0))
+        tail = f.read()
+    start = end = 0
+    if len(head) == 10 and head[:3] == b"ID3":
+        start = 10 + ((head[6] & 0x7F) << 21 | (head[7] & 0x7F) << 14 | (head[8] & 0x7F) << 7 | (head[9] & 0x7F))
+        start += 10 if head[5] & 0x10 else 0  # a footer
+    if tail[-128:-125] == b"TAG":
+        end = 128
+    ape = tail[-end - 32 : len(tail) - end]  # APEv2 footer: "APETAGEX", version, size of the items and footer
+    if ape[:8] == b"APETAGEX":
+        end += int.from_bytes(ape[12:16], "little") + (32 if int.from_bytes(ape[20:24], "little") >> 31 else 0)
+    return start, size - end
+
+
+def damage(path: Path) -> str:
+    """Why a FLAC's audio is damaged, '' if it is not: decoded in full with every frame's checksum checked. A
+    frame that fails its checksum (overwritten bytes: noise), frames lost (a dropout; seeking lands in the
+    wrong place) or a song cut off (its header still claims all of it) is damaged; bytes after the last
+    frame (a decoder stops there) are not."""
+    from mutagen.flac import FLAC
+
+    try:
+        start, end = _stream_bytes(path)
+        info = FLAC(path).info
+        header = info.total_samples * info.channels
+    except Exception:  # unreadable: prepare() repairs or rejects it
+        start, end, header = 0, path.stat().st_size, 0
+    stream = f"subfile,,start,{start},end,{end},,:{path}"  # only the FLAC stream of the file
+    checked = ["-nostats", "-loglevel", "level+info", "-err_detect", "crccheck+bitstream+buffer"]
+    counted = ["-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]  # (volumedetect counts the samples)
+    try:
+        r = _run(["ffmpeg", *checked, "-i", stream, *counted])
+    except (OSError, subprocess.TimeoutExpired):
+        return ""  # not told: the other checks decide
+    said = r.stderr.decode(errors="replace")
+    errors = [line.split("] ", 2)[-1] for line in said.splitlines() if "[error]" in line]
+    counts = re.findall(r"n_samples: (\d+)", said)
+    decoded = int(counts[-1]) if counts else 0
+    lost = (header - decoded) / (info.sample_rate * info.channels) if header and decoded < header else 0.0
+    if any(e.startswith("CRC error") for e in errors) or (errors and lost):
+        return f"damaged FLAC ({len(errors)} decoding error{'s' if len(errors) != 1 else ''}: {errors[0][:100]})"
+    if lost > SHORT:
+        return f"cut-off FLAC ({lost:.0f} s of the song missing)"
+    return ""
+
+
 def _to_flac(src: Path, dest: Path, *extra: str) -> bool:
     """Encode (or copy) the first audio stream of src into dest as FLAC, keeping the tags."""
     tmp = dest.with_name(dest.name + ".tmp")
@@ -118,6 +179,9 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
     if not codec or not codec.startswith(CODECS.get(ext, ("-",))):
         path.unlink(missing_ok=True)
         raise Rejected(f"codec '{codec or 'none'}' in a .{ext} file")
+    if ext == "flac" and (why := damage(path)):
+        path.unlink(missing_ok=True)
+        raise Damaged(why)
     repaired = ext != "flac" or _flac_ok(path)  # else: remux, or re-encode (lossless)
     if not (repaired or _to_flac(path, path, "-c", "copy") or _to_flac(path, path, "-c:a", "flac")):
         path.unlink(missing_ok=True)

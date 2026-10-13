@@ -253,9 +253,10 @@ def rejected_before(con: sqlite3.Connection, key: str, fakes: bool = False) -> l
     song in the last KEEP_DAYS days. The same file would be rejected again, so it is not downloaded again
     (after that a changed rule gets its chance). With `fakes` (the FLAC upgrade) also the Soulseek FLACs
     found made from lossy files: no upgrade, whoever shares them; told by name and exact size (peer bytes:
-    0 for the others, which go by name and length)."""
+    0 for the others, which go by name and length). A damaged FLAC (audio.Damaged) is told the same way."""
     since = (datetime.datetime.now() - datetime.timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
-    which = "action IN ('wrong-song', 'mismatch', 'confirm')" + (" OR (fake = 1 AND peer_bytes > 0)" if fakes else "")
+    which = "action IN ('wrong-song', 'mismatch', 'confirm') OR (action = 'damaged' AND peer_bytes > 0)"
+    which += " OR (fake = 1 AND peer_bytes > 0)" if fakes else ""
     sql = f"SELECT file_name, seconds, action, peer_bytes FROM events WHERE song = ? AND ts >= ? AND ({which})"
     rows = con.execute(sql, (norm_key(key), since))
     return [(n.strip(), s or 0, b if a not in ("wrong-song", "mismatch", "confirm") else 0) for n, s, a, b in rows if n]

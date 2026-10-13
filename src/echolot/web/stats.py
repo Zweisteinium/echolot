@@ -32,7 +32,7 @@ def _mine(uid: int | None, column: str = "s.key") -> tuple[str, tuple]:
 
 
 ADDED = ("new", "upgrade")
-REJECTED = ("wrong-song", "mismatch")
+REJECTED = ("wrong-song", "mismatch", "damaged")
 
 
 def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
@@ -286,6 +286,7 @@ EVENTS = {
     "upgrade": ("Upgraded", "ok"),
     "wrong-song": ("Rejected", "bad"),
     "mismatch": ("Rejected", "bad"),
+    "damaged": ("Rejected", "bad"),
     "confirm": ("For review", "warn"),
     "duplicate": ("Already there", ""),
     "retired": ("Removed", "warn"),
@@ -359,7 +360,7 @@ def _entry(e: Row) -> dict[str, Any]:
     entry |= {"tag": None, "note": "", "title": reason, "diff": None, "was": None, "was_bytes": None}
     if action in ("new", "upgrade", "duplicate"):
         entry["tag"] = MATCHED.get(e["matched"] or "")
-    elif action in ("wrong-song", "mismatch", "confirm"):
+    elif action in (*REJECTED, "confirm"):
         wanted = e["wanted_seconds"]
         entry["diff"] = e["seconds"] - wanted if action == "mismatch" and wanted and e["seconds"] else None
         entry["tag"] = ("FLAC for a SoundCloud song", "warn") if action == "confirm" else (_why(action, reason), "bad")
@@ -381,6 +382,7 @@ def _why(action: str, reason: str) -> str:
         ("another version" in reason or "lacks the version" in reason, "another version"),
         (reason.startswith("title ") or "reading of tag" in reason, "another title"),
         ("probable matches need a review" in reason, "kept for review"),
+        (reason.startswith(("damaged FLAC", "cut-off FLAC")), "damaged file"),
     ):
         if test:
             return why
