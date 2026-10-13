@@ -101,7 +101,7 @@ def record_dialog(request: Request, con: DB) -> HTMLResponse:
     at most. For one Spotify list, or all of the user's (no list)."""
     user = request.state.user
     key = request.query_params.get("list") or None
-    lst = stats.get_list(con, key, user.id) if key else None
+    lst = stats.get_list(con, key, stats.scope(user)) if key else None  # (the lists its page shows the user)
     if key and (lst is None or lst["service"] != "spotify"):
         raise HTTPException(404, "Not one of your Spotify lists.")
     tracks = recording.candidates(con, user.id, key)
@@ -127,6 +127,9 @@ def record_start(
 ) -> Response:
     user = request.state.user
     where = f"/lists/{list_key}" if list_key else "/library"
+    lst = stats.get_list(con, list_key, stats.scope(user)) if list_key else None
+    if list_key and (lst is None or lst["service"] != "spotify"):
+        return back("/library", error="Not one of your Spotify lists.")
     try:
         old = recording.active(con, recording.device(con, user.id, recorder)["id"])
         recording.start(con, user.id, recorder, list_key or None, below)

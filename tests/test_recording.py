@@ -93,6 +93,25 @@ def test_connecting_and_each_device_its_users_alone(app: FastAPI, login: Callabl
     assert as_device(app, timon_token).get("/api/recorder/me").status_code == 401
 
 
+def test_an_admin_records_a_list_only_someone_else_follows(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """The Record button on a list page an admin sees (their everyone's view) works for that list too: the
+    dialog and the session take its songs, though the admin does not follow it."""
+    owner = login(app)
+    connect(owner, app)
+    con = db.connect(app.state.settings.db_path)
+    with con:  # the owner no longer follows Liked Songs (someone else's now, for this test)
+        con.execute("DELETE FROM sources WHERE key = 'spotify:likes:1'")
+    con.close()
+    params = {"list": "spotify:likes:1"}
+    assert owner.get("/recordings/new", params=params).status_code == 404  # their own view: not theirs
+    assert owner.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
+    assert owner.get("/lists/spotify:likes:1").status_code == 200
+    dialog = owner.get("/recordings/new", params=params).text
+    assert "DESKTOP-DAVID" in dialog and "2 songs" in dialog
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless", **params})
+    assert "Recording: your device starts" in r.text
+
+
 def test_a_session_song_by_song(app: FastAPI, login: Callable[..., TestClient]) -> None:
     """Worst first, each song once; an idle device gets one song at a time; the answers: Spotify only has it
     lossy (skipped, and for 30 days), the user took over Spotify (the session pauses), a stall (again once,

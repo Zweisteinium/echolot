@@ -204,20 +204,24 @@ class Track:
 
 
 def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = None, held: bool = False) -> list[Track]:
-    """Every song of the user's Spotify lists (or that one) the library has no genuine lossless copy of, worst
-    first (then in the lists' order); each recording once (the same song, file or ISRC in several lists); not
-    what Spotify plays nowhere (or greys out), nor what played as another song in the last SKIP_DAYS, nor (but
-    with `held`) what Spotify has nothing better of (blocks)."""
-    one = " AND l.key = ?" if list_key else ""
-    rows = con.execute(
+    """Every song of the user's Spotify lists (or of that one, whoever follows it: the pages decide who may see
+    it) the library has no genuine lossless copy of, worst first (then in the lists' order); each recording once
+    (the same song, file or ISRC in several lists); not what Spotify plays nowhere (or greys out), nor what
+    played as another song in the last SKIP_DAYS, nor (but with `held`) what Spotify has nothing better of
+    (blocks)."""
+    songs = (
         "SELECT s.key, s.artist, s.artists, s.title, s.album, s.length, s.isrc, s.file, s.close_match, s.unavailable, "
-        "f.quality, a.state, a.detail FROM sources src JOIN lists l ON l.key = src.key "
-        "JOIN list_songs ls ON ls.list_key = l.key JOIN songs s ON s.key = ls.song_key "
-        "LEFT JOIN files f ON f.path = s.file LEFT JOIN availability a ON a.song_key = s.key "
-        f"WHERE src.user_id = ? AND src.enabled AND l.service = 'spotify' AND s.key LIKE 'spotify:%'{one} "
-        "ORDER BY src.position, ls.position",
-        (user_id, list_key) if list_key else (user_id,),
-    ).fetchall()
+        "f.quality, a.state, a.detail FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
+        "JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
+        "LEFT JOIN availability a ON a.song_key = s.key"
+    )
+    spotify = "l.service = 'spotify' AND s.key LIKE 'spotify:%'"
+    if list_key:
+        sql, args = f"{songs} WHERE l.key = ? AND {spotify} ORDER BY ls.position", (list_key,)
+    else:
+        mine = f"{songs} JOIN sources src ON src.key = l.key WHERE src.user_id = ? AND src.enabled AND {spotify}"
+        sql, args = f"{mine} ORDER BY src.position, ls.position", (user_id,)
+    rows = con.execute(sql, args).fetchall()
     since = _stamp(-timedelta(days=SKIP_DAYS))
     recent = (
         "SELECT i.song_key FROM recording_items i JOIN recordings r ON r.id = i.recording_id "

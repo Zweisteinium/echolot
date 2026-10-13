@@ -842,7 +842,7 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .recording-close { flex: none; margin: -0.25rem -0.35rem 0 0; }
 .recording-now { margin: 0.8rem 0 0; }
 .recording .record-progress { max-width: none; height: 6px; margin: 0.55rem 0 0; border-radius: 3px; }
-.recording .record-progress span { transition: width 1s linear; }  /* moves on by the second */
+.recording .record-progress span { transition: none; }  /* moved on every frame (_record.html) */
 .recording-counts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.7rem 0 0; }
 .record-summary { margin: 0.6rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
 .record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }

@@ -28,7 +28,7 @@
     {%- elif not device.online %}<span class="warn-text">{{ name }} is offline:</span> it starts as soon as Mitschnitt runs there.
     {%- elif device.state == 'setup' %}<span class="warn-text">{{ name }}: {{ device.detail or 'a setup check fails' }}</span> (Mitschnitt's Setup tab).
     {%- elif device.state == 'busy' %}Waiting until Spotify is free on {{ name }}.
-    {%- elif session.recording %}<strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if clock %} <span class="muted"><span data-clock data-at="{{ clock.at }}" data-total="{{ clock.total }}">{{ clock.at|mmss }}</span> / {{ clock.total|mmss }}</span>{% endif %}
+    {%- elif session.recording %}<strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if clock %} <span class="muted"><span data-clock data-at="{{ clock.at }}" data-total="{{ clock.total }}" data-song="{{ session.recording.artist }} – {{ session.recording.title }}">{{ clock.at|mmss }}</span> / {{ clock.total|mmss }}</span>{% endif %}
     {%- else %}Starting the next song.{% endif %}
   </p>
   {% set heard = session.seconds_done + (clock.at if clock else 0) %}

@@ -20,15 +20,32 @@
     body.addEventListener("change", update);
     dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
   })();
-  // a session's panel: the song's time runs on by the second (the device says where it is every 30 s, the
-  // panel comes anew every 5 s), the bar with it (the session's songs' time heard)
-  setInterval(() => {
-    const clock = document.querySelector("#recording [data-clock]");
-    if (!clock) return;
-    clock.t0 ??= Date.now();
-    const at = Math.min(+clock.dataset.total, +clock.dataset.at + Math.floor((Date.now() - clock.t0) / 1000));
-    clock.textContent = `${Math.floor(at / 60)}:${String(at % 60).padStart(2, "0")}`;
-    const bar = document.querySelector("#recording [data-all]");
-    if (bar && +bar.dataset.all) bar.firstElementChild.style.width = `${(100 * (+bar.dataset.done + at)) / +bar.dataset.all}%`;
-  }, 1000);
+  // a session's panel: the song's time and the bar (the session's songs' time heard) run on by the page's own
+  // clock, drawn every frame. The panel comes anew every 5 s with the server's time (whole seconds, from what
+  // the device last said): it only sets the clock when that is more than 2 s off (a new song, a seek), so the
+  // refreshes neither jump the time nor the bar.
+  (() => {
+    let anchor = null;  // the song's position `at` (s) at performance.now() `t`, and the panel it was read from
+    const draw = () => {
+      const clock = document.querySelector("#recording [data-clock]");
+      const now = performance.now();
+      if (!clock) {
+        anchor = null;
+      } else {
+        if (clock !== anchor?.el) {  // a new panel
+          const said = +clock.dataset.at, song = clock.dataset.song;
+          const ours = anchor && anchor.song === song ? anchor.at + (now - anchor.t) / 1000 : null;
+          if (ours === null || Math.abs(ours - said) > 2) anchor = { song, at: said, t: now };
+          anchor.el = clock;
+        }
+        const at = Math.min(+clock.dataset.total, anchor.at + (now - anchor.t) / 1000);
+        const text = `${Math.floor(at / 60)}:${String(Math.floor(at % 60)).padStart(2, "0")}`;
+        if (clock.textContent !== text) clock.textContent = text;
+        const bar = document.querySelector("#recording [data-all]");
+        if (bar && +bar.dataset.all) bar.firstElementChild.style.width = `${(100 * (+bar.dataset.done + at)) / +bar.dataset.all}%`;
+      }
+      requestAnimationFrame(draw);
+    };
+    requestAnimationFrame(draw);
+  })();
 </script>
