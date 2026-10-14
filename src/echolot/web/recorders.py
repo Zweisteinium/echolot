@@ -324,8 +324,10 @@ def _check_and_file(
         if f.error:
             return "rejected", f"not audio: {f.error}", ""
         fit = upload.fit(con, f, song)
-        if upload.sounds_different(fit):
-            return "rejected", "Sounds different: another recording than the release's", f.tier
+        if upload.sounds_different(fit):  # Spotify's is another recording: not offered again (Try again lifts it)
+            detail = f"{recording.DIFFERENT}: another recording than the release's ({upload.scores(fit)})"
+            recording.block(con, item["song_key"], item["uri"], "other", detail)
+            return "rejected", detail, f.tier
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
             return "not_better", copy.why, f.tier

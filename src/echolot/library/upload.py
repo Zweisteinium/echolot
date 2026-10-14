@@ -271,6 +271,12 @@ def importable(f: File, song: sqlite3.Row | None, copy: Copy | None, fit: Fit | 
     return song is not None and not f.error and (copy is None or copy.better) and not sounds_different(fit)
 
 
+def scores(fit: Fit | None) -> str:
+    """The audio check's scores, for a reason: "fingerprint 0.56, waveform 0.11" (1: the release's audio)."""
+    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
+    return ", ".join(f"{name} {v:.2f}" for name, v in (("fingerprint", fp), ("waveform", wave)) if v is not None)
+
+
 def sounds_different(fit: Fit | None) -> bool:
     """The file's audio is another recording than the release's preview (its fingerprint; or a weak one with a
     waveform unlike it)."""
@@ -317,7 +323,7 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None
         out.append((f"{amount} {'longer' if fit.diff > 0 else 'shorter'}", "warn", detail))
     wave = fit.waveform if fit else None
     if sounds_different(fit):
-        out.append(("Sounds different", "bad", "Another recording than the release's (its fingerprint)"))
+        out.append(("Sounds different", "bad", f"Another recording than the release's ({scores(fit)})"))
     elif wave is not None and wave < identity.WAVE_SAME:
         out.append(("Other master or mix", "warn", "The same recording, but its waveform is not the release's"))
     if f.tier == "fake":

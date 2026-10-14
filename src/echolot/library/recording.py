@@ -47,7 +47,9 @@ BEST = {  # spotify_best.reason -> why Spotify has nothing better (the lists sho
     "lossy": "Spotify plays this song lossy only",
     "same": "Spotify's stream is no better than your copy",
     "recorded": "your copy is the best Spotify has (recorded, not lossless)",
+    "other": "Spotify plays another recording of this song than the release's",
 }
+DIFFERENT = "Sounds different"  # a rejected recording's detail: another recording than the release's (block "other")
 PLAYS_AS = (  # SQL: the Spotify track a song plays as here (the release Spotify relinks it to), of {key}
     "'spotify:track:' || CASE WHEN a.state = 'replaced' AND a.detail LIKE 'spotify:%' THEN substr(a.detail, 9) "
     "ELSE substr({key}, 9) END"
@@ -408,11 +410,13 @@ def summary(con: sqlite3.Connection, session_id: int) -> dict:
     counts: dict[str, int] = {}
     left = everything = 0.0
     for r in con.execute(
-        "SELECT i.state, i.result, s.length FROM recording_items i LEFT JOIN songs s ON s.key = i.song_key "
+        "SELECT i.state, i.result, i.detail, s.length FROM recording_items i LEFT JOIN songs s ON s.key = i.song_key "
         "WHERE i.recording_id = ?",
         (session_id,),
     ):
-        counts[r["result"] or r["state"]] = counts.get(r["result"] or r["state"], 0) + 1
+        other = r["result"] == "rejected" and (r["detail"] or "").startswith(DIFFERENT)
+        what = "other" if other else r["result"] or r["state"]
+        counts[what] = counts.get(what, 0) + 1
         everything += r["length"] or 0
         if r["state"] != "done":
             left += r["length"] or 0
@@ -421,8 +425,9 @@ def summary(con: sqlite3.Connection, session_id: int) -> dict:
     out = {"id": s["id"], "title": s["title"], "state": s["state"], "reason": s["reason"], "list": s["list_key"]}
     out |= {"created": s["created"], "ended": s["ended"]}
     out |= {"total": total, "done": total - n("queued", 0) - n("recording", 0), "filed": n("filed", 0)}
-    out |= {"not_better": n("not_better", 0), "skipped": sum(n(k, 0) for k in (*SKIPS, "found"))}
+    out |= {"not_better": n("not_better", 0), "skipped": sum(n(k, 0) for k in (*SKIPS, "found", "other"))}
     out |= {"found": n("found", 0), "lossy_only": n("lossy_only", 0), "wrong_song": n("wrong_song", 0)}
+    out |= {"other": n("other", 0)}
     out |= {"failed": n("failed", 0) + n("rejected", 0), "minutes_left": round(left / 60)}
     out |= {"seconds_total": round(everything), "seconds_done": round(everything - left)}
     return out | {"recording": current(con, session_id)}

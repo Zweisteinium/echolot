@@ -120,6 +120,7 @@ def test_labels() -> None:
     assert upload.labels(f, song, upload.Fit(1))[0][:2] == ("Looks right", "ok")  # no preview: the length
     off = upload.labels(upload.File(1, "x.flac", seconds=346, tier="fake"), song, upload.Fit(135, 0.55, 0.02))
     assert [t for t, _, _ in off] == ["2:15 longer", "Sounds different", "Fake FLAC"]
+    assert off[1][2] == "Another recording than the release's (fingerprint 0.55, waveform 0.02)"
     master = upload.labels(f, song, upload.Fit(0, 0.96, 0.72))  # SpotiFLAC's other version under the ISRC
     assert [t for t, _, _ in master] == ["Other master or mix"]
     assert upload.labels(f, None, None)[0][0] == "No song found"

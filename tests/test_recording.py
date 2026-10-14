@@ -224,6 +224,14 @@ def test_the_upload_into_the_song(
     nxt = poll(device)["item"]
     r = device.post(f"/api/recorder/items/{nxt['id']}/file", files=files)
     assert r.json()["result"] == "rejected" and "Sounds different" in r.json()["detail"]
+    assert "(fingerprint 0.40, waveform 0.10)" in r.json()["detail"]  # (the scores, to judge it later)
+    con = db.connect(app.state.settings.db_path)
+    best = recording.blocks(con)[nxt["key"]]  # Spotify's is another recording: not offered again
+    assert best["reason"] == "other" and "fingerprint 0.40" in best["detail"]
+    assert nxt["key"] not in [t.key for t in recording.candidates(con, 1)]
+    session = con.execute("SELECT recording_id FROM recording_items WHERE id = ?", (nxt["id"],)).fetchone()[0]
+    assert recording.summary(con, session)["other"] == 1  # (skipped for good, not failed)
+    con.close()
 
 
 def test_the_export(app: FastAPI, login: Callable[..., TestClient]) -> None:

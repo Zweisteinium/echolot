@@ -41,11 +41,12 @@
   {% if session.filed or session.not_better or session.skipped or session.failed %}
   <p class="recording-counts">{% for n, what, kind in counts if n %}<span class="pill {{ kind }}">{{ n }} {{ what }}</span>{% endfor %}</p>
   {% endif %}
-  {% if not live and (session.not_better or session.found or session.lossy_only or session.wrong_song or session.failed or session.state == 'stopped' or not session.done) %}
+  {% if not live and (session.not_better or session.found or session.lossy_only or session.other or session.wrong_song or session.failed or session.state == 'stopped' or not session.done) %}
   <ul class="record-summary small">
     {% if session.not_better %}<li>{{ session.not_better }} not better than your copy: yours stayed.</li>{% endif %}
     {% if session.found %}<li>{{ session.found }} Echolot found on its own meanwhile: it kept those.</li>{% endif %}
     {% if session.lossy_only %}<li>{{ session.lossy_only }} Spotify has only lossy: not offered again.</li>{% endif %}
+    {% if session.other %}<li>{{ session.other }} Spotify plays as another recording than the release's: not offered again.</li>{% endif %}
     {% if session.wrong_song %}<li>{{ session.wrong_song }} played as another song in Spotify: not offered again for 30 days.</li>{% endif %}
     {% if session.failed %}<li class="bad-text">{{ session.failed }} could not be recorded; they come up again next time.</li>{% endif %}
     {% if session.state == 'stopped' and session.done < session.total %}<li>Stopped: {{ session.total - session.done }} not recorded.</li>{% endif %}
