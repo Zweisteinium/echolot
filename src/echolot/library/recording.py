@@ -40,9 +40,10 @@ CODE_MINUTES = 10  # an approved connection's code works this long, once
 ONLINE_SECONDS = 75  # a device that asked this lately is online (it asks at least every 30 s)
 LEASE_SLACK = 15 * 60  # seconds a device has beyond the song's length to answer for it
 TRIES = 2  # a song that failed (or got no answer) is queued again until it was handed out this often
-SKIP_DAYS = 30  # a song Spotify has only lossy, or plays as another song, is not offered again for this long
-SKIPS = ("lossy_only", "wrong_song")  # a song done with this was not recorded (the session's "skipped")
-SKIPPED_FOR_DAYS = ("wrong_song",)  # ... and is not offered again for SKIP_DAYS (lossy_only: never, see block)
+SKIP_DAYS = 30  # a song Spotify plays as another song (wrong_song) is not offered again for this long
+# a song done with this was not recorded (the session's "skipped"); skipped (by the user on the device): for this
+# session only; lossy_only: never again (block)
+SKIPS = ("lossy_only", "wrong_song", "skipped")
 BEST = {  # spotify_best.reason -> why Spotify has nothing better (the lists show it)
     "lossy": "Spotify plays this song lossy only",
     "same": "Spotify's stream is no better than your copy",
@@ -227,11 +228,11 @@ def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = Non
     since = _stamp(-timedelta(days=SKIP_DAYS))
     recent = (
         "SELECT i.song_key FROM recording_items i JOIN recordings r ON r.id = i.recording_id "
-        f"WHERE r.user_id = ? AND i.result IN ({', '.join('?' * len(SKIPPED_FOR_DAYS))}) AND i.finished >= ?"
+        "WHERE r.user_id = ? AND i.result = 'wrong_song' AND i.finished >= ?"
     )
-    skipped = {r[0] for r in con.execute(recent, (user_id, *SKIPPED_FOR_DAYS, since))}
+    left_out = {r[0] for r in con.execute(recent, (user_id, since))}
     if not held:
-        skipped |= set(blocks(con))
+        left_out |= set(blocks(con))
     seen_marks: set[str] = set()
     out = []
     for r in rows:
@@ -244,7 +245,7 @@ def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = Non
         have = _have(r)
         if (
             have == "lossless"
-            or r["key"] in skipped
+            or r["key"] in left_out
             or r["unavailable"]
             or r["state"] in ("taken_down", "blocked", "gone")
         ):
@@ -427,7 +428,7 @@ def summary(con: sqlite3.Connection, session_id: int) -> dict:
     out |= {"total": total, "done": total - n("queued", 0) - n("recording", 0), "filed": n("filed", 0)}
     out |= {"not_better": n("not_better", 0), "skipped": sum(n(k, 0) for k in (*SKIPS, "found", "other"))}
     out |= {"found": n("found", 0), "lossy_only": n("lossy_only", 0), "wrong_song": n("wrong_song", 0)}
-    out |= {"other": n("other", 0)}
+    out |= {"other": n("other", 0), "by_user": n("skipped", 0)}
     out |= {"failed": n("failed", 0) + n("rejected", 0), "minutes_left": round(left / 60)}
     out |= {"seconds_total": round(everything), "seconds_done": round(everything - left)}
     return out | {"recording": current(con, session_id)}

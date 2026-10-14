@@ -276,7 +276,7 @@ CREATE TABLE recording_items (      -- a session's songs, fixed when it starts
     position INTEGER NOT NULL,
     song_key TEXT NOT NULL,
     state TEXT NOT NULL,            -- queued, recording (handed out), done
-    result TEXT,                    -- done: filed, not_better, rejected, lossy_only, wrong_song, found, failed
+    result TEXT,                    -- done: filed, not_better, rejected, lossy_only, wrong_song, skipped, found, failed
     detail TEXT,
     tries INTEGER NOT NULL DEFAULT 0,  -- how often it was handed out
     lease_until REAL,               -- recording: the device's until then (unix time)

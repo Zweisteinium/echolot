@@ -350,7 +350,7 @@ def _answer(con: sqlite3.Connection, item: sqlite3.Row, result: str, detail: str
 
 
 class Result(BaseModel):
-    result: str = Field(pattern="^(lossy_only|wrong_song|took_over|stalled|failed)$")
+    result: str = Field(pattern="^(lossy_only|wrong_song|skipped|took_over|stalled|failed)$")
     detail: str = ""
 
 

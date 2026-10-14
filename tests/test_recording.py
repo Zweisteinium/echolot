@@ -234,6 +234,31 @@ def test_the_upload_into_the_song(
     con.close()
 
 
+def test_a_song_skipped_on_the_device(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """The user skips the song being recorded on the device: done and counted as skipped, not handed out again in
+    that session, and offered again by the next one (no block, no days left out)."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
+    item = poll(device)["item"]
+    r = device.post(
+        f"/api/recorder/items/{item['id']}/result", json={"result": "skipped", "detail": "skipped by the user"}
+    )
+    assert r.status_code == 200, r.text
+    session = r.json()["session"]
+    assert session["state"] == "running" and session["skipped"] == 1 and session["by_user"] == 1
+    rest = poll(device)["item"]
+    assert rest["key"] != item["key"]  # the next song
+    device.post(f"/api/recorder/items/{rest['id']}/result", json={"result": "lossy_only"})
+    assert poll(device)["item"] is None  # (not handed out again: the session is done)
+    con = db.connect(app.state.settings.db_path)
+    assert item["key"] in [t.key for t in recording.candidates(con, 1)]
+    assert item["key"] not in recording.blocks(con)
+    con.close()
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
+    assert poll(device)["item"]["key"] == item["key"]  # a new session offers it again
+
+
 def test_the_export(app: FastAPI, login: Callable[..., TestClient]) -> None:
     owner = login(app)
     r = owner.get("/api/recorder/export", params={"list": "spotify:likes:1", "below": "lossless"})
