@@ -94,6 +94,29 @@ def test_same_song_twice_is_a_duplicate(env) -> None:
     assert [p.name for p in (paths.tracks / "A").iterdir()] == ["A - Song.wav"]
 
 
+def test_a_fake_flac_that_takes_over_stays_marked(env) -> None:
+    """A recording made from Spotify's lossy master replaces a 160 kbps copy of the same name: it stays a fake
+    FLAC (retiring "A - Song.mp3" once unmarked the new "A - Song.flac" too), and its event says so."""
+    con, paths, _ = env
+    mp3 = paths.tracks / "A" / "A - Song.mp3"
+    mp3.parent.mkdir()
+    mp3.write_bytes(b"not really audio")
+    catalog.scan(con, paths.tracks)
+    with con:
+        con.execute("UPDATE files SET duration = 200 WHERE path = 'A/A - Song.mp3'")
+    src = download(paths, "a.flac")
+    want = Want("A", "Song", 200)
+    action, dest = filing.file_into(
+        con, paths, src, want, "mitschnitt", fake=True, fake_source="~256 kbps / V0", replace=True
+    )
+    assert action == "upgrade" and dest.name == "A - Song.flac" and not mp3.exists()
+    assert [tuple(r) for r in con.execute("SELECT stem, source FROM lossy_sourced")] == [
+        ("A/A - Song", "~256 kbps / V0")
+    ]
+    assert catalog.Catalog.from_db(con).entries[0].quality == "fake"
+    assert con.execute("SELECT fake FROM events WHERE action = 'upgrade'").fetchone()[0] == 1
+
+
 def test_lossless_replaces_lossy_copy(env) -> None:
     con, paths, _ = env
     mp3 = paths.tracks / "A" / "A - Song.mp3"

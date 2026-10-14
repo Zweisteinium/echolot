@@ -421,11 +421,11 @@ def file_into(
                 if paths.tracks / e.path == dest and dest.exists():  # (gone by hand: nothing to keep)
                     retire(con, paths, e, why)
             _place(src, dest)
-            _add_file(con, paths, dest, fake, fake_source)
             for e in losers:
                 if paths.tracks / e.path != dest and (paths.tracks / e.path).exists():
                     retire(con, paths, e, why)
-            event(con, paths, "upgrade", dest, **info)
+            _add_file(con, paths, dest, fake, fake_source)  # (after: retiring "A - Song.mp3" unmarks "A - Song.*")
+            event(con, paths, "upgrade", dest, **{"fake": int(fake), **info})
             return "upgrade", dest
         folder = artist_dir(paths, cat, want.artist)
         label = "SoundCloud" if source == "soundcloud" else ""  # a SoundCloud like next to its Spotify version
