@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # Songs Soulseek did not find are searched less strictly with every failure (by searches that found nothing):
-#   0-1: as requested; the artist must be in the Soulseek path
+#   0-1: as requested; the artist must be in the Soulseek path (rules.prejudge)
 #   2-3: title without feat. credits, 'From "Film"' and plain suffixes, first artist only; desperate:
 #        a search without results is repeated with the title alone and the artist alone (any length)
 #   4+ : also without requiring the artist in the path (the tags are still checked after the download)
@@ -153,7 +153,7 @@ class Fetcher:
 
     def _song(self, want: Want, tries: int, artist_name: str) -> Outcome:
         loosen, opts = level(tries) if self.purpose == "search" else (False, {})
-        settings = soulseek.search_settings(**opts, flac_only=self.purpose == "upgrade")
+        settings = soulseek.search_settings(desperate=opts.get("desperate", False), flac_only=self.purpose == "upgrade")
         artist, title, length = rules.search_terms(artist_name, want.title, want.length, loosen)
         job = self.daemon.search(artist, title, length, settings)
         try:

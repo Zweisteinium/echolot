@@ -18,21 +18,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Sockseek's filters (necessary) and ranking preferences
+# Sockseek's filters (necessary) and ranking preferences. The artist is no filter: Sockseek's wants the whole
+# name as it is in the path ("Riko & Para" is not "Para_x_Riko"); rules.prejudge checks it (aliases, any order)
 SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [...]}
-    "necessaryCond": {"strictArtist": True, "lengthTolerance": 3},
+    "necessaryCond": {"strictArtist": False, "lengthTolerance": 3},
     "preferredCond": {"formats": {"replace": ["flac"]}, "minBitrate": 200, "maxBitrate": 2500,
                       "maxSampleRate": 48000, "strictTitle": True, "strictArtist": True},
     "maxStaleTime": 90000,  # ms without progress before Sockseek gives a transfer up
 }  # fmt: skip
 
 
-def search_settings(*, desperate: bool = False, strict_artist: bool = True, flac_only: bool = False) -> dict:
+def search_settings(*, desperate: bool = False, flac_only: bool = False) -> dict:
     """downloadSettings for a job. desperate: a search without results is repeated with the title
     alone and the artist alone. flac_only: only FLAC files count (upgrades)."""
     search = json.loads(json.dumps(SEARCH))
     search["desperateSearch"] = desperate
-    search["necessaryCond"]["strictArtist"] = strict_artist
     if flac_only:
         search["necessaryCond"]["formats"] = {"replace": ["flac"]}
     return {"search": search, "preprocess": {"removeFt": True}}

@@ -131,7 +131,7 @@ def test_found_after_skipping_wrong_and_stuck_results(run: Run, monkeypatch: pyt
     assert tuple(rejected) == ("mismatch", 180)
     artist, title, length, settings = FakeDaemon.searches[-1]
     assert (artist, title, length) == ("Artist C", "Gone Song", 180)
-    assert settings["search"]["desperateSearch"] and settings["search"]["necessaryCond"]["strictArtist"]
+    assert settings["search"]["desperateSearch"] and not settings["search"]["necessaryCond"]["strictArtist"]
 
 
 def test_filed_and_attempts_cleared(run: Run) -> None:
@@ -186,7 +186,7 @@ def test_nothing_found_counts_a_try_and_loosens(run: Run) -> None:
     rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
     assert "1 not found" in acquire._search(run, rows, "search")
     _, _, _, settings = FakeDaemon.searches[-1]
-    assert not settings["search"]["necessaryCond"]["strictArtist"]  # 4+ tries: the artist may be missing
+    assert not settings["search"]["necessaryCond"]["strictArtist"]  # (never: rules.prejudge checks the artist)
     con = run.connect()
     assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 5
     con.close()

@@ -304,6 +304,19 @@ def test_a_co_artist_counts_as_the_artist() -> None:
     assert rules.prejudge("para//e/", "Rausch", path, 389, 389, aliases=want.aliases)[0] == "accept"
 
 
+def test_a_duo_named_the_other_way_round_in_the_path() -> None:
+    """Spotify's "Riko & Para", the scene release's "Para_x_Riko": the radio edit is the song (Sockseek's own
+    artist filter dropped it, so Echolot no longer asks for that filter), the extended mix another length."""
+    folder = "@@music\\Techno\\202303\\Para_x_Riko-Share_Our_Happiness-(CR0236)-16BIT-WEB-FLAC-2023-DASH\\"
+    radio, extended = (
+        "02-para_x_riko-share_our_happiness_(radio_edit).flac",
+        "01-para_x_riko-share_our_happiness_(extended_mix).flac",
+    )
+    title = "Share Our Happiness - Radio Edit"
+    assert rules.prejudge("Riko & Para", title, folder + radio, 251, 251)[0] == "accept"
+    assert rules.prejudge("Riko & Para", title, folder + extended, 279, 251)[0] == "reject"
+
+
 def test_cjk_names_with_or_without_a_space() -> None:
     """Spotify writes "祖堅 正慶", most peers "祖堅正慶" (and some the other way round)."""
     title = "Close to the Heavens"
