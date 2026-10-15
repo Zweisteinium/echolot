@@ -39,6 +39,21 @@ RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VER
        --enable-chromaprint --enable-libsoxr --enable-libmp3lame --enable-openssl --enable-zlib --enable-iconv \
     && make -j "$(nproc)" && make install
 
+# lossprint (MIT, github.com/maxdjohnson/lossprint): the second lossy check, a CNN on spectrograms (audio.lossprint).
+# The release binary, pinned by its checksum; its model is built in.
+FROM python:3.13-slim AS lossprint
+ARG TARGETARCH LOSSPRINT_VERSION=1.1 \
+    LOSSPRINT_SHA256_AMD64=7111af755c74be04400386047afb9e5e7b386d87f6de3f9c906992e34d96eba7 \
+    LOSSPRINT_SHA256_ARM64=f362c3e4b6dffb8aa72d436a0e28dad840ae03edb2a418f88169c3b9b6d2db5f
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN if [ "${TARGETARCH:-amd64}" = arm64 ]; then arch=aarch64 sum="$LOSSPRINT_SHA256_ARM64"; \
+    else arch=x86_64 sum="$LOSSPRINT_SHA256_AMD64"; fi \
+    && curl -fsSL -o lossprint.tar.gz "https://github.com/maxdjohnson/lossprint/releases/download/v${LOSSPRINT_VERSION}/lossprint-v${LOSSPRINT_VERSION}-${arch}-unknown-linux-gnu.tar.gz" \
+    && echo "${sum}  lossprint.tar.gz" | sha256sum -c - && tar xzf lossprint.tar.gz \
+    && install -D -m 755 "lossprint-${arch}-unknown-linux-gnu/lossprint" /out/bin/lossprint \
+    && install -D -m 644 "lossprint-${arch}-unknown-linux-gnu/LICENSE" /out/share/doc/lossprint/LICENSE
+
 FROM python:3.13-slim
 ARG ECHOLOT_VERSION="" ECHOLOT_COMMIT=""
 LABEL org.opencontainers.image.title="Echolot" \
@@ -53,6 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libsoxr0 libmp3
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffprobe /usr/local/bin/
 COPY --from=ffmpeg /usr/local/lib/*.so.* /usr/local/lib/
+COPY --from=lossprint /out/ /usr/local/
 RUN ldconfig
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \

@@ -123,6 +123,12 @@ def offline_audio_check(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("echolot.library.identity._get", offline)
 
 
+@pytest.fixture(autouse=True)
+def no_lossprint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """lossprint never runs in tests (where it is installed, as in the image): as not installed."""
+    monkeypatch.setattr("echolot.library.audio.lossprint", lambda path: None)
+
+
 @pytest.fixture
 def library_dir(tmp_path: Path) -> Path:
     """Library files (not real audio: their durations are unknown)."""
