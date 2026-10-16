@@ -1,4 +1,4 @@
-"""lossprint, the second lossy check: its call, the combined verdict and the modes off, shadow and on."""
+"""lossprint, the second lossy check: its call, the combined verdict, on and off, and the library's check."""
 
 import json
 import subprocess
@@ -110,14 +110,17 @@ def test_spotify_masters(song: str, spec: tuple, lp_: tuple, verdict: str) -> No
     assert audio.judge({"verdict": spec[0], "cutoff_hz": spec[1]}, lp(*lp_))[0] == verdict
 
 
-@pytest.mark.parametrize(("mode", "fake"), [("off", False), ("shadow", False), ("on", True), ("bogus", False)])
-def test_modes(mode: str, fake: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A FLAC only lossprint calls lossy: shadow (the default) logs both checks and keeps the spectrum check's
-    verdict, on applies the combined one (with lossprint's source), off doesn't run lossprint at all."""
+@pytest.mark.parametrize(("mode", "fake"), [("off", False), ("on", True), ("", True)])
+def test_on_and_off(mode: str, fake: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A FLAC only lossprint calls lossy: on (the default) it is made from lossy (lossprint's source), both checks
+    logged; off lossprint doesn't run at all."""
     f = tmp_path / "song.flac"
     f.write_bytes(b"x")
     monkeypatch.setenv("ECHOLOT_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("ECHOLOT_LOSSPRINT", mode)
+    if mode:
+        monkeypatch.setenv("ECHOLOT_LOSSPRINT", mode)
+    else:
+        monkeypatch.delenv("ECHOLOT_LOSSPRINT", raising=False)
     monkeypatch.setattr(audio, "stream", lambda path, field: {"codec_name": "flac", "sample_rate": "44100"}[field])
     monkeypatch.setattr(audio, "_flac_ok", lambda path: True)
     monkeypatch.setattr(audio, "damage", lambda path: "")
@@ -135,10 +138,8 @@ def test_modes(mode: str, fake: bool, tmp_path: Path, monkeypatch: pytest.Monkey
         assert not log.exists()
         return
     line = json.loads(log.read_text())
-    assert line["mode"] == ("shadow" if mode == "bogus" else mode) and line["path"] == str(f)
+    assert line["path"] == str(f) and line["verdict"] == "lossy"
     assert line["lossprint"] == {"p": 1.0, "encoder": "opus", "kbps": 160}
-    assert (line["spectrum_fake"], line["combined_fake"], line["applied_fake"]) == (False, True, fake)
-    assert line["verdict"] == "lossy"
 
 
 def test_a_lossprint_source_is_worth_its_bitrate() -> None:
@@ -149,8 +150,8 @@ def test_a_lossprint_source_is_worth_its_bitrate() -> None:
 
 
 def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every library FLAC is checked once per audio (a retag is not checked again); shadow stores the verdicts and
-    says what on would change, on applies them: lossy marks, ok and doubtful unmark, a lossy master stays."""
+    """Every library FLAC is checked once per audio (a retag is not checked again) and its verdict applied: lossy
+    marks, ok and doubtful unmark, a lossy master stays."""
     tracks = settings.library_dir
     for rel in (
         "Artist A/Artist A - Clean.flac",
@@ -194,11 +195,8 @@ def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) 
         finally:
             con.close()
 
-    assert run_it("shadow") == "2 lossy, 1 doubtful, 1 ok; on would mark 1 made from lossy, unmark 1"
-    assert set(marks()) == {"Artist B/Artist B - Second Song", "Artist D/Artist D - Master"}  # (shadow: unchanged)
-    assert len(checked) == 4
-    assert run_it("on") == "mark 1 made from lossy, unmark 1"  # the stored verdicts: none checked again
-    assert len(checked) == 4
+    assert run_it("on") == "2 lossy, 1 doubtful, 1 ok; marked 1 made from lossy, unmarked 1"
+    assert run_it("on") == "nothing to do" and len(checked) == 4  # (none checked again)
     assert marks() == {
         "Artist C/Artist C - Opus Rip": ("Opus ~128 kbps", 0),
         "Artist D/Artist D - Master": ("MP3 ~290 kbps", 1),

@@ -10,9 +10,8 @@ prepare() is what every download goes through:
      stays as it is, options.Files)
   5. the spectrum check: a FLAC with an encoder's low-pass edge is marked fake (made from lossy); an edge
      from 19 kHz up only with the encoder's traces below it (a mastering filter can cut there too)
-  6. lossprint, the second lossy check (ECHOLOT_LOSSPRINT): off, shadow (the default: judged and logged to
-     lossy-checks.jsonl in the data folder, the decision stays the spectrum check's) or on (both checks
-     decide together: judge)
+  6. lossprint, the second lossy check (ECHOLOT_LOSSPRINT, on by default; off: the spectrum check alone): both
+     checks decide together (judge); each FLAC's checks are logged to lossy-checks.jsonl in the data folder
 """
 
 import base64
@@ -208,17 +207,14 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
                  "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24",
                  "-compression_level", "5")  # fmt: skip
     result = spectrum(path)
-    mode = lossprint_mode()
-    lp = lossprint(path) if mode != "off" else None
+    lp = lossprint(path) if lossprint_on() else None
     if lp is None:  # (off, or not installed: the spectrum check alone)
         return Prepared(path, result.get("verdict") == "lossy", result)
     label, source = judge(result, lp)
-    fake, spectral = label == "lossy", result.get("verdict") == "lossy"
-    if mode == "on" and fake and not spectral:
+    if label == "lossy" and result.get("verdict") != "lossy":
         result = result | {"source": source, "by": "lossprint"}
-    applied = fake if mode == "on" else spectral
-    _log_checks(path, mode, result, lp, spectral, label, applied)
-    return Prepared(path, applied, result, lp)
+    _log_checks(path, result, lp, label)
+    return Prepared(path, label == "lossy", result, lp)
 
 
 # ---------------------------------------------------------------- lossprint, the second lossy check
@@ -238,10 +234,9 @@ _one_at_a_time = threading.Semaphore(1)  # about 450 MB per run
 _log_lock = threading.Lock()
 
 
-def lossprint_mode() -> str:
-    """ECHOLOT_LOSSPRINT: off, shadow (the default) or on; anything else counts as shadow."""
-    mode = os.environ.get("ECHOLOT_LOSSPRINT", "shadow").strip().lower()
-    return mode if mode in ("off", "shadow", "on") else "shadow"
+def lossprint_on() -> bool:
+    """ECHOLOT_LOSSPRINT: on (the default) or off (the spectrum check alone)."""
+    return os.environ.get("ECHOLOT_LOSSPRINT", "on").strip().lower() != "off"
 
 
 def lossprint(path: Path, background: bool = False) -> dict | None:
@@ -295,14 +290,21 @@ def streaminfo_md5(path: Path) -> str:
     return f"{md5:032x}" if md5 else ""
 
 
-def _log_checks(path: Path, mode: str, spec: dict, lp: dict | None, spectral: bool, label: str, applied: bool) -> None:
-    """One line per checked FLAC in lossy-checks.jsonl: both checks, the combined verdict and the one applied.
+def _log_checks(path: Path, spec: dict, lp: dict | None, label: str) -> None:
+    """One line per checked FLAC in lossy-checks.jsonl: both checks and their verdict (judge).
     The STREAMINFO MD5 finds the file in the library later (its name changes when it is filed)."""
     md5 = streaminfo_md5(path)
     now = datetime.datetime.now().isoformat(timespec="seconds")
     size = path.stat().st_size if path.exists() else 0
-    line = {"ts": now, "mode": mode, "path": str(path), "bytes": size, "md5": md5, "spectrum": spec, "lossprint": lp}
-    line |= {"spectrum_fake": spectral, "combined_fake": label == "lossy", "verdict": label, "applied_fake": applied}
+    line = {
+        "ts": now,
+        "path": str(path),
+        "bytes": size,
+        "md5": md5,
+        "spectrum": spec,
+        "lossprint": lp,
+        "verdict": label,
+    }
     try:
         with _log_lock, open(Path(os.environ.get("ECHOLOT_DATA_DIR", "data")) / "lossy-checks.jsonl", "a") as f:
             f.write(json.dumps(line) + "\n")

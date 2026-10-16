@@ -1,8 +1,8 @@
-"""The library's lossy check: every library FLAC through both lossy checks (audio.judge, lossprint at the lowest CPU
-priority), stored in lossy_checks; once per audio: a file changed by a retag (the same STREAMINFO MD5) is not checked
-again. With ECHOLOT_LOSSPRINT on the stored verdicts are applied (apply): lossy marks a file made from a lossy one
-(lossy_sourced), ok and doubtful unmark it, a lossy master (lossy_sourced.master) stays as it is; shadow: stored
-only, the result says what on would change; off: nothing.
+"""The library's lossy check, by hand (downloads are judged as they arrive: audio.prepare): every library FLAC not
+checked yet through both lossy checks (audio.judge, lossprint at the lowest CPU priority), stored in lossy_checks;
+once per audio: a file changed by a retag (the same STREAMINFO MD5) is not checked again. The stored verdicts are
+applied (apply): lossy marks a file made from a lossy one (lossy_sourced), ok and doubtful unmark it, a lossy master
+(lossy_sourced.master) stays as it is. ECHOLOT_LOSSPRINT off: nothing.
 """
 
 import datetime
@@ -18,8 +18,7 @@ if TYPE_CHECKING:
 
 
 def run(run: "Run") -> str:
-    mode = audio.lossprint_mode()
-    if mode == "off":
+    if not audio.lossprint_on():
         return "off (ECHOLOT_LOSSPRINT)"
     con = run.connect()
     try:
@@ -40,15 +39,14 @@ def run(run: "Run") -> str:
             run.handled.add(row["path"])
         with con:
             con.execute("DELETE FROM lossy_checks WHERE path NOT IN (SELECT path FROM files)")
-        marked, unmarked = apply(con, write=mode == "on")
+        marked, unmarked = apply(con)
     finally:
         con.close()
     order = ["lossy", "doubtful", "ok"]
     found = ", ".join(f"{counts[k]} {k}" for k in sorted(counts, key=lambda k: order.index(k) if k in order else 3))
     parts = [found] if found else []
-    would = "" if mode == "on" else "on would "
     if marked or unmarked:
-        parts.append(f"{would}mark {len(marked)} made from lossy, unmark {len(unmarked)}")
+        parts.append(f"marked {len(marked)} made from lossy, unmarked {len(unmarked)}")
     if run.left:
         parts.append(f"{run.left} left")
     return "; ".join(parts) or "nothing to do"
@@ -85,10 +83,10 @@ def _one(run: "Run", con: sqlite3.Connection, row: sqlite3.Row, old: sqlite3.Row
     return verdict
 
 
-def apply(con: sqlite3.Connection, write: bool) -> tuple[list[str], list[str]]:
-    """The stored verdicts of the files as they are now (their size and mtime) against the marks: (files to mark
-    made from lossy, files to unmark), marked and unmarked with `write` (the songs' tiers follow). A lossy master
-    is never touched: a recording of Spotify's lossless stream proved it the best copy there is."""
+def apply(con: sqlite3.Connection) -> tuple[list[str], list[str]]:
+    """The stored verdicts of the files as they are now (their size and mtime) applied to the marks: (the files
+    marked made from lossy, those unmarked); the songs' tiers follow. A lossy master is never touched: a recording
+    of Spotify's lossless stream proved it the best copy there is."""
     current = (
         "SELECT c.path, c.spectrum, c.lossprint, c.verdict, l.stem IS NOT NULL AS marked, coalesce(l.master, 0) "
         "AS master FROM lossy_checks c JOIN files f ON f.path = c.path AND f.size = c.size AND f.mtime = c.mtime "
@@ -97,7 +95,7 @@ def apply(con: sqlite3.Connection, write: bool) -> tuple[list[str], list[str]]:
     rows = con.execute(current).fetchall()
     mark = [r for r in rows if r["verdict"] == "lossy" and not r["marked"]]
     unmark = [r for r in rows if r["verdict"] != "lossy" and r["marked"] and not r["master"]]
-    if write and (mark or unmark):
+    if mark or unmark:
         today = datetime.date.today().isoformat()
         with filing.LOCK, con:
             for r in mark:

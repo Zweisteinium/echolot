@@ -124,15 +124,15 @@ JOBS = [
             "Notices new, changed and removed files (only those are read again), applies review decisions once "
             "their undo time is over, matches the songs to files and writes one playlist per list. Once a day "
             "it empties the replaced and review files older than 30 days."),
-    JobInfo("lossy", "Lossy check", "audio", 60, 30,
-            "Checks every FLAC in the library for being made from a lossy file.",
-            "Downloads are checked as they arrive; this checks the library's FLACs with the same two checks: the "
-            "spectrum check (a lossy encoder's low-pass edge) and lossprint (a model that also hears high-bitrate "
-            "MP3, AAC and Opus). Each file once, a few seconds at the lowest CPU priority; a file whose tags "
-            "changed is not checked again. With the second check on, a FLAC found made from lossy counts as lossy "
-            "(the FLAC upgrade looks for a better one), one found clean again as lossless; a FLAC recorded from "
-            "Spotify's lossless stream that is made from lossy itself is the release's own audio and stays as it "
-            "is."),
+    JobInfo("lossy", "Lossy check", "audio", None, 30,
+            "Checks the library's FLACs for being made from a lossy file. Start it with Run now.",
+            "Downloads are checked as they arrive; this checks the FLACs already in the library with the same two "
+            "checks: the spectrum check (a lossy encoder's low-pass edge) and lossprint (a model that also hears "
+            "high-bitrate MP3, AAC and Opus). Each file once, a few seconds at the lowest CPU priority; a file "
+            "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (the FLAC "
+            "upgrade looks for a better one), one found clean as lossless; a FLAC recorded from Spotify's lossless "
+            "stream that is made from lossy itself is the release's own audio and stays as it is. Off on the "
+            "schedule."),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
 STEPS = {  # each job's short name inside its task, for the schedule and the live state
