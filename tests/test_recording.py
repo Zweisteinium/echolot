@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from echolot import db
 from echolot.config import Settings
-from echolot.library import recording, upload
+from echolot.library import audio, recording, upload
 from echolot.settings import auth, sources
 from echolot.web import create_app
 
@@ -434,6 +434,7 @@ def test_a_lossy_master(
     monkeypatch.setattr(upload, "add", add)
     monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "import_files", import_files)
+    monkeypatch.setattr(audio, "spectrum", lambda path: {"verdict": "lossy", "cutoff_hz": 16000})  # (your copy's)
     owner = login(app)
     device = as_device(app, connect(owner, app))
     con = db.connect(app.state.settings.db_path)

@@ -191,7 +191,8 @@ http you paste one address back (the Playlists page shows where).
    then on SoundCloud. Songs found nowhere are tried again every evening, with looser terms after a few
    misses, weekly after a week.
 4. **Check.** Each download is repaired and normalised (WAV, AIFF and ALAC become FLAC, hi-res becomes
-   44.1/48 kHz 24 bit), spectrum-checked and identified by name and by sound.
+   44.1/48 kHz 24 bit), checked for being made from a lossy file (a spectrum check and
+   [lossprint](https://github.com/maxdjohnson/lossprint)) and identified by name and by sound.
 5. **File.** Into `tracks/<Artist>/`. A genuine FLAC replaces a lossy or fake copy.
 6. **Upgrade.** Lossy songs are searched again, FLAC only, the longest waiting first.
 7. **Playlists.** One `.m3u` per list, in list order, with its cover, in `playlists/<user>/`.
@@ -319,6 +320,12 @@ The audio tests need ffmpeg, like the image. `echolot serve` listens on http://1
 CI tests every push and builds the image on amd64 and arm64. A new version in `pyproject.toml` (and
 `deploy/compose.yaml`, a test checks both) is released when it lands on `main`: CI tags it, publishes
 the release and pushes `lordlayer/echolot` to Docker Hub for both platforms.
+
+## Credits
+
+Echolot uses [lossprint](https://github.com/maxdjohnson/lossprint) to tell a FLAC made from an MP3, AAC or Opus
+file from a genuine one. After a lot of research and testing it is by far the best tool for this I have
+found: check it out.
 
 ## Fair use
 
