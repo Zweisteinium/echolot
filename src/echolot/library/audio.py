@@ -11,8 +11,8 @@ prepare() is what every download goes through:
   5. the spectrum check: a FLAC with an encoder's low-pass edge is marked fake (made from lossy); an edge
      from 19 kHz up only with the encoder's traces below it (a mastering filter can cut there too)
   6. lossprint, the second lossy check (ECHOLOT_LOSSPRINT): off, shadow (the default: judged and logged to
-     lossy-checks.jsonl in the data folder, the decision stays the spectrum check's) or on (made from lossy
-     when either check says so)
+     lossy-checks.jsonl in the data folder, the decision stays the spectrum check's) or on (both checks
+     decide together: judge)
 """
 
 import base64
@@ -212,18 +212,19 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
     lp = lossprint(path) if mode != "off" else None
     if lp is None:  # (off, or not installed: the spectrum check alone)
         return Prepared(path, result.get("verdict") == "lossy", result)
-    fake, source = judge(result, lp)
-    spectral = result.get("verdict") == "lossy"
+    label, source = judge(result, lp)
+    fake, spectral = label == "lossy", result.get("verdict") == "lossy"
     if mode == "on" and fake and not spectral:
         result = result | {"source": source, "by": "lossprint"}
     applied = fake if mode == "on" else spectral
-    _log_checks(path, mode, result, lp, spectral, fake, applied)
+    _log_checks(path, mode, result, lp, spectral, label, applied)
     return Prepared(path, applied, result, lp)
 
 
 # ---------------------------------------------------------------- lossprint, the second lossy check
 
-LOSSPRINT_FAKE = 0.5  # P(transcode) from which lossprint calls a FLAC made from lossy (its scores sit near 0 or 1)
+LOSSPRINT_FAKE = 0.9  # P(transcode) from which lossprint alone makes a FLAC lossy (99.8% of 4,162 test transcodes)
+LOSSPRINT_DOUBT = 0.5  # from here up to LOSSPRINT_FAKE: doubtful (a label, no decision)
 FAMILIES = {
     "mp3": "MP3",
     "ffmpeg_aac": "AAC",
@@ -243,16 +244,19 @@ def lossprint_mode() -> str:
     return mode if mode in ("off", "shadow", "on") else "shadow"
 
 
-def lossprint(path: Path) -> dict | None:
+def lossprint(path: Path, background: bool = False) -> dict | None:
     """lossprint's judgement of a FLAC: {"p": P(made from lossy), "encoder", "kbps"} (the encoder family and
     bitrate it guesses), {"error": why} when it could not judge (more than 2 channels, under 2 s, unreadable),
-    None when it is not installed. A CNN on spectrograms of six excerpts; deterministic, about 3 s per file."""
+    None when it is not installed. A CNN on spectrograms of six excerpts; deterministic, about 3 s per file.
+    `background`: at the lowest CPU priority (the library's check, jobs/lossycheck)."""
     exe = shutil.which("lossprint")
     if not exe:
         return None
+    nice = ["nice", "-n", "19"] if background and shutil.which("nice") else []
     try:
         with _one_at_a_time:
-            r = _run([exe, "--jobs", "1", "--threshold", "0", "--output-format", "jsonl", "--", str(path)], 300)
+            args = [*nice, exe, "--jobs", "1", "--threshold", "0", "--output-format", "jsonl", "--", str(path)]
+            r = _run(args, 300)
     except (OSError, subprocess.TimeoutExpired) as e:
         return {"error": type(e).__name__}
     for line in r.stdout.decode(errors="replace").splitlines():
@@ -264,31 +268,41 @@ def lossprint(path: Path) -> dict | None:
     return {"error": r.stderr.decode(errors="replace").strip()[-200:] or f"exit {r.returncode}"}
 
 
-def judge(spec: dict, lp: dict | None) -> tuple[bool, str]:
-    """(made from lossy, its likely source) when both checks count: the spectrum check's verdict stands (where
-    lossprint disagrees there is no proof either way yet), lossprint adds what it cannot see (Opus, V0, AAC
-    256, MP3 320 behind a clipped master). Without a judgement from lossprint: the spectrum check alone."""
+def judge(spec: dict, lp: dict | None) -> tuple[str, str]:
+    """Both checks together: (lossy, doubtful or ok; the likely source of a lossy one). Lossy: the spectrum
+    check's verdict, whatever lossprint says (lossprint misses some old encoders whose low-pass shows), or
+    lossprint from LOSSPRINT_FAKE (it hears Opus, V0, AAC 256, MP3 320 behind a clipped master); doubtful: lossprint
+    from LOSSPRINT_DOUBT (a label, no decision). Without a judgement from lossprint: the spectrum check alone.
+    Lossy says the file is made from a lossy one; whether its release already was is for a recording of Spotify's
+    lossless stream to tell (web/recorders: a lossy master)."""
     if spec.get("verdict") == "lossy":
-        return True, spec.get("source", "")
-    if lp and "p" in lp and lp["p"] >= LOSSPRINT_FAKE:
+        return "lossy", spec.get("source", "")
+    p = lp.get("p") if lp else None
+    if p is not None and p >= LOSSPRINT_FAKE:
         family = FAMILIES.get(lp.get("encoder") or "", lp.get("encoder") or "lossy")
-        return True, f"{family} ~{lp['kbps']:.0f} kbps" if lp.get("kbps") else family
-    return False, ""
+        return "lossy", f"{family} ~{lp['kbps']:.0f} kbps" if lp.get("kbps") else family
+    return ("doubtful", "") if p is not None and p >= LOSSPRINT_DOUBT else ("ok", "")
 
 
-def _log_checks(path: Path, mode: str, spec: dict, lp: dict | None, spectral: bool, fake: bool, applied: bool) -> None:
-    """One line per checked FLAC in lossy-checks.jsonl: both checks, the combined verdict and the one applied.
-    The STREAMINFO MD5 finds the file in the library later (its name changes when it is filed)."""
+def streaminfo_md5(path: Path) -> str:
+    """A FLAC's audio MD5 from its STREAMINFO header (a retag keeps it); "" when unreadable or not set."""
     try:
         from mutagen.flac import FLAC
 
-        md5 = f"{FLAC(path).info.md5_signature:032x}"
+        md5 = FLAC(path).info.md5_signature
     except Exception:
-        md5 = ""
+        return ""
+    return f"{md5:032x}" if md5 else ""
+
+
+def _log_checks(path: Path, mode: str, spec: dict, lp: dict | None, spectral: bool, label: str, applied: bool) -> None:
+    """One line per checked FLAC in lossy-checks.jsonl: both checks, the combined verdict and the one applied.
+    The STREAMINFO MD5 finds the file in the library later (its name changes when it is filed)."""
+    md5 = streaminfo_md5(path)
     now = datetime.datetime.now().isoformat(timespec="seconds")
     size = path.stat().st_size if path.exists() else 0
     line = {"ts": now, "mode": mode, "path": str(path), "bytes": size, "md5": md5, "spectrum": spec, "lossprint": lp}
-    line |= {"spectrum_fake": spectral, "combined_fake": fake, "applied_fake": applied}
+    line |= {"spectrum_fake": spectral, "combined_fake": label == "lossy", "verdict": label, "applied_fake": applied}
     try:
         with _log_lock, open(Path(os.environ.get("ECHOLOT_DATA_DIR", "data")) / "lossy-checks.jsonl", "a") as f:
             f.write(json.dumps(line) + "\n")

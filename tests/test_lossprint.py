@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from echolot.library import audio
+from echolot import db
+from echolot.config import Settings
+from echolot.jobs import lossycheck, schedule
+from echolot.jobs.worker import Run
+from echolot.library import audio, catalog, upload
+from echolot.settings.vault import Vault
 
 REAL_LOSSPRINT = audio.lossprint  # (conftest stubs it for every test)
 
@@ -54,25 +59,55 @@ def test_lossprint_errors_and_absence(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert REAL_LOSSPRINT(tmp_path / "a.flac") is None
 
 
+OK, LOSSY = {"verdict": "ok", "cutoff_hz": 20000}, {"verdict": "lossy", "cutoff_hz": 16000, "source": "~128 kbps"}
+TRACES = {"verdict": "lossy", "cutoff_hz": 20300, "source": "~320 kbps"}  # an edge from TRACES_FROM up: traces only
+
+
+def lp(p: float, encoder: str = "mp3", kbps: float | None = 320.0) -> dict:
+    return {"p": p, "encoder": encoder, "kbps": kbps}
+
+
 @pytest.mark.parametrize(
-    ("spec", "lp", "expected"),
+    ("spec", "lp_", "expected"),
     [
-        ({"verdict": "lossy", "source": "~128 kbps"}, {"p": 1.0, "encoder": "mp3", "kbps": 128.0}, (True, "~128 kbps")),
-        (
-            {"verdict": "lossy", "source": "~128 kbps"},
-            {"p": 0.0001, "encoder": None, "kbps": None},
-            (True, "~128 kbps"),
-        ),
-        ({"verdict": "ok"}, {"p": 0.9999, "encoder": "opus", "kbps": 122.4}, (True, "Opus ~122 kbps")),
-        ({"verdict": "ok"}, {"p": 0.97, "encoder": "ffmpeg_aac", "kbps": None}, (True, "AAC")),
-        ({"verdict": "ok"}, {"p": 0.4999, "encoder": "mp3", "kbps": 320.0}, (False, "")),
-        ({"verdict": "ok"}, {"error": "audio is shorter than the 2-second minimum"}, (False, "")),
-        ({"verdict": "unknown"}, None, (False, "")),
+        (OK, lp(0.9), ("lossy", "MP3 ~320 kbps")),  # lossprint alone from LOSSPRINT_FAKE
+        (OK, lp(0.97, "ffmpeg_aac", None), ("lossy", "AAC")),
+        (OK, lp(0.8999), ("doubtful", "")),  # between the two: a label, no decision
+        (OK, lp(0.5), ("doubtful", "")),
+        (OK, lp(0.4999), ("ok", "")),
+        (LOSSY, lp(0.0001), ("lossy", "~128 kbps")),  # the spectrum check's verdict stands, whatever lossprint says
+        (TRACES, lp(0.0), ("lossy", "~320 kbps")),  # also on the encoder's traces alone
+        (OK, {"error": "audio is shorter than the 2-second minimum"}, ("ok", "")),  # the spectrum check alone
+        (LOSSY, None, ("lossy", "~128 kbps")),
+        ({"verdict": "unknown"}, None, ("ok", "")),
     ],
 )
-def test_judge(spec: dict, lp: dict | None, expected: tuple[bool, str]) -> None:
-    """Made from lossy when either check says so; the spectrum check's verdict and source stand where it fires."""
-    assert audio.judge(spec, lp) == expected
+def test_judge(spec: dict, lp_: dict | None, expected: tuple[str, str]) -> None:
+    """Both checks together: lossy, doubtful or ok, with the likely source of a lossy one."""
+    assert audio.judge(spec, lp_) == expected
+
+
+# recordings of Spotify's lossless stream (Mitschnitt, bit-exact, 2026-10-16) as the checks saw them: the
+# release's own audio, whatever its verdict (a lossy one is a lossy master)
+SPOTIFY = [  # song, spectrum (verdict, edge), lossprint (p, encoder, kbps), verdict
+    ("Taylor Swift - Everything Has Changed", ("ok", 20400), (1.6e-07, "musepack", 367.6), "ok"),
+    ("Turno - Killer VIP", ("ok", 17500), (4.2e-05, "ffmpeg_aac", 463.1), "ok"),
+    ("keshi - i swear i'll never leave again", ("ok", 12400), (0.9999841, "ffmpeg_aac", 258.1), "lossy"),
+    ("mxmtoon - cliché", ("ok", 20400), (1.0, "ffmpeg_aac", 299.5), "lossy"),
+    ("Sydney Rose - Novels", ("ok", 15900), (0.9999924, "ffmpeg_aac", 207.0), "lossy"),
+    ("Zeph - Forever & Always", ("lossy", 18900), (1.0, "ffmpeg_aac", 255.0), "lossy"),
+    ("Pink Sweat$ - Cocaine", ("ok", 12000), (0.9681299, "mp3", 322.5), "lossy"),
+    ("Hedex - Clara", ("ok", 19500), (0.9998949, "mp3", 277.6), "lossy"),
+    ("Indivision - Untold Words", ("ok", 19900), (0.9999996, "mp3", 297.5), "lossy"),
+    ("FindMyName - Rebel", ("ok", 19800), (0.9999883, "mp3", 289.1), "lossy"),
+]
+
+
+@pytest.mark.parametrize(("song", "spec", "lp_", "verdict"), SPOTIFY, ids=[s[0] for s in SPOTIFY])
+def test_spotify_masters(song: str, spec: tuple, lp_: tuple, verdict: str) -> None:
+    """Spotify's own masters: two clean, eight made from lossy files (their library copies are bit-identical to
+    six of them): lossy says made from lossy, not that a better copy exists."""
+    assert audio.judge({"verdict": spec[0], "cutoff_hz": spec[1]}, lp(*lp_))[0] == verdict
 
 
 @pytest.mark.parametrize(("mode", "fake"), [("off", False), ("shadow", False), ("on", True), ("bogus", False)])
@@ -103,3 +138,83 @@ def test_modes(mode: str, fake: bool, tmp_path: Path, monkeypatch: pytest.Monkey
     assert line["mode"] == ("shadow" if mode == "bogus" else mode) and line["path"] == str(f)
     assert line["lossprint"] == {"p": 1.0, "encoder": "opus", "kbps": 160}
     assert (line["spectrum_fake"], line["combined_fake"], line["applied_fake"]) == (False, True, fake)
+    assert line["verdict"] == "lossy"
+
+
+def test_a_lossprint_source_is_worth_its_bitrate() -> None:
+    """A fake FLAC lossprint judged counts as its source's bitrate against another copy (upload.compare)."""
+    assert upload.worth("fake", 900, "AAC ~258 kbps") == 258
+    assert upload.worth("fake", 900, "~256 kbps / V0") == 256  # the spectrum check's
+    assert upload.worth("fake", 900, "AAC") == 128  # (no bitrate guessed)
+
+
+def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every library FLAC is checked once per audio (a retag is not checked again); shadow stores the verdicts and
+    says what on would change, on applies them: lossy marks, ok and doubtful unmark, a lossy master stays."""
+    tracks = settings.library_dir
+    for rel in (
+        "Artist A/Artist A - Clean.flac",
+        "Artist C/Artist C - Opus Rip.flac",
+        "Artist D/Artist D - Master.flac",
+    ):
+        (tracks / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tracks / rel).write_bytes(b"0123456789")
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "INSERT INTO lossy_sourced (stem, source, master) VALUES ('Artist D/Artist D - Master', 'MP3 ~290 kbps', 1)"
+        )
+    catalog.refresh(con, tracks)
+    con.close()
+    judged = {  # Second Song: marked made from ~128 kbps when filed, found clean now
+        "Artist B - Second Song.flac": (
+            {"verdict": "ok", "cutoff_hz": 21000},
+            {"p": 0.01, "encoder": "mp3", "kbps": 300},
+        ),
+        "Artist A - Clean.flac": ({"verdict": "ok", "cutoff_hz": 21000}, {"p": 0.6, "encoder": "mp3", "kbps": 300}),
+        "Artist C - Opus Rip.flac": ({"verdict": "ok", "cutoff_hz": 20000}, {"p": 1.0, "encoder": "opus", "kbps": 128}),
+        "Artist D - Master.flac": ({"verdict": "ok", "cutoff_hz": 19800}, {"p": 1.0, "encoder": "mp3", "kbps": 290}),
+    }
+    checked: list[str] = []
+    monkeypatch.setattr(audio, "spectrum", lambda path: judged[path.name][0])
+    monkeypatch.setattr(
+        audio, "lossprint", lambda path, background=False: checked.append(path.name) or judged[path.name][1]
+    )
+    monkeypatch.setattr(audio, "streaminfo_md5", lambda path: "md5-" + path.name)
+    vault = Vault.from_env(settings.data_dir, {})
+
+    def run_it(mode: str) -> str:
+        monkeypatch.setenv("ECHOLOT_LOSSPRINT", mode)
+        return lossycheck.run(Run(schedule.BY_NAME["lossy"], settings, vault, "schedule"))
+
+    def marks() -> dict[str, tuple[str, int]]:
+        con = db.connect(settings.db_path)
+        try:
+            return {r[0]: (r[1], r[2]) for r in con.execute("SELECT stem, source, master FROM lossy_sourced")}
+        finally:
+            con.close()
+
+    assert run_it("shadow") == "2 lossy, 1 doubtful, 1 ok; on would mark 1 made from lossy, unmark 1"
+    assert set(marks()) == {"Artist B/Artist B - Second Song", "Artist D/Artist D - Master"}  # (shadow: unchanged)
+    assert len(checked) == 4
+    assert run_it("on") == "mark 1 made from lossy, unmark 1"  # the stored verdicts: none checked again
+    assert len(checked) == 4
+    assert marks() == {
+        "Artist C/Artist C - Opus Rip": ("Opus ~128 kbps", 0),
+        "Artist D/Artist D - Master": ("MP3 ~290 kbps", 1),
+    }
+    con = db.connect(settings.db_path)
+    quality = dict(con.execute("SELECT path, quality FROM files WHERE path LIKE '%.flac'").fetchall())
+    con.close()
+    assert (
+        quality["Artist C/Artist C - Opus Rip.flac"] == "fake"
+        and quality["Artist B/Artist B - Second Song.flac"] == "lossless"
+    )
+    assert quality["Artist D/Artist D - Master.flac"] == "lossless"
+    opus = tracks / "Artist C/Artist C - Opus Rip.flac"
+    opus.write_bytes(b"0123456789 retagged")  # the same audio (STREAMINFO MD5)
+    con = db.connect(settings.db_path)
+    catalog.refresh(con, tracks)
+    con.close()
+    assert run_it("on") == "1 retagged" and len(checked) == 4
+    assert run_it("off") == "off (ECHOLOT_LOSSPRINT)"

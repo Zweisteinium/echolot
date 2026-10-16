@@ -289,7 +289,8 @@ def api_file(
     one whose lease ran out still comes in unless it was handed out again (recording.open_for). `note`: the
     device's word on the recording (kept with the result); `stream`: lossless or lossy, as the device heard
     Spotify's stream (a lossy one is uploaded too: better than no song). A recording that is not genuine
-    lossless means Spotify has nothing better of the song (recording.answer)."""
+    lossless means Spotify has nothing better of the song (recording.answer); one of the lossless stream that the
+    lossy checks judge lossy is the release's own audio: a lossy master (_check_and_file)."""
     try:
         item = recording.item_of(con, device["id"], item_id)
     except recording.RecordingError as e:
@@ -303,17 +304,21 @@ def api_file(
     library = request.app.state.settings.library_dir
     if library is None:
         raise HTTPException(409, "No library configured.")
-    result, detail, tier = _check_and_file(request, con, item, file, filing.Paths(library.parent))
+    paths, heard = filing.Paths(library.parent), stream.strip().lower()
+    result, detail, tier = _check_and_file(request, con, item, file, paths, heard)
     detail = f"{detail} · {note.strip()}" if note.strip() else detail
-    recording.answer(con, item, result, detail, tier, stream.strip().lower())
+    recording.answer(con, item, result, detail, tier, heard)
     return _answer(con, item, result, detail)
 
 
 def _check_and_file(
-    request: Request, con: sqlite3.Connection, item: sqlite3.Row, file: UploadFile, paths: filing.Paths
+    request: Request, con: sqlite3.Connection, item: sqlite3.Row, file: UploadFile, paths: filing.Paths, stream: str
 ) -> tuple[str, str, str]:
     """(result, detail, the recording's tier) of a recording: rejected (not audio, another recording than the
-    release's), not_better (the library's copy is as good), or filed."""
+    release's), not_better (the library's copy is as good), or filed. A recording of Spotify's lossless stream
+    judged lossy is the release itself made from a lossy file, as every store has it: a lossy master, the best
+    copy there is (filed as genuine lossless, its source kept: upload.as_master), so it takes over a lossy or fake
+    copy as any genuine recording does; its tier stays fake for the answer (Spotify has nothing better)."""
     song = next(iter(stats.upload_songs(con, item["user_id"], item["song_key"])), None)
     if song is None:
         return "rejected", "the song is no longer in your lists", ""
@@ -323,20 +328,24 @@ def _check_and_file(
         f = upload.add(paths, batch, file.filename or "recording.flac", file.file, keep_hires)
         if f.error:
             return "rejected", f"not audio: {f.error}", ""
+        tier = f.tier
+        if f.tier == "fake" and stream == "lossless":
+            upload.as_master(paths, batch, f)
         fit = upload.fit(con, f, song)
         if upload.sounds_different(fit):  # Spotify's is another recording: not offered again (Try again lifts it)
             detail = f"{recording.DIFFERENT}: another recording than the release's ({upload.scores(fit)})"
             recording.block(con, item["song_key"], item["uri"], "other", detail)
-            return "rejected", detail, f.tier
+            return "rejected", detail, tier
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
-            return "not_better", copy.why, f.tier
+            return "not_better", copy.why, tier
         lines = upload.import_files(con, paths, request.app.state.vault, batch, {f.n: song["key"]}, source="mitschnitt")
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
-            return "rejected", line, f.tier
+            return "rejected", line, tier
+        line += f" (a lossy master: {f.source or 'made from a lossy file'})" if f.master else ""
         # (filing found a better copy after all: "the library has a better copy", import_files' line)
-        return ("not_better" if "has a better copy" in line else "filed"), line, f.tier
+        return ("not_better" if "has a better copy" in line else "filed"), line, tier
     finally:
         upload.cancel(paths, batch)
 

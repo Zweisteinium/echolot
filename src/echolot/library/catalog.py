@@ -89,7 +89,7 @@ class Catalog:
 
     @classmethod
     def from_db(cls, con: sqlite3.Connection) -> "Catalog":
-        fakes = {r[0] for r in con.execute("SELECT stem FROM lossy_sourced")}
+        fakes = {r[0] for r in con.execute("SELECT stem FROM lossy_sourced WHERE NOT master")}  # (a lossy master: none)
         rows = con.execute("SELECT path, duration, kbps FROM files ORDER BY path")
         entries = [Entry(p, d, k, p.rpartition(".")[0] in fakes) for p, d, k in rows]
         return cls([e for e in entries if e.ext in AUDIO])

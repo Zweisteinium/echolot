@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 32
+VERSION = 33
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -14,10 +14,22 @@ CREATE TABLE files (                -- audio files in the library
     kbps INTEGER NOT NULL,
     quality TEXT                    -- see catalog.QUALITY
 );
-CREATE TABLE lossy_sourced (        -- FLACs the spectrum check found to be made from lossy files
+CREATE TABLE lossy_sourced (        -- FLACs the lossy checks found to be made from lossy files (audio.judge)
     stem TEXT PRIMARY KEY,          -- files.path without extension
-    source TEXT,                    -- estimated original, e.g. "~128 kbps"
-    detected TEXT
+    source TEXT,                    -- estimated original, e.g. "~128 kbps", "AAC ~258 kbps"
+    detected TEXT,
+    master INTEGER NOT NULL DEFAULT 0  -- 1: the release itself is (a bit-exact recording of Spotify's lossless
+                                    -- stream judged lossy): the best copy there is, no fake (catalog.Entry)
+);
+CREATE TABLE lossy_checks (         -- the library FLACs' lossy checks (jobs/lossycheck)
+    path TEXT PRIMARY KEY,          -- files.path
+    size INTEGER NOT NULL,
+    mtime INTEGER NOT NULL,
+    md5 TEXT NOT NULL,              -- STREAMINFO's audio MD5 (a retag keeps it: not checked again)
+    spectrum TEXT,                  -- audio.spectrum's result (JSON)
+    lossprint TEXT,                 -- audio.lossprint's (JSON; null: not installed or off)
+    verdict TEXT NOT NULL,          -- audio.judge: lossy, doubtful or ok
+    checked TEXT NOT NULL
 );
 CREATE TABLE lists (                -- the followed lists as last fetched, once however many users follow one
     key TEXT PRIMARY KEY,           -- spotify:likes:<user id>, spotify:playlist:<id>, soundcloud:<path>
@@ -415,6 +427,11 @@ MIGRATIONS = {
         "ALTER TABLE events ADD COLUMN peer TEXT",
         "ALTER TABLE events ADD COLUMN peer_path TEXT",
         "ALTER TABLE events ADD COLUMN arrived INTEGER",
+    ],
+    33: [  # lossprint beside the spectrum check: a lossy master (no fake), the library's checks
+        "ALTER TABLE lossy_sourced ADD COLUMN master INTEGER NOT NULL DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS lossy_checks (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, "
+        "md5 TEXT NOT NULL, spectrum TEXT, lossprint TEXT, verdict TEXT NOT NULL, checked TEXT NOT NULL)",
     ],
 }
 

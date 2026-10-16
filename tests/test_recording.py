@@ -383,6 +383,8 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("ALTER TABLE recording_items DROP COLUMN uri")
         for column in ("peer", "peer_path", "arrived"):  # (schema 32's)
             con.execute(f"ALTER TABLE events DROP COLUMN {column}")
+        con.execute("ALTER TABLE lossy_sourced DROP COLUMN master")  # (schema 33's)
+        con.execute("DROP TABLE lossy_checks")
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)
@@ -408,6 +410,47 @@ def test_closing_a_sessions_summary_closes_it(app: FastAPI, login: Callable[...,
     assert "Close" in panel and "hx-get=" not in panel.split("<section", 1)[1].split(">", 1)[0]
     after = owner.post(f"/recordings/{sid}/dismiss").text
     assert 'id="recording" hidden' in after  # not the older one
+
+
+@pytest.mark.parametrize(("stream", "master"), [("lossless", True), ("lossy", False)])
+def test_a_lossy_master(
+    app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch, stream: str, master: bool
+) -> None:
+    """A recording of Spotify's lossless stream the lossy checks call made from lossy is the release's own audio:
+    a lossy master, filed as genuine lossless with its source (it takes over a fake copy); Spotify has nothing
+    better of it. Of a lossy stream it stays a fake FLAC (better than a ~128 kbps one: its source's bitrate)."""
+    imported: list[tuple[str, bool, str]] = []
+
+    def add(paths, batch, name, fileobj, keep_hires=False):
+        f = upload.File(1, name, Path("/x/rec.flac"), 200, 900, "fake", source="AAC ~258 kbps")
+        upload._save(upload.folder(paths, batch), f)
+        return f
+
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+        f = upload.files(paths, batch)[0]
+        imported.append((f.tier, f.master, f.source))
+        return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
+
+    monkeypatch.setattr(upload, "add", add)
+    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(upload, "import_files", import_files)
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    con = db.connect(app.state.settings.db_path)
+    with con:  # the fake FLAC's song in the list (s3 there is greyed out)
+        con.execute("UPDATE songs SET unavailable = NULL WHERE key = 'spotify:s3'")
+        con.execute("UPDATE songs SET file = 'Artist B/Artist B - Second Song.flac' WHERE key = 'spotify:s3'")
+    con.close()
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:playlist:BBB222"})
+    item = poll(device)["item"]
+    files = {"file": ("rec.flac", b"fLaC", "audio/flac")}
+    r = device.post(f"/api/recorder/items/{item['id']}/file", files=files, data={"stream": stream}).json()
+    con = db.connect(app.state.settings.db_path)
+    best = recording.blocks(con).get(item["key"])
+    con.close()
+    assert r["result"] == "filed" and ("(a lossy master: AAC ~258 kbps)" in r["detail"]) is master
+    assert imported == [("lossless", True, "AAC ~258 kbps") if master else ("fake", False, "AAC ~258 kbps")]
+    assert best["reason"] == ("recorded" if master else "lossy")  # Spotify has nothing better
 
 
 @pytest.fixture

@@ -241,7 +241,7 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 | `ECHOLOT_DATA_DIR` | `/data` | the database and Echolot's own files |
 | `ECHOLOT_SECRET_KEY`, `ECHOLOT_SECRET_KEY_FILE` | | the key for stored passwords and tokens; without one, `data/secret.key` is made (so a copy of `data/` holds both) |
 | `ECHOLOT_WORKER` | `on` | `off` runs no jobs (for a test copy) |
-| `ECHOLOT_LOSSPRINT` | `shadow` | the second lossy check (lossprint): `shadow` judges every FLAC and logs it to `data/lossy-checks.jsonl` while the spectrum check decides, `on` marks a FLAC fake when either says so, `off` |
+| `ECHOLOT_LOSSPRINT` | `shadow` | the second lossy check (lossprint): `shadow` judges every FLAC (downloads, logged to `data/lossy-checks.jsonl`, and the library's, Lossy check) while the spectrum check decides, `on` lets both decide together (a FLAC Spotify's lossless stream has made from lossy too is a lossy master, not a fake), `off` |
 | `ECHOLOT_HOST`, `ECHOLOT_PORT` | `0.0.0.0`, `8490` | where it listens inside the container |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | the reverse proxy whose `X-Forwarded-*` headers count |
 </details>
@@ -277,6 +277,7 @@ docker compose up -d
 | FLAC upgrade | 14:00 and 20:30 | FLAC-only searches for lossy songs |
 | Availability check | 05:30 | whether your songs still play on Spotify and SoundCloud |
 | Library upkeep | every 5 min | rescans the files, applies review decisions, writes the playlists |
+| Lossy check | every 60 min | checks the library's FLACs not checked yet for being made from lossy files (`ECHOLOT_LOSSPRINT`) |
 | FLAC upgrade for all songs, Covers | off | start them by hand |
 </details>
 

@@ -24,7 +24,7 @@ from typing import Any
 
 from echolot import db
 from echolot.config import Settings
-from echolot.jobs import acquire, availability, covers, lists, schedule
+from echolot.jobs import acquire, availability, covers, lists, lossycheck, schedule
 from echolot.library import catalog, filing, history, playlists, recordings, review
 from echolot.services import navidrome, slskd, soulseek
 from echolot.settings import auth, options, sources
@@ -188,6 +188,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "covers": covers.run,
     "availability": availability.check,
     "library": upkeep,
+    "lossy": lossycheck.run,
 }
 
 

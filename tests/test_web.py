@@ -464,7 +464,7 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     run.note(f"{long}: not found")
     wk.runs["upgrade"] = run
     html = client.get("/jobs").text
-    for label in ("New songs", "Missing songs", "FLAC upgrade", "Maintenance (3)"):
+    for label in ("New songs", "Missing songs", "FLAC upgrade", "Maintenance (4)"):
         assert label in html
     assert 'aria-valuenow="12"' in html and 'style="width: 4.8%"' in html  # 12 of 250
     assert f'title="12 of 250 songs: 2 upgrade, 10 not found · {long}"' in html  # cut in the line, whole on hover

@@ -53,6 +53,7 @@ class File:
     rms: float | None = None
     spotify_id: str = ""
     isrc: str = ""
+    master: bool = False  # a lossy master: a recording of Spotify's lossless stream judged lossy (web/recorders)
 
 
 @dataclass
@@ -131,6 +132,13 @@ def tier(path: Path, kbps: int, fake: bool) -> str:
     return "lossy-high" if kbps >= 250 else "lossy-mid" if kbps >= 150 else "lossy-low"
 
 
+def as_master(paths: Paths, batch: str, f: File) -> None:
+    """The file is a lossy master (lossy_sourced.master): genuine lossless as the library counts it, its
+    source kept."""
+    f.master, f.tier = True, "lossless"
+    _save(folder(paths, batch), f)
+
+
 def files(paths: Paths, batch: str) -> list[File]:
     d = folder(paths, batch)
     out = []
@@ -206,11 +214,13 @@ SLACK = 1000  # Hz: a band less lower is the same (above 19 kHz a few hundred Hz
 
 
 def worth(tier: str, kbps: int, source: str = "") -> float:
-    """A copy's quality as kbps: genuine lossless beyond any, a fake FLAC its source's (unknown: 128)."""
+    """A copy's quality as kbps: genuine lossless beyond any, a fake FLAC its source's (lossprint's: "AAC ~258
+    kbps"; unknown: 128)."""
     if tier == "lossless":
         return float("inf")
     if tier == "fake":
-        return SOURCE_KBPS.get(source, 128)
+        guessed = re.fullmatch(r"\w+ ~(\d+) kbps", source)
+        return SOURCE_KBPS.get(source) or (int(guessed.group(1)) if guessed else 128)
     return kbps or 0
 
 
@@ -383,6 +393,7 @@ def import_files(
             "match": "by hand",
             "fake": fake,
             "fake_source": f.source,
+            "master": f.master,
             "replaces": have or "",
             "replace": bool(have),
         }
