@@ -106,7 +106,7 @@ def run_job(request: Request, con: DB, name: str) -> Response:
 @router.post("/jobs/start", include_in_schema=False)
 def start_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Response:
     """A task's button: start its jobs (comma-separated names) as soon as their queues are free."""
-    jobs = [n for n in names.split(",") if n in schedule.BY_NAME]
+    jobs = [n for n in names.split(",") if n in schedule.TASK_OF]  # (a job of no task has its own button)
     if not jobs or not all(request.app.state.worker.trigger(n) for n in jobs):
         raise HTTPException(404, "no such job")
     return answer(request, con, f"{schedule.TASK_OF[jobs[0]].label} starts in a moment.")

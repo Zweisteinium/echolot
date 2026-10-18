@@ -36,7 +36,7 @@ def export_data(con: sqlite3.Connection) -> dict[str, Any]:
     return {
         "version": FORMAT,
         "sources": lists,
-        "schedule": schedule.file_form(schedule.rules(con)),
+        "schedule": schedule.file_form(schedule.scheduled(schedule.rules(con))),
         "settings": {
             s.SECTION: options.get(con, s).model_dump() for s in options.SECTIONS if s.SECTION not in IN_SOURCES
         },

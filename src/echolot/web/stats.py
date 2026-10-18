@@ -155,7 +155,8 @@ _FOLLOWS = "SELECT key FROM sources WHERE user_id = ? AND enabled"
 
 def offers(con: Connection) -> dict[str, Row]:
     """Song key -> its Bandcamp track (jobs/bandcamp), for the songs with one: price, currency, free."""
-    return {r["song_key"]: r for r in con.execute("SELECT * FROM bandcamp WHERE url > ''")}
+    sql = "SELECT * FROM bandcamp WHERE url > '' AND (price IS NOT NULL OR free)"
+    return {r["song_key"]: r for r in con.execute(sql)}
 
 
 def buy(con: Connection, uid: int | None = None) -> list[Row]:
@@ -168,7 +169,7 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
         "b.title AS offer_title, b.price, b.currency, b.free, b.result, b.checked, "
         "(SELECT group_concat(l.title, ' · ') FROM list_songs ls JOIN lists l ON l.key = ls.list_key "
         " WHERE ls.song_key = s.key) AS in_lists "
-        "FROM bandcamp b JOIN songs s ON s.key = b.song_key LEFT JOIN files f ON f.path = s.file "
+        "FROM bandcamp b JOIN wanted s ON s.key = b.song_key LEFT JOIN files f ON f.path = s.file "
         "WHERE b.url > '' AND (b.price IS NOT NULL OR b.free) AND (s.file IS NULL OR f.quality != 'lossless') "
         f"AND {mine} ORDER BY b.free DESC, b.price, s.artist COLLATE NOCASE",
         args,

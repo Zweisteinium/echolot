@@ -285,10 +285,17 @@ def _rule(value: object, job: JobInfo) -> Rule:
 
 
 def rules(con: sqlite3.Connection) -> dict[str, Rule]:
-    """The rule per job (the default for a job never set)."""
+    """The rule per job (the default for a job never set); a job of no task (Bandcamp offers) never runs on a
+    schedule, whatever is stored."""
     stored = options.raw(con, SECTION)
     stored = stored if isinstance(stored, dict) else {}
-    return {j.name: _rule(stored[j.name], j) if j.name in stored else j.default for j in JOBS}
+    out = {j.name: _rule(stored[j.name], j) if j.name in stored else j.default for j in JOBS}
+    return {name: rule if name in TASK_OF else None for name, rule in out.items()}
+
+
+def scheduled(values: dict[str, Rule]) -> dict[str, Rule]:
+    """The rules of the jobs that can have a schedule (those of a task): what the settings and echolot.yml show."""
+    return {name: rule for name, rule in values.items() if name in TASK_OF}
 
 
 def parse_rules(data: object) -> dict[str, Rule]:
@@ -299,9 +306,9 @@ def parse_rules(data: object) -> dict[str, Rule]:
         raise ConfigError("schedule must be a mapping of job: minutes, {at: [...]} or off.")
     out: dict[str, Rule] = {}
     for name, value in data.items():
-        job = BY_NAME.get(name)
+        job = BY_NAME.get(name) if name in TASK_OF else None
         if job is None:
-            raise ConfigError(f"schedule: unknown job '{name}' ({', '.join(BY_NAME)}).")
+            raise ConfigError(f"schedule: unknown job '{name}' ({', '.join(TASK_OF)}).")
         if value is False or value is None or value == "off":
             out[name] = None
         elif isinstance(value, int) and not isinstance(value, bool):
@@ -330,7 +337,7 @@ def store(con: sqlite3.Connection, values: dict[str, Rule]) -> None:
         if isinstance(v, list):
             for t in v:
                 parse_time(t)
-    new = {**rules(con), **{k: v for k, v in values.items() if k in BY_NAME}}
+    new = {**rules(con), **{k: v for k, v in values.items() if k in TASK_OF}}
     options.put_raw(con, SECTION, new)
 
 

@@ -48,7 +48,11 @@ def settings_page(request: Request, con: DB) -> HTMLResponse:
 async def settings_save(request: Request, con: DB) -> RedirectResponse:
     form = await request.form()  # one field per job
     try:
-        values = {j.name: schedule.parse_when(str(form[j.name]), j) for j in schedule.JOBS if j.name in form}
+        values = {
+            j.name: schedule.parse_when(str(form[j.name]), j)
+            for j in schedule.JOBS
+            if j.name in form and j.name in schedule.TASK_OF
+        }
         soulseek = options.validate(options.Soulseek, {
             **options.get(con, options.Soulseek).model_dump(),
             **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},

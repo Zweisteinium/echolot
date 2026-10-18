@@ -6,11 +6,13 @@ and Bandcamp only for a link); by hand (Refresh on the Buy page) every one again
 Bandcamp's bot check (bandcamp.Challenged) ends the run: the rest stays as it was.
 """
 
+import dataclasses
 import datetime
 import shutil
 import sqlite3
 from typing import TYPE_CHECKING
 
+from echolot import db
 from echolot.jobs import acquire
 from echolot.library import audio, filing, identity, rules
 from echolot.services import bandcamp
@@ -23,15 +25,21 @@ if TYPE_CHECKING:
 SONGS = (
     "SELECT s.*, b.song_key AS looked, b.url AS offer_url, b.result AS offer_result FROM wanted s "
     "LEFT JOIN files f ON f.path = s.file LEFT JOIN bandcamp b ON b.song_key = s.key "
-    "WHERE s.service = 'soundcloud' AND NOT s.close_match AND (s.file IS NULL OR f.quality != 'lossless')"
+    "WHERE s.service = 'soundcloud' AND NOT s.close_match AND (s.file IS NULL OR f.quality != 'lossless') "
+    "ORDER BY s.key"
 )
 RETRY = ("", "download failed")  # results after which a free download is tried again
+REFUSED = "bandcamp_refused"  # meta: when Bandcamp last asked for its bot check or refused (ISO time)
+COOLDOWN = datetime.timedelta(hours=24)  # after that, the runs after New SoundCloud songs leave Bandcamp alone
 
 
 def run(run: "Run") -> str:
     every = run.trigger == "manual"
     con = run.connect()
     try:
+        refused = db.get_meta(con, REFUSED)
+        if not every and refused and datetime.datetime.fromisoformat(refused) + COOLDOWN > datetime.datetime.now():
+            return f"Bandcamp refused at {refused[11:16]}: left alone for a day (Refresh asks again)"
         rows = run.todo([r for r in con.execute(SONGS) if every or r["looked"] is None])
         token = sc_api.any_token(con, run.vault)
     finally:
@@ -56,7 +64,11 @@ def run(run: "Run") -> str:
                 break
             want = acquire._want(row)
             run.say(f"{run.of(n, len(rows))}: {want.artist} – {want.title}", n - 1, len(rows))
-            o = _offer(links.get(row["key"]) or [], want.title, want.length)
+            o, unread = _offer(links.get(row["key"]) or [], want.title, want.length)
+            if unread and not o and row["looked"] is not None:
+                run.note(f"{want.artist} – {want.title}: Bandcamp's page did not come, kept as it was")
+                run.handled.add(row["key"])
+                continue  # (a page that did not come is no lost offer)
             con = run.connect()
             try:
                 result = row["offer_result"] or "" if o and o.url == row["offer_url"] else ""
@@ -70,9 +82,15 @@ def run(run: "Run") -> str:
             run.handled.add(row["key"])
             offers += o is not None
             free += bool(o and o.free)
-    except bandcamp.Challenged:
-        run.note("Bandcamp asked for its bot check: stopped")
-        return f"stopped: Bandcamp asked for its bot check ({offers} offers before)"
+    except bandcamp.Challenged as e:
+        con = run.connect()
+        try:
+            with con:
+                db.set_meta(con, REFUSED, datetime.datetime.now().isoformat(timespec="seconds"))
+        finally:
+            con.close()
+        run.note(f"{e}: stopped")
+        return f"stopped: {e} ({offers} offers before)"
     finally:
         shutil.rmtree(run.paths.inbox("bandcamp"), ignore_errors=True)
     if filed:
@@ -83,17 +101,21 @@ def run(run: "Run") -> str:
     return done + (f"; gave way, {run.left} left" if run.left else "")
 
 
-def _offer(urls: list[str], title: str, seconds: float) -> bandcamp.Offer | None:
-    """The first linked page with the song's track; a page that would not come is passed over."""
+def _offer(urls: list[str], title: str, seconds: float) -> tuple[bandcamp.Offer | None, bool]:
+    """(The first linked page with the song's track, whether a page did not come: a timeout or an error, not
+    a page that is gone.)"""
+    unread = False
     for url in urls:
         try:
             if o := bandcamp.offer(url, title, seconds):
-                return o
+                return o, unread
         except bandcamp.Challenged:
             raise
-        except bandcamp.BandcampError:
+        except bandcamp.Gone:
             continue
-    return None
+        except bandcamp.BandcampError:
+            unread = True
+    return None, unread
 
 
 def _store(con: sqlite3.Connection, key: str, o: bandcamp.Offer | None, result: str) -> None:
@@ -127,9 +149,10 @@ def _download(run: "Run", con: sqlite3.Connection, o: bandcamp.Offer, want: fili
         return "download failed"
     except audio.Rejected as e:
         return f"bad file: {e}"
+    want = dataclasses.replace(want, artists=[*want.artists, o.artist])  # Bandcamp's artist is the song's too
     heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
     same = acquire._same_audio(run, con, want, prepared)
-    found = {"file_name": got.name, "folders": (o.artist,), "fake": prepared.fake, "heard": heard, "url": o.url}
+    found = {"file_name": got.stem, "folders": (o.artist,), "fake": prepared.fake, "heard": heard, "url": o.url}
     checks = {"strict": True, "probable": False, "confirm": not same}
     if same:
         checks |= {"same_audio": same[1], "replaces": same[0]}

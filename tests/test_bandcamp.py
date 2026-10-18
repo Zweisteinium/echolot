@@ -175,3 +175,127 @@ def test_the_buy_page_and_the_badge(settings, login: Callable[..., TestClient]) 
     viewer = login(create_app(settings), "guest", admin=False)
     assert 'action="/buy/refresh"' not in viewer.get("/buy").text
     assert viewer.post("/buy/refresh", follow_redirects=False).status_code == 403
+
+
+class Curl:
+    """subprocess.run for curl: the HTTP status and body per address (a file for -o)."""
+
+    def __init__(self, answers: dict[str, tuple[int, bytes]]) -> None:
+        self.answers, self.asked = answers, []
+
+    def __call__(self, cmd: list[str], **kw) -> object:
+        url = cmd[-1]
+        self.asked.append(url)
+        code, body = self.answers.get(url, (404, b""))
+        if "-o" in cmd:
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(body)
+            body = b""
+        return type("Done", (), {"returncode": 0, "stdout": body, "stderr": str(code).encode()})()
+
+
+def test_curl_status_codes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bandcamp, "PAUSE", 0)
+    curl = Curl({"https://a.bandcamp.com/track/gone": (410, b""), "https://a.bandcamp.com/track/busy": (429, b"")})
+    monkeypatch.setattr(bandcamp.subprocess, "run", curl)
+    with pytest.raises(bandcamp.Gone):
+        bandcamp.offer("https://a.bandcamp.com/track/gone")
+    with pytest.raises(bandcamp.Challenged):
+        bandcamp.offer("https://a.bandcamp.com/track/busy")
+    with pytest.raises(bandcamp.BandcampError):
+        bandcamp.offer("https://example.com/track/x")  # never asked: not Bandcamp
+    assert "https://example.com/track/x" not in curl.asked
+
+
+def test_an_unreadable_page_is_an_error_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    pages = [b'<html data-tralbum="{not json"></html>', b'<html data-tralbum="[1, 2]"></html>']
+    for body in pages:
+        monkeypatch.setattr(bandcamp, "_get", lambda url, body=body, **kw: body)
+        assert bandcamp.offer("https://a.bandcamp.com/track/x") is None
+    tralbum = {"item_type": "track", "trackinfo": [{"duration": "long"}], "current": {}}
+    monkeypatch.setattr(bandcamp, "_get", lambda url, **kw: page(tralbum))
+    with pytest.raises(bandcamp.BandcampError):
+        bandcamp.offer("https://a.bandcamp.com/track/x")
+
+
+def test_a_free_flac_by_a_fresh_link(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(bandcamp, "PAUSE", 0)
+    flac = "https://popplers5.bandcamp.com/download/track?enc=flac&fsig=old&id=1"
+    blob = {"download_items": [{"downloads": {"flac": {"url": flac}}}]}
+    download = f'<html><div data-blob="{html.escape(json.dumps(blob), quote=True)}"></div></html>'.encode()
+    fresh = "https://popplers5.bandcamp.com/download/track?enc=flac&fsig=new&id=1"
+    stat = f'if ( window.Downloads ) {{ Downloads.statResult ( {{"result":"err","retry_url":"{fresh}"}} ) }};'
+    curl = Curl(
+        {
+            "https://bandcamp.com/download?fsig=x": (200, download),
+            "https://popplers5.bandcamp.com/statdownload/track?enc=flac&fsig=old&id=1&.vrs=1": (200, stat.encode()),
+            fresh: (200, (FIXTURES / "silence.flac").read_bytes()),
+        }
+    )
+    monkeypatch.setattr(bandcamp.subprocess, "run", curl)
+    o = bandcamp.Offer(
+        "https://a.bandcamp.com/track/poison",
+        "Ned",
+        "Poison",
+        250,
+        0.0,
+        "AUD",
+        True,
+        "https://bandcamp.com/download?fsig=x",
+    )
+    got = bandcamp.free_flac(o, tmp_path / "dl")
+    assert got.name == "Ned - Poison.flac" and got.read_bytes()[:4] == b"fLaC" and curl.asked[-1] == fresh
+
+
+def test_bandcamps_refusal_leaves_it_alone_for_a_day(run, settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused(url: str, title: str = "", seconds: float = 0) -> None:
+        raise bandcamp.Challenged("Bandcamp refused (HTTP 429)")
+
+    monkeypatch.setattr(bandcamp, "offer", refused)
+    assert job.run(run("after")).startswith("stopped: Bandcamp refused")
+    assert "left alone for a day" in job.run(run("after"))
+    assert job.run(run("manual")).startswith("stopped")  # Refresh asks again
+
+
+def test_a_page_that_did_not_come_keeps_the_offer(run, settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        bandcamp, "offer", lambda url, title="", seconds=0: bandcamp.Offer(url, "Up", "Tune", 400, 1.5, "EUR", False)
+    )
+    job.run(run("after"))
+
+    def down(url: str, title: str = "", seconds: float = 0) -> None:
+        raise bandcamp.BandcampError("Bandcamp: timed out")
+
+    monkeypatch.setattr(bandcamp, "offer", down)
+    job.run(run("manual"))
+    assert offers(settings)["soundcloud:1001"]["price"] == 1.5
+
+
+def test_a_free_flac_under_the_artists_name_waits_in_review(run, settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    o = bandcamp.Offer("https://real.bandcamp.com/track/trance-tune", "Real Artist", "Trance Tune", 400, 0.0, "", True)
+    monkeypatch.setattr(bandcamp, "offer", lambda url, title="", seconds=0: o)
+
+    def free_flac(offer: bandcamp.Offer, folder: Path) -> Path:
+        folder.mkdir(parents=True, exist_ok=True)
+        return Path(shutil.copy(FIXTURES / "silence.flac", folder / "Real Artist - Trance Tune.flac"))
+
+    monkeypatch.setattr(bandcamp, "free_flac", free_flac)
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+    monkeypatch.setattr(audio, "probe", lambda p: (400.0, 900))
+    monkeypatch.setattr(acquire, "_same_audio", lambda *a: None)  # not the audio of your copy: you decide
+    job.run(run("after"))
+    assert offers(settings)["soundcloud:1001"]["result"] == "confirm"
+
+
+def test_no_schedule_for_bandcamp(settings) -> None:
+    from echolot.jobs import schedule
+    from echolot.settings.sources import ConfigError
+
+    with pytest.raises(ConfigError):
+        schedule.parse_rules({"bandcamp": 60})
+    con = db.connect(settings.db_path)
+    try:
+        with con:
+            schedule.store(con, {"bandcamp": 60})
+        assert schedule.rules(con)["bandcamp"] is None and "bandcamp" not in schedule.scheduled(schedule.rules(con))
+    finally:
+        con.close()

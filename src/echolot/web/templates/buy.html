@@ -13,7 +13,7 @@
     </form>
     {% endif %}
   </div>
-  <p class="lead small">SoundCloud songs you have only lossy (or not at all) that their SoundCloud page links to on Bandcamp, where they come lossless (FLAC). Free ones are fetched by themselves; one listed here as free waits in Review or did not come. Once bought, upload the FLAC: it replaces your copy. Prices are Bandcamp's minimum, in the seller's currency; looked at when a song is new and with Refresh{% if last and last.finished %} (last {{ last.finished|ago }}){% endif %}.</p>
+  <p class="lead small">SoundCloud songs you have only lossy (or not at all) that their SoundCloud page links to on Bandcamp, where they come lossless (FLAC). Free ones are fetched by themselves; one listed here as free waits in Review or did not come. Once bought, upload the FLAC: it replaces your copy. Prices are Bandcamp's minimum, in the seller's currency; looked at when a song is new and with Refresh.{% if last and last.finished %} Last look {{ last.finished|ago }}: <span class="{{ 'bad-text' if not last.ok or (last.message or '').startswith('stopped') }}">{{ last.message or 'done' }}</span>.{% endif %}</p>
   {% if songs %}
   <table class="rows buy">
     <thead><tr><th>Artist</th><th>Title</th><th>Your copy</th><th>On Bandcamp</th><th class="hide-narrow">Lists</th>{% if upload %}<th></th>{% endif %}</tr></thead>
@@ -23,7 +23,7 @@
         <td>{{ s.artist }}</td>
         <td>{{ s.title }}</td>
         <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}</td>
-        <td>{{ bandcamp({'url': s.offer, 'artist': s.offer_artist, 'title': s.offer_title, 'price': s.price, 'currency': s.currency, 'free': s.free}) }}{% if s.free and s.result %} <span class="muted small">{{ 'waits in Review' if s.result == 'confirm' else s.result }}</span>{% endif %}</td>
+        <td>{{ bandcamp({'url': s.offer, 'artist': s.offer_artist, 'title': s.offer_title, 'price': s.price, 'currency': s.currency, 'free': s.free}) }}{% if s.free and s.result %}{% set RESULTS = {'confirm': 'waits in Review', 'wrong-song': 'not the song', 'mismatch': 'another length', 'duplicate': 'no better than your copy', 'download failed': 'download failed'} %} <span class="muted small">{{ RESULTS.get(s.result, s.result) }}</span>{% endif %}</td>
         <td class="hide-narrow muted small">{{ s.in_lists or '' }}</td>
         {% if upload %}<td class="row-action"><button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the FLAC you bought" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button></td>{% endif %}
       </tr>
