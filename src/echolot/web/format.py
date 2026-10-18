@@ -69,6 +69,7 @@ def mmss(seconds: float | None) -> str:
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "spotify": "Spotify"}
 SOURCES |= {"soundcloud-search": "SoundCloud", "manual": "By hand"}  # the search fallback's downloads; added by hand
 SOURCES["mitschnitt"] = "Mitschnitt"  # recorded by the user's recorder (web/recorders)
+SOURCES["bandcamp"] = "Bandcamp"  # a free download the artist offers there (jobs/bandcamp)
 
 
 def source(name: str | None) -> str:
@@ -81,5 +82,20 @@ def span(seconds: float | None) -> str:
     return _span(seconds or 0)
 
 
+CURRENCIES = {"EUR": "€", "USD": "$", "GBP": "£", "JPY": "¥"}  # a symbol before the amount; others named after it
+
+
+def price(amount: float | None, currency: str = "", free: bool = False) -> str:
+    """What a Bandcamp track costs: 'free', '€1.50', '2.00 AUD', '1.50' (currency not known yet)."""
+    if free or amount == 0:
+        return "free"
+    if amount is None:
+        return ""
+    if symbol := CURRENCIES.get(currency):
+        return f"{symbol}{amount:.2f}"
+    return f"{amount:.2f} {currency}".strip()
+
+
 FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes, "source": source}
 FILTERS["span"] = span
+FILTERS["price"] = price

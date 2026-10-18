@@ -122,7 +122,7 @@
 <section class="card">
   <div class="card-head">
     <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
-    <span class="list-actions">{% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button> {% endif %}{% if user.can('upload') and o.lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}<a href="/playlists" class="small">Manage in Playlists →</a></span>
+    <span class="list-actions">{% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button> {% endif %}{% if user.can('upload') and o.lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}{% if buy %}<a class="pill accent-pill" href="/buy" title="Songs you have lossy that Bandcamp sells lossless, with their price">Buy on Bandcamp · {{ buy|num }}</a> {% endif %}<a href="/playlists" class="small">Manage in Playlists →</a></span>
   </div>
   {% set groups = o.lists|groupby('service') %}
   {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube'] %}

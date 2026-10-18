@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import bandcamp, quality %}
+{% from "_icons.html" import icon, use %}
+{% block title %}Buy · Echolot{% endblock %}
+{% block content %}
+{% set upload = user.can('upload') %}
+<section class="card">
+  <div class="card-head">
+    <h1>Buy <span class="count">{{ songs|length|num }}</span></h1>
+    {% if user.admin %}
+    <form method="post" action="/buy/refresh" onsubmit="return confirm('Refresh asks Bandcamp for the page of every linked song again, as Echolot, one every 2 seconds (a few minutes). Free downloads are fetched. If Bandcamp answers with a bot check, Echolot stops. Refresh now?')">{{ csrf_input }}
+      <button{{ ' disabled' if running }} title="Read every linked Bandcamp page again: prices change rarely, so seldom is enough">{{ 'Refreshing …' if running else 'Refresh' }}</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="lead small">SoundCloud songs you have only lossy (or not at all) that their SoundCloud page links to on Bandcamp, where they come lossless (FLAC). Free ones are fetched by themselves; one listed here as free waits in Review or did not come. Once bought, upload the FLAC: it replaces your copy. Prices are Bandcamp's minimum, in the seller's currency; looked at when a song is new and with Refresh{% if last and last.finished %} (last {{ last.finished|ago }}){% endif %}.</p>
+  {% if songs %}
+  <table class="rows buy">
+    <thead><tr><th>Artist</th><th>Title</th><th>Your copy</th><th>On Bandcamp</th><th class="hide-narrow">Lists</th>{% if upload %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for s in songs %}
+      <tr>
+        <td>{{ s.artist }}</td>
+        <td>{{ s.title }}</td>
+        <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}</td>
+        <td>{{ bandcamp({'url': s.offer, 'artist': s.offer_artist, 'title': s.offer_title, 'price': s.price, 'currency': s.currency, 'free': s.free}) }}{% if s.free and s.result %} <span class="muted small">{{ 'waits in Review' if s.result == 'confirm' else s.result }}</span>{% endif %}</td>
+        <td class="hide-narrow muted small">{{ s.in_lists or '' }}</td>
+        {% if upload %}<td class="row-action"><button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the FLAC you bought" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button></td>{% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Nothing to buy: no song you have lossy links to Bandcamp{{ ', or Refresh has not run yet' if not last }}.</p>
+  {% endif %}
+</section>
+{% if upload %}{% include "_upload_dialog.html" %}{% endif %}
+{% endblock %}

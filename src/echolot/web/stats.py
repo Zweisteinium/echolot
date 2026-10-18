@@ -153,6 +153,28 @@ def lists(con: Connection, uid: int | None = None) -> list[Row]:
 _FOLLOWS = "SELECT key FROM sources WHERE user_id = ? AND enabled"
 
 
+def offers(con: Connection) -> dict[str, Row]:
+    """Song key -> its Bandcamp track (jobs/bandcamp), for the songs with one: price, currency, free."""
+    return {r["song_key"]: r for r in con.execute("SELECT * FROM bandcamp WHERE url > ''")}
+
+
+def buy(con: Connection, uid: int | None = None) -> list[Row]:
+    """The Buy page: a user's (or everyone's) songs without a genuine lossless copy that Bandcamp sells, or
+    gives away where the free download did not come into the library (it waits in Review, or failed); their
+    copy's quality and lists. The cheapest first."""
+    mine, args = _mine(uid)
+    return con.execute(
+        "SELECT s.key, s.artist, s.title, s.length, s.file, f.quality, f.kbps, b.url AS offer, b.artist AS offer_artist, "
+        "b.title AS offer_title, b.price, b.currency, b.free, b.result, b.checked, "
+        "(SELECT group_concat(l.title, ' · ') FROM list_songs ls JOIN lists l ON l.key = ls.list_key "
+        " WHERE ls.song_key = s.key) AS in_lists "
+        "FROM bandcamp b JOIN songs s ON s.key = b.song_key LEFT JOIN files f ON f.path = s.file "
+        "WHERE b.url > '' AND (b.price IS NOT NULL OR b.free) AND (s.file IS NULL OR f.quality != 'lossless') "
+        f"AND {mine} ORDER BY b.free DESC, b.price, s.artist COLLATE NOCASE",
+        args,
+    ).fetchall()
+
+
 def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:
     """A list, if the user follows it (or anyone's, for None)."""
     if uid is None:

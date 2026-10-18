@@ -11,7 +11,7 @@ from echolot import db
 from echolot.library import filing, history, recording
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, jobs, stats
-from echolot.web.common import DB, page
+from echolot.web.common import DB, back, page
 from echolot.web.format import num, size
 
 router = APIRouter(include_in_schema=False)
@@ -35,8 +35,17 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         jobs.status(request, con),
     )  # the library's files by quality, and the songs missing
     growth = _growth(con, stats.scope(request.state.user), o)
+    buy = len(stats.buy(con, stats.scope(request.state.user)))  # (songs Bandcamp sells lossless: the Buy page)
     return page(
-        request, "overview.html", nav="library", o=o, donut=donut, growth=growth, connected=connected, **running
+        request,
+        "overview.html",
+        nav="library",
+        o=o,
+        donut=donut,
+        growth=growth,
+        connected=connected,
+        buy=buy,
+        **running,
     )
 
 
@@ -86,6 +95,24 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
     )
 
 
+@router.get("/buy", response_class=HTMLResponse)
+def buy_page(request: Request, con: DB) -> HTMLResponse:
+    """Songs Bandcamp sells lossless, with their price and a link (jobs/bandcamp); an upload takes in the file."""
+    songs = stats.buy(con, stats.scope(request.state.user))
+    last = con.execute("SELECT * FROM jobs WHERE name = 'bandcamp'").fetchone()
+    runs, asked = request.app.state.worker.state()
+    running = "bandcamp" in runs or "bandcamp" in asked
+    return page(request, "buy.html", nav="buy", songs=songs, last=last, running=running)
+
+
+@router.post("/buy/refresh")
+def buy_refresh(request: Request) -> RedirectResponse:
+    """Look at every lossy SoundCloud song's Bandcamp link again (admins: it asks Bandcamp for each page)."""
+    if not request.app.state.worker.trigger("bandcamp"):
+        return back("/buy", error="Refresh could not start.")
+    return back("/buy", ok="Refresh starts in a moment; reload the page in a few minutes.")
+
+
 @router.get("/lists/{key:path}", response_class=HTMLResponse)
 def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     lst = stats.get_list(con, key, stats.scope(request.state.user))
@@ -95,7 +122,10 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     same = stats.same_as(songs)  # (the quality bar counts such a song once)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
     best = recording.blocks(con) if lst["service"] == "spotify" else {}  # (Spotify has nothing better of these)
-    return page(request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers, best=best)
+    offers = stats.offers(con) if lst["service"] == "soundcloud" else {}  # (Bandcamp sells these)
+    return page(
+        request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers, best=best, offers=offers
+    )
 
 
 @router.get("/activity", response_class=HTMLResponse)

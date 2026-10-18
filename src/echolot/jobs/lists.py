@@ -656,6 +656,7 @@ def soundcloud(run: "Run") -> str:
         con.close()
     shutil.rmtree(work, ignore_errors=True)
     run.after.add("library")
+    run.after.add("bandcamp")  # the new songs' Bandcamp offers (jobs/bandcamp: only songs never looked at)
     unread = f", {len(srcs) - len(listed)} not read" if len(listed) < len(srcs) else ""
     known_part = f", {known} linked to the library's file of their page" if known else ""
     return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs{known_part}"

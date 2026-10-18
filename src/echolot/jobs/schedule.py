@@ -127,6 +127,15 @@ JOBS = [
             "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (FLAC upgrade "
             "looks for a better one), one found clean as lossless. A FLAC recorded from Spotify's lossless stream "
             "that is itself made from lossy is the release's own audio and stays as it is. Off on the schedule."),
+    # not a task of the Jobs page and never on a schedule: after New SoundCloud songs, and Refresh on the Buy page
+    JobInfo("bandcamp", "Bandcamp offers", "web", None, 60,
+            "Finds Bandcamp offers of your lossy SoundCloud songs.",
+            "Reads the Bandcamp track a SoundCloud song links to (its buy link or description; Bandcamp's search "
+            "is closed to bots), for SoundCloud songs without a genuine lossless copy: its price for the Buy "
+            "page, and a free download (no email asked) is fetched as FLAC and filed with the usual checks (the "
+            "audio of your copy replaces it, anything else waits in Review). After New SoundCloud songs only the "
+            "songs never looked at; Refresh on the Buy page all of them. Bandcamp is asked as Echolot, one page "
+            "every 2 s; a bot check from Bandcamp ends the run.", started_by="New SoundCloud songs"),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
 STEPS = {  # each job's short name inside its task, for the schedule and the live state

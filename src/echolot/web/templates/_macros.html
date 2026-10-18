@@ -62,3 +62,8 @@
 <span class="spotify-best" title="{{ why }}" aria-label="{{ why }}">{{ icon('info', 13) }}</span>
 {%- endif %}
 {%- endmacro %}
+
+{# a song's track on Bandcamp (stats.offers): its price, linking to the page to buy it lossless #}
+{% macro bandcamp(o) -%}
+{%- if o %}<a class="pill accent-pill" href="{{ o.url }}" target="_blank" rel="noopener" title="Lossless (FLAC) on Bandcamp: {{ o.artist }} – {{ o.title }}{{ ', a free download' if o.free }}">Bandcamp{% set p = o.price|price(o.currency, o.free) %}{{ ' ' ~ p if p }}</a>{% endif %}
+{%- endmacro %}

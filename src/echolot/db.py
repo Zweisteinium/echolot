@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 33
+VERSION = 34
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -29,6 +29,18 @@ CREATE TABLE lossy_checks (         -- the library FLACs' lossy checks (jobs/los
     spectrum TEXT,                  -- audio.spectrum's result (JSON)
     lossprint TEXT,                 -- audio.lossprint's (JSON; null: not installed or off)
     verdict TEXT NOT NULL,          -- audio.judge: lossy, doubtful or ok
+    checked TEXT NOT NULL
+);
+CREATE TABLE bandcamp (             -- a song's track on Bandcamp, linked from its SoundCloud page (jobs/bandcamp)
+    song_key TEXT PRIMARY KEY,
+    url TEXT NOT NULL,              -- the track's page
+    artist TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    seconds REAL NOT NULL DEFAULT 0,
+    price REAL,                     -- the least it sells for (0: name your price); NULL: not for sale
+    currency TEXT NOT NULL DEFAULT '',
+    free INTEGER NOT NULL DEFAULT 0,  -- a free download (no email asked): downloaded by the job
+    result TEXT NOT NULL DEFAULT '',  -- what the free download came to (filed, not the song, ...)
     checked TEXT NOT NULL
 );
 CREATE TABLE lists (                -- the followed lists as last fetched, once however many users follow one
@@ -432,6 +444,11 @@ MIGRATIONS = {
         "ALTER TABLE lossy_sourced ADD COLUMN master INTEGER NOT NULL DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS lossy_checks (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, "
         "md5 TEXT NOT NULL, spectrum TEXT, lossprint TEXT, verdict TEXT NOT NULL, checked TEXT NOT NULL)",
+    ],
+    34: [  # Bandcamp offers of SoundCloud songs (jobs/bandcamp)
+        "CREATE TABLE IF NOT EXISTS bandcamp (song_key TEXT PRIMARY KEY, url TEXT NOT NULL, artist TEXT NOT NULL "
+        "DEFAULT '', title TEXT NOT NULL DEFAULT '', seconds REAL NOT NULL DEFAULT 0, price REAL, currency TEXT NOT "
+        "NULL DEFAULT '', free INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL DEFAULT '', checked TEXT NOT NULL)"
     ],
 }
 

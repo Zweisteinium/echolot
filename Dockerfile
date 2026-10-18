@@ -63,8 +63,8 @@ LABEL org.opencontainers.image.title="Echolot" \
       org.opencontainers.image.version="${ECHOLOT_VERSION}" \
       org.opencontainers.image.revision="${ECHOLOT_COMMIT}"
 # the audio-only ffmpeg's libraries; QuickJS: yt-dlp's JavaScript runtime for YouTube (Debian's node is
-# older than yt-dlp supports)
-RUN apt-get update && apt-get install -y --no-install-recommends libsoxr0 libmp3lame0 quickjs ca-certificates \
+# older than yt-dlp supports); curl: Bandcamp's pages (services/bandcamp)
+RUN apt-get update && apt-get install -y --no-install-recommends libsoxr0 libmp3lame0 quickjs ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffprobe /usr/local/bin/
 COPY --from=ffmpeg /usr/local/lib/*.so.* /usr/local/lib/
