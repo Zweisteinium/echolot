@@ -40,99 +40,93 @@ class JobInfo:
 
 JOBS = [
     JobInfo("sync", "Spotify lists", "spotify", 2, 1,
-            "Checks your Spotify lists for changes; new songs start New songs search.",
+            "Checks your Spotify lists; new songs start New songs search.",
             "Asks Spotify what changed (a few requests: the playlists' snapshots, the state of your likes) and "
-            "reads only the lists that changed; which liked songs Spotify greys out is asked once a day. It "
-            "needs no Soulseek, so it never waits for a search; only when there are new songs does New songs "
-            "search start, and only then do the other Soulseek jobs make way.", priority=3),
+            "reads only the lists that changed. Songs Spotify greys out are found by the daily Availability "
+            "check. Needs no Soulseek, so it never waits for a search; only new songs start New songs search, "
+            "and only then do the other Soulseek jobs give way.", priority=3),
     JobInfo("search_new", "New songs search", "soulseek", None, 1,
-            "Searches the new songs Spotify and YouTube lists found, right away.",
-            "Started by Spotify and YouTube lists when there are new songs. A new song is first looked for in "
-            "your library: a song with the "
-            "same recording (ISRC), or a file with its title and length that sounds like the release, is linked "
-            "instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: up to five downloads are "
-            "tried, each checked by length, tags and audio; a doubtful one waits in Review. A song Soulseek does "
-            "not have goes to the YouTube & SoundCloud search right after this job. Comes first: it starts right "
-            "away, a less urgent Soulseek job ends its songs in progress beside it and goes on afterwards.", priority=3,
-            started_by="Spotify and YouTube lists"),
+            "Searches the songs Spotify and YouTube lists found, right away.",
+            "Started by Spotify and YouTube lists when there are new songs. Each is first looked for in your "
+            "library: a song with the same recording (ISRC), or a file with its title and length that sounds "
+            "like the release, is linked instead of downloaded. Otherwise Soulseek is searched, FLAC preferred: "
+            "up to five downloads are tried, each checked by length, tags and audio; a doubtful one waits in "
+            "Review. A song Soulseek does not have goes to YouTube & SoundCloud search right after. Comes first: "
+            "it starts at once, and a less urgent Soulseek job finishes its songs in progress and goes on after it.",
+            priority=3, started_by="Spotify and YouTube lists"),
     JobInfo("soundcloud", "New SoundCloud songs", "web", 5, 2,
-            "Checks your SoundCloud lists for changes and downloads new songs from SoundCloud itself.",
+            "Checks your SoundCloud lists and downloads their new songs.",
             "Asks SoundCloud what changed (three requests: your likes, the sets in your library) and reads only "
-            "the lists that changed, each at least hourly (a download that failed is tried again). Each new song "
-            "is downloaded from SoundCloud: the uploader's own "
-            "file where downloads are allowed (sometimes lossless), else the stream. Before it is filed, a "
-            "download is compared by audio with the library's files of the same title and length: the same "
-            "recording is linked, not kept twice. A song SoundCloud hands out to nobody (label releases) goes to "
-            "the YouTube & SoundCloud search. It checks beside a running YouTube & SoundCloud search and makes it "
-            "give way only to download new songs (they come first).", priority=3, beside=True),
+            "the lists that changed, each at least hourly so a failed download is tried again. A new song is "
+            "downloaded from SoundCloud: the uploader's own file where downloads are allowed (sometimes "
+            "lossless), else the stream. Before filing, it is compared by audio with the library's files of the "
+            "same title and length: the same recording is linked, not kept twice. A song SoundCloud hands out to "
+            "nobody (label releases) goes to YouTube & SoundCloud search. Runs beside a YouTube & SoundCloud "
+            "search and makes it give way only while new songs download.", priority=3, beside=True),
     JobInfo("youtube", "YouTube lists", "web", 30, 10,
             "Reads your YouTube playlists; new songs start New songs search.",
-            "YouTube tells no change in advance, so each playlist is read whole: its videos through yt-dlp (also "
-            "those that no longer play), their names through YouTube Music (a request per 100 songs); a list "
-            "with the same songs is left as it is. A new song gets Spotify's names, ISRC and length where "
+            "YouTube does not report changes, so each playlist is read in full: its videos through yt-dlp "
+            "(also those that no longer play), their names through YouTube Music (a request per 100 songs). A "
+            "list with the same songs is left as it is. A new song gets Spotify's names, ISRC and length where "
             "Spotify has it under the same artist and title at a fitting length, else YouTube Music's (an "
-            "upload's from its title). Its songs are searched like Spotify's: Soulseek first, FLAC preferred, "
-            "then YouTube & SoundCloud, the listed video first. A video that no longer plays stays in its list "
-            "and shows on the Changes page. It reads beside a running YouTube & SoundCloud search, which goes on.",
-            priority=3, beside=True),
+            "upload's from its title). Searched like Spotify's: Soulseek first, FLAC preferred, then YouTube & "
+            "SoundCloud, the listed video first. A video that no longer plays stays in its list and shows on the "
+            "Changes page. Runs beside a YouTube & SoundCloud search, which goes on.", priority=3, beside=True),
     JobInfo("fallback", "YouTube & SoundCloud search", "web", 120, 60,
-            "Songs Soulseek does not have, and SoundCloud songs that cannot be downloaded.",
-            "Starts right after New songs search when Soulseek had nothing, and on its schedule. Per song: the "
-            "release's own audio on YouTube (\"Provided to YouTube\") first (a YouTube song: its own video before "
-            "it), then YouTube, then a SoundCloud "
-            "search; the first result that passes the same checks as a Soulseek download is filed, one of "
-            "another length waits in Review. A download the library has under other names is linked instead. "
-            "Each song at most once a week, new ones first (Search all now: every one). The result is lossy: "
-            "the FLAC upgrade looks for a lossless copy from 12 h later. Gives way when New SoundCloud songs "
-            "downloads new songs.",
-            priority=2),
+            "Songs not on Soulseek, and SoundCloud songs not downloadable.",
+            "Starts right after New songs search when Soulseek had nothing, and on its schedule. Per song: a "
+            "YouTube song's own video, the release's own audio on YouTube (\"Provided to YouTube\"), YouTube, "
+            "then a SoundCloud search. The first result that passes the same checks as a Soulseek download is "
+            "filed; one of another length waits in Review. A download the library has under other names is "
+            "linked instead. Each song at most once a week, new ones first (Search all now: every one). The "
+            "result is lossy: FLAC upgrade looks for a lossless copy from 12 h later. Gives way while New "
+            "SoundCloud songs downloads.", priority=2),
     JobInfo("sweep", "Missing songs", "soulseek", ["20:00", "sat,sun 15:00"], 360,
-            "Searches the songs found nowhere yet again, when most Soulseek users are online.",
-            "Songs found neither on Soulseek nor on YouTube & SoundCloud are searched on Soulseek again, with "
-            "looser terms after two misses (title without additions, first artist only, then without the "
-            "artist in the path): each song daily, weekly after 7 searches without a find (Search all now: every "
-            "one). Gives way to New songs search.", priority=2),
+            "Searches songs found nowhere again, at Soulseek's busiest hours.",
+            "Searches Soulseek again for the songs found neither there nor on YouTube & SoundCloud: each song "
+            "daily, weekly after 7 searches without a find (Search all now: every one). After two misses the "
+            "terms get looser (title without additions, first artist only), after four the artist need not be "
+            "in the path. Gives way to New songs search.", priority=2),
     JobInfo("upgrade", "FLAC upgrade", "soulseek", ["14:00", "20:30"], 360,
             "Looks for genuine FLACs of the songs you have lossy.",
             "FLAC-only Soulseek search for songs whose file is not genuine lossless (a FLAC made from an MP3 "
-            "counts as lossy): each song 12 h, 1 d and 2 d after the last search, then every 3 days, the longest "
+            "counts as lossy). Each song 12 h, 1 d and 2 d after its last search, then every 3 days; the longest "
             "waiting first, at most the batch size per run (Run now: whatever their wait). A genuine FLAC "
-            "replaces the lossy file under its "
-            "name. A FLAC for a SoundCloud song waits in Review. Gives way to New songs search and Missing "
-            "songs and goes on after them.", priority=1),
+            "replaces the lossy file under its name. A FLAC for a SoundCloud song waits in Review, unless it is "
+            "the audio of your copy. Gives way to New songs search and Missing songs and goes on after them.",
+            priority=1),
     JobInfo("upgrade_all", "FLAC upgrade, all songs", "soulseek", None, 360,
-            "Every song you have lossy at once, whatever its wait. Start it with All songs.",
-            "Searches a FLAC for every song that is not genuine lossless, regardless of when it was last "
-            "searched, the longest waiting first. Gives way to every other Soulseek job that is due and goes on "
-            "after it until all songs are done (a restart of Echolot ends it). Off on the schedule.", priority=0),
+            "Every lossy song at once, whatever its wait. Start it with All songs.",
+            "Searches a FLAC for every song that is not genuine lossless, however recently it was searched, the "
+            "longest waiting first. Gives way to every other Soulseek job that is due and goes on after it until "
+            "all songs are done (a restart of Echolot ends it, a deploy does not). Off on the schedule.",
+            priority=0),
     JobInfo("covers", "Covers from your lists", "pictures", None, 60,
-            "Gives every file its song's cover from Spotify or SoundCloud. Start it with Run now.",
-            "New files get their song's cover when they are filed. This run gives it to the files already "
-            "there: the Spotify album's cover, or the SoundCloud song's artwork, in place of the one the "
-            "uploader embedded (a compilation, a remaster). The old picture is kept in cover-backups first; "
-            "files done are noted, so a run that stopped goes on where it was. Off on the schedule."),
+            "Gives every file its song's cover. Start it with Run now.",
+            "New files get their song's cover when they are filed; this gives it to the files already there: "
+            "the Spotify album's cover or the SoundCloud song's artwork, in place of the one the uploader "
+            "embedded (a compilation, a remaster). The old picture is kept in cover-backups first. Files done "
+            "are noted, so a run that stopped goes on where it was. Off on the schedule."),
     JobInfo("availability", "Availability check", "catalog", ["05:30"], 360,
-            "Checks whether every list's songs still play on Spotify and SoundCloud.",
+            "Checks whether all lists' songs still play on Spotify and SoundCloud.",
             "Asks Spotify (in the country set with the Spotify app) and SoundCloud about every song of every "
-            "user's lists, 50 at a time: whether it still plays, plays as another release, was taken down, "
-            "plays no more in this country, is gone, or is only a preview. A song whose state changed is a "
-            "change on the Changes page, with why a song left a list. The searches take a song Spotify no "
-            "longer plays first, before it is lost for good. YouTube songs are checked as their lists are "
-            "read.", priority=1),
+            "user's lists, 50 at a time: whether it plays, plays as another release, was taken down, no longer "
+            "plays in this country, is gone, or is only a preview. A changed state is a change on the Changes "
+            "page, with why a song left a list. The searches take songs Spotify no longer plays first, before "
+            "they are lost for good. YouTube songs are checked as their lists are read.", priority=1),
     JobInfo("library", "Library upkeep", "local", 5, 1,
-            "Rescans the library, applies review decisions and writes the playlists.",
+            "Rescans the library, applies review decisions, writes the playlists.",
             "Notices new, changed and removed files (only those are read again), applies review decisions once "
-            "their undo time is over, matches the songs to files and writes one playlist per list. Once a day "
-            "it empties the replaced and review files older than 30 days."),
+            "their undo time is over, matches songs to files and writes one playlist per list. Once a day it "
+            "deletes the replaced and review files older than 30 days."),
     JobInfo("lossy", "Lossy check", "audio", None, 30,
-            "Checks the library's FLACs for being made from a lossy file. Start it with Run now.",
-            "Downloads are checked as they arrive; this checks the FLACs already in the library with the same two "
-            "checks: the spectrum check (a lossy encoder's low-pass edge) and lossprint (a model that also hears "
+            "Checks the library's FLACs for a lossy source. Start it with Run now.",
+            "Downloads are checked as they arrive; this checks the FLACs already in the library with the same "
+            "two checks: the spectrum (a lossy encoder's low-pass edge) and lossprint (a model that also hears "
             "high-bitrate MP3, AAC and Opus). Each file once, a few seconds at the lowest CPU priority; a file "
-            "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (the FLAC "
-            "upgrade looks for a better one), one found clean as lossless; a FLAC recorded from Spotify's lossless "
-            "stream that is made from lossy itself is the release's own audio and stays as it is. Off on the "
-            "schedule."),
+            "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (FLAC upgrade "
+            "looks for a better one), one found clean as lossless. A FLAC recorded from Spotify's lossless stream "
+            "that is itself made from lossy is the release's own audio and stays as it is. Off on the schedule."),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
 STEPS = {  # each job's short name inside its task, for the schedule and the live state
@@ -168,16 +162,14 @@ TASKS = [
     Task(
         "new",
         "New songs",
-        "Checks your lists: a new Spotify or YouTube song comes from Soulseek, else from YouTube & SoundCloud; a "
-        "SoundCloud song from SoundCloud.",
+        "Checks your lists; new songs come from Soulseek, YouTube or SoundCloud.",
         ("sync", "youtube", "search_new", "soundcloud"),
         (("Check now", ("sync", "youtube", "soundcloud"), "Check the Spotify, YouTube and SoundCloud lists now"),),
     ),
     Task(
         "missing",
         "Missing songs",
-        "Searches the songs found nowhere yet again: each one daily on Soulseek (weekly after 7 misses), weekly "
-        "on YouTube & SoundCloud.",
+        "Searches songs found nowhere again: Soulseek, YouTube and SoundCloud.",
         ("sweep", "fallback"),
         (("Search all now", ("sweep", "fallback"), "Search every missing song now, whatever its wait"),),
     ),
@@ -202,7 +194,7 @@ TASKS = [
     Task(
         "availability",
         "Availability check",
-        "Whether every list's songs still play: what was taken down, is gone or plays as another release.",
+        "Checks whether all lists' songs still play on Spotify and SoundCloud.",
         ("availability",),
         (("Run now", ("availability",), "Check every song now"),),
         maintenance=True,

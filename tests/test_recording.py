@@ -108,8 +108,8 @@ def test_an_admin_records_a_list_only_someone_else_follows(app: FastAPI, login: 
     assert owner.get("/lists/spotify:likes:1").status_code == 200
     dialog = owner.get("/recordings/new", params=params).text
     assert "DESKTOP-DAVID" in dialog and "2 songs" in dialog
-    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless", **params})
-    assert "Recording: your device starts" in r.text
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless", **params}, follow_redirects=False)
+    assert r.headers["location"] == "/lists/spotify:likes:1"  # started: back without a message
 
 
 def test_a_session_song_by_song(app: FastAPI, login: Callable[..., TestClient]) -> None:
@@ -128,8 +128,9 @@ def test_a_session_song_by_song(app: FastAPI, login: Callable[..., TestClient]) 
     dialog = owner.get("/recordings/new", params={"list": "spotify:likes:1"}).text
     assert "Not lossless" in dialog and "DESKTOP-DAVID" in dialog and "2 songs" in dialog
     rid = 1
-    r = owner.post("/recordings", data={"recorder": rid, "below": "lossless", "list": "spotify:likes:1"})
-    assert r.status_code == 200 and "Recording: your device starts" in r.text
+    data = {"recorder": rid, "below": "lossless", "list": "spotify:likes:1"}
+    r = owner.post("/recordings", data=data, follow_redirects=False)
+    assert r.headers["location"] == "/lists/spotify:likes:1"
 
     assert poll(device, "busy")["item"] is None  # the user plays Spotify: nothing for it
     first = poll(device)
@@ -517,7 +518,8 @@ def test_a_new_request_stops_the_old_session(app: FastAPI, login: Callable[..., 
     owner = login(app)
     device = as_device(app, connect(owner, app))
     assert "recording (stops that session)" not in owner.get("/recordings/new").text
-    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, follow_redirects=False)
+    assert r.headers["location"] == "/library"  # (no message when nothing was stopped)
     item = poll(device)["item"]
     assert "recording (stops that session)" in owner.get("/recordings/new").text
     r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, follow_redirects=False)

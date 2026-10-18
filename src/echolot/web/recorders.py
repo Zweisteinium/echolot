@@ -135,8 +135,7 @@ def record_start(
         recording.start(con, user.id, recorder, list_key or None, below)
     except recording.RecordingError as e:
         return back(where, error=str(e))
-    stopped = f" Its previous session ({old['title']}) was stopped." if old else ""
-    return back(where, ok=f"Recording: your device starts as soon as Spotify is free.{stopped}")
+    return back(where, ok=f"The device's previous session ({old['title']}) was stopped.") if old else back(where)
 
 
 @router.post("/songs/{key:path}/spotify-again", response_class=HTMLResponse)

@@ -190,13 +190,13 @@ main { max-width: var(--page); margin: 1.5rem auto 3rem; padding: 0 1.5rem; disp
 }
 .card { overflow-x: auto; }
 .card > p:last-child { margin-bottom: 0; }
-/* explanations: lines of a readable length, broken where it reads naturally (no single word left over) */
-p.lead, .card > p.muted, .card > p.small, .rail > p, .task-title p, .section-head + p { max-width: 72ch; text-wrap: pretty; }
+/* explanations: broken where it reads naturally (no single word left over) */
+p.lead, .card > p.muted, .card > p.small, .rail > p, .task-title p, .section-head + p { text-wrap: pretty; }
 h1, h2, h3 { text-wrap: balance; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
   margin-bottom: 0.5rem; }
 .card-head h1, .card-head h2 { margin: 0; }
-.lead { color: var(--muted); margin: 0.25rem 0 0.75rem; max-width: 64rem; }
+.lead { color: var(--muted); margin: 0.25rem 0 0.75rem; }
 
 .pill { white-space: nowrap; font-size: 0.75rem; font-weight: 600; color: var(--muted); background: var(--track);
   padding: 0.05rem 0.55rem; border-radius: 999px; }
@@ -239,10 +239,11 @@ a.pill { text-decoration: none; }
 .task-bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; max-width: 40rem; }
 .task-bar > span { display: block; height: 100%; background: var(--brand); transition: width 0.4s; }
 .task-facts .link-button { justify-self: start; }
-.task-info { margin: 0.2rem 0 0; padding: 0.6rem 0.8rem; border-radius: var(--radius); background: var(--track); max-width: 70ch; }
+.task-info { margin: 0.2rem 0 0; padding: 0.6rem 0.8rem; border-radius: var(--radius); background: var(--track); }
 .task-info dt { font-weight: 600; margin-top: 0.4rem; }
 .task-info dt:first-child { margin-top: 0; }
 .task-info dd { margin: 0.1rem 0 0; line-height: 1.45; }
+@media (max-width: 720px) { .task-info { grid-template-columns: minmax(0, 1fr); } }  /* narrow: each step above its text */
 .task-log { list-style: none; margin: 0.2rem 0 0; padding: 0.5rem 0.7rem; max-height: 16rem; overflow-y: auto;
   border: 1px solid var(--border); border-radius: var(--radius); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem; line-height: 1.5; }
@@ -256,7 +257,7 @@ a.pill { text-decoration: none; }
 .schedule .schedule-task th { padding-top: 1rem; font-size: 0.85rem; color: var(--text); font-weight: 650; }
 .info-toggle { border: none; background: none; padding: 0 0.15rem; color: var(--muted); cursor: pointer; vertical-align: -0.15em; }
 .info-toggle:hover, .info-toggle[aria-expanded="true"] { color: var(--text); }
-.job-info { margin: 0.35rem 0 0.15rem; max-width: 60ch; line-height: 1.45; color: var(--text); }
+.job-info { margin: 0.35rem 0 0.15rem; line-height: 1.45; color: var(--text); }
 
 .flash { border-radius: var(--radius-sm); padding: 0.6rem 1rem; border: 1px solid; }
 .flash.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent);
@@ -544,7 +545,7 @@ a.kpi:hover { text-decoration: none; background: color-mix(in srgb, var(--accent
 .schedule input[type="text"] { width: 100%; max-width: 16rem; }
 .account-body { display: grid; gap: 0.75rem; margin-top: 0.5rem; }
 .account-body > p, .account-body > ol { margin: 0; }
-ol.steps { margin: 0.5rem 0 1rem; padding-left: 1.4rem; display: grid; gap: 0.75rem; max-width: 52rem; }
+ol.steps { margin: 0.5rem 0 1rem; padding-left: 1.4rem; display: grid; gap: 0.75rem; }
 ol.steps li::marker { color: var(--muted); font-weight: 600; }
 ol.steps form { margin-top: 0.5rem; }
 
