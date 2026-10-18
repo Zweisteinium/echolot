@@ -329,9 +329,10 @@ class Slskd:
             self._forget(job, t)
 
     def rescan_shares(self) -> bool:
-        """Have slskd scan its shares again (it scans them only at its start); False while a scan runs."""
+        """Have slskd scan its shares again (it scans them only at its start); False while a scan runs. A
+        pending scan (scanPending: its share directories changed) is what this starts, so it does not stop it."""
         state = (self._call("GET", "/application") or {}).get("shares") or {}
-        if state.get("scanning") or state.get("scanPending"):
+        if state.get("scanning"):
             return False
         self._call("PUT", "/shares")
         return True
