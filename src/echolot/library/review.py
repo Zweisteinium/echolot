@@ -187,19 +187,22 @@ def upgrade(e: sqlite3.Row) -> bool:
     return lossless and e["song_quality"] not in ("lossless", None)
 
 
-def items(con: sqlite3.Connection, music_dir: Path, uid: int | None = None) -> dict[str, list[Item]]:
+def items(
+    con: sqlite3.Connection, music_dir: Path, uid: int | None = None, key: str | None = None
+) -> dict[str, list[Item]]:
     """What to look at: probable matches still in the library without an applied decision, and kept
     rejected downloads of songs that are still missing, or genuine lossless ones of songs the library
     has only lossy (accepting one replaces the lossy copy; a SoundCloud song's FLAC always waits here,
-    'confirm'). Newest first."""
+    'confirm'). Newest first. `key`: that song's only."""
     decisions = {r["id"]: r for r in con.execute("SELECT * FROM review_decisions")}
+    one, args = (" AND e.song = ?", (KEPT + "%", rules.norm_key(key))) if key else ("", (KEPT + "%",))
     rows = con.execute(
         "SELECT e.*, s.length AS wanted_length, s.file AS song_file, s.artists AS song_artists, "
         f"{db.play_url()} AS song_url, "
         "f.quality AS song_quality, f.kbps AS song_kbps FROM events e LEFT JOIN songs s ON s.key = e.song "
-        f"LEFT JOIN files f ON f.path = s.file WHERE (e.action IN {FILED} AND e.matched = 'probable') "
-        "OR (e.action IN ('wrong-song', 'mismatch', 'confirm') AND e.path LIKE ?) ORDER BY e.id DESC",
-        (KEPT + "%",),
+        f"LEFT JOIN files f ON f.path = s.file WHERE ((e.action IN {FILED} AND e.matched = 'probable') "
+        f"OR (e.action IN ('wrong-song', 'mismatch', 'confirm') AND e.path LIKE ?)){one} ORDER BY e.id DESC",
+        args,
     ).fetchall()
     out: dict[str, list[Item]] = {"filed": [], "kept": []}
     theirs = songs_of(con, uid) if uid is not None else None
@@ -218,6 +221,13 @@ def items(con: sqlite3.Connection, music_dir: Path, uid: int | None = None) -> d
             continue
         out[kind].append(Item(e, kind, file, float(length), d["decision"] if d else None, d["name"] if d else None))
     return out
+
+
+def waiting(con: sqlite3.Connection, music_dir: Path, key: str | None = None) -> set[str]:
+    """The songs with a kept download on the review page (`key`: whether that one has), by the page's own
+    rules (items): the Missing page's badge and the searches go by it, not by the files in inbox/review
+    (a rejected download of another artist, or far off in length, is kept there but not shown)."""
+    return {rules.norm_key(i.event["song"]) for i in items(con, music_dir, key=key)["kept"] if i.event["song"]}
 
 
 TAKE = ("ok", "accept", "close")  # decisions that give the song a file

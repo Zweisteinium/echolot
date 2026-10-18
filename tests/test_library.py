@@ -29,6 +29,27 @@ def test_lists_in_config_order(con) -> None:
     ]
 
 
+def test_best_quality_leaves_out_what_cannot_be_had(con) -> None:
+    def liked() -> tuple[int, int, int]:
+        row = next(r for r in stats.lists(con) if r["key"] == "spotify:likes:1")
+        return row["songs"], row["best"], row["unobtainable"]
+
+    # s1 an MP3, s2 a FLAC made from a lossy file, s3 missing and greyed out on Spotify
+    assert liked() == (3, 0, 1)
+    with con:  # a recording proved Spotify has nothing better of s2
+        con.execute(
+            "INSERT INTO spotify_best (song_key, uri, reason, since) "
+            "VALUES ('spotify:s2', 'spotify:track:s2', 'lossy', '2026-10-18T20:00:00')"
+        )
+    assert liked() == (3, 1, 1)
+    with con:  # Spotify plays it as another release now: that one may be better
+        con.execute(
+            "INSERT INTO availability (song_key, state, since, checked, detail) "
+            "VALUES ('spotify:s2', 'replaced', '', '2026-10-18', 'spotify:x')"
+        )
+    assert liked() == (3, 0, 1)
+
+
 def test_songs_matched_to_library_files(con) -> None:
     songs = {r["key"]: r for r in con.execute("SELECT * FROM songs")}
     assert set(songs) == {"spotify:s1", "spotify:s2", "spotify:s3", "soundcloud:1001", "soundcloud:1002"}

@@ -136,8 +136,8 @@
       <span class="muted small">{{ t.songs|num }} songs{% if t.missing %} · <span class="bad-text">{{ t.missing|num }} missing</span>{% endif %}</span>
     </summary>
     <table class="rows lists">
-      <colgroup><col><col class="c-num"><col class="c-bar"><col class="c-num"><col class="c-num"></colgroup>
-      <thead><tr><th>List</th><th class="num hide-narrow">Songs</th><th>Quality</th><th class="num hide-narrow">FLAC</th><th class="num">Missing</th></tr></thead>
+      <colgroup><col><col class="c-num"><col class="c-bar"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
+      <thead><tr><th>List</th><th class="num hide-narrow">Songs</th><th>Quality</th><th class="num hide-narrow">FLAC</th><th class="num hide-narrow" title="Songs at the best quality there is: genuine FLAC, or a copy Spotify has nothing better of. Missing songs no source hands out (greyed out, taken down, DRM) are left out.">Best</th><th class="num">Missing</th></tr></thead>
       <tbody>
       {% for l in group %}
       {% set m = l.songs - l.have %}
@@ -146,6 +146,7 @@
         <td class="num hide-narrow">{{ l.songs|num }}</td>
         <td>{{ qbar(tier_counts(l)) }}</td>
         <td class="num muted hide-narrow">{{ share(l.lossless, l.songs) }}</td>
+        <td class="num muted hide-narrow" title="{{ l.best|num }} of {{ (l.songs - l.unobtainable)|num }} songs that can be had">{{ share(l.best, l.songs - l.unobtainable) }}</td>
         <td class="num">{% if m %}<a class="bad-text" href="/missing?list={{ l.key|urlencode }}">{{ m|num }}</a>{% else %}<span class="muted">–</span>{% endif %}</td>
       </tr>
       {% endfor %}

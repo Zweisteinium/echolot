@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
+from echolot.library import audio, catalog, filing, identity, recordings, review, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import slskd, soulseek, spotify, ytdlp
 from echolot.services import soundcloud as sc_api
@@ -635,12 +635,13 @@ def _upgrade(run: "Run", everything: bool) -> str:
         rows = run.todo(rows)  # (without the songs a run that gave way did)
         # what a run that gave way left, else every song (by hand) or the batch
         batch = run.budget or (len(rows) if everything else options.get(con, options.Soulseek).upgrade_batch)
+        waits = review.waiting(con, run.paths.music)
     finally:
         con.close()
     now, seen, songs = time.time(), set(), []
     by_hand = everything or run.trigger == "manual"  # Run now: whatever their wait (the batch still counts)
     for r in rows:
-        if r["service"] == "soundcloud" and filing.in_review(run.paths, r["artist"], _want(r).title):
+        if r["service"] == "soundcloud" and r["key"] in waits:
             continue  # its FLAC waits for your answer
         if r["file"] not in seen and (by_hand or due(r["tries"], r["last_try"], *UPGRADE_WAIT, now)):
             seen.add(r["file"])
@@ -830,7 +831,7 @@ def _fallback_song(
             if action in FOUND:
                 return action, report
     near = min(others, key=lambda o: o[0], default=None)
-    if near and not filing.in_review(run.paths, want.artist, want.title):
+    if near and not review.waiting(con, run.paths.music, want.key):
         _, site, r = near
         if not filing.is_blocked(con, want.key, [r["title"]]):
             action, detail = fetch(site, r)

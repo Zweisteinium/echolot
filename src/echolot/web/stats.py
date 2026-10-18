@@ -8,8 +8,9 @@ from typing import Any
 
 from echolot import db
 from echolot.jobs import acquire
+from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
-from echolot.library import catalog, filing, recordings
+from echolot.library import catalog, recording, recordings, review
 from echolot.library.catalog import QUALITY
 from echolot.library.filing import Paths
 
@@ -112,9 +113,23 @@ def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
     return [(k, label, n.get(k, 0)) for k, label in TIERS]
 
 
+# a song at the best quality there is: genuine lossless, or a copy Spotify has nothing better of (recording.blocks)
+_BEST = (
+    "coalesce(sum(s.file IS NOT NULL AND (f.quality = 'lossless' OR s.key IN (SELECT b.song_key FROM spotify_best b "
+    "LEFT JOIN availability a ON a.song_key = b.song_key WHERE b.uri = "
+    + recording.PLAYS_AS.format(key="b.song_key")
+    + "))), 0) AS best"
+)
+# a missing song no source hands out (greyed out, DRM, taken down): it can't be had, so it doesn't count for best
+_UNOBTAINABLE = (
+    f"coalesce(sum(s.file IS NULL AND (s.unavailable IS NOT NULL OR av.state IN {UNPLAYABLE})), 0) AS unobtainable"
+)
+
+
 def lists(con: Connection, uid: int | None = None) -> list[Row]:
     """The followed lists (a user's, with their own playlist choice; or everyone's, with who follows
-    each) with song counts per quality tier (tier_counts)."""
+    each) with song counts per quality tier (tier_counts), and how many are at the best quality there is
+    (best) of those that can be had (songs - unobtainable)."""
     owners = (
         "(SELECT group_concat(u.name, ', ') FROM sources src JOIN users u ON u.id = src.user_id "
         "WHERE src.key = l.key AND src.enabled) AS owners"
@@ -126,9 +141,10 @@ def lists(con: Connection, uid: int | None = None) -> list[Row]:
         playlist, where, args = f"{mode} AS playlist", f"WHERE l.key IN ({_FOLLOWS})", (uid, uid)
     return con.execute(
         f"SELECT l.key, l.service, l.title, l.url, {playlist}, l.fetched, {owners}, "
-        f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS} "
+        f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS}, {_BEST}, {_UNOBTAINABLE} "
         "FROM lists l LEFT JOIN list_songs ls ON ls.list_key = l.key "
-        f"LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file {where} "
+        "LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
+        f"LEFT JOIN availability av ON av.song_key = s.key {where} "
         "GROUP BY l.key ORDER BY l.position",
         args,
     ).fetchall()
@@ -218,8 +234,9 @@ def missing(
         ):
             if len(rejected.setdefault(e["song"], [])) < 3:
                 rejected[e["song"]].append(e)
+    waits = review.waiting(con, paths.music) if paths is not None else set()  # as the review page shows them
     return [
-        _tried(r, rejected.get(r["key"], []), paths) | {"in_lists": " · ".join(places.get(r["key"], []))} for r in rows
+        _tried(r, rejected.get(r["key"], []), waits) | {"in_lists": " · ".join(places.get(r["key"], []))} for r in rows
     ]
 
 
@@ -252,7 +269,7 @@ def close_matches(con: Connection, uid: int | None = None) -> list[Row]:
     ).fetchall()
 
 
-def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:
+def _tried(r: Row, rejected: list[Row], waits: set[str]) -> dict[str, Any]:
     tries = r["tries"] or 0
     result = json.loads(r["result"]) if r["result"] else None
     fallback = json.loads(r["fallback_result"]) if r["fallback_result"] else None
@@ -272,7 +289,7 @@ def _tried(r: Row, rejected: list[Row], paths: Paths | None) -> dict[str, Any]:
         "stage": acquire.stage(tries),
         "next_try": acquire.next_search(tries, r["last_try"]) if tries and r["service"] != "soundcloud" else None,
         "rejected": rejected,
-        "in_review": paths is not None and filing.in_review(paths, r["artist"], r["title"]),
+        "in_review": r["key"] in waits,
         "notes": notes,
     }
 

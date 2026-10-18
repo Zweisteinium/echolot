@@ -75,6 +75,17 @@ def test_strict_rejection_is_kept_for_review(env) -> None:
     assert review.local_file(e["path"], paths.music).is_file()
 
 
+def test_waiting_goes_by_the_review_pages_rules(env) -> None:
+    con, paths, _ = env
+    file_capo(con, paths, probable=False)
+    assert review.waiting(con, paths.music) == {CAPO.key} and review.waiting(con, paths.music, CAPO.key)
+    # a download of another artist stays in inbox/review but is not shown: nothing waits for the song
+    with con:
+        con.execute("UPDATE events SET reason = 'artist ''X'' not in [''Y'']' WHERE id = ?", (events(con)[-1]["id"],))
+    assert filing.in_review(paths, CAPO.artist, CAPO.title)
+    assert review.waiting(con, paths.music) == set() and not review.waiting(con, paths.music, CAPO.key)
+
+
 def test_probable_match_filed_with_review_mark(env) -> None:
     con, paths, _ = env
     action, dest = file_capo(con, paths, probable=True)
