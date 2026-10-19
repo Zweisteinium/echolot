@@ -283,7 +283,7 @@ def test_an_upload_is_assigned_by_its_tags(settings: Settings) -> None:
     con = db.connect(settings.db_path)
     with con:
         con.execute("UPDATE songs SET isrc = 'GBX1' WHERE key = 'spotify:s2'")
-        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL)")
+        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL, NULL)")
     songs = {r["key"]: r for r in con.execute("SELECT * FROM songs")}
     f = upload.File(1, "whatever.flac", Path("/x/whatever.flac"))
     assert upload.tagged(con, f, songs) is None

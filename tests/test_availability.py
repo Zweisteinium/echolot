@@ -2,6 +2,7 @@
 read, the daily check of every song's state at Spotify and SoundCloud, the Changes page."""
 
 import datetime
+import json
 import threading
 from collections.abc import Callable
 from typing import ClassVar
@@ -65,6 +66,8 @@ class FakeSpotify:
     releases: ClassVar[dict[str, str]] = {}
     searched: ClassVar[list[str]] = []
     unplayable: ClassVar[set[str]] = set()
+    asked: ClassVar[list[str]] = []  # the ids asked for without a market
+    relinked: ClassVar[bool] = True
 
     def __init__(self, con, vault, user_id=None) -> None:
         pass
@@ -76,6 +79,7 @@ class FakeSpotify:
     def get(self, url: str) -> dict:
         ids = url.split("ids=")[1].split("&")[0].split(",")
         with_market = "market=" in url
+        self.asked.extend([] if with_market else ids)
         out = []
         for sid in ids:
             if sid == "s9":
@@ -87,8 +91,12 @@ class FakeSpotify:
                 out.append({"id": sid, "available_markets": [] if sid == "s2" else ["US"], "external_ids": isrc})
             elif sid in self.unplayable:
                 out.append({"id": sid, "is_playable": False})
-            elif sid == "s7" and with_market:
-                out.append({"id": "s7b", "is_playable": True, "linked_from": {"id": "s7"}})
+            elif sid == "s7" and with_market and self.relinked:  # (with the list's names, as Spotify does)
+                out.append({"id": "s7b", "is_playable": True, "linked_from": {"id": "s7"}, "name": "B"})
+            elif sid == "s7b":  # by its own names
+                artists = [{"name": "A Renamed"}, {"name": "Guest"}]
+                names = {"name": "B2", "artists": artists, "album": {"name": "B2"}, "duration_ms": 61400}
+                out.append({"id": sid, **names, "external_ids": {"isrc": "ISRC7B"}})
             elif sid == "s7":  # the release in the list
                 out.append({"id": sid, "track_number": 5, "disc_number": 1, "album": {"release_date": "2001"}})
             elif sid == "s1":  # with its place on its release
@@ -105,6 +113,8 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     monkeypatch.setattr(FakeSpotify, "releases", {})
     monkeypatch.setattr(FakeSpotify, "searched", [])
     monkeypatch.setattr(FakeSpotify, "unplayable", set())
+    monkeypatch.setattr(FakeSpotify, "asked", [])
+    monkeypatch.setattr(FakeSpotify, "relinked", True)
     monkeypatch.setattr(sc_api, "any_token", lambda con, vault: "token")
     found = {"1001": {"id": 1001, "policy": "MONETIZE"}}  # 1002 is gone
     monkeypatch.setattr(sc_api, "tracks", lambda token, ids: [found[i] for i in ids if i in found])
@@ -146,6 +156,38 @@ def test_the_daily_check(run: Run) -> None:
     assert [c[2] for c in changes(con)] == ["removed", "taken_down"]
     since = "SELECT since FROM availability WHERE song_key = 'spotify:s2'"
     assert con.execute(since).fetchone()[0] == datetime.date.today().isoformat()
+    con.close()
+
+
+def test_what_a_relinked_song_plays_as(run: Run) -> None:
+    """A relinked song's release by its own names, as the player shows them (asked without a market: with one,
+    Spotify gives the list's), once per release it is relinked to; none once it plays as itself."""
+    con = run.connect()
+    with con:
+        con.execute(
+            "INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:s7', 'spotify', 'A', 'B', 61)"
+        )
+        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')")
+    con.close()
+    plays = "SELECT plays FROM availability WHERE song_key = 'spotify:s7'"
+    availability.check(run)
+    con = run.connect()
+    assert json.loads(con.execute(plays).fetchone()[0]) == {
+        "key": "spotify:s7b",
+        "artist": "A Renamed",
+        "artists": ["A Renamed", "Guest"],
+        "title": "B2",
+        "album": "B2",
+        "length": 61,
+        "isrc": "ISRC7B",
+    }
+    con.close()
+    availability.check(run)
+    assert FakeSpotify.asked.count("s7b") == 1  # (known: not asked again)
+    FakeSpotify.relinked = False
+    availability.check(run)
+    con = run.connect()
+    assert con.execute(plays).fetchone()[0] is None
     con.close()
 
 

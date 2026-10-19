@@ -335,6 +335,9 @@ def _check_and_file(
             detail = f"{recording.DIFFERENT}: another recording than the release's ({upload.scores(fit)})"
             recording.block(con, item["song_key"], item["uri"], "other", detail)
             return "rejected", detail, tier
+        if f.path and (why := recording.unlike_copy(con, paths.tracks, item["song_key"], item["uri"] or "", f.path)):
+            recording.block(con, item["song_key"], item["uri"], "other", why)
+            return "rejected", why, tier
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
             return "not_better", copy.why, tier

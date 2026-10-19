@@ -171,7 +171,11 @@ def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str
 
 def _song_of(it: dict[str, Any]) -> dict[str, Any] | None:
     """A list entry as a song (items); None for a local file or a podcast episode."""
-    t = it.get("item") or it.get("track")
+    return song_of_track(it.get("item") or it.get("track"))
+
+
+def song_of_track(t: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A track as a song; None for a local file or a podcast episode."""
     if not t or t.get("type") not in (None, "track") or t.get("is_local") or not t.get("id"):
         return None
     artists = [a.get("name", "") for a in t.get("artists") or []]

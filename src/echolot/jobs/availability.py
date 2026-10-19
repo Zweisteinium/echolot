@@ -20,6 +20,7 @@ the searches (songs.unavailable) follows the check.
 """
 
 import datetime
+import json
 import logging
 import sqlite3
 from typing import TYPE_CHECKING
@@ -66,7 +67,7 @@ def record_list(con: sqlite3.Connection, list_key: str, before: list[str], after
     songs = {r["key"]: r for r in con.execute(f"SELECT * FROM songs WHERE key IN ({marks})", gone + new)}
     now, rows = _now(), []
     for key in gone:
-        twin = next((n for n in new if _same_recording(songs.get(key), songs.get(n))), None)
+        twin = next((n for n in new if rules.same_recording(songs.get(key), songs.get(n))), None)
         if twin:
             new.remove(twin)
             swap = "re-uploaded" if key.startswith("soundcloud:") else "replaced"
@@ -75,18 +76,6 @@ def record_list(con: sqlite3.Connection, list_key: str, before: list[str], after
             rows.append((now, key, list_key, "removed", None))
     rows += [(now, key, list_key, "added", None) for key in new]
     con.executemany("INSERT INTO changes (ts, song_key, list_key, change, detail) VALUES (?, ?, ?, ?, ?)", rows)
-
-
-def _same_recording(a: sqlite3.Row | None, b: sqlite3.Row | None) -> bool:
-    """Two songs of a list are one recording: the same ISRC, or the same artist and title, as long."""
-    if a is None or b is None:
-        return False
-    if a["isrc"] and b["isrc"]:
-        return a["isrc"] == b["isrc"]
-    same_names = rules.fold(a["artist"]) == rules.fold(b["artist"]) and rules.fold(
-        rules.release_title(a["title"])
-    ) == rules.fold(rules.release_title(b["title"]))
-    return same_names and abs((a["length"] or 0) - (b["length"] or 0)) <= 2
 
 
 UNREADABLE_AFTER = datetime.timedelta(hours=1)  # a list failing this long is unreadable (not a hiccup)
@@ -135,6 +124,10 @@ def check(run: "Run") -> str:
         except sc_api.SoundCloudError as e:
             log.warning("availability on SoundCloud: %s", e)
         changed = apply(con, states)
+        try:
+            _plays_as(con, run, states)
+        except spotify.SpotifyError as e:
+            log.warning("availability, relinked songs on Spotify: %s", e)
         explained = _why_removed(con)
     finally:
         con.close()
@@ -236,6 +229,31 @@ def _other_release(
             [(k, state[k][0], now, state[k][1], now) for k in searched],
         )
     return found
+
+
+def _plays_as(con: sqlite3.Connection, run: "Run", states: dict[str, tuple[str, str | None]]) -> None:
+    """What each relinked song plays as (availability.plays): the release Spotify relinks it to, by its own names
+    as the player shows them (asked without a market: with one, Spotify gives the list's names), asked once per
+    release it is relinked to. The list's track keeps its names: the release may be renamed, or another recording."""
+    relinked = {k: d for k, (st, d) in states.items() if st == "replaced" and (d or "").startswith("spotify:")}
+    stored = con.execute("SELECT song_key, plays FROM availability WHERE plays IS NOT NULL")
+    known = {r[0]: json.loads(r[1]).get("key") for r in stored}
+    ask = sorted({d for k, d in relinked.items() if known.get(k) != d})
+    found: dict[str, dict] = {}
+    if ask:
+        sp = spotify.Spotify(con, run.vault)
+        for n in range(0, len(ask), BATCH):
+            ids = [d.removeprefix("spotify:") for d in ask[n : n + BATCH]]
+            for t in sp.get(f"/tracks?ids={','.join(ids)}").get("tracks") or []:
+                if song := spotify.song_of_track(t):
+                    found[f"spotify:{song['id']}"] = {"key": f"spotify:{song['id']}"} | {k: song[k] for k in PLAYS}
+    with con:
+        rows = [(json.dumps(found[d], ensure_ascii=False), k) for k, d in relinked.items() if d in found]
+        con.executemany("UPDATE availability SET plays = ? WHERE song_key = ?", rows)
+        con.execute("UPDATE availability SET plays = NULL WHERE plays IS NOT NULL AND state != 'replaced'")
+
+
+PLAYS = ("artist", "artists", "title", "album", "length", "isrc")  # availability.plays, besides the key
 
 
 def _restriction(track: dict) -> str | None:

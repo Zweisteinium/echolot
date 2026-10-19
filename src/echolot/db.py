@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 35
+VERSION = 36
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -153,8 +153,10 @@ CREATE TABLE availability (         -- whether a song still plays at its source,
     since TEXT NOT NULL,            -- date it came to this state; '' when it was so at its first check
     checked TEXT NOT NULL,
     detail TEXT,                    -- replaced: the song key of the release it plays as now
-    searched TEXT                   -- Spotify, one that plays nowhere here: when another release of its recording
-                                    -- was last looked for (by its ISRC; Spotify relinks only some)
+    searched TEXT,                  -- Spotify: when another release of a song that plays nowhere here was last
+                                    -- looked for (by its ISRC; Spotify relinks only some)
+    plays TEXT                      -- replaced, Spotify: JSON of the release it plays as, by that one's own names
+                                    -- (key, artist, artists, title, album, length, isrc)
 );
 CREATE TABLE changes (              -- what happened to the songs and lists of everyone (jobs/availability)
     id INTEGER PRIMARY KEY,
@@ -454,6 +456,12 @@ MIGRATIONS = {
         "UPDATE events SET fake = 1 WHERE action = 'retired' AND fake IS NULL AND ext = 'flac' AND EXISTS (SELECT 1 "
         "FROM lossy_checks c WHERE c.verdict = 'lossy' AND c.size = events.bytes AND instr(events.reason, "
         "'(was ' || c.path || ')') > 0)"
+    ],
+    36: [  # what a relinked song plays as (availability._plays_as); a recording of one was checked by the list's
+        # names, not the relink's: its "played as another song" no longer skips it (recording.SKIP_DAYS)
+        "ALTER TABLE availability ADD COLUMN plays TEXT",
+        "UPDATE recording_items SET finished = NULL WHERE result = 'wrong_song' AND uri IS NOT NULL "
+        "AND uri != 'spotify:track:' || substr(song_key, 9)",
     ],
 }
 

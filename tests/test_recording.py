@@ -5,6 +5,7 @@ file export."""
 
 import base64
 import hashlib
+import json
 import re
 import secrets
 from collections.abc import Callable
@@ -16,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from echolot import db
 from echolot.config import Settings
-from echolot.library import audio, recording, upload
+from echolot.library import audio, identity, recording, upload
 from echolot.settings import auth, sources
 from echolot.web import create_app
 
@@ -120,7 +121,7 @@ def test_a_session_song_by_song(app: FastAPI, login: Callable[..., TestClient]) 
     device = as_device(app, connect(owner, app))
     con = db.connect(app.state.settings.db_path)
     with con:  # s1 plays here as another release
-        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL)")
+        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL, NULL)")
     tracks = recording.candidates(con, 1)
     assert [t.key for t in tracks] == ["spotify:s1", "spotify:s2"]  # not s3 (greyed out), s1 once (two lists)
     have = {t.key: t.have for t in tracks}
@@ -233,6 +234,80 @@ def test_the_upload_into_the_song(
     session = con.execute("SELECT recording_id FROM recording_items WHERE id = ?", (nxt["id"],)).fetchone()[0]
     assert recording.summary(con, session)["other"] == 1  # (skipped for good, not failed)
     con.close()
+
+
+def test_a_relinked_song_by_the_names_it_plays_as(
+    app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The device checks the player's names: a song Spotify relinks is handed out by its relink's (Sitte's
+    "Heineken Emblem" plays as evaness' "Heineken") when that is the song's recording (the ISRC; the names and
+    length), or, when it may be another, if the library has a copy to check the recording by: not its audio is
+    another recording (rejected, not offered again). Without a copy, or a relink not known yet: the list's names."""
+    con = db.connect(app.state.settings.db_path)
+    plays = {"key": "spotify:s1b", "artist": "evaness", "artists": ["evaness"], "title": "Heineken", "album": "H"}
+    plays |= {"length": 201, "isrc": "QZTAS2444552"}
+    with con:
+        con.execute(
+            "INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL, ?)",
+            (json.dumps(plays),),
+        )
+
+    def handed() -> tuple:
+        t = next(t for t in recording.candidates(con, 1) if t.key == "spotify:s1")
+        return t.uri, t.artist, t.artists, t.title, t.album, t.length, t.isrc
+
+    assert handed() == ("spotify:track:s1b", "evaness", ["evaness"], "Heineken", "H", 201, "QZTAS2444552")
+    copy = con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
+    with con:  # no copy to check it by: the list's names (the device's check keeps another recording out)
+        con.execute("UPDATE songs SET file = NULL WHERE key = 'spotify:s1'")
+    assert handed()[1:4] == ("Artist A", ["Artist A"], "First Song")
+    with con:  # the same recording, by its ISRC
+        con.execute("UPDATE songs SET isrc = 'QZTAS2444552' WHERE key = 'spotify:s1'")
+    assert handed()[3] == "Heineken"
+    with con:  # relinked to another release since: not known yet
+        con.execute("UPDATE availability SET detail = 'spotify:s1c'")
+    assert handed()[:4] == ("spotify:track:s1c", "Artist A", ["Artist A"], "First Song")
+    with con:
+        con.execute("UPDATE availability SET detail = 'spotify:s1b'")
+        con.execute("UPDATE songs SET file = ?, isrc = NULL WHERE key = 'spotify:s1'", (copy,))
+    con.close()
+
+    compared: list[tuple] = []
+    share = {"value": 0.42}
+
+    def same_master(a: Path, b: Path) -> float:
+        compared.append((a.name, b.name))
+        return share["value"]
+
+    def add(paths, batch, name, fileobj, keep_hires=False):
+        return upload.File(1, name, Path("/x/rec.flac"), 201, 900, "lossless")
+
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+        return [("Artist A – First Song: replaced the copy", "spotify:s1")]
+
+    monkeypatch.setattr(identity, "same_master", same_master)
+    monkeypatch.setattr(upload, "add", add)
+    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0))
+    monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
+    monkeypatch.setattr(upload, "import_files", import_files)
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
+    files = {"file": ("rec.flac", b"fLaC", "audio/flac")}
+    item = poll(device)["item"]
+    assert item["key"] == "spotify:s1" and item["title"] == "Heineken"
+    body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
+    assert body["result"] == "rejected" and compared == [(Path(copy).name, "rec.flac")]
+    assert "Spotify plays it as evaness – Heineken, not the audio of your copy (same audio 0.42)" in body["detail"]
+    con = db.connect(app.state.settings.db_path)
+    assert recording.blocks(con)["spotify:s1"]["reason"] == "other"  # not offered again
+    recording.unblock(con, "spotify:s1")
+    con.close()
+    share["value"] = 0.996  # the same audio: the song, renamed
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
+    item = poll(device)["item"]
+    body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
+    assert item["key"] == "spotify:s1" and body["result"] == "filed"
 
 
 def test_a_song_skipped_on_the_device(app: FastAPI, login: Callable[..., TestClient]) -> None:
@@ -355,7 +430,7 @@ def test_spotify_has_nothing_better(
     assert "1 song left out: Spotify has nothing better" in owner.get("/recordings/new").text
     con = db.connect(app.state.settings.db_path)
     with con:  # Spotify plays s2 as another release now: it may be better there
-        con.execute("INSERT INTO availability VALUES ('spotify:s2', 'replaced', '', 'x', 'spotify:s2new', NULL)")
+        con.execute("INSERT INTO availability VALUES ('spotify:s2', 'replaced', '', 'x', 'spotify:s2new', NULL, NULL)")
     assert recording.blocks(con) == {}
     with con:
         con.execute("DELETE FROM availability WHERE song_key = 'spotify:s2'")
@@ -386,6 +461,7 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
             con.execute(f"ALTER TABLE events DROP COLUMN {column}")
         con.execute("ALTER TABLE lossy_sourced DROP COLUMN master")  # (schema 33's)
         con.execute("DROP TABLE lossy_checks")
+        con.execute("ALTER TABLE availability DROP COLUMN plays")  # (schema 35's)
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)

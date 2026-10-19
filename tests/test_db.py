@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V32 = "ALTER TABLE lossy_sourced DROP COLUMN master; DROP TABLE lossy_checks; "  # schema 32
+V35 = "ALTER TABLE availability DROP COLUMN plays; "  # schema 35
+V32 = V35 + "ALTER TABLE lossy_sourced DROP COLUMN master; DROP TABLE lossy_checks; "  # schema 32
 V31 = V32 + "".join(f"ALTER TABLE events DROP COLUMN {c}; " for c in ("peer", "peer_path", "arrived"))  # schema 31
 V30 = V31 + "ALTER TABLE recording_items DROP COLUMN uri; DROP TABLE spotify_best; "  # schema 30
 V28 = "ALTER TABLE availability DROP COLUMN searched; " + V30  # schema 28
@@ -168,9 +169,35 @@ def test_a_removed_fake_flac_is_marked_on_its_event(tmp_path: Path) -> None:
                     f"replaced by hand (was A/A - {name}.flac)",
                 ),
             )
-    con.execute("PRAGMA user_version = 34")
+    con.executescript(f"{V35} PRAGMA user_version = 34;")
     con.close()
     db.init(path)
     con = db.connect(path)
     assert [r[0] for r in con.execute("SELECT fake FROM events ORDER BY id")] == [1, None, None]
+    con.close()
+
+
+def test_a_relinked_songs_wrong_song_no_longer_skips_it(tmp_path: Path) -> None:
+    """Version 35 to 36: a recording of a song Spotify relinks was checked by the list's names, not the relink's:
+    its "played as another song" ends its days left out (recording.SKIP_DAYS); one of the song's own track stays."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    con.execute("PRAGMA foreign_keys = OFF")  # (the items alone)
+    with con:
+        for n, (key, uri) in enumerate((("spotify:a", "spotify:track:b"), ("spotify:c", "spotify:track:c"))):
+            con.execute(
+                "INSERT INTO recording_items (recording_id, position, song_key, state, result, finished, uri) "
+                "VALUES (1, ?, ?, 'done', 'wrong_song', '2026-10-19T16:04:56', ?)",
+                (n, key, uri),
+            )
+    con.executescript(f"{V35} PRAGMA user_version = 35;")
+    con.close()
+    db.init(path)
+    con = db.connect(path)
+    assert [r[0] for r in con.execute("SELECT finished FROM recording_items ORDER BY id")] == [
+        None,
+        "2026-10-19T16:04:56",
+    ]
+    assert "plays" in [r[1] for r in con.execute("PRAGMA table_info(availability)")]
     con.close()

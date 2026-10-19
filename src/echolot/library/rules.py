@@ -12,7 +12,7 @@ different songs. A DJ-mix cut ("Song - Mixed", "Song (Mixed)") is the song itsel
 
 import re
 import unicodedata
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 # ---------------------------------------------------------------- normalisation
 
@@ -138,6 +138,19 @@ def title_key(t: str | None) -> str:
 def same_length(a: float | str | None, b: float | str | None) -> bool:
     a, b = float(a or 0), float(b or 0)
     return not a or not b or abs(a - b) <= max(10.0, 0.04 * max(a, b))
+
+
+def same_recording(a: Mapping | None, b: Mapping | None) -> bool:
+    """Two songs (artist, title, length, isrc) are one recording: the same ISRC, or the same artist and title,
+    as long."""
+    if a is None or b is None:
+        return False
+    if a["isrc"] and b["isrc"]:
+        return a["isrc"] == b["isrc"]
+    same_names = fold(a["artist"]) == fold(b["artist"]) and fold(release_title(a["title"])) == fold(
+        release_title(b["title"])
+    )
+    return same_names and abs((a["length"] or 0) - (b["length"] or 0)) <= 2
 
 
 def norm_key(key: str | None) -> str:

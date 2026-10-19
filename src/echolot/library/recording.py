@@ -22,6 +22,9 @@ import secrets
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+from echolot.library import identity, rules
 
 WORST = ["missing", "lossy-low", "lossy-mid", "lossy-high", "fake"]  # the order a session records in
 BELOW = {  # a session's choice -> the tiers it records (a fake FLAC is worse than lossless only)
@@ -188,7 +191,8 @@ def _name(name: str) -> str:
 @dataclass
 class Track:
     """A song to record: its key, the Spotify URI that plays it here (the release Spotify relinks it to:
-    the list's own can start the album one song off), its names, length (s), ISRC, and what the library has."""
+    the list's own can start the album one song off), its names, length (s) and ISRC (that release's where they
+    can be trusted or checked: candidates), and what the library has."""
 
     key: str
     uri: str
@@ -214,7 +218,7 @@ def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = Non
     (blocks)."""
     songs = (
         "SELECT s.key, s.artist, s.artists, s.title, s.album, s.length, s.isrc, s.file, s.close_match, s.unavailable, "
-        "f.quality, a.state, a.detail FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
+        "f.quality, a.state, a.detail, a.plays FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
         "JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
         "LEFT JOIN availability a ON a.song_key = s.key"
     )
@@ -254,9 +258,43 @@ def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = Non
         if r["state"] == "replaced" and (r["detail"] or "").startswith("spotify:"):
             sid = r["detail"].removeprefix("spotify:")
         artists = json.loads(r["artists"]) if r["artists"] else [r["artist"]]
-        names = (r["artist"], artists, r["title"], r["album"] or "")
-        out.append(Track(r["key"], f"spotify:track:{sid}", *names, r["length"] or 0, r["isrc"] or "", have))
+        names = (r["artist"], artists, r["title"], r["album"] or "", r["length"] or 0, r["isrc"] or "")
+        plays = plays_as(r)  # the device checks the player's names: the relink's (another recording: unlike_copy)
+        if plays and (rules.same_recording(r, plays) or have != "missing"):
+            names = (*(plays[k] for k in ("artist", "artists", "title", "album", "length")), plays["isrc"] or "")
+        out.append(Track(r["key"], f"spotify:track:{sid}", *names, have))
     return sorted(out, key=lambda t: WORST.index(t.have))
+
+
+def plays_as(row: sqlite3.Row) -> dict | None:
+    """What Spotify plays a relinked song as (its availability row: jobs/availability._plays_as), while it relinks
+    it so."""
+    if row["state"] != "replaced" or not row["plays"]:
+        return None
+    plays = json.loads(row["plays"])
+    return plays if plays.get("key") == row["detail"] else None
+
+
+def unlike_copy(con: sqlite3.Connection, tracks: Path, key: str, uri: str, path: Path) -> str:
+    """Why a recording is not the song when Spotify plays it as a release that may be another recording (neither
+    the ISRC nor the names and length agree; the device was handed that release's names, candidates): not the
+    audio of the library's copy (identity.same_master). '' when it is, or when nothing calls for the check."""
+    row = con.execute(
+        "SELECT s.artist, s.title, s.length, s.isrc, s.file, s.close_match, f.quality, a.state, a.detail, a.plays "
+        "FROM songs s LEFT JOIN files f ON f.path = s.file LEFT JOIN availability a ON a.song_key = s.key "
+        "WHERE s.key = ?",
+        (key,),
+    ).fetchone()
+    plays = plays_as(row) if row is not None else None
+    if plays is None or uri != f"spotify:track:{plays['key'].removeprefix('spotify:')}" or _have(row) == "missing":
+        return ""
+    if rules.same_recording(row, plays):
+        return ""
+    share = identity.same_master(tracks / row["file"], path)
+    if share >= identity.SAME_MASTER:
+        return ""
+    played = f"{plays['artist']} – {plays['title']}"
+    return f"{DIFFERENT}: Spotify plays it as {played}, not the audio of your copy (same audio {share:.2f})"
 
 
 def blocks(con: sqlite3.Connection) -> dict[str, sqlite3.Row]:
