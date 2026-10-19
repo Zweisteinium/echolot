@@ -484,9 +484,10 @@ DECORATION = re.compile(r"\s*[\(\[\{]([^\)\]\}]*)[\)\]\}]|\s+official\s+(?:music
 
 def _plain(text: str) -> str:
     """A video title without decoration: brackets that name no version or featured artist ("[HQ Full]",
-    "(THER-108)"), "Official Video" (tagging.clean_title's too)."""
+    "(THER-108)"), "Official Video" (tagging.clean_title's too), what follows a bar ("| Label")."""
     kept = re.compile(rf"{VERSION.pattern}|\b(?:feat|ft)\b", re.I)
     text = DECORATION.sub(lambda m: m.group(0) if m.group(1) and kept.search(m.group(1)) else "", text)
+    text = re.sub(r"\s+[|•]\s.*$", "", text)  # "Title | Label"
     return re.sub(r"\s+", " ", tagging.clean_title(text, "")).strip()
 
 
@@ -501,7 +502,7 @@ def _upload_names(channel: str, video_title: str) -> tuple[list[str], str]:
         parts = [channel.removesuffix(" - Topic"), parts[0]]
     artists = [a for a in ytdlp.ARTISTS.split(parts[0]) if a] or [channel]
     title = " - ".join(parts[1:])
-    return [rules.clean_name(a) for a in artists], rules.clean_name(title)
+    return [rules.tidy_name(a) for a in artists], rules.tidy_name(title)
 
 
 def _on_spotify(sp: spotify.Spotify, t: dict[str, Any], artists: list[str], title: str) -> dict[str, Any] | None:
@@ -720,6 +721,8 @@ def _names(con: sqlite3.Connection, uploader: str, artist: str, title: str) -> t
         for name in [r["artist"], *json.loads(r["artists"] or "[]")]
         if name
     }
+    if t.count("(") != t.count(")") or t.count("[") != t.count("]"):
+        log.info("soundcloud: an odd title, as uploaded? %r -> %s - %s", title, a, t)
     if rules.artist_key(t) in known and rules.artist_key(a) not in known:
         return t, a
     return a, t

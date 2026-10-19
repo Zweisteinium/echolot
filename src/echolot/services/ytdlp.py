@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from echolot.library.rules import clean_name, title_key
+from echolot.library.rules import tidy_name, title_key
 
 log = logging.getLogger(__name__)
 
@@ -187,17 +187,19 @@ def _communicate(p: subprocess.Popen, stop: threading.Event, timeout: float) -> 
     return result[0] if result else ("", "(stopped)")
 
 
-ARTISTS = re.compile(r"\s*[,，;/]\s*|\s+[xX&]\s+|\s+feat\.?\s+|\s+ft\.?\s+")  # between a song's artists
+ARTISTS = re.compile(r"\s*[,，;]\s*|\s+[/xX&]\s+|\s+feat\.?\s+|\s+ft\.?\s+")  # between artists ("KI/KI" is one)
+PREMIERE = re.compile(r"^(?:\S+\s+)?premiere\s*[:|]\s*", re.I)  # a channel's "Premiere: Artist - Title"
 
 
 def artist_title(uploader: str, artist: str, title: str) -> tuple[str, str]:
     """A SoundCloud track's artist and title: 'Artist - Title' from the title, else the artist field,
-    else the uploader; the first artist only."""
-    m = re.match(r"^(?P<a>[^-]{1,60}?)\s+-\s+(?P<t>.+)$", title or "")
+    else the uploader; the first artist only. Names as written ("everything falls apart :(")."""
+    title = PREMIERE.sub("", title or "")
+    m = re.match(r"^(?P<a>[^-]{1,60}?)\s+-\s+(?P<t>.+)$", title)
     if m and title_key(m.group("t")):  # "Song - Original Mix" is a title, not "Artist - Title"
         a, t = m.group("a"), m.group("t")
     else:
         a = artist if artist and artist != "NA" else uploader
         t = title
     a = ARTISTS.split(a or "")[0] or (uploader or "Unknown")
-    return clean_name(a), clean_name(t)
+    return tidy_name(a) or "Unknown", tidy_name(t) or "Unknown"

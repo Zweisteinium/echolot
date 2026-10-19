@@ -31,6 +31,11 @@ def fold(s: str | None) -> str:
     return "".join(c for c in s if not unicodedata.combining(c)).casefold()
 
 
+def tidy_name(s: str | None) -> str:
+    """A name as written, for songs and tags (clean_name makes file names of it): one space between words."""
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", s or "")).strip()
+
+
 def clean_name(s: str | None) -> str:
     """File and folder safe name."""
     s = unicodedata.normalize("NFC", s or "").replace("/", " ").replace("\\", " ")

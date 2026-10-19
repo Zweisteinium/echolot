@@ -351,6 +351,47 @@ def test_a_soundcloud_title_naming_a_known_artist_is_turned_round(run: Run) -> N
     con.close()
 
 
+@pytest.mark.parametrize(
+    ("uploader", "title", "names"),
+    [  # titles of the library's SoundCloud songs
+        ("Ephy Pinkman", "everything falls apart :(", ("Ephy Pinkman", "everything falls apart :(")),
+        ("Ephy Pinkman", "our safe castle <3", ("Ephy Pinkman", "our safe castle <3")),
+        (
+            "EPHY PINKMAN",
+            "Tokyo Ghoul: Unravel (Ephy Pinkman Edit)",
+            ("EPHY PINKMAN", "Tokyo Ghoul: Unravel (Ephy Pinkman Edit)"),
+        ),
+        ("Subsonic Shadows", 'The Unwritten "Rework"', ("Subsonic Shadows", 'The Unwritten "Rework"')),
+        (
+            "DJ AG",
+            "STAR WARS - THE FORCE THEME / BINARY SUNSET (DJ AG REMIX)",
+            ("STAR WARS", "THE FORCE THEME / BINARY SUNSET (DJ AG REMIX)"),
+        ),
+        ("Katana Cologne", "Premiere: LUKA - Drivin' Me Insane [KTA022]", ("LUKA", "Drivin' Me Insane")),
+        ("BCCO", "BCCO Premiere: Funk Tribu X ANDATA - New Wave", ("Funk Tribu", "New Wave")),
+        (
+            "Techgnosis",
+            "PREMIERE: Phoïbos - Slippery Lines (Original Mix)",
+            ("Phoïbos", "Slippery Lines (Original Mix)"),
+        ),
+        ("Kø:lab", "Kø:lab X Funk Tribu - Phonkalicious (HNTR Mashup)", ("Kø:lab", "Phonkalicious (HNTR Mashup)")),
+        ("KI/KI", "KI/KI - What's a Girl to Do (KI/KI Remix)", ("KI/KI", "What's a Girl to Do (KI/KI Remix)")),
+        ("A", "A / B - Song", ("A", "Song")),
+        (
+            "SUNSHINE LIVE",
+            "Day 2 | Mix Mission 2023 | PRADA2000",
+            ("SUNSHINE LIVE", "Day 2 | Mix Mission 2023 | PRADA2000"),
+        ),
+        ("Someone", "Night Drive | Free Download", ("Someone", "Night Drive")),
+    ],
+)
+def test_a_soundcloud_title_keeps_its_characters(run: Run, uploader: str, title: str, names: tuple) -> None:
+    """Names as written (file names are made safe when the file is filed); a channel's "Premiere:" is no artist."""
+    con = run.connect()
+    assert lists._names(con, uploader, "NA", title) == names
+    con.close()
+
+
 def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """Night Drive is in the library under another artist name and sounds the same: the SoundCloud song is
     linked to that file, nothing is filed twice."""

@@ -190,6 +190,8 @@ def test_an_uploads_names() -> None:
             "The House Of Wax (bootleg)",
         ),
         ("Label", "Artist - Title - Extended Mix"): (["Artist"], "Title - Extended Mix"),
+        ("Label", "Artist - Title | Label Records"): (["Artist"], "Title"),
+        ("Channel", "Artist - Fire II : Dragon Return"): (["Artist"], "Fire II : Dragon Return"),
     }
     for (channel, title), names in cases.items():
         assert lists._upload_names(channel, title) == names
