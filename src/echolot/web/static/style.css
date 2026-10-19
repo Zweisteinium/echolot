@@ -670,9 +670,26 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .upload-facts { min-width: 11rem; }
 .upload-facts > * { margin: 0 0.3rem 0.25rem 0; }
 .upload-table .name { font-weight: 600; }
-.upload-facts .scores { display: flex; flex-wrap: wrap; gap: 0 0.75rem; }
+/* the audio check: a score per reference (rows) and measure (columns), its colour the verdict */
+.upload-facts .checks { display: grid; grid-template-columns: auto auto auto; justify-content: start; gap: 0.1rem 0.9rem;
+  margin-top: 0.35rem; font-variant-numeric: tabular-nums; }
+.checks .head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.03em; text-transform: uppercase; text-align: right; }
+.checks .ref { color: var(--muted); }
+.checks .score { text-align: right; font-weight: 600; }
+.checks .none { grid-column: span 2; color: var(--muted); font-style: italic; }
 .upload-table .force { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; cursor: pointer; color: var(--muted); }
 .upload-table .force:has(input:checked) { color: var(--warn); font-weight: 600; }
+@media (max-width: 640px) {  /* narrow: a file per block, its file, song and check above each other, × beside */
+  .upload-table thead { display: none; }
+  .upload-table, .upload-table tbody { display: block; }
+  .upload-table tr.upload-row { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem; border-top: 1px solid var(--border); }
+  .upload-table tr.upload-row:first-child { border-top: none; }
+  .upload-table tr.upload-row > td { grid-column: 1; border-top: none; padding: 0.2rem 0.5rem; height: auto; }
+  .upload-table tr.upload-row > td:first-child { padding-top: 0.6rem; }
+  .upload-table tr.upload-row > td:nth-last-child(2) { padding-bottom: 0.6rem; }
+  .upload-table tr.upload-row > td.row-action { grid-column: 2; grid-row: 1; padding-top: 0.45rem; }
+  .upload-file { max-width: none; }
+}
 .upload-results { margin: 0.5rem 0 0.75rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 

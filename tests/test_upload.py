@@ -2,6 +2,7 @@
 one's song guessed and changeable, imported on confirm as that song; the rest of the batch goes."""
 
 import re
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from echolot import db
 from echolot.config import Settings
-from echolot.library import audio, filing, upload
+from echolot.library import audio, filing, identity, upload
 from echolot.library.filing import Paths
 from echolot.web import create_app
 
@@ -86,6 +87,23 @@ def test_upload_check_and_import(settings: Settings, login: Callable[..., TestCl
     assert client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:s3"}).status_code == 404
 
 
+def test_the_dialog_compares_with_your_copy(
+    settings: Settings, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held = []
+    monkeypatch.setattr(identity, "against", lambda path, copy: held.append(copy.name) or (0.58, 0.04))
+    client = login(create_app(settings))
+    one = [("files", ("x.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
+    html = post_files(client, one, {"song": "spotify:s1"})
+    assert held == ["Artist A - First Song.mp3"]
+    assert ">Preview</span>" in html and "the song has no ISRC" in html
+    assert (
+        ">Your copy</span>" in html
+        and 'class="score bad-text" title="Fingerprint against your copy: another recording">58 %' in html
+    )
+    assert "Sounds different" in html and "Another recording than your copy" in html and "Replace anyway" in html
+
+
 def test_cancel_and_scope(settings: Settings, login: Callable[..., TestClient]) -> None:
     app = create_app(settings)
     client = login(app)
@@ -114,7 +132,7 @@ def test_guess_by_title_and_length() -> None:
 
 
 def test_labels() -> None:
-    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211, "file": None, "close_match": 0}
+    song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211, "file": None, "close_match": 0, "isrc": ""}
     f = upload.File(1, "x.flac", seconds=212, tier="lossless")
     assert upload.labels(f, song, upload.Fit(1, 0.95, 0.99))[0][:2] == ("Looks right", "ok")
     assert upload.labels(f, song, upload.Fit(1))[0][:2] == ("Looks right", "ok")  # no preview: the length
@@ -131,6 +149,53 @@ def test_labels() -> None:
     copy = upload.compare(Paths(Path("/nowhere")), f, flac)
     assert upload.labels(f, flac, None, copy)[0][:2] == ("Not better than your FLAC", "bad")
     assert not upload.importable(f, flac, copy)
+
+
+def test_labels_against_your_copy() -> None:
+    """Without a preview (a SoundCloud song: no ISRC) your copy tells another recording; with one, the release's
+    recording unlike your copy is only flagged (yours may be the wrong song), as is another master than yours."""
+    song = {"key": "soundcloud:1", "artist": "Mischluft", "title": "Bisschen Liebe", "length": 218, "isrc": None}
+    have = song | {
+        "file": "Mischluft/x.m4a",
+        "close_match": 0,
+        "quality": "lossy-mid",
+        "kbps": 160,
+        "fake_source": None,
+    }
+    f = upload.File(1, "x.flac", seconds=218, tier="lossless")
+    copy = upload.compare(Paths(Path("/nowhere")), f, have)
+    other = upload.Fit(0, None, None, 0.58, 0.04)
+    assert [t for t, _, _ in upload.labels(f, have, other, copy)] == ["Better than your 160 kbps", "Sounds different"]
+    assert (
+        upload.labels(f, have, other, copy)[1][2]
+        == "Another recording than your copy (fingerprint 0.58, waveform 0.04)"
+    )
+    assert not upload.importable(f, have, copy, other)
+    unlike = upload.Fit(0, 0.95, 0.97, 0.6, 0.05)
+    assert [t for t, _, _ in upload.labels(f, have, unlike, copy)][1:] == ["Unlike your copy"]
+    assert upload.importable(f, have, copy, unlike)
+    remaster = upload.Fit(0, None, None, 0.92, 0.75)
+    assert upload.labels(f, have, remaster, copy)[1][1:] == (
+        "warn",
+        "The same recording, but its waveform is not your copy's",
+    )
+    assert len(upload.labels(f, have, upload.Fit(0, 0.95, 0.97, 0.92, 0.75), copy)) == 1  # yours is another master
+    assert upload.labels(f, song | {"file": None, "close_match": 0}, upload.Fit(0))[0][2] == (
+        "Length fits, audio not compared (no preview: the song has no ISRC)"
+    )
+
+
+def test_the_audio_check_by_reference() -> None:
+    song = {"isrc": "", "file": "a/b.m4a", "close_match": 0}
+    preview, mine = upload.checks(upload.Fit(0, None, None, 0.97, 0.75), song)
+    assert preview[0] == "Preview" and preview[2:] == ([None, None], "the song has no ISRC")
+    assert mine[0] == "Your copy" and mine[3] == ""
+    assert [(text, grade) for text, grade, _ in mine[2]] == [("97 %", "ok"), ("75 %", "warn")]
+    assert mine[2][1][2] == "Waveform against your copy: another master or mix"
+    (only,) = upload.checks(upload.Fit(0, 0.62, None), song | {"isrc": "X", "file": None})  # a missing song
+    assert only[2][0][:2] == ("62 %", "bad") and only[2][1] is None and only[3] == ""
+    assert upload.checks(upload.Fit(0), song | {"isrc": "X"})[1][3] == "not readable"
+    assert upload.checks(None, song) == []
 
 
 def test_an_upload_much_quieter_than_your_copy_is_no_better(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -292,3 +357,21 @@ def test_an_upload_is_assigned_by_its_tags(settings: Settings) -> None:
     assert upload.tagged(con, upload.File(1, "x", isrc="GBX1"), songs) == "spotify:s2"
     assert upload.tagged(con, upload.File(1, "x", spotify_id="zzz", isrc="NONE"), songs) is None
     con.close()
+
+
+def test_against_your_copy_by_its_audio(tmp_path: Path) -> None:
+    """The same audio in another codec scores as the release's preview would; another song's audio does not."""
+    tones = {
+        "a": "sin(2*PI*(220+55*mod(floor(t*2),7))*t)*0.4+0.2*sin(2*PI*(440+110*mod(floor(t*3),5))*t)",
+        "b": "sin(2*PI*(330+40*mod(floor(t*5),9))*t)*0.4+0.2*sin(2*PI*(150+70*mod(floor(t*1.5),4))*t)",
+    }
+    for name, expr in tones.items():
+        tone = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"aevalsrc='{expr}':d=60:s=44100"]
+        subprocess.run([*tone, str(tmp_path / f"{name}.flac")], check=True)
+    copy = tmp_path / "a.m4a"
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(tmp_path / "a.flac"), "-b:a", "128k", str(copy)], check=True)
+    fp, wave = identity.against(tmp_path / "a.flac", copy)
+    assert fp >= identity.SAME and wave >= identity.WAVE_SAME
+    fp, wave = identity.against(tmp_path / "b.flac", copy)
+    assert fp <= identity.OTHER and wave < upload.WAVE_OTHER
+    assert identity.against(tmp_path / "a.flac", tmp_path / "gone.m4a") == (None, None)

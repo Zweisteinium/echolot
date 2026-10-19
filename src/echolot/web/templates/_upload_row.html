@@ -10,17 +10,19 @@
     <div class="muted small">{% if not song.file %}missing{% elif song.close_match %}covered by a close match: <span title="{{ song.file }}">{{ song.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span>{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}</div>
     {% if go and song.close_match %}{% if song.shared %}<span class="muted small" title="Another song has that file">the close match stays: another song has it</span>
     {% else %}<label class="force small" title="Take the close match out of the library (kept 30 days in inbox/replaced); left unticked it stays a file of its own"><input type="checkbox" name="remove_{{ f.n }}" value="1"> Remove the close match</label>{% endif %}{% endif %}
-    {% if not go and not f.error and different %}<label class="force small" title="It sounds like another recording than the release's preview; import it as this song all the same{{ ' (your copy is kept 30 days in inbox/replaced)' if song.file }}"><input type="checkbox" data-force> {{ 'Replace anyway' if song.file else 'Import anyway' }}</label>
+    {% if not go and not f.error and different %}<label class="force small" title="It sounds like another recording than the release's preview or your copy; import it as this song all the same{{ ' (your copy is kept 30 days in inbox/replaced)' if song.file }}"><input type="checkbox" data-force> {{ 'Replace anyway' if song.file else 'Import anyway' }}</label>
     {% elif not go and song.file and not f.error %}<label class="force small" title="Replace your copy with this file even though it is not better (yours is kept 30 days in inbox/replaced)"><input type="checkbox" data-force> Replace anyway</label>{% endif %}
     {% else %}<span class="muted">not imported</span>{% endif %}
   </td>
   <td class="upload-facts">
     {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text }}</span>{% endfor %}
     {% if not f.error %}<span class="small">{{ quality(f.tier, f.kbps) }}</span>{% endif %}
-    {% if fit and fit.fingerprint is not none %}<div class="scores muted small">
-      <span title="Fingerprint against the release's preview: the same recording from 80 %, another song about 55 %">Fingerprint {{ (fit.fingerprint * 100)|round|int }} %</span>
-      {% if fit.waveform is not none %}<span title="Waveform against the release's preview, sample by sample: the same master and mix from 90 %, another master or mix lower, another song near 0">Waveform {{ (fit.waveform * 100)|round|int }} %</span>{% endif %}
-    </div>{% elif fit %}<div class="scores muted small" title="Deezer has no preview of the release to compare with">audio not compared</div>{% endif %}
+    {% if checks %}<div class="checks small">
+      {% if '' in checks|map(attribute=3)|list %}<span></span><span class="head" title="The same recording from 80 %, another song about 55 %">Fingerprint</span><span class="head" title="Sample by sample: the same master and mix from 90 %, another master or mix lower, another song near 0">Waveform</span>{% endif %}
+      {% for name, what, scores, note in checks %}<span class="ref" title="{{ what }}">{{ name }}</span>
+      {% if note %}<span class="none">{{ note }}</span>{% else %}{% for s in scores %}{% if s %}<span class="score {{ s[1] }}-text" title="{{ s[2] }}">{{ s[0] }}</span>{% else %}<span class="score muted" title="Not known">–</span>{% endif %}{% endfor %}{% endif %}
+      {% endfor %}
+    </div>{% endif %}
   </td>
   <td class="row-action"><button type="button" class="icon-button" data-drop-row title="Leave this file out" aria-label="Leave {{ f.name }} out">×</button></td>
 </tr>

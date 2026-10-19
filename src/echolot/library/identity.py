@@ -131,18 +131,47 @@ def alike(a: Path, b: Path) -> float:
         return 0.0
     short, long_, d = (a, b, da) if da <= db else (b, a, db)
     whole = fingerprint(long_)
-    if whole is None or not len(whole):
+    if whole is None or not len(whole) or (pieces := _pieces(short, d, 25)) is None:
         return 0.0
     shares = []
-    for at in (0.25, 0.5, 0.75):
-        cmd = ["ffmpeg", "-v", "error", "-ss", str(max(0.0, d * at - 12.5)), "-t", "25", "-i", str(short)]
-        try:
-            piece = subprocess.run([*cmd, "-ac", "1", "-f", "wav", "-"], capture_output=True, timeout=120).stdout
-        except (OSError, subprocess.TimeoutExpired):
-            return 0.0
+    for piece in pieces:
         ref = fingerprint(piece) if piece else None
         shares.append(similarity(ref, whole) if ref is not None and len(ref) else 0.0)
     return min(shares)
+
+
+def _pieces(path: Path, seconds: float, length: float) -> list[bytes] | None:
+    """Three `length` s pieces of a file `seconds` long, at a quarter, a half and three quarters (mono WAV);
+    None if ffmpeg could not run."""
+    out = []
+    for at in (0.25, 0.5, 0.75):
+        cmd = ["ffmpeg", "-v", "error", "-ss", str(max(0.0, seconds * at - length / 2)), "-t", str(length)]
+        try:
+            run = subprocess.run(
+                [*cmd, "-i", str(path), "-ac", "1", "-f", "wav", "-"], capture_output=True, timeout=120
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        out.append(run.stdout)
+    return out
+
+
+def against(path: Path, copy: Path) -> tuple[float | None, float | None]:
+    """How alike a file is to another file of the song (the library's copy), on the release preview's scales
+    (similarity, waveform): three 30 s pieces of the copy, each held against the file as a preview is; the
+    weakest of each. (None, None) if the copy or the file could not be read."""
+    seconds, _ = audio.probe(copy)
+    whole = fingerprint(path) if seconds else None
+    pieces = _pieces(copy, seconds, 30) if whole is not None and len(whole) else None
+    if not pieces or not all(pieces):
+        return None, None
+    shares, waves = [], []
+    for piece in pieces:
+        ref = fingerprint(piece)
+        shares.append(similarity(ref, whole) if ref is not None and len(ref) else 0.0)
+        waves.append(waveform(path, piece))
+    known = [w for w in waves if w is not None]
+    return min(shares), (min(known) if known else None)
 
 
 WAVE_SAME = (

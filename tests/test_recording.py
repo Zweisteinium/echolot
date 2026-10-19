@@ -202,7 +202,7 @@ def test_the_upload_into_the_song(
         return upload.File(1, name, Path("/x/rec.flac"), 200, 900, "lossless")
 
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
 
     def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
@@ -222,7 +222,7 @@ def test_the_upload_into_the_song(
     assert seen == [({1: item["key"]}, "mitschnitt")]  # History shows it as recorded by Mitschnitt
     assert device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()["result"] == "filed"
     assert len(seen) == 1  # (not imported twice)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.4, 0.1))  # another recording
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.4, 0.1))  # another recording
     nxt = poll(device)["item"]
     r = device.post(f"/api/recorder/items/{nxt['id']}/file", files=files)
     assert r.json()["result"] == "rejected" and "Sounds different" in r.json()["detail"]
@@ -287,7 +287,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
 
     monkeypatch.setattr(identity, "same_master", same_master)
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
     monkeypatch.setattr(upload, "import_files", import_files)
     owner = login(app)
@@ -403,7 +403,7 @@ def test_spotify_has_nothing_better(
         return upload.File(1, name, Path("/x/rec.flac"), 200, 900, tiers[name])
 
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(
         upload, "compare", lambda paths, f, song: upload.Copy(False, "~128 kbps source, your copy fake FLAC")
     )
@@ -509,7 +509,7 @@ def test_a_lossy_master(
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
 
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "import_files", import_files)
     monkeypatch.setattr(audio, "spectrum", lambda path: {"verdict": "lossy", "cutoff_hz": 16000})  # (your copy's)
     owner = login(app)
@@ -542,7 +542,7 @@ def files_in(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             1, name, Path("/x/r.flac"), 200, 900, "lossless"
         ),
     )
-    monkeypatch.setattr(upload, "fit", lambda con, f, song: upload.Fit(0, 0.97, 0.95))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: None)
 
     def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):

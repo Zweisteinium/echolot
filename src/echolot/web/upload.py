@@ -69,8 +69,9 @@ def upload_file(
     songs = _songs(request, con)
     key = upload.tagged(con, f, songs) or (song if song in songs else upload.guess(f, list(songs.values())))
     match = songs.get(key or "") if not f.error else None
-    copy = upload.compare(_paths(request), f, match) if match else None  # a song you have: better?
-    fit = upload.fit(con, f, match)
+    paths = _paths(request)
+    copy = upload.compare(paths, f, match) if match else None  # a song you have: better?
+    fit = upload.fit(con, f, match, paths.tracks)
     go = upload.importable(f, match, copy, fit)
     different = upload.sounds_different(fit)
     return page(
@@ -79,7 +80,7 @@ def upload_file(
         f=f,
         song=match,
         labels=upload.labels(f, match, fit, copy),
-        fit=fit,
+        checks=upload.checks(fit, match),
         go=go,
         different=different,
     )

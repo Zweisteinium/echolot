@@ -53,7 +53,7 @@ BEST = {  # spotify_best.reason -> why Spotify has nothing better (the lists sho
     "recorded": "your copy is the best Spotify has (recorded, not lossless)",
     "other": "Spotify plays another recording of this song than the release's",
 }
-DIFFERENT = "Sounds different"  # a rejected recording's detail: another recording than the release's (block "other")
+DIFFERENT = "Sounds different"  # a rejected recording's detail: another recording than the release's or your copy (block "other")
 PLAYS_AS = (  # SQL: the Spotify track a song plays as here (the release Spotify relinks it to), of {key}
     "'spotify:track:' || CASE WHEN a.state = 'replaced' AND a.detail LIKE 'spotify:%' THEN substr(a.detail, 9) "
     "ELSE substr({key}, 9) END"

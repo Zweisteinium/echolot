@@ -59,12 +59,15 @@ class File:
 @dataclass
 class Fit:
     """What a file looks like as a song: its length off the song's (s), and its audio against the release's
-    preview: the fingerprint's share of equal bits (the recording: identity.SAME on; about 0.55 another
-    song) and the waveform's correlation (the same master and mix: identity.WAVE_SAME on); None: not known."""
+    preview and against your copy in the library (identity.against): the fingerprint's share of equal bits
+    (the recording: identity.SAME on; about 0.55 another song) and the waveform's correlation (the same master
+    and mix: identity.WAVE_SAME on); None: not known."""
 
     diff: float | None
     fingerprint: float | None = None
     waveform: float | None = None
+    copy_fingerprint: float | None = None
+    copy_waveform: float | None = None
 
 
 def folder(paths: Paths, batch: str) -> Path:
@@ -277,26 +280,45 @@ def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
 
 def importable(f: File, song: sqlite3.Row | None, copy: Copy | None, fit: Fit | None = None) -> bool:
     """A file is imported for a missing song, or as a better copy of one in the library; not one that sounds like
-    another recording than the release's (unless imported anyway, by hand)."""
+    another recording than the release's or your copy (unless imported anyway, by hand)."""
     return song is not None and not f.error and (copy is None or copy.better) and not sounds_different(fit)
 
 
-def scores(fit: Fit | None) -> str:
-    """The audio check's scores, for a reason: "fingerprint 0.56, waveform 0.11" (1: the release's audio)."""
-    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
+WAVE_OTHER = 0.3  # waveform under this: another song (with a weak fingerprint, sounds_different)
+
+
+def _scores(fp: float | None, wave: float | None) -> str:
+    """Scores for a reason: "fingerprint 0.56, waveform 0.11" (1: the same audio)."""
     return ", ".join(f"{name} {v:.2f}" for name, v in (("fingerprint", fp), ("waveform", wave)) if v is not None)
 
 
+def _other(fp: float | None, wave: float | None) -> bool:
+    """Another recording: by its fingerprint, or a weak one with a waveform unlike it."""
+    return fp is not None and (fp <= identity.OTHER or (fp < identity.SAME and wave is not None and wave < WAVE_OTHER))
+
+
+def different(fit: Fit | None) -> str:
+    """Why the file's audio is another recording: than the release's preview, or without one than your copy
+    ("another recording than your copy (fingerprint 0.58, waveform 0.04)"); '' when it is not (or not known)."""
+    if fit is None:
+        return ""
+    if fit.fingerprint is not None:
+        if _other(fit.fingerprint, fit.waveform):
+            return f"another recording than the release's ({_scores(fit.fingerprint, fit.waveform)})"
+        return ""
+    if _other(fit.copy_fingerprint, fit.copy_waveform):
+        return f"another recording than your copy ({_scores(fit.copy_fingerprint, fit.copy_waveform)})"
+    return ""
+
+
 def sounds_different(fit: Fit | None) -> bool:
-    """The file's audio is another recording than the release's preview (its fingerprint; or a weak one with a
-    waveform unlike it)."""
-    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
-    return fp is not None and (fp <= identity.OTHER or (fp < identity.SAME and wave is not None and wave < 0.3))
+    return bool(different(fit))
 
 
-def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | None:
+def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None, tracks: Path) -> Fit | None:
     """How the file fits the song: its length, and its audio against the release's preview (the audio only:
-    a tool that fetched the file by the song's ISRC tags it so whatever it found)."""
+    a tool that fetched the file by the song's ISRC tags it so whatever it found) and against your copy in
+    `tracks` (not a close match: another version)."""
     if song is None or f.error or f.path is None:
         return None
     diff = round(f.seconds - song["length"]) if f.seconds and song["length"] else None
@@ -309,7 +331,44 @@ def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None) -> Fit | Non
         clip = identity.preview(isrc)
         wave = identity.waveform(f.path, clip) if clip else None
         out.waveform = round(wave, 2) if wave is not None else None
+    if not needs(song) and (lib := tracks / song["file"]).is_file():
+        fp, wave = identity.against(f.path, lib)
+        out.copy_fingerprint = round(fp, 2) if fp is not None else None
+        out.copy_waveform = round(wave, 2) if wave is not None else None
     return out
+
+
+Score = tuple[str, str, str] | None  # (text, ok|warn|bad, what it says); None: not known
+
+
+def checks(fit: Fit | None, song: sqlite3.Row | None) -> list[tuple[str, str, list[Score], str]]:
+    """The audio check for the dialog, a row per reference (the release's preview; your copy, when the song has
+    its own): (name, what it is, [fingerprint, waveform], why it has neither)."""
+    if fit is None or song is None:
+        return []
+    what = "The release's 30 s preview on Deezer, found by the song's ISRC"
+    rows = [("Preview", what, _graded(fit.fingerprint, fit.waveform, "the release's preview"), _no_preview(song))]
+    if not needs(song):
+        what = "Your copy in the library: three 30 s pieces of it, each held against the file as the preview is"
+        rows.append(("Your copy", what, _graded(fit.copy_fingerprint, fit.copy_waveform, "your copy"), "not readable"))
+    return [(name, what, scores, "" if any(scores) else none) for name, what, scores, none in rows]
+
+
+def _graded(fp: float | None, wave: float | None, against: str) -> list[Score]:
+    out: list[Score] = [None, None]
+    if fp is not None:
+        grade = "ok" if fp >= identity.SAME else "bad" if fp <= identity.OTHER else "warn"
+        says = {"ok": "the same recording", "warn": "unclear", "bad": "another recording"}[grade]
+        out[0] = (f"{round(fp * 100)} %", grade, f"Fingerprint against {against}: {says}")
+    if wave is not None:
+        grade = "ok" if wave >= identity.WAVE_SAME else "bad" if wave < WAVE_OTHER else "warn"
+        says = {"ok": "the same master and mix", "warn": "another master or mix", "bad": "another song"}[grade]
+        out[1] = (f"{round(wave * 100)} %", grade, f"Waveform against {against}: {says}")
+    return out
+
+
+def _no_preview(song: sqlite3.Row) -> str:
+    return "Deezer has none" if song["isrc"] else "the song has no ISRC"
 
 
 def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None = None) -> list[tuple[str, str, str]]:
@@ -331,18 +390,27 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None
         amount = f"{n // 60}:{n % 60:02d}" if n >= 60 else f"{n} s"
         detail = f"{_mmss(f.seconds)}, the song {_mmss(song['length'])}"
         out.append((f"{amount} {'longer' if fit.diff > 0 else 'shorter'}", "warn", detail))
-    wave = fit.waveform if fit else None
-    if sounds_different(fit):
-        out.append(("Sounds different", "bad", f"Another recording than the release's ({scores(fit)})"))
+    fp, wave = (fit.fingerprint, fit.waveform) if fit else (None, None)
+    mine, my_wave = (fit.copy_fingerprint, fit.copy_waveform) if fit else (None, None)
+    if why := different(fit):
+        out.append(("Sounds different", "bad", why[0].upper() + why[1:]))
+    elif fp is not None and _other(mine, my_wave):
+        detail = (
+            f"The release's recording, but another than your copy ({_scores(mine, my_wave)}): was yours another song?"
+        )
+        out.append(("Unlike your copy", "warn", detail))
     elif wave is not None and wave < identity.WAVE_SAME:
         out.append(("Other master or mix", "warn", "The same recording, but its waveform is not the release's"))
+    elif wave is None and my_wave is not None and my_wave < identity.WAVE_SAME:
+        out.append(("Other master or mix", "warn", "The same recording, but its waveform is not your copy's"))
     if f.tier == "fake":
         out.append(("Fake FLAC", "warn", "A FLAC made from a lossy file (spectrum check)"))
     if f.peak is not None and f.peak <= QUIET_PEAK:
         detail = "Releases peak near 0 dB: recorded at a low volume? (at 25 % it peaks at -12 dB)"
         out.append((f"Quiet: peaks at {f.peak:g} dB", "warn", detail))
     if not out:
-        why = "Length fits" + (", the release's audio" if wave is not None else ", audio not compared (no preview)")
+        heard = "the release's audio" if wave is not None else "the release's recording" if fp is not None else ""
+        why = f"Length fits, {heard or f'audio not compared (no preview: {_no_preview(song)})'}"
         out.append(("Looks right", "ok", why))
     return out
 

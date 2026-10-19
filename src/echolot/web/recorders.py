@@ -330,9 +330,9 @@ def _check_and_file(
         tier = f.tier
         if f.tier == "fake" and stream == "lossless":
             upload.as_master(paths, batch, f)
-        fit = upload.fit(con, f, song)
-        if upload.sounds_different(fit):  # Spotify's is another recording: not offered again (Try again lifts it)
-            detail = f"{recording.DIFFERENT}: another recording than the release's ({upload.scores(fit)})"
+        fit = upload.fit(con, f, song, paths.tracks)
+        if why := upload.different(fit):  # Spotify's is another recording: not offered again (Try again lifts it)
+            detail = f"{recording.DIFFERENT}: {why}"
             recording.block(con, item["song_key"], item["uri"], "other", detail)
             return "rejected", detail, tier
         if f.path and (why := recording.unlike_copy(con, paths.tracks, item["song_key"], item["uri"] or "", f.path)):
