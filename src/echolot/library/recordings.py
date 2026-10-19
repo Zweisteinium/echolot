@@ -7,7 +7,10 @@ by name (catalog.Catalog.song), each got its own file. So the library is asked f
   in_library  before a missing song is searched: a file with the same core title and length (±3 s) that
               sounds like the song's release (identity.check) is the song
   already     before a SoundCloud or YouTube download is filed: a file with the same core title and length
-              that sounds the same (identity.alike) is the song; a genuine FLAC still replaces a lossy copy
+              that is the same audio (identity.same_master) is the song; a genuine FLAC still replaces a lossy
+              copy
+  merge_same  files of different songs that are the same audio, whichever came first and from wherever: the
+              better one is kept for all of them
   another_edit / merge_edits  a YouTube song (an upload is often a shorter edit) named as a library song of
               another length: the same recording by its audio (SAME_EDIT) is linked to that file, one that is
               probably the same (ALIKE) goes to review
@@ -108,11 +111,72 @@ def in_library(con: sqlite3.Connection, paths: Paths, want: Want, index: Index) 
 
 
 def already(paths: Paths, src: Path, title: str, length: float, index: Index) -> catalog.Entry | None:
-    """A library file that sounds the same as the download `src` (a like title and length), or None."""
+    """A library file that is the same audio as the download `src` (a like title and length), or None: a
+    fingerprint alone takes a remix that keeps the vocals for the song."""
     for e in index.candidates(title, length):
-        if identity.alike(src, paths.tracks / e.path) >= ALIKE:
+        if identity.same_master(src, paths.tracks / e.path) >= identity.SAME_MASTER:
             return e
     return None
+
+
+SAME_CHECKED = "same_checked"  # meta: {"<file>:<size>|<file>:<size>": same_master}, each pair compared once
+
+
+def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
+    """Library files of different songs that are the same audio (a like title and length, identity.same_master),
+    whichever came first and from wherever: the better one is kept, the other one's songs are linked to it and
+    the other one is retired. Close matches and DJ mix cuts are left as they are."""
+    from echolot import db
+
+    checked = json.loads(db.get_meta(con, SAME_CHECKED, "{}"))
+    entries = {e.path: e for e in catalog.Catalog.from_db(con).entries}
+    sizes = dict(con.execute("SELECT path, size FROM files").fetchall())
+    owners: dict[str, list[sqlite3.Row]] = {}
+    for r in con.execute("SELECT * FROM songs WHERE file IS NOT NULL ORDER BY key"):
+        owners.setdefault(r["file"], []).append(r)
+    files = {
+        p: rows
+        for p, rows in owners.items()
+        if p in entries and not any(r["close_match"] or rules.mix_cut(r["title"]) for r in rows)
+    }
+    done = []
+    for a, b in _pairs(files, entries):
+        if a not in files or b not in files:
+            continue
+        pair = f"{a}:{sizes[a]}|{b}:{sizes[b]}"
+        if pair not in checked:
+            checked[pair] = round(identity.same_master(paths.tracks / a, paths.tracks / b), 4)
+        if (share := checked[pair]) < identity.SAME_MASTER:
+            continue
+        better, worse = sorted((entries[a], entries[b]), key=catalog.Entry.rank, reverse=True)
+        path = paths.tracks / worse.path
+        if not path.is_file() or path.stat().st_size != sizes[worse.path]:
+            continue
+        for r in files[worse.path]:
+            link(con, paths, r["key"], Want.of(r), better, f"the same audio, {share:.3f}")
+        filing.retire(con, paths, worse, f"the same audio as {better.path}")
+        files[better.path] += files.pop(worse.path)
+        done.append(f"{worse.path} -> {better.path}")
+    with con:
+        db.set_meta(con, SAME_CHECKED, json.dumps(checked))
+    return done
+
+
+def _pairs(files: dict[str, list[sqlite3.Row]], entries: dict[str, catalog.Entry]) -> list[tuple[str, str]]:
+    """Pairs of the files whose names or songs share a core title, within 3 s of each other's length."""
+    by_core: dict[str, set[str]] = {}
+    for p, rows in files.items():
+        for t in {entries[p].title, *(r["title"] for r in rows)}:
+            if len(c := core(t)) >= 2:
+                by_core.setdefault(c, set()).add(p)
+    near = {
+        (a, b)
+        for group in by_core.values()
+        for a in group
+        for b in group
+        if a < b and abs(entries[a].duration - entries[b].duration) <= 3
+    }
+    return sorted(near)
 
 
 # ---------------------------------------------------------------- another edit of a library song (YouTube)

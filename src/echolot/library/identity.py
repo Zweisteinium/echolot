@@ -188,7 +188,8 @@ def same_master(a: Path, b: Path) -> float:
     """How alike two files' decoded audio is, sample by sample once aligned: the weakest correlation of
     its 10 s windows. The same master in another codec keeps 0.995 and more; another master or mix of the
     same recording (a remaster, a single version, a remix sharing the chorus) falls far below, though its
-    fingerprint agrees. 0.0 when the lengths differ by more than 2 s or one cannot be read."""
+    fingerprint agrees. 0.0 when the lengths differ by more than 2 s, one cannot be read or nothing but
+    silence could be compared."""
     fa, fb = fingerprint(a), fingerprint(b)
     if fa is None or fb is None or not len(fa) or not len(fb):
         return 0.0
@@ -199,13 +200,13 @@ def same_master(a: Path, b: Path) -> float:
     x, y = (x, y[k:]) if k >= 0 else (x[-k:], y)
     n = min(len(x), len(y))
     x, y = x[:n], y[:n]
-    weakest = 1.0
+    shares = []
     for i in range(0, n - 5 * _RATE, 10 * _RATE):
         u, v = x[i : i + 10 * _RATE], y[i : i + 10 * _RATE]
         if u.std() < 1e-3 or v.std() < 1e-3:
             continue  # silence says nothing
-        weakest = min(weakest, float(np.corrcoef(u, v)[0, 1]))
-    return max(weakest, 0.0)
+        shares.append(float(np.corrcoef(u, v)[0, 1]))
+    return max(min(shares, default=0.0), 0.0)
 
 
 def preview(isrc: str) -> bytes | None:

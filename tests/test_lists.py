@@ -357,7 +357,7 @@ def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: 
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
     monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
     monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
-    monkeypatch.setattr("echolot.library.identity.alike", lambda a, b: 0.95)
+    monkeypatch.setattr("echolot.library.identity.same_master", lambda a, b: 0.995)
     there = run.paths.tracks / "Night Rider" / "Night Rider - Night Drive (Original Mix).wav"
     there.parent.mkdir(parents=True)
     with wave.open(str(there), "wb") as w:

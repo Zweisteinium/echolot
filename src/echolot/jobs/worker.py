@@ -102,9 +102,10 @@ class Run:
 
 def upkeep(run: Run) -> str:
     """Apply due review decisions, merge YouTube songs' other edits of library songs (recordings.merge_edits),
-    rescan the library, write the playlists, have slskd rescan its share (_reshare), store the hourly snapshot,
-    renew the users from Navidrome's user list (admins, accounts gone) and, once a day, empty the
-    replaced/ and review/ days older than 30 days."""
+    rescan the library, keep one file for songs of other names with the same audio (recordings.merge_same),
+    write the playlists, have slskd rescan its share (_reshare), store the hourly snapshot, renew the users
+    from Navidrome's user list (admins, accounts gone) and, once a day, empty the replaced/ and review/ days
+    older than 30 days."""
     con = run.connect()
     try:
         parts = []
@@ -126,6 +127,9 @@ def upkeep(run: Run) -> str:
         if linked := recordings.link_isrc(con, run.paths):  # a twin of a song just found (recordings.twins)
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
+        if merged := recordings.merge_same(con, run.paths):  # songs of other names with the same audio
+            catalog.match_songs(con)
+            parts.append(f"same audio: {'; '.join(merged)}")
         parts.append(playlists.write(con, run.paths.playlists))
         if reshared := _reshare(run, con):
             parts.append(reshared)

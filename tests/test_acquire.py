@@ -680,7 +680,7 @@ def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypa
 
 def test_a_fallback_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """Gone Song is in the library under another artist's name and sounds the same: linked, not filed."""
-    monkeypatch.setattr(identity, "alike", lambda a, b: 0.95)
+    monkeypatch.setattr(identity, "same_master", lambda a, b: 0.995)
     wav(run.paths.tracks / "Other Name" / "Other Name - Gone Song (Radio Edit).wav", 181)
     con = run.connect()
     catalog.refresh(con, run.paths.tracks)
