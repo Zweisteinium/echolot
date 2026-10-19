@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 34
+VERSION = 35
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -449,6 +449,11 @@ MIGRATIONS = {
         "CREATE TABLE IF NOT EXISTS bandcamp (song_key TEXT PRIMARY KEY, url TEXT NOT NULL, artist TEXT NOT NULL "
         "DEFAULT '', title TEXT NOT NULL DEFAULT '', seconds REAL NOT NULL DEFAULT 0, price REAL, currency TEXT NOT "
         "NULL DEFAULT '', free INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL DEFAULT '', checked TEXT NOT NULL)"
+    ],
+    35: [  # a removed file's fake mark on its event (filing.retire), from the Lossy check's verdicts before
+        "UPDATE events SET fake = 1 WHERE action = 'retired' AND fake IS NULL AND ext = 'flac' AND EXISTS (SELECT 1 "
+        "FROM lossy_checks c WHERE c.verdict = 'lossy' AND c.size = events.bytes AND instr(events.reason, "
+        "'(was ' || c.path || ')') > 0)"
     ],
 }
 

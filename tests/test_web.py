@@ -121,29 +121,52 @@ def test_activity(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("why", "source", "ext", "was"),
+    ("why", "source", "ext", "fake", "was"),
     [  # a FLAC genuine lossless replaced was one made from lossy; one replaced by hand (Replace anyway) can be genuine
-        ("replaced by genuine lossless", "soulseek", "mp3", ("lossy-high", 320)),
-        ("replaced by genuine lossless", "soulseek", "flac", ("fake", 320)),
-        ("replaced by hand", "manual", "opus", ("lossy-high", 320)),
-        ("replaced by hand", "manual", "flac", ("lossless", 320)),
+        ("replaced by genuine lossless", "soulseek", "mp3", None, ("lossy-high", 320)),
+        ("replaced by genuine lossless", "soulseek", "flac", None, ("fake", 320)),
+        ("replaced by hand", "manual", "opus", None, ("lossy-high", 320)),
+        ("replaced by hand", "manual", "flac", 0, ("lossless", 320)),
+        ("replaced by hand", "mitschnitt", "flac", 1, ("fake", 320)),  # marked when it was removed
     ],
 )
-def test_activity_upgrade_is_one_entry(settings: Settings, why: str, source: str, ext: str, was: tuple) -> None:
+def test_activity_upgrade_is_one_entry(
+    settings: Settings, why: str, source: str, ext: str, fake: int | None, was: tuple
+) -> None:
     """An upgrade and the file it replaced: one entry (from -> to), for everyone and for the song's user."""
     con = db.connect(settings.db_path)
     old = f"Artist A/Artist A - First Song.{ext}"
-    columns = "ts, action, path, ext, bytes, kbps, reason, source, song, artist, title"
-    retired = ("retired", f"/music/inbox/replaced/2026-09-30/{old}", ext, 8000000, 320, f"{why} (was {old})")
-    upgrade = ("upgrade", "Artist A/Artist A - First Song.flac", "flac", 30000000, 900, None)
+    columns = "ts, action, path, ext, bytes, kbps, reason, fake, source, song, artist, title"
+    retired = ("retired", f"/music/inbox/replaced/2026-09-30/{old}", ext, 8000000, 320, f"{why} (was {old})", fake)
+    upgrade = ("upgrade", "Artist A/Artist A - First Song.flac", "flac", 30000000, 900, None, 0)
     with con:
-        sql = f"INSERT INTO events ({columns}) VALUES ('2026-09-30T10:00:00', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        sql = f"INSERT INTO events ({columns}) VALUES ('2026-09-30T10:00:00', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         con.execute(sql, (*retired, None, None, None, None))
         con.execute(sql, (*upgrade, source, "spotify:s1", "Artist A", "First Song"))
     for uid in (None, OWNER):
         first, *rest = stats.activity(con, uid=uid)
         assert (first["label"], first["was"], first["quality"]) == ("Upgraded", was, ("lossless", 900))
         assert first["was_bytes"] == 8000000 and not any(a["label"] == "Removed" for a in rest)
+    con.close()
+
+
+def test_activity_a_merge_of_the_same_audio_is_one_entry(settings: Settings) -> None:
+    """A song linked to a file of the same audio and its own file removed (recordings.merge_same): one entry."""
+    con = db.connect(settings.db_path)
+    kept, gone = "Artist A/Artist A - First Song - Edit.flac", "Artist A/Artist A - FIRST SONG (EDIT).m4a"
+    columns = "ts, action, path, ext, reason, song, artist, title"
+    with con:
+        sql = f"INSERT INTO events ({columns}) VALUES ('2026-10-19T12:00:00', ?, ?, ?, ?, ?, ?, ?)"
+        why = f"same recording as {kept} (the same audio, 0.993)"
+        con.execute(sql, ("linked", kept, "flac", why, "soundcloud:1", "Artist A", "FIRST SONG (EDIT)"))
+        con.execute(sql, ("retired", f"/music/inbox/replaced/{gone}", "m4a", f"the same audio as {kept} (was {gone})",
+                          None, None, None))  # fmt: skip
+    first, *rest = stats.activity(con)
+    assert (first["label"], first["note"]) == (
+        "Linked",
+        "Same audio as Artist A - First Song - Edit · its own file removed",
+    )
+    assert not any(a["label"] == "Removed" and "FIRST SONG (EDIT)" in a["song"] for a in rest)
     con.close()
 
 

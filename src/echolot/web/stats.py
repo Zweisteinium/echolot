@@ -339,12 +339,14 @@ EVENTS = {
 MATCHED = {"probable": ("probable match", "warn"), "review": ("from review", ""), "close": ("close match", "")}
 REPLACED = "replaced by genuine lossless"  # a retired file's reason when a genuine lossless upgrade took its place
 UPGRADED = "replaced by "  # ... or any upgrade (also one by hand: "replaced by hand", filing.file_into)
+SAME_AUDIO = "the same audio as "  # ... or when another song's file is the same audio (recordings.merge_same)
 
 
 def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None = None) -> list[dict[str, Any]]:
     """The latest events for the Activity page (of a user's songs, or all), each as one entry: what
     happened, to which song, and the facts worth a glance. An upgrade and the file it replaced are one
-    entry (from -> to); a user's include the files their songs' upgrades replaced."""
+    entry (from -> to), so are a link and the file of the same audio it took the place of; a user's include
+    the files their songs' upgrades replaced."""
     actions = (*EVENT_FILTERS[kind], "retired") if kind in EVENT_FILTERS else None
     where, args = _mine(uid, "e.song")
     if uid is not None:  # a replaced file's event has no song: it goes with the upgrade (found below)
@@ -355,7 +357,9 @@ def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None 
     rows = con.execute(f"{sql} ORDER BY e.id DESC LIMIT ?", (*args, *(actions or ()), 2 * limit)).fetchall()
     replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(UPGRADED)}
     partners = {e["id"]: was for e in rows if e["action"] == "upgrade" and (was := _replaced(e, replaced))}
-    taken = {was["id"] for was in partners.values()}
+    merged = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(SAME_AUDIO)}
+    gone = {e["id"]: was for e in rows if e["action"] == "linked" and (was := _merged(e, merged))}
+    taken = {was["id"] for was in (*partners.values(), *gone.values())}
     out = []
     for e in rows:
         if e["action"] == "retired" and (kind or e["id"] in taken or (uid is not None and not e["song"])):
@@ -363,6 +367,8 @@ def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None 
         entry = _entry(e)
         if was := partners.get(e["id"]):
             entry["was"], entry["was_bytes"] = _quality(was, was["reason"].startswith(REPLACED)), was["bytes"]
+        if was := gone.get(e["id"]):
+            entry["note"] = f"Same audio as {_stem(e['path'])} · its own file removed"
         out.append(entry)
     return out[:limit]
 
@@ -373,6 +379,15 @@ def _replaced(upgrade: Row, replaced: dict[int, Row]) -> Row | None:
     for n in range(upgrade["id"] - 4, upgrade["id"] + 5):
         if (r := replaced.get(n)) and _stem(r["path"]).lower().startswith(stem):
             del replaced[n]
+            return r
+    return None
+
+
+def _merged(link: Row, merged: dict[int, Row]) -> Row | None:
+    """The file of the same audio a link took the place of: retired next to it, naming the linked file."""
+    for n in range(link["id"] - 4, link["id"] + 5):
+        if (r := merged.get(n)) and r["reason"].startswith(f"{SAME_AUDIO}{link['path']} "):
+            del merged[n]
             return r
     return None
 

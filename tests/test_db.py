@@ -149,3 +149,28 @@ def test_snapshot_times_become_utc(tmp_path: Path) -> None:
     got = [r[0] for r in con.execute("SELECT ts FROM snapshots ORDER BY value")]
     con.close()
     assert got == [history.utc("2026-07-01T12:00:00"), "2026-07-01T13:00:00Z"]
+
+
+def test_a_removed_fake_flac_is_marked_on_its_event(tmp_path: Path) -> None:
+    """Version 34 to 35: a removed FLAC the Lossy check found made from lossy gets its fake mark (filing.retire)."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    with con:
+        con.execute("INSERT INTO lossy_checks VALUES ('A/A - Song.flac', 500, 0, '', NULL, NULL, 'lossy', '')")
+        con.execute("INSERT INTO lossy_checks VALUES ('A/A - Other.flac', 600, 0, '', NULL, NULL, 'ok', '')")
+        for name, size in (("Song", 500), ("Other", 600), ("Song", 501)):
+            con.execute(
+                "INSERT INTO events (ts, action, path, ext, bytes, reason) VALUES ('', 'retired', ?, 'flac', ?, ?)",
+                (
+                    f"/music/inbox/replaced/2026-10-19/A/A - {name}.flac",
+                    size,
+                    f"replaced by hand (was A/A - {name}.flac)",
+                ),
+            )
+    con.execute("PRAGMA user_version = 34")
+    con.close()
+    db.init(path)
+    con = db.connect(path)
+    assert [r[0] for r in con.execute("SELECT fake FROM events ORDER BY id")] == [1, None, None]
+    con.close()

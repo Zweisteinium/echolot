@@ -454,6 +454,21 @@ def test_a_renamed_file_stays_the_soundcloud_songs_download(env) -> None:
     assert song(con, "soundcloud:1")["file"] == "No Chasa/No Chasa - MASTER DISASTER (EXTENDED MIX).wav"
 
 
+def test_a_rename_and_a_removal_keep_the_fake_mark(env) -> None:
+    """A renamed fake keeps what it was made from; a removed one's event says it was a fake (the Activity page)."""
+    con, paths, _ = env
+    filing.file_into(con, paths, download(paths, "a.flac", 316), Want("No Chasa", "MASTER DISASTER"), "x", fake=True)
+    with con:
+        con.execute("UPDATE lossy_sourced SET source = 'Opus ~130 kbps'")
+    entry = catalog.Catalog.from_db(con).entries[0]
+    filing.rename(con, paths, entry, "No Chasa", "MASTER DISASTER (EXTENDED MIX)", "close match")
+    stem = "No Chasa/No Chasa - MASTER DISASTER (EXTENDED MIX)"
+    assert [tuple(r) for r in con.execute("SELECT stem, source FROM lossy_sourced")] == [(stem, "Opus ~130 kbps")]
+    filing.retire(con, paths, catalog.Catalog.from_db(con).entries[0], "replaced by hand")
+    assert events(con)[-1]["action"] == "retired" and events(con)[-1]["fake"] == 1
+    assert con.execute("SELECT count(*) FROM lossy_sourced").fetchone()[0] == 0
+
+
 def test_the_card_names_the_download_by_its_tags(env, monkeypatch) -> None:
     con, paths, _ = env
     want = add_song(con, "spotify:tk", "TEKKNO", "say it right tekkno", 135)

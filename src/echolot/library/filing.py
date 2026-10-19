@@ -189,7 +189,7 @@ def retire(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, reason: 
     with con:
         con.execute("DELETE FROM files WHERE path = ?", (entry.path,))
         con.execute("DELETE FROM lossy_sourced WHERE stem = ?", (entry.stem,))
-    event(con, paths, "retired", dest, reason=f"{reason} (was {entry.path})")
+    event(con, paths, "retired", dest, reason=f"{reason} (was {entry.path})", fake=int(entry.fake))
     return dest
 
 
@@ -206,12 +206,13 @@ def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: 
             dest = _free_name(folder, stem, entry.ext, entry.duration)
             _place(src, dest)
             stem = dest.relative_to(paths.tracks).with_suffix("").as_posix()
+            mark = con.execute("SELECT source, master FROM lossy_sourced WHERE stem = ?", (entry.stem,)).fetchone()
             with con:
                 con.execute("DELETE FROM files WHERE path = ?", (entry.path,))
                 con.execute("DELETE FROM lossy_sourced WHERE stem = ?", (entry.stem,))
                 # a SoundCloud song is its own download, found by the name: it keeps the file
                 con.execute("UPDATE songs SET stem = ? WHERE stem = ?", (stem, entry.stem))
-            _add_file(con, paths, dest, entry.fake)
+            _add_file(con, paths, dest, entry.fake, *(mark or ("", False)))
         audio.write_tags(dest, artist=artist, title=title)
         event(con, paths, "renamed", dest, artist=artist, title=title, reason=f"{reason} (was {entry.path})")
     return dest
