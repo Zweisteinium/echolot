@@ -81,13 +81,13 @@ def test_a_bot_check_is_not_got_around(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_prices() -> None:
     assert [price(1.5, "EUR"), price(2.0, "AUD"), price(1.5), price(0.0, "EUR"), price(3, "USD", free=True)] == [
-        "€1.50",
+        "1.50 €",
         "2.00 AUD",
         "1.50",
         "free",
         "free",
     ]
-    assert price(None) == ""
+    assert price(None) == "" and price(1.5, "USD") == "$1.50"
 
 
 @pytest.fixture
@@ -169,7 +169,7 @@ def test_the_buy_page_and_the_badge(settings, login: Callable[..., TestClient]) 
     con.close()
     client = login(create_app(settings))
     buy = client.get("/buy").text
-    assert "Trance Tune" in buy and "Bandcamp €1.50" in buy and 'action="/buy/refresh"' in buy
+    assert "Trance Tune" in buy and "Bandcamp 1.50 €" in buy and 'action="/buy/refresh"' in buy
     assert 'href="https://artist.bandcamp.com/track/trance-tune"' in client.get("/lists/soundcloud:someone/likes").text
     assert "Buy on Bandcamp · 1" in client.get("/library").text
     viewer = login(create_app(settings), "guest", admin=False)

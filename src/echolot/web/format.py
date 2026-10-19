@@ -82,18 +82,16 @@ def span(seconds: float | None) -> str:
     return _span(seconds or 0)
 
 
-CURRENCIES = {"EUR": "€", "USD": "$", "GBP": "£", "JPY": "¥"}  # a symbol before the amount; others named after it
+CURRENCIES = {"EUR": "{} €", "USD": "${}", "GBP": "£{}", "JPY": "¥{}"}  # others named after the amount
 
 
 def price(amount: float | None, currency: str = "", free: bool = False) -> str:
-    """What a Bandcamp track costs: 'free', '€1.50', '2.00 AUD', '1.50' (currency not known yet)."""
+    """What a Bandcamp track costs: 'free', '1.50 €', '$1.50', '2.00 AUD', '1.50' (currency not known yet)."""
     if free or amount == 0:
         return "free"
     if amount is None:
         return ""
-    if symbol := CURRENCIES.get(currency):
-        return f"{symbol}{amount:.2f}"
-    return f"{amount:.2f} {currency}".strip()
+    return CURRENCIES.get(currency, "{} " + currency).format(f"{amount:.2f}").strip()
 
 
 FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes, "source": source}
