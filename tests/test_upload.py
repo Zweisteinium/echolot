@@ -2,6 +2,7 @@
 one's song guessed and changeable, imported on confirm as that song; the rest of the batch goes."""
 
 import re
+import shutil
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -359,6 +360,7 @@ def test_an_upload_is_assigned_by_its_tags(settings: Settings) -> None:
     con.close()
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_against_your_copy_by_its_audio(tmp_path: Path) -> None:
     """The same audio in another codec scores as the release's preview would; another song's audio does not."""
     tones = {
