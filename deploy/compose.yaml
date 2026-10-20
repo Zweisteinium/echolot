@@ -65,7 +65,9 @@ services:
     volumes:
       - ./data/navidrome:/data
       - ${MUSIC}:/music:ro                # tracks/ and playlists/; inbox/ has a .ndignore (skipped)
-    networks: [navidrome]
+    networks:
+      navidrome:
+        ipv4_address: ${HEARTS_NET:-10.253.53}.3  # fixed: .2 is Echolot's
     depends_on:
       echolot:
         condition: service_healthy
