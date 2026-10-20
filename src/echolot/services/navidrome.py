@@ -1,7 +1,9 @@
 """Navidrome, the music server. Its accounts are Echolot's users: the password is checked by Navidrome's
 own login (POST /auth/login, as its web page does); Echolot keeps neither the password nor the token
 Navidrome answers with. The service account (an admin of Navidrome, its password in the vault) reads
-Navidrome's user list and, later, sets the owners of the playlists Echolot writes (native API, /api)."""
+Navidrome's user list and songs and sets the owners of the playlists Echolot writes (native API, /api).
+Hearts are a user's own: Echolot gives them as that user, named in USER_HEADER, which Navidrome takes from
+Echolot's address alone (ND_EXTAUTH_TRUSTEDSOURCES; Echolot never passes on a request's headers)."""
 
 import json
 import os
@@ -9,6 +11,7 @@ import sqlite3
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +22,12 @@ SERVICE_PASSWORD = "navidrome.service_password"  # vault
 TOKEN_SECONDS = 3600  # a service login is used this long (Navidrome's own lasts much longer)
 _TOKENS: dict[tuple[str, str], tuple[str, float]] = {}  # (address, user) -> (token, when)
 _LOCK = threading.Lock()
+USER_HEADER = "X-Echolot-User"  # Navidrome's ND_EXTAUTH_USERHEADER
+STAR_BATCH = 100  # songs per star call
+UNTRUSTED = (
+    f"Navidrome does not take Echolot's {USER_HEADER}: set ND_EXTAUTH_TRUSTEDSOURCES to Echolot's address and "
+    f"ND_EXTAUTH_USERHEADER={USER_HEADER}"
+)
 
 
 class NavidromeError(Exception):
@@ -113,6 +122,38 @@ class Service:
 
     def delete_playlist(self, playlist_id: str) -> None:
         self.call("DELETE", f"/api/playlist/{playlist_id}")
+
+    def songs(self) -> list[dict[str, Any]]:
+        """Every song: id, path (in its library), missing (its file is gone), ..."""
+        return list(self.call("GET", "/api/song?_start=0&_end=10000000") or [])
+
+    def as_user(self, user: str, method: str, params: list[tuple[str, str]] | None = None) -> dict[str, Any]:
+        """A Subsonic call as one of Navidrome's users: its answer (subsonic-response)."""
+        query = urllib.parse.urlencode([("v", "1.16.1"), ("c", "echolot"), ("f", "json"), *(params or [])])
+        request = urllib.request.Request(f"{self.url}/rest/{method}?{query}", headers={USER_HEADER: user})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as r:
+                answer = json.load(r)["subsonic-response"]
+        except urllib.error.HTTPError as e:
+            raise NavidromeError(f"Navidrome: {method}: HTTP {e.code}") from e
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            raise NavidromeError(f"Navidrome not reachable: {e}") from e
+        if answer.get("status") != "ok":
+            error = answer.get("error") or {}
+            if error.get("code") == 10 and "'u'" in str(error.get("message")):  # asks for a login
+                raise NavidromeError(UNTRUSTED)
+            raise NavidromeError(f"Navidrome: {method} as {user}: {error.get('message')}")
+        return answer
+
+    def starred(self, user: str) -> set[str]:
+        """The songs the user gave a heart (their ids)."""
+        songs = (self.as_user(user, "getStarred2").get("starred2") or {}).get("song") or []
+        return {s["id"] for s in songs}
+
+    def star(self, user: str, ids: list[str], on: bool = True) -> None:
+        """Give the songs the user's heart (on), or take it back."""
+        for i in range(0, len(ids), STAR_BATCH):
+            self.as_user(user, "star" if on else "unstar", [("id", x) for x in ids[i : i + STAR_BATCH]])
 
 
 def address(con: sqlite3.Connection) -> str:

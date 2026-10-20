@@ -40,6 +40,9 @@ cannot find yet, it tells you, and why.
   Record on a Spotify list: Mitschnitt plays the songs Echolot lacks in lossless, records each bit-exact and
   puts it straight into your library. Connect it under Account; a device is only ever its owner's.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
+- **Hearts.** The songs you like on Spotify and SoundCloud, and the ones you hearted in a player before
+  Echolot had them, have their heart in Navidrome too, in your account. Unlike one, and the heart Echolot
+  gave goes; a heart you gave yourself always stays.
 
 ## What it doesn't do
 
@@ -121,6 +124,11 @@ Navidrome 0.58 or later you can add that folder as a second library instead.
 
 Navidrome has to import playlists (`ND_AUTOIMPORTPLAYLISTS`, on by default). It imports them all as its
 first admin's; Echolot then hands each one to its user and never touches playlists it didn't write.
+
+For the hearts, Navidrome has to let Echolot act as each user: set `ND_EXTAUTH_USERHEADER=X-Echolot-User`
+and `ND_EXTAUTH_TRUSTEDSOURCES` to Echolot's address as Navidrome sees it, and nothing else. Never trust
+the address of a reverse proxy or a Docker gateway there: other people's requests come from it too. The
+bundled `compose.yaml` does this with a network of their own, Echolot at a fixed address.
 Songs you already have in your own library will show up twice.
 </details>
 
@@ -232,6 +240,7 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 | `TZ` | `UTC` | your time zone (for the job times) |
 | `ECHOLOT_PORT`, `NAVIDROME_PORT` | `8490`, `4533` | the ports on the host |
 | `NAVIDROME_URL` | the bundled one | your own Navidrome |
+| `HEARTS_NET` | `10.253.53` | the network of Echolot and the bundled Navidrome (`.0/29`), if that one is taken |
 | `VPN_*`, `WIREGUARD_PRIVATE_KEY`, `SERVER_COUNTRIES` | | only with `vpn.yaml`, see the [gluetun wiki](https://github.com/qdm12/gluetun-wiki) |
 
 <details>

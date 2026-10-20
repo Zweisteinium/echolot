@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 36
+VERSION = 37
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -317,6 +317,14 @@ CREATE TABLE spotify_best (         -- songs Spotify has nothing better of than 
     detail TEXT NOT NULL DEFAULT '',
     since TEXT NOT NULL
 );
+CREATE TABLE stars (                -- the hearts Echolot gave in Navidrome (library/stars)
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    list_key TEXT NOT NULL,
+    song_key TEXT NOT NULL,
+    file TEXT NOT NULL,             -- the song's file it went to
+    ours INTEGER NOT NULL,          -- 0: the file had its heart already (the user's: never taken back)
+    PRIMARY KEY (user_id, list_key, song_key)
+);
 CREATE INDEX recording_items_session ON recording_items(recording_id, state);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 """
@@ -461,6 +469,11 @@ MIGRATIONS = {
         "ALTER TABLE availability ADD COLUMN plays TEXT",
         "UPDATE recording_items SET finished = NULL WHERE result = 'wrong_song' AND uri IS NOT NULL "
         "AND uri != 'spotify:track:' || substr(song_key, 9)",
+    ],
+    37: [  # the likes lists' hearts in Navidrome (library/stars)
+        "CREATE TABLE IF NOT EXISTS stars (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+        "list_key TEXT NOT NULL, song_key TEXT NOT NULL, file TEXT NOT NULL, ours INTEGER NOT NULL, "
+        "PRIMARY KEY (user_id, list_key, song_key))"
     ],
 }
 

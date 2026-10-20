@@ -26,6 +26,10 @@ services:
       - ./data/echolot:/data              # database, settings, encrypted secrets
       - ${MUSIC:?set MUSIC in .env}:/music
       - ./data/sockseek:/daemon           # Echolot writes the daemon's Soulseek login here
+    networks:
+      default:
+      navidrome:
+        ipv4_address: ${HEARTS_NET:-10.253.53}.2
     restart: unless-stopped
 
   sockseek:                               # searches and downloads on Soulseek for Echolot (port 5031, not published)
@@ -55,11 +59,20 @@ services:
       ND_MUSICFOLDER: /music
       ND_SCANNER_SCHEDULE: "@every 1h"    # a safety net: its file watcher picks up changes within seconds
       ND_AUTOIMPORTPLAYLISTS: "true"      # Echolot's playlists (Echolot then gives each to its user)
+      ND_EXTAUTH_TRUSTEDSOURCES: ${HEARTS_NET:-10.253.53}.2/32  # Echolot alone may name a user: it gives
+      ND_EXTAUTH_USERHEADER: X-Echolot-User                    # the liked songs their hearts, as each user
       TZ: ${TZ:-UTC}
     volumes:
       - ./data/navidrome:/data
       - ${MUSIC}:/music:ro                # tracks/ and playlists/; inbox/ has a .ndignore (skipped)
+    networks: [navidrome]
     depends_on:
       echolot:
         condition: service_healthy
     restart: unless-stopped
+
+networks:
+  navidrome:                              # Echolot and Navidrome alone, Echolot at a fixed address
+    ipam:
+      config:
+        - subnet: ${HEARTS_NET:-10.253.53}.0/29

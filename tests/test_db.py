@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V35 = "ALTER TABLE availability DROP COLUMN plays; "  # schema 35
+V36 = "DROP TABLE stars; "  # schema 36
+V35 = V36 + "ALTER TABLE availability DROP COLUMN plays; "  # schema 35
 V32 = V35 + "ALTER TABLE lossy_sourced DROP COLUMN master; DROP TABLE lossy_checks; "  # schema 32
 V31 = V32 + "".join(f"ALTER TABLE events DROP COLUMN {c}; " for c in ("peer", "peer_path", "arrived"))  # schema 31
 V30 = V31 + "ALTER TABLE recording_items DROP COLUMN uri; DROP TABLE spotify_best; "  # schema 30

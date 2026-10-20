@@ -25,7 +25,7 @@ from typing import Any
 from echolot import db
 from echolot.config import Settings
 from echolot.jobs import acquire, availability, bandcamp, covers, lists, lossycheck, schedule
-from echolot.library import catalog, filing, history, playlists, recordings, review
+from echolot.library import catalog, filing, history, playlists, recordings, review, stars
 from echolot.services import navidrome, slskd, soulseek
 from echolot.settings import auth, options, sources
 from echolot.settings.vault import Vault
@@ -103,9 +103,9 @@ class Run:
 def upkeep(run: Run) -> str:
     """Apply due review decisions, merge YouTube songs' other edits of library songs (recordings.merge_edits),
     rescan the library, keep one file for songs of other names with the same audio (recordings.merge_same),
-    write the playlists, have slskd rescan its share (_reshare), store the hourly snapshot, renew the users
-    from Navidrome's user list (admins, accounts gone) and, once a day, empty the replaced/ and review/ days
-    older than 30 days."""
+    write the playlists, have slskd rescan its share (_reshare), give the likes lists' songs their hearts in
+    Navidrome (stars), store the hourly snapshot, renew the users from Navidrome's user list (admins,
+    accounts gone) and, once a day, empty the replaced/ and review/ days older than 30 days."""
     con = run.connect()
     try:
         parts = []
@@ -139,6 +139,11 @@ def upkeep(run: Run) -> str:
                     parts.append(owners)
             except navidrome.NavidromeError as e:
                 log.info("Navidrome's playlists: %s", e)
+            try:  # and their liked songs' hearts
+                if hearts := stars.sync(con, svc, run.paths.tracks.name):
+                    parts.append(hearts)
+            except navidrome.NavidromeError as e:
+                log.info("Navidrome's hearts: %s", e)
         if history.snapshot(con):
             parts.append("snapshot stored")
         if hours := history.rebuild(con):  # once: the time before the first snapshot

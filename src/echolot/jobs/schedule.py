@@ -117,8 +117,9 @@ JOBS = [
     JobInfo("library", "Library upkeep", "local", 5, 1,
             "Rescans the library, applies review decisions, writes the playlists.",
             "Notices new, changed and removed files (only those are read again), applies review decisions once "
-            "their undo time is over, matches songs to files and writes one playlist per list. Once a day it "
-            "deletes the replaced and review files older than 30 days."),
+            "their undo time is over, matches songs to files and writes one playlist per list. The songs of "
+            "everyone's likes lists get a heart in their Navidrome account. Once a day it deletes the replaced "
+            "and review files older than 30 days."),
     JobInfo("lossy", "Lossy check", "audio", None, 30,
             "Checks the library's FLACs for a lossy source. Start it with Run now.",
             "Downloads are checked as they arrive; this checks the FLACs already in the library with the same "
