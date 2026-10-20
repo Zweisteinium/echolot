@@ -91,6 +91,7 @@ h1 .count, h2 .count { color: var(--muted); font-weight: 400; margin-left: 0.25r
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 .nowrap { white-space: nowrap; }
+.show-narrow { display: none; }  /* narrow screens: in place of the columns hidden there (hide-narrow) */
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bad-text { color: var(--bad); }
 .ok-text { color: var(--ok); }
@@ -898,11 +899,15 @@ a.button.primary:hover { filter: brightness(1.08); }
   .card { padding: 0.9rem 1rem; }
   .schedule td:first-child { min-width: 9rem; }
   .hide-narrow { display: none; }
+  .show-narrow { display: block; }
+  table.missing td.tried { min-width: 10rem; }
+  .tried summary, .tried .pill { white-space: normal; }
   .recorders .rename { flex-wrap: wrap; gap: 0.15rem 0.5rem; }
   .recorders .rename input { width: 100%; min-width: 6rem; }
   .recorders td:last-child button { padding: 0.32rem 0.55rem; }
 }
 @media (max-width: 380px) {
+  .rows th, .rows td { padding-left: 0.35rem; padding-right: 0.35rem; }
   .recorders td:last-child button { padding: 0; border: 0; background: none; }
   .recorders .rename input { min-width: 5rem; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 1.1rem -1rem 0; }

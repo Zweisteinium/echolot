@@ -20,11 +20,11 @@ import json
 import re
 import secrets
 import sqlite3
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
-from echolot.library import identity, rules
+from echolot.library import rules
 
 WORST = ["missing", "lossy-low", "lossy-mid", "lossy-high", "fake"]  # the order a session records in
 BELOW = {  # a session's choice -> the tiers it records (a fake FLAC is worse than lossless only)
@@ -210,12 +210,71 @@ class Track:
         return d
 
 
-def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = None, held: bool = False) -> list[Track]:
-    """Every song of the user's Spotify lists (or of that one, whoever follows it: the pages decide who may see
-    it) the library has no genuine lossless copy of, worst first (then in the lists' order); each recording once
-    (the same song, file or ISRC in several lists); not what Spotify plays nowhere (or greys out), nor what
-    played as another song in the last SKIP_DAYS, nor (but with `held`) what Spotify has nothing better of
-    (blocks)."""
+@dataclass(frozen=True)
+class Mark:
+    """Why a Spotify song is not one to record (the lists show it, the Record dialog counts it): lossless (the
+    library has it so), best (Spotify has nothing better of it: blocks; Try again lifts it), gone (Spotify no
+    longer plays it) or lately (it played as another song in the last SKIP_DAYS)."""
+
+    kind: str
+    why: str = ""
+
+
+GONE = {  # availability state (jobs/availability.UNPLAYABLE; none: greyed out) -> why Spotify no longer gives it
+    "taken_down": "Spotify no longer plays it (taken down)",
+    "blocked": "Spotify does not play it in this country",
+    "gone": "It is no longer on Spotify",
+}
+GREYED_OUT = "Spotify no longer plays it (greyed out)"
+LEFT_OUT = {  # Mark.kind -> the Record dialog's words for the songs of a choice left out so
+    "lossless": "{n} lossless already",
+    "best": "{n} Spotify has nothing better of",
+    "gone": "{n} Spotify no longer plays",
+    "lately": "{n} played as another song lately",
+}
+
+
+def _mark(r: sqlite3.Row, held: dict[str, sqlite3.Row], lately: dict[str, str]) -> Mark | None:
+    """Why a song (key, file, close_match, quality, unavailable, state) is not to record; None: it is."""
+    if _have(r) == "lossless":
+        return Mark("lossless")
+    if (b := held.get(r["key"])) is not None:
+        why = f"Spotify has nothing better: {BEST.get(b['reason'], b['reason'])} (since {b['since'][:10]})"
+        return Mark("best", why)
+    if r["unavailable"] or r["state"] in GONE:
+        stays = ", this copy stays the best one for now" if _have(r) != "missing" else ""
+        return Mark("gone", f"{GONE.get(r['state'], GREYED_OUT)}: it cannot be recorded{stays}")
+    if t := lately.get(r["key"]):
+        again = (datetime.fromisoformat(t) + timedelta(days=SKIP_DAYS)).date().isoformat()
+        return Mark(
+            "lately", f"Spotify played another song for it on {t[:10]}: offered for recording again from {again}"
+        )
+    return None
+
+
+def _lately(con: sqlite3.Connection, user_id: int) -> dict[str, str]:
+    """The user's songs that played as another song in the last SKIP_DAYS: song key -> when (the last time)."""
+    sql = (
+        "SELECT i.song_key, max(i.finished) FROM recording_items i JOIN recordings r ON r.id = i.recording_id "
+        "WHERE r.user_id = ? AND i.result = 'wrong_song' AND i.finished >= ? GROUP BY i.song_key"
+    )
+    return dict(con.execute(sql, (user_id, _stamp(-timedelta(days=SKIP_DAYS)))).fetchall())
+
+
+def marks(con: sqlite3.Connection, user_id: int, rows: list[sqlite3.Row] | list[dict]) -> dict[str, Mark]:
+    """Song key -> why a list's Spotify song the library has worse than lossless is not to record (rows: key,
+    file, close_match, quality, unavailable, state): for the lists' marks."""
+    held, lately = blocks(con), _lately(con, user_id)
+    out = {}
+    for r in rows:
+        if r["key"].startswith("spotify:") and (m := _mark(r, held, lately)) and m.kind != "lossless":
+            out[r["key"]] = m
+    return out
+
+
+def _songs(con: sqlite3.Connection, user_id: int, list_key: str | None) -> list[tuple[sqlite3.Row, Mark | None]]:
+    """The songs of a choice (the user's Spotify lists, or that one), each recording once (the same song, file
+    or ISRC in several lists), with why it is not to record (None: it is)."""
     songs = (
         "SELECT s.key, s.artist, s.artists, s.title, s.album, s.length, s.isrc, s.file, s.close_match, s.unavailable, "
         "f.quality, a.state, a.detail, a.plays FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
@@ -228,42 +287,48 @@ def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = Non
     else:
         mine = f"{songs} JOIN sources src ON src.key = l.key WHERE src.user_id = ? AND src.enabled AND {spotify}"
         sql, args = f"{mine} ORDER BY src.position, ls.position", (user_id,)
-    rows = con.execute(sql, args).fetchall()
-    since = _stamp(-timedelta(days=SKIP_DAYS))
-    recent = (
-        "SELECT i.song_key FROM recording_items i JOIN recordings r ON r.id = i.recording_id "
-        "WHERE r.user_id = ? AND i.result = 'wrong_song' AND i.finished >= ?"
-    )
-    left_out = {r[0] for r in con.execute(recent, (user_id, since))}
-    if not held:
-        left_out |= set(blocks(con))
-    seen_marks: set[str] = set()
+    held, lately = blocks(con), _lately(con, user_id)
+    seen: set[str] = set()
     out = []
-    for r in rows:
-        marks = {f"key:{r['key']}"} | {
+    for r in con.execute(sql, args):
+        ids = {f"key:{r['key']}"} | {
             m for m in (r["file"] and f"file:{r['file']}", r["isrc"] and f"isrc:{r['isrc']}") if m
         }
-        if marks & seen_marks:
+        if ids & seen:
             continue
-        seen_marks |= marks
+        seen |= ids
+        out.append((r, _mark(r, held, lately)))
+    return out
+
+
+def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> list[Track]:
+    """Every song of the user's Spotify lists (or of that one, whoever follows it: the pages decide who may see
+    it) that is to record (_mark: not lossless, nor what Spotify has nothing better of, no longer plays or
+    played as another song lately), worst first (then in the lists' order), each recording once."""
+    return survey(con, user_id, list_key)[0]
+
+
+def survey(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> tuple[list[Track], list[str]]:
+    """A choice's songs to record (candidates), and what of it is not, and why (LEFT_OUT: ["41 lossless
+    already", "3 Spotify has nothing better of"])."""
+    out: list[Track] = []
+    left: Counter[str] = Counter()
+    for r, mark in _songs(con, user_id, list_key):
+        if mark is not None:
+            left[mark.kind] += 1
+            continue
         have = _have(r)
-        if (
-            have == "lossless"
-            or r["key"] in left_out
-            or r["unavailable"]
-            or r["state"] in ("taken_down", "blocked", "gone")
-        ):
-            continue
         sid = r["key"].removeprefix("spotify:")
         if r["state"] == "replaced" and (r["detail"] or "").startswith("spotify:"):
             sid = r["detail"].removeprefix("spotify:")
         artists = json.loads(r["artists"]) if r["artists"] else [r["artist"]]
         names = (r["artist"], artists, r["title"], r["album"] or "", r["length"] or 0, r["isrc"] or "")
-        plays = plays_as(r)  # the device checks the player's names: the relink's (another recording: unlike_copy)
+        plays = plays_as(r)  # the device checks the player's names: the relink's (another recording: unsure)
         if plays and (rules.same_recording(r, plays) or have != "missing"):
             names = (*(plays[k] for k in ("artist", "artists", "title", "album", "length")), plays["isrc"] or "")
         out.append(Track(r["key"], f"spotify:track:{sid}", *names, have))
-    return sorted(out, key=lambda t: WORST.index(t.have))
+    words = [w.format(n=left[kind]) for kind, w in LEFT_OUT.items() if left[kind]]
+    return sorted(out, key=lambda t: WORST.index(t.have)), words
 
 
 def plays_as(row: sqlite3.Row) -> dict | None:
@@ -275,34 +340,31 @@ def plays_as(row: sqlite3.Row) -> dict | None:
     return plays if plays.get("key") == row["detail"] else None
 
 
-def unlike_copy(con: sqlite3.Connection, tracks: Path, key: str, uri: str, path: Path) -> str:
-    """Why a recording is not the song when Spotify plays it as a release that may be another recording (neither
-    the ISRC nor the names and length agree; the device was handed that release's names, candidates): not the
-    audio of the library's copy (identity.same_master). '' when it is, or when nothing calls for the check."""
-    row = con.execute(
-        "SELECT s.artist, s.title, s.length, s.isrc, s.file, s.close_match, f.quality, a.state, a.detail, a.plays "
-        "FROM songs s LEFT JOIN files f ON f.path = s.file LEFT JOIN availability a ON a.song_key = s.key "
-        "WHERE s.key = ?",
-        (key,),
-    ).fetchone()
+def unsure(con: sqlite3.Connection, key: str, uri: str) -> str:
+    """The release Spotify plays a song as ("Artist – Title") when it may be another recording (a relink whose
+    ISRC, names and length do not agree: rules.same_recording) and `uri` is that release's; '' otherwise. A
+    recording of it must sound like the library's copy (upload.different)."""
+    sql = (
+        "SELECT s.artist, s.title, s.length, s.isrc, a.state, a.detail, a.plays FROM songs s "
+        "LEFT JOIN availability a ON a.song_key = s.key WHERE s.key = ?"
+    )
+    row = con.execute(sql, (key,)).fetchone()
     plays = plays_as(row) if row is not None else None
-    if plays is None or uri != f"spotify:track:{plays['key'].removeprefix('spotify:')}" or _have(row) == "missing":
+    if plays is None or uri != f"spotify:track:{plays['key'].removeprefix('spotify:')}":
         return ""
-    if rules.same_recording(row, plays):
-        return ""
-    share = identity.same_master(tracks / row["file"], path)
-    if share >= identity.SAME_MASTER:
-        return ""
-    played = f"{plays['artist']} – {plays['title']}"
-    return f"{DIFFERENT}: Spotify plays it as {played}, not the audio of your copy (same audio {share:.2f})"
+    return "" if rules.same_recording(row, plays) else f"{plays['artist']} – {plays['title']}"
+
+
+_HELD = "FROM spotify_best b LEFT JOIN availability a ON a.song_key = b.song_key WHERE b.uri = " + PLAYS_AS.format(
+    key="b.song_key"
+)
+HELD = f"SELECT b.song_key {_HELD}"  # SQL: the keys of the songs Spotify has nothing better of (blocks)
 
 
 def blocks(con: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     """The songs Spotify has nothing better of (song key -> spotify_best row): those it still plays as the track
     that was recorded (a song Spotify relinks to another release since may be better there)."""
-    plays = PLAYS_AS.format(key="b.song_key")
-    sql = f"SELECT b.* FROM spotify_best b LEFT JOIN availability a ON a.song_key = b.song_key WHERE b.uri = {plays}"
-    return {r["song_key"]: r for r in con.execute(sql)}
+    return {r["song_key"]: r for r in con.execute(f"SELECT b.* {_HELD}")}
 
 
 def block(con: sqlite3.Connection, key: str, uri: str | None, reason: str, detail: str = "") -> None:
@@ -323,11 +385,6 @@ def unblock(con: sqlite3.Connection, key: str) -> bool:
     """Offer a song for recording again (the user wants Spotify tried again)."""
     with con:
         return con.execute("DELETE FROM spotify_best WHERE song_key = ?", (key,)).rowcount > 0
-
-
-def held_back(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> int:
-    """How many songs of a choice are left out because Spotify has nothing better of them."""
-    return len(candidates(con, user_id, list_key, held=True)) - len(candidates(con, user_id, list_key))
 
 
 def _have(row: sqlite3.Row) -> str:
@@ -602,20 +659,15 @@ def answer(
     """What became of a song handed out: done (UPLOADED, SKIPS), queued again (AGAIN: until it was handed out
     TRIES times), or queued again as it was and its session paused (took_over: the user played Spotify, or
     stopped the device; a session paused already keeps its reason, by_user from the device's own Stop).
-    Spotify has nothing better of the song (block) when it plays it lossy only (lossy_only), or when a
-    recording that is not genuine lossless (`tier`; `stream`: lossy, as the device heard it) was filed or no
-    better than the library's copy."""
+    Spotify has nothing better of the song (block) when it plays it lossy only (lossy_only; a lossy recording:
+    `tier`, or `stream` lossy as the device heard it), or when a recording that is not genuine lossless was filed
+    or no better than the library's copy."""
     if result in (*UPLOADED, *SKIPS):
         _finish(con, item["id"], result, detail)
         uploaded = result in ("filed", "not_better") and tier and tier != "lossless"
         if result == "lossy_only" or uploaded:
-            reason = (
-                "lossy"
-                if result == "lossy_only" or stream == "lossy"
-                else "same"
-                if result == "not_better"
-                else "recorded"
-            )
+            lossy = result == "lossy_only" or stream == "lossy" or tier.startswith("lossy")
+            reason = "lossy" if lossy else "same" if result == "not_better" else "recorded"
             block(con, item["song_key"], item["uri"], reason, detail)
     elif result == "took_over":
         sql = "UPDATE recording_items SET state = 'queued', tries = tries - 1, lease_until = NULL WHERE id = ?"

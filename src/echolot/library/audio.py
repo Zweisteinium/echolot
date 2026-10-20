@@ -211,8 +211,8 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
     if lp is None:  # (off, or not installed: the spectrum check alone)
         return Prepared(path, result.get("verdict") == "lossy", result)
     label, source = judge(result, lp)
-    if label == "lossy" and result.get("verdict") != "lossy":
-        result = result | {"source": source, "by": "lossprint"}
+    if label == "lossy":
+        result = result | {"source": source} | ({} if result.get("verdict") == "lossy" else {"by": "lossprint"})
     _log_checks(path, result, lp, label)
     return Prepared(path, label == "lossy", result, lp)
 
@@ -268,14 +268,17 @@ def judge(spec: dict, lp: dict | None) -> tuple[str, str]:
     check's verdict, whatever lossprint says (lossprint misses some old encoders whose low-pass shows), or
     lossprint from LOSSPRINT_FAKE (it hears Opus, V0, AAC 256, MP3 320 behind a clipped master); doubtful: lossprint
     from LOSSPRINT_DOUBT (a label, no decision). Without a judgement from lossprint: the spectrum check alone.
-    Lossy says the file is made from a lossy one; whether its release already was is for a recording of Spotify's
-    lossless stream to tell (web/recorders: a lossy master)."""
-    if spec.get("verdict") == "lossy":
-        return "lossy", spec.get("source", "")
+    The source is lossprint's guess when it finds the file lossy too (its bitrate within a few kbps), else the
+    spectrum check's band ("~128 kbps")."""
     p = lp.get("p") if lp else None
+    heard = ""
     if p is not None and p >= LOSSPRINT_FAKE:
         family = FAMILIES.get(lp.get("encoder") or "", lp.get("encoder") or "lossy")
-        return "lossy", f"{family} ~{lp['kbps']:.0f} kbps" if lp.get("kbps") else family
+        heard = f"{family} ~{lp['kbps']:.0f} kbps" if lp.get("kbps") else family
+    if spec.get("verdict") == "lossy":
+        return "lossy", heard if " ~" in heard else spec.get("source", "")
+    if heard:
+        return "lossy", heard
     return ("doubtful", "") if p is not None and p >= LOSSPRINT_DOUBT else ("ok", "")
 
 

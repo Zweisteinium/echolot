@@ -125,8 +125,7 @@ JOBS = [
             "two checks: the spectrum (a lossy encoder's low-pass edge) and lossprint (a model that also hears "
             "high-bitrate MP3, AAC and Opus). Each file once, a few seconds at the lowest CPU priority; a file "
             "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (FLAC upgrade "
-            "looks for a better one), one found clean as lossless. A FLAC recorded from Spotify's lossless stream "
-            "that is itself made from lossy is the release's own audio and stays as it is. Off on the schedule."),
+            "looks for a better one), one found clean as lossless. Off on the schedule."),
     # not a task of the Jobs page and never on a schedule: after New SoundCloud songs, and Refresh on the Buy page
     JobInfo("bandcamp", "Bandcamp offers", "web", None, 60,
             "Finds Bandcamp offers of your lossy SoundCloud songs.",

@@ -76,6 +76,8 @@ def lp(p: float, encoder: str = "mp3", kbps: float | None = 320.0) -> dict:
         (OK, lp(0.5), ("doubtful", "")),
         (OK, lp(0.4999), ("ok", "")),
         (LOSSY, lp(0.0001), ("lossy", "~128 kbps")),  # the spectrum check's verdict stands, whatever lossprint says
+        (LOSSY, lp(1.0, "mp3", 125.4), ("lossy", "MP3 ~125 kbps")),  # both: lossprint's closer guess of the source
+        (LOSSY, lp(1.0, "ffmpeg_aac", None), ("lossy", "~128 kbps")),  # (lossprint without a bitrate)
         (TRACES, lp(0.0), ("lossy", "~320 kbps")),  # also on the encoder's traces alone
         (OK, {"error": "audio is shorter than the 2-second minimum"}, ("ok", "")),  # the spectrum check alone
         (LOSSY, None, ("lossy", "~128 kbps")),
@@ -88,7 +90,7 @@ def test_judge(spec: dict, lp_: dict | None, expected: tuple[str, str]) -> None:
 
 
 # recordings of Spotify's lossless stream (Mitschnitt, bit-exact, 2026-10-16) as the checks saw them: the
-# release's own audio, whatever its verdict (a lossy one is a lossy master)
+# release's own audio, whatever its verdict
 SPOTIFY = [  # song, spectrum (verdict, edge), lossprint (p, encoder, kbps), verdict
     ("Taylor Swift - Everything Has Changed", ("ok", 20400), (1.6e-07, "musepack", 367.6), "ok"),
     ("Turno - Killer VIP", ("ok", 17500), (4.2e-05, "ffmpeg_aac", 463.1), "ok"),
@@ -151,20 +153,18 @@ def test_a_lossprint_source_is_worth_its_bitrate() -> None:
 
 def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     """Every library FLAC is checked once per audio (a retag is not checked again) and its verdict applied: lossy
-    marks, ok and doubtful unmark, a lossy master stays."""
+    marks, ok and doubtful unmark; one marked already stays so."""
     tracks = settings.library_dir
     for rel in (
         "Artist A/Artist A - Clean.flac",
         "Artist C/Artist C - Opus Rip.flac",
-        "Artist D/Artist D - Master.flac",
+        "Artist D/Artist D - Marked.flac",
     ):
         (tracks / rel).parent.mkdir(parents=True, exist_ok=True)
         (tracks / rel).write_bytes(b"0123456789")
     con = db.connect(settings.db_path)
     with con:
-        con.execute(
-            "INSERT INTO lossy_sourced (stem, source, master) VALUES ('Artist D/Artist D - Master', 'MP3 ~290 kbps', 1)"
-        )
+        con.execute("INSERT INTO lossy_sourced (stem, source) VALUES ('Artist D/Artist D - Marked', 'MP3 ~290 kbps')")
     catalog.refresh(con, tracks)
     con.close()
     judged = {  # Second Song: marked made from ~128 kbps when filed, found clean now
@@ -174,7 +174,7 @@ def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) 
         ),
         "Artist A - Clean.flac": ({"verdict": "ok", "cutoff_hz": 21000}, {"p": 0.6, "encoder": "mp3", "kbps": 300}),
         "Artist C - Opus Rip.flac": ({"verdict": "ok", "cutoff_hz": 20000}, {"p": 1.0, "encoder": "opus", "kbps": 128}),
-        "Artist D - Master.flac": ({"verdict": "ok", "cutoff_hz": 19800}, {"p": 1.0, "encoder": "mp3", "kbps": 290}),
+        "Artist D - Marked.flac": ({"verdict": "ok", "cutoff_hz": 19800}, {"p": 1.0, "encoder": "mp3", "kbps": 290}),
     }
     checked: list[str] = []
     monkeypatch.setattr(audio, "spectrum", lambda path: judged[path.name][0])
@@ -188,19 +188,16 @@ def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) 
         monkeypatch.setenv("ECHOLOT_LOSSPRINT", mode)
         return lossycheck.run(Run(schedule.BY_NAME["lossy"], settings, vault, "schedule"))
 
-    def marks() -> dict[str, tuple[str, int]]:
+    def marks() -> dict[str, str]:
         con = db.connect(settings.db_path)
         try:
-            return {r[0]: (r[1], r[2]) for r in con.execute("SELECT stem, source, master FROM lossy_sourced")}
+            return dict(con.execute("SELECT stem, source FROM lossy_sourced").fetchall())
         finally:
             con.close()
 
     assert run_it("on") == "2 lossy, 1 doubtful, 1 ok; marked 1 made from lossy, unmarked 1"
     assert run_it("on") == "nothing to do" and len(checked) == 4  # (none checked again)
-    assert marks() == {
-        "Artist C/Artist C - Opus Rip": ("Opus ~128 kbps", 0),
-        "Artist D/Artist D - Master": ("MP3 ~290 kbps", 1),
-    }
+    assert marks() == {"Artist C/Artist C - Opus Rip": "Opus ~128 kbps", "Artist D/Artist D - Marked": "MP3 ~290 kbps"}
     con = db.connect(settings.db_path)
     quality = dict(con.execute("SELECT path, quality FROM files WHERE path LIKE '%.flac'").fetchall())
     con.close()
@@ -208,7 +205,7 @@ def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) 
         quality["Artist C/Artist C - Opus Rip.flac"] == "fake"
         and quality["Artist B/Artist B - Second Song.flac"] == "lossless"
     )
-    assert quality["Artist D/Artist D - Master.flac"] == "lossless"
+    assert quality["Artist D/Artist D - Marked.flac"] == "fake"
     opus = tracks / "Artist C/Artist C - Opus Rip.flac"
     opus.write_bytes(b"0123456789 retagged")  # the same audio (STREAMINFO MD5)
     con = db.connect(settings.db_path)

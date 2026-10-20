@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import song_link, spotify_best %}
+{% from "_macros.html" import song_cells, song_heads, song_mark %}
 {% from "_icons.html" import icon, use %}
 {% block title %}Missing · Echolot{% endblock %}
 {% set STAGES = [
@@ -27,13 +27,11 @@
     {% if upload %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload') }} Upload files</button>{% endif %}
   </div>
   <table class="rows missing">
-    <thead><tr><th>Artist</th><th>Title</th><th class="num">Length</th><th class="hide-narrow" title="#: the song's place in the list, as Spotify and SoundCloud order it (Liked Songs: newest first)">Lists</th><th>What was tried</th>{% if upload %}<th></th>{% endif %}</tr></thead>
+    <thead><tr>{{ song_heads() }}<th class="hide-narrow" title="#: the song's place in the list, as Spotify and SoundCloud order it (Liked Songs: newest first)">Lists</th><th>What was tried</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}
     <tr data-song="{{ s.key }}">
-      <td>{{ s.artist }}</td>
-      <td>{{ song_link(s.key, s.url, s.title) }}{{ spotify_best(s.key, best, upload) }}</td>
-      <td class="num muted">{{ s.length|mmss }}</td>
+      {{ song_cells(s, song_mark(s.key, marks.get(s.key), upload)) }}
       <td class="muted small hide-narrow">{{ s.in_lists }}</td>
       <td class="small tried">
         {% if s.notes or s.in_review %}<div class="chips">
@@ -91,13 +89,11 @@
     <summary><h2 class="group-name">Covered by a close match <span class="count">{{ close|length|num }}</span></h2></summary>
     <p class="lead small">Another version you took for the song in review; it plays in your playlists until the song itself is found. <em>Search again</em> or an upload looks for the song; the close match stays a file of its own until you <em>Remove</em> it.</p>
     <table class="rows">
-      <thead><tr><th>Artist</th><th>Title</th><th class="num">Length</th><th>Covered by</th><th></th></tr></thead>
+      <thead><tr>{{ song_heads() }}<th>Covered by</th><th></th></tr></thead>
       <tbody>
       {% for s in close %}
       <tr>
-        <td>{{ s.artist }}</td>
-        <td>{{ song_link(s.key, s.url, s.title) }}</td>
-        <td class="num muted">{{ s.length|mmss }}</td>
+        {{ song_cells(s) }}
         <td><span title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span> <span class="muted small">{{ s.duration|mmss }}</span></td>
         <td class="nowrap row-actions">
           {% if user.can('run') %}<form method="post" action="/songs/{{ s.key }}/search" class="inline">{{ csrf_input }}<button title="Look for the perfect match again; the close match stays a file of its own">Search again</button></form>{% endif %}

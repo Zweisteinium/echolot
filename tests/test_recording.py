@@ -17,9 +17,10 @@ from fastapi.testclient import TestClient
 
 from echolot import db
 from echolot.config import Settings
-from echolot.library import audio, identity, recording, upload
+from echolot.jobs import availability
+from echolot.library import audio, recording, upload
 from echolot.settings import auth, sources
-from echolot.web import create_app
+from echolot.web import create_app, stats
 
 APP = "Mitschnitt 0.4.0"
 
@@ -241,8 +242,9 @@ def test_a_relinked_song_by_the_names_it_plays_as(
 ) -> None:
     """The device checks the player's names: a song Spotify relinks is handed out by its relink's (Sitte's
     "Heineken Emblem" plays as evaness' "Heineken") when that is the song's recording (the ISRC; the names and
-    length), or, when it may be another, if the library has a copy to check the recording by: not its audio is
-    another recording (rejected, not offered again). Without a copy, or a relink not known yet: the list's names."""
+    length), or, when it may be another, if the library has a copy to check the recording by: one that sounds like
+    another recording than the copy (upload.different, as the upload dialog tells it) is rejected and not offered
+    again; another master of it is the song. Without a copy, or a relink not known yet: the list's names."""
     con = db.connect(app.state.settings.db_path)
     plays = {"key": "spotify:s1b", "artist": "evaness", "artists": ["evaness"], "title": "Heineken", "album": "H"}
     plays |= {"length": 201, "isrc": "QZTAS2444552"}
@@ -272,12 +274,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
         con.execute("UPDATE songs SET file = ?, isrc = NULL WHERE key = 'spotify:s1'", (copy,))
     con.close()
 
-    compared: list[tuple] = []
-    share = {"value": 0.42}
-
-    def same_master(a: Path, b: Path) -> float:
-        compared.append((a.name, b.name))
-        return share["value"]
+    scores = {"copy": (0.58, 0.04)}  # (fingerprint, waveform against your copy; the release's preview matches)
 
     def add(paths, batch, name, fileobj, keep_hires=False):
         return upload.File(1, name, Path("/x/rec.flac"), 201, 900, "lossless")
@@ -285,9 +282,8 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
         return [("Artist A – First Song: replaced the copy", "spotify:s1")]
 
-    monkeypatch.setattr(identity, "same_master", same_master)
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95, *scores["copy"]))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
     monkeypatch.setattr(upload, "import_files", import_files)
     owner = login(app)
@@ -297,13 +293,16 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     item = poll(device)["item"]
     assert item["key"] == "spotify:s1" and item["title"] == "Heineken"
     body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
-    assert body["result"] == "rejected" and compared == [(Path(copy).name, "rec.flac")]
-    assert "Spotify plays it as evaness – Heineken, not the audio of your copy (same audio 0.42)" in body["detail"]
+    assert body["result"] == "rejected"
+    assert body["detail"] == (
+        "Sounds different: another recording than your copy (fingerprint 0.58, waveform 0.04) "
+        "(Spotify plays it as evaness – Heineken)"
+    )
     con = db.connect(app.state.settings.db_path)
     assert recording.blocks(con)["spotify:s1"]["reason"] == "other"  # not offered again
     recording.unblock(con, "spotify:s1")
     con.close()
-    share["value"] = 0.996  # the same audio: the song, renamed
+    scores["copy"] = (0.95, 0.75)  # the same recording, another master: the song, renamed
     owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
     item = poll(device)["item"]
     body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
@@ -418,7 +417,7 @@ def test_spotify_has_nothing_better(
     assert list(best) == ["spotify:s2"] and best["spotify:s2"]["reason"] == "same"  # s1 was genuine lossless
     assert best["spotify:s2"]["uri"] == "spotify:track:s2"
     assert "spotify:s2" not in [t.key for t in recording.candidates(con, 1)]
-    assert recording.held_back(con, 1) == 1
+    assert "1 Spotify has nothing better of" in recording.survey(con, 1)[1]
     timon = auth.logged_in(con, "timon", "nd-timon", False).id
     sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111")
     con.close()
@@ -427,7 +426,7 @@ def test_spotify_has_nothing_better(
         'class="icon-button spotify-best"' in page
         and "Spotify has nothing better: Spotify&#39;s stream is no better" in page
     )
-    assert "1 song left out: Spotify has nothing better" in owner.get("/recordings/new").text
+    assert "1 Spotify has nothing better of" in owner.get("/recordings/new").text
     con = db.connect(app.state.settings.db_path)
     with con:  # Spotify plays s2 as another release now: it may be better there
         con.execute("INSERT INTO availability VALUES ('spotify:s2', 'replaced', '', 'x', 'spotify:s2new', NULL, NULL)")
@@ -438,8 +437,69 @@ def test_spotify_has_nothing_better(
     con.close()
     assert owner.post("/songs/spotify:s2/spotify-again").status_code == 200  # Try again
     con = db.connect(app.state.settings.db_path)
-    assert recording.blocks(con) == {} and recording.held_back(con, 1) == 0
+    assert recording.blocks(con) == {} and not any("better" in w for w in recording.survey(con, 1)[1])
     con.close()
+
+
+def test_best_marks_and_the_record_dialog_agree(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """A Spotify song the library has worse than lossless is to record, or the lists mark why not (recording.marks:
+    the same reasons the Record dialog counts out): Spotify has nothing better of it or no longer plays it (both
+    count as at their best: Best on the Library page), or it played as another song lately (offered again later)."""
+    owner = login(app)
+    connect(owner, app)
+    con = db.connect(app.state.settings.db_path)
+    recording.block(con, "spotify:s2", "spotify:track:s2", "same")  # the fake FLAC; s3 is greyed out, missing
+
+    def state() -> tuple:
+        liked = next(r for r in stats.lists(con, 1) if r["key"] == "spotify:likes:1")
+        marks = recording.marks(con, 1, stats.list_songs(con, "spotify:likes:1"))
+        tracks, left = recording.survey(con, 1, "spotify:likes:1")
+        return (
+            (liked["best"], liked["songs"] - liked["unobtainable"]),
+            {k: m.kind for k, m in marks.items()},
+            [t.key for t in tracks],
+            left,
+        )
+
+    assert state() == (
+        (1, 2),
+        {"spotify:s2": "best", "spotify:s3": "gone"},
+        ["spotify:s1"],
+        ["1 Spotify has nothing better of", "1 Spotify no longer plays"],
+    )
+    with con:  # s1 played as another song: left out for SKIP_DAYS, marked so
+        con.execute(
+            "INSERT INTO recordings (id, user_id, recorder_id, title, below, state, created) "
+            "VALUES (1, 1, 1, 'Liked Songs', 'lossless', 'done', ?)",
+            (recording._stamp(),),
+        )
+        con.execute(
+            "INSERT INTO recording_items (recording_id, position, song_key, state, result, finished) "
+            "VALUES (1, 0, 'spotify:s1', 'done', 'wrong_song', ?)",
+            (recording._stamp(),),
+        )
+    best, marks, tracks, left = state()
+    assert best == (1, 2) and marks["spotify:s1"] == "lately" and tracks == []
+    assert left[-1] == "1 played as another song lately"
+    page = owner.get("/recordings/new?list=spotify:likes:1").text
+    assert "Nothing to record: 1 Spotify has nothing better of, 1 Spotify no longer plays, 1 played as another" in page
+    with con:  # taken down since: this copy is the best there is
+        con.execute(
+            "INSERT INTO availability (song_key, state, since, checked) VALUES ('spotify:s1', 'taken_down', '', '')"
+        )
+    assert state()[:2] == ((2, 2), {"spotify:s1": "gone", "spotify:s2": "best", "spotify:s3": "gone"})
+    with con:  # another release of s1 in the list: the same file, marked so too
+        con.execute(
+            "INSERT INTO songs (key, service, artist, title, length, file) SELECT 'spotify:s1b', service, artist, "
+            "title, length, file FROM songs WHERE key = 'spotify:s1'"
+        )
+        con.execute("INSERT INTO list_songs VALUES ('spotify:likes:1', 3, 'spotify:s1b')")
+    con.close()
+    rows = owner.get("/lists/spotify:likes:1").text.split("<tbody>", 1)[1].split("</tr>")[:4]
+    assert all('<span class="nowrap"><span class="chip' in r and "spotify-best" in r for r in rows)  # (one line)
+    assert "The same song as #1, another release at its source: one file, recorded once" in rows[3]
+    assert "Spotify no longer plays it (taken down): it cannot be recorded, this copy stays" in rows[0]
+    assert set(recording.GONE) == set(availability.UNPLAYABLE)
 
 
 def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None:
@@ -489,23 +549,26 @@ def test_closing_a_sessions_summary_closes_it(app: FastAPI, login: Callable[...,
     assert 'id="recording" hidden' in after  # not the older one
 
 
-@pytest.mark.parametrize(("stream", "master"), [("lossless", True), ("lossy", False)])
-def test_a_lossy_master(
-    app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch, stream: str, master: bool
+@pytest.mark.parametrize(
+    ("stream", "tier", "reason"),
+    [("lossless", "fake", "recorded"), ("lossy", "fake", "lossy"), ("", "lossy-high", "lossy")],
+)
+def test_a_recording_made_from_lossy(
+    app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch, stream: str, tier: str, reason: str
 ) -> None:
-    """A recording of Spotify's lossless stream the lossy checks call made from lossy is the release's own audio:
-    a lossy master, filed as genuine lossless with its source (it takes over a fake copy); Spotify has nothing
-    better of it. Of a lossy stream it stays a fake FLAC (better than a ~128 kbps one: its source's bitrate)."""
-    imported: list[tuple[str, bool, str]] = []
+    """A recording the lossy checks call made from lossy is a fake FLAC whatever stream it is of (a re-release can
+    be worse than another copy): it takes over a worse copy by its source's bitrate. Spotify has nothing better of
+    it: recorded, or lossy only when the stream was (the device says so, or the recording is a lossy file)."""
+    imported: list[tuple[str, str]] = []
 
     def add(paths, batch, name, fileobj, keep_hires=False):
-        f = upload.File(1, name, Path("/x/rec.flac"), 200, 900, "fake", source="AAC ~258 kbps")
+        f = upload.File(1, name, Path("/x/rec.flac"), 200, 900 if tier == "fake" else 320, tier, source="AAC ~258 kbps")
         upload._save(upload.folder(paths, batch), f)
         return f
 
     def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
         f = upload.files(paths, batch)[0]
-        imported.append((f.tier, f.master, f.source))
+        imported.append((f.tier, f.source))
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
 
     monkeypatch.setattr(upload, "add", add)
@@ -526,9 +589,8 @@ def test_a_lossy_master(
     con = db.connect(app.state.settings.db_path)
     best = recording.blocks(con).get(item["key"])
     con.close()
-    assert r["result"] == "filed" and ("(a lossy master: AAC ~258 kbps)" in r["detail"]) is master
-    assert imported == [("lossless", True, "AAC ~258 kbps") if master else ("fake", False, "AAC ~258 kbps")]
-    assert best["reason"] == ("recorded" if master else "lossy")  # Spotify has nothing better
+    assert r["result"] == "filed" and imported == [(tier, "AAC ~258 kbps")]
+    assert best["reason"] == reason  # Spotify has nothing better
 
 
 @pytest.fixture

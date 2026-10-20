@@ -18,8 +18,7 @@ CREATE TABLE lossy_sourced (        -- FLACs the lossy checks found to be made f
     stem TEXT PRIMARY KEY,          -- files.path without extension
     source TEXT,                    -- estimated original, e.g. "~128 kbps", "AAC ~258 kbps"
     detected TEXT,
-    master INTEGER NOT NULL DEFAULT 0  -- 1: the release itself is (a bit-exact recording of Spotify's lossless
-                                    -- stream judged lossy): the best copy there is, no fake (catalog.Entry)
+    master INTEGER NOT NULL DEFAULT 0  -- unused (always 0; kept so older versions run on this database)
 );
 CREATE TABLE lossy_checks (         -- the library FLACs' lossy checks (jobs/lossycheck)
     path TEXT PRIMARY KEY,          -- files.path

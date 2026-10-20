@@ -89,9 +89,9 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
     uid = stats.scope(request.state.user)
     songs = stats.missing(con, list_key or None, filing.Paths(library.parent) if library else None, uid)
     lists, close = stats.lists(con, uid), stats.close_matches(con, uid)
-    best = recording.blocks(con)  # (Spotify has nothing better of these)
+    marks = recording.marks(con, request.state.user.id, songs)
     return page(
-        request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, best=best
+        request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, marks=marks
     )
 
 
@@ -121,10 +121,10 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     songs = stats.list_songs(con, key)
     same = stats.same_as(songs)  # (the quality bar counts such a song once)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
-    best = recording.blocks(con) if lst["service"] == "spotify" else {}  # (Spotify has nothing better of these)
+    marks = recording.marks(con, request.state.user.id, songs) if lst["service"] == "spotify" else {}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}  # (Bandcamp sells these)
     return page(
-        request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers, best=best, offers=offers
+        request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers, marks=marks, offers=offers
     )
 
 

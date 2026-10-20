@@ -47,13 +47,12 @@ class File:
     artist: str = ""
     title: str = ""
     error: str = ""
-    source: str = ""  # a fake FLAC: the lossy file it was made from, as the spectrum check estimates it
+    source: str = ""  # a fake FLAC: the lossy file it was made from, as the lossy checks estimate it
     band: int = 0  # Hz up to which it has sound (a lossy encoder's edge; 0: none, its full range)
     peak: float | None = None
     rms: float | None = None
     spotify_id: str = ""
     isrc: str = ""
-    master: bool = False  # a lossy master: a recording of Spotify's lossless stream judged lossy (web/recorders)
 
 
 @dataclass
@@ -135,21 +134,17 @@ def tier(path: Path, kbps: int, fake: bool) -> str:
     return "lossy-high" if kbps >= 250 else "lossy-mid" if kbps >= 150 else "lossy-low"
 
 
-def as_master(paths: Paths, batch: str, f: File) -> None:
-    """The file is a lossy master (lossy_sourced.master): genuine lossless as the library counts it, its
-    source kept."""
-    f.master, f.tier = True, "lossless"
-    _save(folder(paths, batch), f)
-
-
 def files(paths: Paths, batch: str) -> list[File]:
     d = folder(paths, batch)
     out = []
     for p in sorted(d.glob("*.json")) if d.is_dir() else []:
         raw = json.loads(p.read_text())
         raw["path"] = Path(raw["path"]) if raw.get("path") else None
-        out.append(File(**raw))
+        out.append(File(**{k: v for k, v in raw.items() if k in _FIELDS}))  # (a field gone since: dropped)
     return out
+
+
+_FIELDS = {f.name for f in dataclasses.fields(File)}
 
 
 def _save(d: Path, f: File) -> None:
@@ -297,16 +292,15 @@ def _other(fp: float | None, wave: float | None) -> bool:
     return fp is not None and (fp <= identity.OTHER or (fp < identity.SAME and wave is not None and wave < WAVE_OTHER))
 
 
-def different(fit: Fit | None) -> str:
-    """Why the file's audio is another recording: than the release's preview, or without one than your copy
-    ("another recording than your copy (fingerprint 0.58, waveform 0.04)"); '' when it is not (or not known)."""
+def different(fit: Fit | None, copy: bool = False) -> str:
+    """Why the file's audio is another recording: than the release's preview, or without one (`copy`: also with
+    one) than your copy ("another recording than your copy (fingerprint 0.58, waveform 0.04)"); '' when it is
+    not (or not known)."""
     if fit is None:
         return ""
-    if fit.fingerprint is not None:
-        if _other(fit.fingerprint, fit.waveform):
-            return f"another recording than the release's ({_scores(fit.fingerprint, fit.waveform)})"
-        return ""
-    if _other(fit.copy_fingerprint, fit.copy_waveform):
+    if _other(fit.fingerprint, fit.waveform):
+        return f"another recording than the release's ({_scores(fit.fingerprint, fit.waveform)})"
+    if (copy or fit.fingerprint is None) and _other(fit.copy_fingerprint, fit.copy_waveform):
         return f"another recording than your copy ({_scores(fit.copy_fingerprint, fit.copy_waveform)})"
     return ""
 
@@ -461,7 +455,6 @@ def import_files(
             "match": "by hand",
             "fake": fake,
             "fake_source": f.source,
-            "master": f.master,
             "replaces": have or "",
             "replace": bool(have),
         }

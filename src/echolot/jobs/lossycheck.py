@@ -1,8 +1,8 @@
 """The library's lossy check, by hand (downloads are judged as they arrive: audio.prepare): every library FLAC not
 checked yet through both lossy checks (audio.judge, lossprint at the lowest CPU priority), stored in lossy_checks;
 once per audio: a file changed by a retag (the same STREAMINFO MD5) is not checked again. The stored verdicts are
-applied (apply): lossy marks a file made from a lossy one (lossy_sourced), ok and doubtful unmark it, a lossy master
-(lossy_sourced.master) stays as it is. ECHOLOT_LOSSPRINT off: nothing.
+applied (apply): lossy marks a file made from a lossy one (lossy_sourced), ok and doubtful unmark it.
+ECHOLOT_LOSSPRINT off: nothing.
 """
 
 import datetime
@@ -85,16 +85,15 @@ def _one(run: "Run", con: sqlite3.Connection, row: sqlite3.Row, old: sqlite3.Row
 
 def apply(con: sqlite3.Connection) -> tuple[list[str], list[str]]:
     """The stored verdicts of the files as they are now (their size and mtime) applied to the marks: (the files
-    marked made from lossy, those unmarked); the songs' tiers follow. A lossy master is never touched: a recording
-    of Spotify's lossless stream proved it the best copy there is."""
+    marked made from lossy, those unmarked); the songs' tiers follow."""
     current = (
-        "SELECT c.path, c.spectrum, c.lossprint, c.verdict, l.stem IS NOT NULL AS marked, coalesce(l.master, 0) "
-        "AS master FROM lossy_checks c JOIN files f ON f.path = c.path AND f.size = c.size AND f.mtime = c.mtime "
+        "SELECT c.path, c.spectrum, c.lossprint, c.verdict, l.stem IS NOT NULL AS marked "
+        "FROM lossy_checks c JOIN files f ON f.path = c.path AND f.size = c.size AND f.mtime = c.mtime "
         "LEFT JOIN lossy_sourced l ON l.stem = substr(c.path, 1, length(c.path) - 5)"
     )
     rows = con.execute(current).fetchall()
     mark = [r for r in rows if r["verdict"] == "lossy" and not r["marked"]]
-    unmark = [r for r in rows if r["verdict"] != "lossy" and r["marked"] and not r["master"]]
+    unmark = [r for r in rows if r["verdict"] != "lossy" and r["marked"]]
     if mark or unmark:
         today = datetime.date.today().isoformat()
         with filing.LOCK, con:
@@ -103,6 +102,6 @@ def apply(con: sqlite3.Connection) -> tuple[list[str], list[str]]:
                 add = "INSERT OR IGNORE INTO lossy_sourced (stem, source, detected) VALUES (?, ?, ?)"
                 con.execute(add, (r["path"][:-5], source, today))
             stems = [(r["path"][:-5],) for r in unmark]
-            con.executemany("DELETE FROM lossy_sourced WHERE stem = ? AND NOT master", stems)
+            con.executemany("DELETE FROM lossy_sourced WHERE stem = ?", stems)
         catalog.match_songs(con)
     return [r["path"] for r in mark], [r["path"] for r in unmark]

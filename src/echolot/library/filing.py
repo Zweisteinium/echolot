@@ -146,11 +146,8 @@ def _free_name(folder: Path, name: str, ext: str, length: float, label: str = ""
     return folder / f"{cand}.{ext}"
 
 
-def _add_file(
-    con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source: str = "", master: bool = False
-) -> None:
-    """Record a file just placed in the library (files, lossy_sourced with the lossy `source` if known; `master`:
-    a lossy master, the best copy there is, no fake)."""
+def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source: str = "") -> None:
+    """Record a file just placed in the library (files, lossy_sourced with the lossy `source` if known)."""
     st = p.stat()
     dur, kbps = audio.probe(p)
     rel = p.relative_to(paths.tracks).as_posix()
@@ -160,10 +157,10 @@ def _add_file(
             "INSERT OR REPLACE INTO files (path, size, mtime, duration, kbps, quality) VALUES (?, ?, ?, ?, ?, ?)",
             (rel, st.st_size, int(st.st_mtime), dur, kbps, entry.quality),
         )
-        if fake or master:
+        if fake:
             con.execute(
-                "INSERT OR REPLACE INTO lossy_sourced (stem, source, detected, master) VALUES (?, ?, ?, ?)",
-                (entry.stem, source, datetime.date.today().isoformat(), int(master and not fake)),
+                "INSERT OR REPLACE INTO lossy_sourced (stem, source, detected) VALUES (?, ?, ?)",
+                (entry.stem, source, datetime.date.today().isoformat()),
             )
 
 
@@ -206,13 +203,13 @@ def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: 
             dest = _free_name(folder, stem, entry.ext, entry.duration)
             _place(src, dest)
             stem = dest.relative_to(paths.tracks).with_suffix("").as_posix()
-            mark = con.execute("SELECT source, master FROM lossy_sourced WHERE stem = ?", (entry.stem,)).fetchone()
+            mark = con.execute("SELECT source FROM lossy_sourced WHERE stem = ?", (entry.stem,)).fetchone()
             with con:
                 con.execute("DELETE FROM files WHERE path = ?", (entry.path,))
                 con.execute("DELETE FROM lossy_sourced WHERE stem = ?", (entry.stem,))
                 # a SoundCloud song is its own download, found by the name: it keeps the file
                 con.execute("UPDATE songs SET stem = ? WHERE stem = ?", (stem, entry.stem))
-            _add_file(con, paths, dest, entry.fake, *(mark or ("", False)))
+            _add_file(con, paths, dest, entry.fake, mark[0] if mark else "")
         audio.write_tags(dest, artist=artist, title=title)
         event(con, paths, "renamed", dest, artist=artist, title=title, reason=f"{reason} (was {entry.path})")
     return dest
@@ -334,7 +331,6 @@ def file_into(
     peer: tuple[str, str, int] = ("", "", 0),
     replace: bool = False,
     fake_source: str = "",
-    master: bool = False,
 ) -> tuple[str, Path | None]:
     """Put a downloaded file into the library. Returns (action, library path); action is
     'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
@@ -350,8 +346,7 @@ def file_into(
     identity.same_master found) with `replaces` (that library file): the download is the file's audio in
     another codec, so the names only tell an exact match (filed) from a probable one (filed for review);
     it takes over that file. `replace` (an upload by hand, judged by the user): the download takes over the
-    song's copy whatever their ranks. `fake_source`: what a fake FLAC was made from (lossy_sourced); `master`:
-    the file is a lossy master (its release made from a lossy file: lossy_sourced.master, `fake_source` its source)."""
+    song's copy whatever their ranks. `fake_source`: what a fake FLAC was made from (lossy_sourced)."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
@@ -431,14 +426,14 @@ def file_into(
                 if paths.tracks / e.path != dest and (paths.tracks / e.path).exists():
                     retire(con, paths, e, why)
             # (after: retiring "A - Song.mp3" unmarks "A - Song.*")
-            _add_file(con, paths, dest, fake, fake_source, master)
+            _add_file(con, paths, dest, fake, fake_source)
             event(con, paths, "upgrade", dest, **{"fake": int(fake), **info})
             return "upgrade", dest
         folder = artist_dir(paths, cat, want.artist)
         label = "SoundCloud" if source == "soundcloud" else ""  # a SoundCloud like next to its Spotify version
         dest = _free_name(folder, f"{folder.name} - {clean_name(want.title)}", ext, length, label)
         _place(src, dest)
-        _add_file(con, paths, dest, fake, fake_source, master)
+        _add_file(con, paths, dest, fake, fake_source)
         event(con, paths, "new", dest, **{"fake": int(fake), **info})
         return "new", dest
 

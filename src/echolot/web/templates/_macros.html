@@ -13,6 +13,18 @@
 {%- else %}{{ text }}{% endif %}
 {%- endmacro %}
 
+{# a song's Artist, Title and Length columns (song_heads, song_cells); on narrow screens its artist and length go
+   under the title. `mark`: after the title (song_mark) #}
+{% macro song_heads() -%}
+<th class="hide-narrow">Artist</th><th>Title</th><th class="num hide-narrow">Length</th>
+{%- endmacro %}
+
+{% macro song_cells(s, mark='') -%}
+<td class="hide-narrow">{{ s.artist }}</td>
+      <td>{{ song_link(s.key, s.url, s.title) }}{{ mark }}<div class="show-narrow muted small">{{ s.artist }} <span class="nowrap">· {{ s.length|mmss }}</span></div></td>
+      <td class="num muted hide-narrow">{{ s.length|mmss }}</td>
+{%- endmacro %}
+
 {% macro quality(key, kbps=None, label=None) -%}
 <span class="chip q-{{ key }}"><span class="swatch" aria-hidden="true"></span>{{ label or ('FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else 'missing' if key == 'missing' else (kbps ~ ' kbps') if kbps else 'lossy') }}</span>
 {%- endmacro %}
@@ -49,17 +61,13 @@
 </ul>
 {%- endmacro %}
 
-{# a song Spotify can't give better: it has nothing better of it (recording.blocks: `best`; who may record clicks
-   the mark to offer the song for recording again), or it no longer plays it (`gone`: the availability state or
-   the greyed-out note of a song the library has a copy of) #}
-{% macro spotify_best(key, best, can, gone=none) -%}
-{% set b = best.get(key) if best else none %}
-{%- if b %}{% set why = 'Spotify has nothing better: ' ~ spotify_best_why.get(b.reason, b.reason) ~ ' (since ' ~ b.since[:10] ~ ')' %}
-{%- if can %}<button type="button" class="icon-button spotify-best" title="{{ why }}. Click to try recording it again." aria-label="{{ why }}; try again"
+{# why a song is not to record (recording.marks): Spotify has nothing better of it (best: who may record clicks the
+   mark to offer the song for recording again), no longer plays it (gone), played another song for it lately
+   (lately); or it is in the list twice (twin). A word joiner keeps it on the line of the word before it. #}
+{% macro song_mark(key, m, can) -%}
+{%- if m and m.kind == 'best' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to try recording it again." aria-label="{{ m.why }}; try again"
   hx-post="/songs/{{ key|urlencode }}/spotify-again" hx-swap="outerHTML" hx-confirm="Offer this song for recording again?">{{ icon('info', 13) }}</button>
-{%- else %}<span class="spotify-best" title="{{ why }}" aria-label="{{ why }}">{{ icon('info', 13) }}</span>{% endif %}
-{%- elif gone %}{% set GONE = {'taken_down': 'Spotify no longer plays it (taken down)', 'blocked': 'Spotify does not play it in this country', 'gone': 'It is no longer on Spotify'} %}{% set why = GONE.get(gone, 'Spotify no longer plays it (greyed out)') ~ ': it cannot be recorded, this copy stays the best one for now' %}
-<span class="spotify-best" title="{{ why }}" aria-label="{{ why }}">{{ icon('info', 13) }}</span>
+{%- elif m %}&#8288;<span class="spotify-best" title="{{ m.why }}" aria-label="{{ m.why }}">{{ icon('info', 13) }}</span>
 {%- endif %}
 {%- endmacro %}
 

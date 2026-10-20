@@ -113,17 +113,19 @@ def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
     return [(k, label, n.get(k, 0)) for k, label in TIERS]
 
 
-# a song at the best quality there is: genuine lossless, or a copy Spotify has nothing better of (recording.blocks)
+# as recording._mark sees a song: its own copy (not only a close match's), Spotify no longer plays it (greyed out,
+# taken down, not in this country, gone: recording.GONE), Spotify has nothing better of it (recording.blocks)
+_OWN = "(s.file IS NOT NULL AND NOT s.close_match)"
+_GONE = f"(s.unavailable IS NOT NULL OR av.state IN {UNPLAYABLE})"
+_HELD = f"s.key IN ({recording.HELD})"
+# a song at the best quality there is (as the lists mark it: recording.marks): genuine lossless, a copy Spotify has
+# nothing better of, or one of a song Spotify no longer plays
 _BEST = (
-    "coalesce(sum(s.file IS NOT NULL AND (f.quality = 'lossless' OR s.key IN (SELECT b.song_key FROM spotify_best b "
-    "LEFT JOIN availability a ON a.song_key = b.song_key WHERE b.uri = "
-    + recording.PLAYS_AS.format(key="b.song_key")
-    + "))), 0) AS best"
+    f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR (s.key LIKE 'spotify:%' AND {_GONE}))), 0) AS best"
 )
-# a missing song no source hands out (greyed out, DRM, taken down): it can't be had, so it doesn't count for best
-_UNOBTAINABLE = (
-    f"coalesce(sum(s.file IS NULL AND (s.unavailable IS NOT NULL OR av.state IN {UNPLAYABLE})), 0) AS unobtainable"
-)
+# a missing song no source hands out (greyed out, DRM, taken down, another recording on Spotify): it can't be had,
+# so it doesn't count for best
+_UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND ({_GONE} OR {_HELD})), 0) AS unobtainable"
 
 
 def lists(con: Connection, uid: int | None = None) -> list[Row]:
@@ -187,7 +189,7 @@ def list_songs(con: Connection, key: str) -> list[Row]:
     return con.execute(
         "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
         f"{db.play_url()} AS url, s.isrc, "
-        "s.file, f.quality, f.kbps, a.state AS plays FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
+        "s.file, s.close_match, f.quality, f.kbps, a.state FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
         "LEFT JOIN files f ON f.path = s.file LEFT JOIN availability a ON a.song_key = s.key "
         "WHERE ls.list_key = ? ORDER BY ls.position",
         (key,),
@@ -234,6 +236,7 @@ def missing(
         args.append(list_key)
     rows = con.execute(
         f"SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, {db.play_url()} AS url, s.isrc, "
+        "s.file, s.close_match, NULL AS quality, (SELECT state FROM availability WHERE song_key = s.key) AS state, "
         "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
         "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
         " FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key "

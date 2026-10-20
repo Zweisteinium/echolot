@@ -106,7 +106,7 @@ def test_same_song_twice_is_a_duplicate(env) -> None:
 
 
 def test_a_fake_flac_that_takes_over_stays_marked(env) -> None:
-    """A recording made from Spotify's lossy master replaces a 160 kbps copy of the same name: it stays a fake
+    """A recording made from a lossy file replaces a 160 kbps copy of the same name: it stays a fake
     FLAC (retiring "A - Song.mp3" once unmarked the new "A - Song.flac" too), and its event says so."""
     con, paths, _ = env
     mp3 = paths.tracks / "A" / "A - Song.mp3"
