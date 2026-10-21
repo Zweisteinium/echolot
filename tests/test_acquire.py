@@ -519,7 +519,10 @@ def add_missing(run: Run, key: str, title: str, tries: int = 0, last_try: int = 
     with con:
         sql = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', 'Artist N', ?, 200)"
         con.execute(sql, (key, title))
-        sql = "INSERT INTO list_songs SELECT 'spotify:likes:1', max(position) + 1, ? FROM list_songs"
+        sql = (
+            "INSERT INTO list_songs (list_key, position, song_key) "
+            "SELECT 'spotify:likes:1', max(position) + 1, ? FROM list_songs"
+        )
         con.execute(sql, (key,))
         if tries or last_fallback:
             sql = "INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES (?, ?, ?, ?)"

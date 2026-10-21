@@ -107,7 +107,9 @@ def test_a_recording_twice_in_a_list(client: TestClient, settings: Settings) -> 
             "VALUES ('spotify:s1b', 'spotify', 'Somebody', 'First Song', 200, ?)",
             (file,),
         )
-        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 1, 'spotify:s1b')")
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:playlist:AAA111', 1, 'spotify:s1b')"
+        )
     con.close()
     html = client.get("/lists/spotify:playlist:AAA111").text
     assert 'class="same"' in html and "same song as #1, another release" in html

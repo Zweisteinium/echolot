@@ -64,21 +64,37 @@ def _default_title(s: Source) -> str:
     return "SoundCloud Likes" if s.name == "SoundCloud Likes" else s.url
 
 
-def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover: str | None,
-           snapshot: str | None = None, creator: str | None = None) -> None:  # fmt: skip
+def _store(
+    con: sqlite3.Connection,
+    s: Source,
+    ids: list[str],
+    title: str,
+    cover: str | None,
+    snapshot: str | None = None,
+    creator: str | None = None,
+    added: dict[str, str | None] | None = None,
+) -> None:
     """A list's current songs (keys in order; songs not yet known are left out), its history, and what
-    changed since its last reading (availability.record_list)."""
+    changed since its last reading (availability.record_list). `added`: when the source says each song came
+    into the list; one it says nothing of keeps its time, a new one gets now."""
     today = datetime.date.today().isoformat()
     known = {r[0] for r in con.execute(f"SELECT key FROM songs WHERE key IN ({', '.join('?' * len(ids))})", ids)}
-    sql = "SELECT song_key FROM list_songs WHERE list_key = ? ORDER BY position"
-    before = [r[0] for r in con.execute(sql, (s.key,))]
+    sql = "SELECT song_key, added FROM list_songs WHERE list_key = ? ORDER BY position"
+    rows = con.execute(sql, (s.key,)).fetchall()
+    before, since = [r[0] for r in rows], {r[0]: r[1] for r in rows if r[1]}
+    now, added = _utc(datetime.datetime.now(datetime.UTC).isoformat()), added or {}
     state = con.execute("SELECT fetched FROM lists WHERE key = ?", (s.key,)).fetchone()
     first = not (state and state["fetched"])  # its songs were there before Echolot knew the list
     with con:
         availability.record_list(con, s.key, before, [k for k in ids if k in known], first)
         con.execute("DELETE FROM list_songs WHERE list_key = ?", (s.key,))
-        con.executemany("INSERT INTO list_songs (list_key, position, song_key) VALUES (?, ?, ?)",
-                        [(s.key, n, k) for n, k in enumerate(k for k in ids if k in known)])  # fmt: skip
+        con.executemany(
+            "INSERT INTO list_songs (list_key, position, song_key, added) VALUES (?, ?, ?, ?)",
+            [
+                (s.key, n, k, _utc(added.get(k)) or since.get(k) or now)
+                for n, k in enumerate(k for k in ids if k in known)
+            ],
+        )
         con.executemany(
             "INSERT INTO list_history (list_key, song_key, first_seen, last_seen) VALUES (?, ?, ?, ?) "
             "ON CONFLICT (list_key, song_key) DO UPDATE SET last_seen = excluded.last_seen",
@@ -91,9 +107,28 @@ def _store(con: sqlite3.Connection, s: Source, ids: list[str], title: str, cover
         )
 
 
+def _utc(when: str | None) -> str | None:
+    """A source's time (ISO 8601; one without a zone is this machine's) in UTC, as 2026-10-21T10:44:34Z; None
+    for none (or Spotify's 1970 of the songs of very old playlists)."""
+    try:
+        t = datetime.datetime.fromisoformat(when or "").astimezone(datetime.UTC)
+    except ValueError:
+        return None
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ") if t.year > 2000 else None
+
+
+def _dates(items: list[dict[str, Any]]) -> dict[str, str | None]:
+    """When each Spotify song came into its list (its first place)."""
+    out: dict[str, str | None] = {}
+    for it in items:
+        out.setdefault(f"spotify:{it['id']}", it.get("added"))
+    return out
+
+
 def store_wished(con: sqlite3.Connection, user_id: int, songs: list[tuple[str, dict[str, Any]]]) -> None:
-    """A user's Wished list as their hearts in a player are now: (song key, its names, length, page, ISRC),
-    the newest first. Searched like a Spotify song (acquire.SEARCHED); the library's songs are linked at once."""
+    """A user's Wished list as their hearts in a player are now: (song key, its names, length, page, ISRC,
+    when liked), the newest first. Searched like a Spotify song (acquire.SEARCHED); the library's songs are
+    linked at once."""
     s = sources.add_wished(con, user_id)
     con.commit()
     sync_table(con)
@@ -101,7 +136,7 @@ def store_wished(con: sqlite3.Connection, user_id: int, songs: list[tuple[str, d
         for key, d in songs:
             meta = {"album": d.get("album") or "", "length": d.get("seconds") or 0, "isrc": d.get("isrc") or None}
             _song(con, key, sources.WISHED, artist=d["artist"], title=d["title"], url=d.get("url") or None, **meta)
-    _store(con, s, [key for key, _ in songs], sources.WISHED_TITLE, None)
+    _store(con, s, [key for key, _ in songs], sources.WISHED_TITLE, None, added={k: d.get("liked") for k, d in songs})
     catalog.match_songs(con)
 
 
@@ -297,9 +332,15 @@ def _fetch_spotify_list(
     before = [
         r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = ? ORDER BY position", (s.key,))
     ]
-    if pid is None and before and (added := sp.liked_since({k.removeprefix("spotify:") for k in before}, len(before))):
+    undated = con.execute("SELECT 1 FROM list_songs WHERE list_key = ? AND added IS NULL", (s.key,)).fetchone()
+    if (
+        pid is None
+        and before
+        and not undated  # (their times not read yet: all are read)
+        and (liked := sp.liked_since({k.removeprefix("spotify:") for k in before}, len(before)))
+    ):
         with con:  # only songs liked since: read up to the first known one (120 requests less for 6000 likes)
-            for it in added:
+            for it in liked:
                 _song(
                     con,
                     f"spotify:{it['id']}",
@@ -312,7 +353,8 @@ def _fetch_spotify_list(
                     isrc=it["isrc"],
                     **{k: it.get(k) for k in FACTS},
                 )
-        _store(con, s, [f"spotify:{it['id']}" for it in added] + before, title, cover, snapshot, creator)
+        ids = [f"spotify:{it['id']}" for it in liked] + before
+        _store(con, s, ids, title, cover, snapshot, creator, _dates(liked))
         return True
     items = sp.items(pid)
     if not items and before:
@@ -322,7 +364,7 @@ def _fetch_spotify_list(
             _song(con, f"spotify:{it['id']}", "spotify", artist=it["artist"], title=it["title"],
                   album=it["album"], length=it["length"], artists=json.dumps(it["artists"]), isrc=it["isrc"],
                   **{k: it.get(k) for k in FACTS})  # fmt: skip
-    _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot, creator)
+    _store(con, s, [f"spotify:{it['id']}" for it in items], title, cover, snapshot, creator, _dates(items))
     return True
 
 
@@ -594,6 +636,7 @@ def soundcloud(run: "Run") -> str:
 
     ydl = ydl_of(any_token)  # downloads: SoundCloud hands a song to any account
     listed: dict[str, list[tuple[str, str]]] = {}
+    liked: dict[str, dict[str, str]] = {}  # per likes list: when each track was liked
     for s in srcs:
         run.say(f"reading {s.title or s.url}")
         tracks, info = ydl_of(tokens[s.key] or any_token).listing(s.url, run.stop)
@@ -606,6 +649,11 @@ def soundcloud(run: "Run") -> str:
         run.note(f"SoundCloud: {s.title or s.url} read, {len(tracks)} songs")
         con = run.connect()
         try:
+            if (token := tokens[s.key] or any_token) and _undated(con, s, tracks):
+                try:
+                    liked[s.key] = {f"soundcloud:{tid}": when for tid, when in sc_api.liked(token, s.url).items()}
+                except sc_api.SoundCloudError as e:
+                    log.info("soundcloud %s: when liked: %s", s.key, e)
             title, cover = _sc_meta(s, info)
             with con:
                 con.execute("UPDATE lists SET title = ?, cover_url = coalesce(?, cover_url) WHERE key = ?",
@@ -652,7 +700,8 @@ def soundcloud(run: "Run") -> str:
         for s in srcs:
             if s.key in listed:
                 row = con.execute("SELECT title FROM lists WHERE key = ?", (s.key,)).fetchone()
-                _store(con, s, [f"soundcloud:{tid}" for tid, _ in listed[s.key]], row["title"], None, states.get(s.url))
+                ids = [f"soundcloud:{tid}" for tid, _ in listed[s.key]]
+                _store(con, s, ids, row["title"], None, states.get(s.url), added=liked.get(s.key))
     finally:
         con.close()
     shutil.rmtree(work, ignore_errors=True)
@@ -669,6 +718,16 @@ def _readable(run: "Run", key: str, readable: bool, why: str = "") -> None:
         availability.list_readable(con, key, readable, why)
     finally:
         con.close()
+
+
+def _undated(con: sqlite3.Connection, s: Source, tracks: list[tuple[str, str]]) -> bool:
+    """A likes list with songs whose like is not timed yet (new ones; all, before Echolot kept the times)."""
+    if not s.url.rstrip("/").endswith("/likes"):
+        return False  # (a set tells no times)
+    timed = {
+        r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = ? AND added IS NOT NULL", (s.key,))
+    }
+    return any(f"soundcloud:{tid}" not in timed for tid, _ in tracks)
 
 
 def _sc_token(con: sqlite3.Connection, vault: "Vault", key: str) -> str | None:

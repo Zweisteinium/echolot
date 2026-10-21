@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 37
+VERSION = 38
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -83,6 +83,7 @@ CREATE TABLE list_songs (
     list_key TEXT NOT NULL REFERENCES lists(key) ON DELETE CASCADE,
     position INTEGER NOT NULL,
     song_key TEXT NOT NULL REFERENCES songs(key),
+    added TEXT,                     -- came into the list (UTC): the source's time, else when Echolot saw it
     PRIMARY KEY (list_key, position)
 );
 CREATE INDEX list_songs_song ON list_songs(song_key);
@@ -474,6 +475,17 @@ MIGRATIONS = {
         "CREATE TABLE IF NOT EXISTS stars (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
         "list_key TEXT NOT NULL, song_key TEXT NOT NULL, file TEXT NOT NULL, ours INTEGER NOT NULL, "
         "PRIMARY KEY (user_id, list_key, song_key))"
+    ],
+    38: [  # when each song came into its list (jobs/lists._store): the day Echolot first saw it there, the
+        # Wished list's likes; the likes lists and the Spotify lists are read again for their sources' times
+        "ALTER TABLE list_songs ADD COLUMN added TEXT",
+        "UPDATE list_songs SET added = (SELECT h.first_seen || 'T00:00:00Z' FROM list_history h WHERE h.list_key = "
+        "list_songs.list_key AND h.song_key = list_songs.song_key) WHERE list_key NOT LIKE 'spotify:likes:%' "
+        "AND list_key NOT LIKE 'soundcloud:%/likes'",
+        "UPDATE list_songs SET added = coalesce((SELECT strftime('%Y-%m-%dT%H:%M:%SZ', l.liked, 'utc') FROM "
+        "discover_likes l WHERE l.user_id = CAST(substr(list_songs.list_key, 17) AS INTEGER) AND 'discover:' || "
+        "substr(l.song_id, 4) = list_songs.song_key), added) WHERE list_key LIKE 'discover:wished:%'",
+        "UPDATE lists SET snapshot = NULL WHERE service = 'spotify'",
     ],
 }
 

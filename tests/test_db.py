@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V36 = "DROP TABLE stars; "  # schema 36
+V37 = "ALTER TABLE list_songs DROP COLUMN added; "  # schema 37
+V36 = V37 + "DROP TABLE stars; "  # schema 36
 V35 = V36 + "ALTER TABLE availability DROP COLUMN plays; "  # schema 35
 V32 = V35 + "ALTER TABLE lossy_sourced DROP COLUMN master; DROP TABLE lossy_checks; "  # schema 32
 V31 = V32 + "".join(f"ALTER TABLE events DROP COLUMN {c}; " for c in ("peer", "peer_path", "arrived"))  # schema 31
@@ -201,4 +202,40 @@ def test_a_relinked_songs_wrong_song_no_longer_skips_it(tmp_path: Path) -> None:
         "2026-10-19T16:04:56",
     ]
     assert "plays" in [r[1] for r in con.execute("PRAGMA table_info(availability)")]
+    con.close()
+
+
+def test_the_list_songs_get_their_times(tmp_path: Path) -> None:
+    """Version 37 to 38: a list's songs were there since Echolot first saw them, a wish since it was made; the
+    likes lists and the Spotify lists are read again for their sources' times."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    con.execute("PRAGMA foreign_keys = OFF")  # (the rows alone)
+    with con:
+        for key in ("spotify:playlist:P", "spotify:likes:1", "soundcloud:me/likes", "discover:wished:1"):
+            sql = "INSERT INTO lists (key, service, title, position, snapshot) VALUES (?, ?, '', 0, 'x')"
+            con.execute(sql, (key, key.split(":")[0]))
+        rows = [
+            ("spotify:playlist:P", "spotify:a"),
+            ("spotify:likes:1", "spotify:a"),
+            ("soundcloud:me/likes", "soundcloud:1"),
+        ]
+        for key, song in rows:
+            con.execute("INSERT INTO list_songs (list_key, position, song_key) VALUES (?, 0, ?)", (key, song))
+            con.execute("INSERT INTO list_history VALUES (?, ?, '2026-09-24', '2026-10-21')", (key, song))
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('discover:wished:1', 0, 'discover:w')"
+        )
+        con.execute("INSERT INTO discover_likes VALUES (1, 'ex-w', '2026-10-01T12:00:00')")
+    con.executescript(f"{V37} PRAGMA user_version = 37;")
+    con.close()
+    db.init(path)
+    con = db.connect(path)
+    added = dict(con.execute("SELECT list_key, added FROM list_songs"))
+    assert added["spotify:playlist:P"] == "2026-09-24T00:00:00Z"
+    assert added["spotify:likes:1"] is None and added["soundcloud:me/likes"] is None  # read again
+    assert added["discover:wished:1"].startswith("2026-10-01T")  # (this machine's time, in UTC)
+    snapshots = dict(con.execute("SELECT key, snapshot FROM lists"))
+    assert snapshots["spotify:playlist:P"] is None and snapshots["soundcloud:me/likes"] == "x"
     con.close()

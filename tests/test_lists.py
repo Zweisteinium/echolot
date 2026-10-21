@@ -13,6 +13,7 @@ from echolot.jobs import lists
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
 from echolot.library import audio, catalog, playlists
+from echolot.services import soundcloud as sc_api
 from echolot.services import spotify, ytdlp
 from echolot.settings.vault import Vault
 
@@ -125,6 +126,46 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(FakeSpotify, "liked", [song("s10", "Artist N", "Newest Song"), *FakeSpotify.liked])  # a like
     assert lists.fetch_spotify(run) == "3 lists, 1 changed"
     assert FakeSpotify.calls == ["liked since", "playlist BBB222"]  # only the new like read, not all
+
+
+def test_a_lists_songs_keep_when_they_came(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spotify tells when each song came into a list (kept in UTC); a song liked since is read alone and the others
+    keep their times; a list with songs not timed yet is read in full."""
+    timed = [{**s, "added": f"2026-0{n + 1}-01T10:00:00Z"} for n, s in enumerate(FakeSpotify.liked)]
+    monkeypatch.setattr(FakeSpotify, "liked", timed)
+    lists.fetch_spotify(run)
+    con = run.connect()
+    sql = "SELECT song_key, added FROM list_songs WHERE list_key = 'spotify:likes:1' ORDER BY position"
+    times = [(f"spotify:{sid}", f"2026-0{n}-01T10:00:00Z") for n, sid in enumerate(("s1", "s9", "s3"), 1)]
+    assert [tuple(r) for r in con.execute(sql)] == times
+    newest = {**song("s10", "Artist N", "Newest Song"), "added": "2026-10-21T12:00:00+02:00"}
+    monkeypatch.setattr(FakeSpotify, "liked", [newest, *timed])
+    FakeSpotify.calls = []
+    lists.fetch_spotify(run)
+    assert "liked since" in FakeSpotify.calls and "items None" not in FakeSpotify.calls
+    assert [tuple(r) for r in con.execute(sql)] == [("spotify:s10", "2026-10-21T10:00:00Z"), *times]
+    with con:
+        con.execute("UPDATE list_songs SET added = NULL WHERE song_key = 'spotify:s3'")
+    monkeypatch.setattr(FakeSpotify, "liked", [{**song("s11", "Artist O", "Song O"), "added": None}, newest, *timed])
+    FakeSpotify.calls = []
+    lists.fetch_spotify(run)
+    assert "items None" in FakeSpotify.calls  # all read again, for s3's time
+    rows = [tuple(r) for r in con.execute(sql)]
+    assert rows[0][1] > "2026-10-21T10:00:00Z" and rows[1:] == [("spotify:s10", "2026-10-21T10:00:00Z"), *times]
+    con.close()
+
+
+def test_times_in_utc() -> None:
+    assert lists._utc("2026-10-21T10:44:34Z") == lists._utc("2026-10-21T12:44:34+02:00") == "2026-10-21T10:44:34Z"
+    assert lists._utc("1970-01-01T00:00:00Z") is None and lists._utc(None) is None and lists._utc("x") is None
+
+
+def test_a_wish_is_timed_when_it_was_made(run: Run) -> None:
+    con = run.connect()
+    lists.store_wished(con, 1, [("discover:w1", {"artist": "A", "title": "T", "liked": "2026-10-01T12:00:00+00:00"})])
+    sql = "SELECT added FROM list_songs WHERE list_key = 'discover:wished:1'"
+    assert con.execute(sql).fetchone()[0] == "2026-10-01T12:00:00Z"
+    con.close()
 
 
 def test_an_artist_in_another_script_gets_its_english_name(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -287,6 +328,34 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     con.close()
     library(run)
     assert lists.soundcloud(run) == "2 lists, 2 changed; 1 new songs"
+
+
+def test_soundcloud_likes_keep_when_they_were_liked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SoundCloud's API tells when each like was made (yt-dlp's listing does not): asked while a liked song has no
+    time; a set tells none (the time Echolot first saw the song there)."""
+    monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+    monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
+    monkeypatch.setattr(sc_api, "any_token", lambda con, vault: "token")
+    asked = []
+
+    def liked(token: str, page: str) -> dict[str, str]:
+        asked.append(page)
+        return {"1001": "2026-01-02T03:04:05Z", "2002": "2025-05-05T05:05:05Z"}
+
+    monkeypatch.setattr(sc_api, "liked", liked)
+    lists.soundcloud(run)
+    con = run.connect()
+    added = {(r[0], r[1]): r[2] for r in con.execute("SELECT list_key, song_key, added FROM list_songs")}
+    likes, trance = "soundcloud:someone/likes", "soundcloud:someone/sets/trance"
+    assert added[likes, "soundcloud:1001"] == "2026-01-02T03:04:05Z" and asked == [
+        "https://soundcloud.com/someone/likes"
+    ]
+    assert added[likes, "soundcloud:2002"] == "2025-05-05T05:05:05Z"
+    assert added[likes, "soundcloud:3003"] > "2026-10" and added[trance, "soundcloud:2002"] > "2026-10"
+    con.close()
+    lists.soundcloud(run)
+    assert len(asked) == 1  # all timed
 
 
 def test_a_soundcloud_song_the_library_has_by_its_page_is_not_downloaded(

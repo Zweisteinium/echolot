@@ -493,7 +493,9 @@ def test_best_marks_and_the_record_dialog_agree(app: FastAPI, login: Callable[..
             "INSERT INTO songs (key, service, artist, title, length, file) SELECT 'spotify:s1b', service, artist, "
             "title, length, file FROM songs WHERE key = 'spotify:s1'"
         )
-        con.execute("INSERT INTO list_songs VALUES ('spotify:likes:1', 3, 'spotify:s1b')")
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:likes:1', 3, 'spotify:s1b')"
+        )
     con.close()
     rows = owner.get("/lists/spotify:likes:1").text.split("<tbody>", 1)[1].split("</tr>")[:4]
     assert all('<span class="nowrap"><span class="chip' in r and "spotify-best" in r for r in rows)  # (one line)
@@ -522,6 +524,7 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("ALTER TABLE lossy_sourced DROP COLUMN master")  # (schema 33's)
         con.execute("DROP TABLE lossy_checks")
         con.execute("ALTER TABLE availability DROP COLUMN plays")  # (schema 35's)
+        con.execute("ALTER TABLE list_songs DROP COLUMN added")  # (schema 38's)
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)

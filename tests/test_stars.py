@@ -132,6 +132,45 @@ def test_navidromes_paths_below_another_folder(con: sqlite3.Connection) -> None:
     assert "id:other" not in nd.hearts
 
 
+def test_the_hearts_follow_when_the_songs_were_liked(con: sqlite3.Connection) -> None:
+    """Across the lists, the oldest like first. Once all likes are timed, Echolot's hearts are given once more in
+    that order (not the user's own, nor one they took back)."""
+    nd = Navidrome([S1, S2, TUNE], hearts={f"id:{S2}"})
+    assert stars.sync(con, nd, "tracks") == "2 hearts given in Navidrome"  # not timed: as listed
+    assert nd.calls[-1] == ("star", f"id:{TUNE}", f"id:{S1}")
+    times = {"spotify:s1": "2026-01", "spotify:s2": "2025-01", "spotify:s3": "2026-01", "soundcloud:1001": "2026-02"}
+    with con:
+        con.execute("UPDATE list_songs SET added = '2026-03-01T00:00:00Z'")
+        con.executemany("UPDATE list_songs SET added = ? WHERE song_key = ?", [(t, k) for k, t in times.items()])
+    nd.calls.clear()
+    assert stars.sync(con, nd, "tracks") == "2 given again in the order they were liked"
+    assert nd.calls == [("songs",), ("star", f"id:{S1}", f"id:{TUNE}")]
+    nd.calls.clear()
+    assert stars.sync(con, nd, "tracks") == "" and nd.calls == []  # once
+    with con:
+        con.execute("DELETE FROM meta WHERE key = 'stars_order:1'")
+    nd.hearts.discard(f"id:{S1}")  # taken back in a player
+    assert stars.sync(con, nd, "tracks") == "1 given again in the order they were liked"
+    assert nd.calls[-1] == ("star", f"id:{TUNE}") and f"id:{S1}" not in nd.hearts
+
+
+def test_a_song_echolot_hearted_stays_its_in_another_list(con: sqlite3.Connection) -> None:
+    """A song liked in a second list after Echolot gave its heart: the heart stays Echolot's, so it goes once the
+    song is unliked in both."""
+    nd = Navidrome([S1, S2, TUNE])
+    stars.sync(con, nd, "tracks")
+    with con:
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('soundcloud:someone/likes', 9, 'spotify:s1')"
+        )
+    stars.sync(con, nd, "tracks")
+    assert ("soundcloud:someone/likes", "spotify:s1", S1, 1) in mine(con)
+    with con:
+        con.execute("DELETE FROM list_songs WHERE song_key = 'spotify:s1'")
+    assert stars.sync(con, nd, "tracks") == "1 taken back"
+    assert f"id:{S1}" not in nd.hearts
+
+
 def test_a_call_as_the_user(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Echolot names the user in its header; a Navidrome that does not trust Echolot's address asks for a
     login, which says what to set."""

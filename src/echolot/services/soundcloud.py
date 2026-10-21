@@ -123,6 +123,20 @@ def states(token: str) -> dict[str, str]:
     return out
 
 
+def liked(token: str, page: str) -> dict[str, str]:
+    """When the account of a likes page liked each of its tracks (track id -> time), a request per 200 likes."""
+    user = _get(token, f"/resolve?url={urllib.parse.quote(page.rstrip('/').removesuffix('/likes'), safe='')}")
+    out: dict[str, str] = {}
+    path = f"/users/{user['id']}/track_likes?limit=200"
+    while path:
+        d = _get(token, path)
+        for it in d.get("collection") or []:
+            if tid := (it.get("track") or {}).get("id"):
+                out.setdefault(str(tid), it.get("created_at") or "")
+        path = (d.get("next_href") or "").removeprefix(API) if d.get("collection") else ""
+    return out
+
+
 def search(token: str, query: str, limit: int = 20) -> list["Hit"]:
     """Tracks for a query, as SoundCloud's own search lists them: discover.Hit, best first, the names split
     as the SoundCloud job does ("Artist - Title [Free DL]" uploaded by a label: Artist, Title)."""

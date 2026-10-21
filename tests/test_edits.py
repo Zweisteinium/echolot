@@ -29,7 +29,7 @@ def env(tmp_path: Path):
         con.execute(song, ("spotify:a", "spotify", 298, "JJD/JJD - Adventure.flac"))
         con.execute(song, ("youtube:v", "youtube", 279, "JJD/JJD - Adventure (4m39s).opus"))
         con.execute("INSERT INTO lists (key, service, title, position) VALUES ('L', 'youtube', 'NCS', 0)")
-        con.execute("INSERT INTO list_songs VALUES ('L', 0, 'youtube:v')")
+        con.execute("INSERT INTO list_songs (list_key, position, song_key) VALUES ('L', 0, 'youtube:v')")
     yield con, paths
     con.close()
 

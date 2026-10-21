@@ -128,7 +128,9 @@ def test_the_daily_check(run: Run) -> None:
     song = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', ?, ?, 1)"
     with con:  # s7 on a list too, and a song removed lately (why: this check)
         con.execute(song, ("spotify:s7", "A", "B"))
-        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')")
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')"
+        )
         con.execute(song, ("spotify:s9", "C", "D"))
         con.execute("INSERT INTO changes (ts, song_key, list_key, change) VALUES ('x', 'spotify:s9', 'L', 'removed')")
         con.execute("UPDATE songs SET unavailable = NULL WHERE key = 'spotify:s3'")
@@ -167,7 +169,9 @@ def test_what_a_relinked_song_plays_as(run: Run) -> None:
         con.execute(
             "INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:s7', 'spotify', 'A', 'B', 61)"
         )
-        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')")
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')"
+        )
     con.close()
     plays = "SELECT plays FROM availability WHERE song_key = 'spotify:s7'"
     availability.check(run)
@@ -202,8 +206,12 @@ def test_another_release_by_its_isrc(run: Run, login: Callable[..., TestClient])
         con.execute(
             "INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:s7', 'spotify', 'A', 'B', 1)"
         )
-        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 8, 'spotify:s2')")
-        con.execute("INSERT INTO list_songs VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')")
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:playlist:AAA111', 8, 'spotify:s2')"
+        )
+        con.execute(
+            "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')"
+        )
     con.close()
     assert "1 blocked, 1 gone, 2 replaced; 0 changes" in availability.check(run)
     assert FakeSpotify.searched == ["ISRC2", "ISRC3"]

@@ -170,8 +170,9 @@ def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str
 
 
 def _song_of(it: dict[str, Any]) -> dict[str, Any] | None:
-    """A list entry as a song (items); None for a local file or a podcast episode."""
-    return song_of_track(it.get("item") or it.get("track"))
+    """A list entry as a song (items) with when it was added; None for a local file or a podcast episode."""
+    song = song_of_track(it.get("item") or it.get("track"))
+    return song and {**song, "added": it.get("added_at")}
 
 
 def song_of_track(t: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -320,7 +321,8 @@ class Spotify:
 
     def items(self, pid: str | None) -> list[dict[str, Any]]:
         """Songs of a playlist (None: Liked Songs) in list order: id, artist (first), artists, title,
-        album, length (s), isrc and the release_facts. Local files and podcast episodes are left out."""
+        album, length (s), isrc, the release_facts and when it was added (added). Local files and podcast
+        episodes are left out."""
         url = "/me/tracks?limit=50" if pid is None else f"/playlists/{pid}/items?limit=50"
         return [song for it in self.pages(url) if (song := _song_of(it))]
 

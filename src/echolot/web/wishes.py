@@ -106,15 +106,15 @@ def wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
     """The user's Wished list as their hearts are now (jobs/lists.store_wished), and its songs searched at once
     (search_new: the songs never searched) and the playlist written (library)."""
     rows = con.execute(
-        "SELECT s.id, s.data FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id WHERE l.user_id = ? "
-        "ORDER BY l.liked DESC, s.id",
+        "SELECT s.id, s.data, l.liked FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id "
+        "WHERE l.user_id = ? ORDER BY l.liked DESC, s.id",
         (user.id,),
     )
     songs = []
-    for sid, data in rows:
+    for sid, data, liked in rows:
         d = json.loads(data)
         pages = [h["url"] for h in sorted(d["hits"], key=lambda h: h["source"] != "soundcloud") if h["url"]]
-        songs.append((song_key(sid), {**d, "url": pages[0] if pages else ""}))
+        songs.append((song_key(sid), {**d, "url": pages[0] if pages else "", "liked": liked}))
     lists.store_wished(con, user.id, songs)
     for job in ("search_new", "library"):
         request.app.state.worker.trigger(job)

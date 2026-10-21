@@ -41,8 +41,8 @@ cannot find yet, it tells you, and why.
   puts it straight into your library. Connect it under Account; a device is only ever its owner's.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
 - **Hearts.** The songs you like on Spotify and SoundCloud, and the ones you hearted in a player before
-  Echolot had them, have their heart in Navidrome too, in your account. Unlike one, and the heart Echolot
-  gave goes; a heart you gave yourself always stays.
+  Echolot had them, have their heart in Navidrome too, in your account, given in the order you liked them
+  across all of them. Unlike one, and the heart Echolot gave goes; a heart you gave yourself always stays.
 
 ## What it doesn't do
 
