@@ -584,11 +584,12 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
     n = len(Navidrome.comments)
     assert message == f"1 playlists given to their users, {n} playlist comments set, 1 old playlists deleted"
     # where each list comes from, in place of Navidrome's "Auto-imported from '<file>'" (Feishin links it)
-    assert Navidrome.comments["a"] == "Auto-imported from Spotify, by owner: https://open.spotify.com/collection/tracks"
-    assert (
-        Navidrome.comments["b"].startswith("Auto-imported from Spotify")
-        and "open.spotify.com/playlist/AAA111" in Navidrome.comments["b"]
-    )
+    liked = con.execute("SELECT COUNT(*) FROM list_songs WHERE list_key LIKE 'spotify:likes%'").fetchone()[0]
+    found = len((folder / "owner/Spotify Liked Songs.m3u").read_text().splitlines()) - 2
+    assert liked - found == 2
+    assert Navidrome.comments["a"] == "Spotify likes · owner · 2 songs missing"
+    assert Navidrome.comments["b"].startswith("Spotify playlist · ")
+    assert Navidrome.comments["b"].endswith(" · https://open.spotify.com/playlist/AAA111")
     assert db.get_meta(con, "playlists_gone") == "[]"
     con.close()
 
@@ -616,3 +617,20 @@ def test_old_playlists_stay_until_the_new_ones_are_imported(run: Run) -> None:
     assert playlists.sync_owners(con, Navidrome(), folder) == "" and deleted == []
     assert db.get_meta(con, "playlists_gone") == '["Spotify Liked Songs.m3u"]'  # still to do
     con.close()
+
+
+def test_playlist_comments() -> None:
+    def row(key: str, service: str, url: str | None, creator: str | None = None) -> dict:
+        return {"key": key, "service": service, "url": url, "creator": creator}
+
+    sc = "https://soundcloud.com/dj/likes"
+    assert (
+        playlists.comment(row("soundcloud:dj/likes", "soundcloud", sc), missing=1)
+        == f"SoundCloud likes · dj · 1 song missing · {sc}"
+    )
+    assert playlists.comment(row("spotify:playlist:X", "spotify", "https://open.spotify.com/playlist/X", "Phil")) == (
+        "Spotify playlist · Phil · https://open.spotify.com/playlist/X"
+    )
+    assert playlists.comment(row("discover:wished:1", "discover", "/discover"), missing=3) == (
+        "Songs you hearted before Echolot had them · fetched by Echolot · 3 songs missing"
+    )

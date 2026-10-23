@@ -96,6 +96,7 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
     lists = {r["key"]: r for r in con.execute("SELECT * FROM lists")}
     folders = user_folders(con)
     keep: set[str] = set()  # relative to the folder: <user>/<name>.<ext>
+    missing: dict[str, int] = {}
     written = 0
 
     def best(r: sqlite3.Row) -> str | None:
@@ -122,7 +123,9 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
                 "ORDER BY ls.position",
                 (s.key,),
             ).fetchall()
-            written += _m3u(mine, name, row["title"], [f for r in songs if (f := best(r))])
+            files = [best(r) for r in songs]
+            written += _m3u(mine, name, row["title"], [f for f in files if f])
+            missing[f"{folders[uid]}/{name}.m3u"] = files.count(None)
             _cover(con, mine, name, s.key, row["cover_url"], row["cover_file"])
     if not keep:  # no list to show: nothing is deleted (a missing configuration must not empty the folder)
         return f"{written} playlists written"
@@ -137,37 +140,44 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
     with con:
         db.set_meta(con, "playlist_files", json.dumps(sorted(n for n in keep if (folder / n).exists())))
         db.set_meta(con, "playlists_gone", json.dumps(sorted(gone)))
+        db.set_meta(con, "playlist_missing", json.dumps(missing, sort_keys=True))
     return f"{written} playlists written" + (f", {len(stale)} old files removed" if stale else "")
 
 
 SERVICES = {"spotify": "Spotify", "soundcloud": "SoundCloud", "youtube": "YouTube"}
 
 
-def comment(row: sqlite3.Row, owner: str = "") -> str:
-    """A playlist's comment in the music server: "Auto-imported from Spotify, by Alex: <the list's page>"
-    (who made the list: Spotify's owner, YouTube's author, the SoundCloud account; Liked Songs: their user)."""
+def comment(row: sqlite3.Row, owner: str = "", missing: int = 0) -> str:
+    """A playlist's comment in the music server: "Spotify playlist · Alex · 3 songs missing · <the list's page>"
+    (who made the list: Spotify's owner, YouTube's author, the SoundCloud account; Liked Songs: their user,
+    without a page: Spotify's opens the viewer's own)."""
+    lost = f"{missing} song{'' if missing == 1 else 's'} missing" if missing else ""
     if row["service"] == sources.WISHED:
-        return "The songs you hearted in a player while Echolot did not have them yet: fetched by Echolot"
+        return " · ".join(p for p in ("Songs you hearted before Echolot had them", "fetched by Echolot", lost) if p)
     creator = row["creator"]
     if not creator and row["service"] == "soundcloud":
         creator = (row["url"] or "").removeprefix("https://soundcloud.com/").split("/", 1)[0]
     if not creator and str(row["key"]).startswith("spotify:likes:"):
         creator = owner
-    text = f"Auto-imported from {SERVICES.get(row['service'], row['service'])}"
-    return text + (f", by {creator}" if creator else "") + (f": {row['url']}" if row["url"] else "")
+    spotify_likes = str(row["key"]).startswith("spotify:likes")
+    kind = "likes" if spotify_likes or str(row["key"]).endswith("/likes") else "playlist"
+    url = None if spotify_likes else row["url"]
+    return " · ".join(p for p in (f"{SERVICES.get(row['service'], row['service'])} {kind}", creator, lost, url) if p)
 
 
 def comments(con: sqlite3.Connection) -> dict[str, str]:
     """The comment of each playlist file Echolot writes (<user>/<name>.m3u, as write names them)."""
     lists = {r["key"]: r for r in con.execute("SELECT * FROM lists")}
     names = dict(con.execute("SELECT id, name FROM users").fetchall())
+    missing = json.loads(db.get_meta(con, "playlist_missing", "{}"))
     folders, out = user_folders(con), {}
     for uid in sources.owners(con):
         if uid not in folders:
             continue
         for s in sources.user_lists(con, uid):
             if (row := lists.get(s.key)) is not None and s.playlist:
-                out[f"{folders[uid]}/{clean_name(s.name)}.m3u"] = comment(row, names.get(uid, ""))
+                rel = f"{folders[uid]}/{clean_name(s.name)}.m3u"
+                out[rel] = comment(row, names.get(uid, ""), missing.get(rel, 0))
     return out
 
 
