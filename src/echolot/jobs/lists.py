@@ -194,7 +194,7 @@ def _fetch_spotify(run: "Run", con: sqlite3.Connection) -> str:
     """The lists as fetch_spotify says (its connection open; Spotify not resting)."""
     done, read, failed, seen, tried = 0, 0, [], set(), set()
 
-    def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, str], likes: str | None) -> None:
+    def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, dict], likes: str | None) -> None:
         nonlocal done, read
         run.say(f"reading {s.title or s.url}")
         tried.add(s.key)
@@ -309,18 +309,24 @@ def _active(con: sqlite3.Connection) -> list[int]:
 
 
 def _fetch_spotify_list(
-    con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, str], likes: str | None
+    con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, dict], likes: str | None
 ) -> bool:
     """Read one list if it changed (its snapshot, or the likes' state); True if it was read."""
     pid = spotify.playlist_id(s.url) if s.name != "Spotify Liked Songs" else None
-    snapshot = likes if pid is None else known.get(pid) or sp.playlist(pid)["snapshot"]  # not in the library
+    listed = known.get(pid) or {} if pid else {}
+    if pid and not listed.get("snapshot"):
+        listed = sp.playlist(pid)  # not in the library
+    snapshot = likes if pid is None else listed["snapshot"]
     row = con.execute("SELECT snapshot, fetched, creator FROM lists WHERE key = ?", (s.key,)).fetchone()
     if row and row["fetched"] and snapshot and row["snapshot"] == snapshot:  # unchanged
         creator = sp.playlist(pid).get("owner") if pid and not row["creator"] else None  # (once: who made it)
+        title = s.title or listed.get("name") or None  # renamed: its snapshot stays
         with con:
             now = datetime.datetime.now().isoformat(timespec="seconds")
             con.execute(
-                "UPDATE lists SET fetched_at = ?, creator = coalesce(?, creator) WHERE key = ?", (now, creator, s.key)
+                "UPDATE lists SET fetched_at = ?, creator = coalesce(?, creator), title = coalesce(?, title) "
+                "WHERE key = ?",
+                (now, creator, title, s.key),
             )
         return False
     creator = None

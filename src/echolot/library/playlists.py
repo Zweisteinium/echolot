@@ -165,38 +165,43 @@ def comment(row: sqlite3.Row, owner: str = "", missing: int = 0) -> str:
     return " · ".join(p for p in (f"{SERVICES.get(row['service'], row['service'])} {kind}", creator, lost, url) if p)
 
 
-def comments(con: sqlite3.Connection) -> dict[str, str]:
-    """The comment of each playlist file Echolot writes (<user>/<name>.m3u, as write names them)."""
+def _files(con: sqlite3.Connection) -> dict[str, tuple[sqlite3.Row, int]]:
+    """Each playlist file Echolot writes (<user>/<name>.m3u, as write names them): its list's row and user."""
     lists = {r["key"]: r for r in con.execute("SELECT * FROM lists")}
-    names = dict(con.execute("SELECT id, name FROM users").fetchall())
-    missing = json.loads(db.get_meta(con, "playlist_missing", "{}"))
     folders, out = user_folders(con), {}
     for uid in sources.owners(con):
         if uid not in folders:
             continue
         for s in sources.user_lists(con, uid):
             if (row := lists.get(s.key)) is not None and s.playlist:
-                rel = f"{folders[uid]}/{clean_name(s.name)}.m3u"
-                out[rel] = comment(row, names.get(uid, ""), missing.get(rel, 0))
+                out[f"{folders[uid]}/{clean_name(s.name)}.m3u"] = row, uid
     return out
+
+
+def comments(con: sqlite3.Connection) -> dict[str, str]:
+    """The comment of each playlist file Echolot writes."""
+    names = dict(con.execute("SELECT id, name FROM users").fetchall())
+    missing = json.loads(db.get_meta(con, "playlist_missing", "{}"))
+    return {rel: comment(row, names.get(uid, ""), missing.get(rel, 0)) for rel, (row, uid) in _files(con).items()}
 
 
 def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path) -> str:
     """Navidrome's playlists of the files Echolot writes: each given to its user (the folder's) with its
-    comment (where the list comes from), and those of files Echolot removed deleted. Only those: a playlist is Echolot's when its path is exactly one of
+    list's name (Navidrome keeps a file's first one) and comment (where the list comes from), and those of files Echolot removed deleted. Only those: a playlist is Echolot's when its path is exactly one of
     its files; one made in Navidrome has no file and is never touched."""
     folders = user_folders(con)
     ids = dict(con.execute("SELECT id, navidrome_id FROM users WHERE navidrome_id IS NOT NULL").fetchall())
     owner_of = {name: ids[uid] for uid, name in folders.items() if uid in ids}
     current = {r for r in json.loads(db.get_meta(con, "playlist_files", "[]")) if r.endswith(".m3u")}
     gone = set(json.loads(db.get_meta(con, "playlists_gone", "[]")))
-    given = deleted = commented = 0
+    given = deleted = commented = renamed = 0
     found: dict[str, list[dict]] = {}
     for p in svc.playlists():
         path = p.get("path") or ""
         if rel := next((r for r in current | gone if path.endswith(f"/{folder.name}/{r}")), None):
             found.setdefault(rel, []).append(p)
     notes = comments(con)
+    titles = {rel: row["title"] for rel, (row, _) in _files(con).items()}
     for rel in current & set(found):
         owner = owner_of.get(rel.split("/", 1)[0]) if "/" in rel else None
         for p in found[rel]:
@@ -205,12 +210,16 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
                 "comment"
             ) != note:  # in place of Navidrome's "Auto-imported from '<file>'"
                 fields["comment"] = note
+            if (title := titles.get(rel)) and p.get("name") != title:
+                fields["name"] = title
             if fields:
                 svc.update_playlist(p["id"], fields)
                 given += "ownerId" in fields
                 commented += "comment" in fields
+                renamed += "name" in fields
     done = [f"{given} playlists given to their users"] if given else []
     done += [f"{commented} playlist comments set"] if commented else []
+    done += [f"{renamed} playlists renamed"] if renamed else []
     if current - set(found):  # not all imported yet: the old playlists stay until the new ones are there
         return ", ".join(done)
     for rel in gone & set(found):

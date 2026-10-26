@@ -51,8 +51,10 @@ class FakeSpotify:
         FakeSpotify.calls.append(f"playlist {pid}")
         return {"name": f"Name {pid}", "image": f"https://img/{pid}", "snapshot": "snap1", "owner": "Timon"}
 
-    def snapshots(self) -> dict[str, str]:  # BBB222 is not in the account's library: asked on its own
-        return {"AAA111": "snap1"}
+    name = "Name AAA111"  # as the account's library has it
+
+    def snapshots(self) -> dict[str, dict]:  # BBB222 is not in the account's library: asked on its own
+        return {"AAA111": {"snapshot": "snap1", "name": FakeSpotify.name}}
 
     def likes_state(self) -> str:
         return f"{len(FakeSpotify.liked)}:{FakeSpotify.liked[0]['id'] if FakeSpotify.liked else ''}"
@@ -122,6 +124,12 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     FakeSpotify.calls = []
     assert lists.fetch_spotify(run) == "3 lists, 0 changed"  # nothing changed: nothing read
     assert FakeSpotify.calls == ["playlist BBB222"]  # only its snapshot (not in the account's library)
+    monkeypatch.setattr(FakeSpotify, "name", "GENRE - Name AAA111")  # renamed: its snapshot stays
+    assert lists.fetch_spotify(run) == "3 lists, 0 changed"
+    con = run.connect()
+    titles = dict(con.execute("SELECT key, title FROM lists WHERE key LIKE 'spotify:playlist:%'"))
+    assert titles == {"spotify:playlist:AAA111": "GENRE - Name AAA111", "spotify:playlist:BBB222": "Renamed"}
+    con.close()
     FakeSpotify.calls = []
     monkeypatch.setattr(FakeSpotify, "liked", [song("s10", "Artist N", "Newest Song"), *FakeSpotify.liked])  # a like
     assert lists.fetch_spotify(run) == "3 lists, 1 changed"
@@ -553,6 +561,7 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
     written = json.loads(db.get_meta(con, "playlist_files"))
     listed = ("owner/Spotify Liked Songs.m3u", "owner/spotify-AAA111.m3u")
     others = [r for r in written if r.endswith(".m3u") and r not in listed]
+    titles = {rel: row["title"] for rel, (row, _) in playlists._files(con).items()}
 
     class Navidrome:
         calls: ClassVar[list[tuple]] = []
@@ -560,10 +569,12 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
 
         def playlists(self) -> list[dict]:
             p = "/music/playlists/"
-            imported = [{"id": f"i{n}", "path": p + r, "ownerId": "nd-owner"} for n, r in enumerate(others)]
+            imported = [
+                {"id": f"i{n}", "path": p + r, "ownerId": "nd-owner", "name": titles[r]} for n, r in enumerate(others)
+            ]
             return [
-                {"id": "a", "path": p + "owner/Spotify Liked Songs.m3u", "ownerId": "nd-admin"},  # new: the admin's
-                {"id": "b", "path": p + "owner/spotify-AAA111.m3u", "ownerId": "nd-owner"},  # theirs already
+                {"id": "a", "path": p + "owner/Spotify Liked Songs.m3u", "ownerId": "nd-admin", "name": "Liked Songs"},
+                {"id": "b", "path": p + "owner/spotify-AAA111.m3u", "ownerId": "nd-owner", "name": "Old name"},
                 {"id": "c", "path": p + "Spotify Liked Songs.m3u", "ownerId": "nd-owner"},  # the old file's
                 {"id": "d", "path": "", "ownerId": "nd-admin"},  # made in Navidrome
                 {"id": "e", "path": "/music/tracks/x/spotify-AAA111.m3u", "ownerId": "nd-admin"},  # not Echolot's
@@ -575,14 +586,19 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
                 Navidrome.calls.append(("owner", pid, fields["ownerId"]))
             if "comment" in fields:
                 Navidrome.comments[pid] = fields["comment"]
+            if "name" in fields:
+                Navidrome.calls.append(("name", pid, fields["name"]))
 
         def delete_playlist(self, pid: str) -> None:
             Navidrome.calls.append(("delete", pid))
 
     message = playlists.sync_owners(con, Navidrome(), folder)
-    assert Navidrome.calls == [("owner", "a", "nd-owner"), ("delete", "c")]
+    # a: new, the admin's; b: theirs already, renamed in Spotify (Navidrome keeps a file's first name)
+    assert Navidrome.calls == [("owner", "a", "nd-owner"), ("name", "b", "Name AAA111"), ("delete", "c")]
     n = len(Navidrome.comments)
-    assert message == f"1 playlists given to their users, {n} playlist comments set, 1 old playlists deleted"
+    assert message == (
+        f"1 playlists given to their users, {n} playlist comments set, 1 playlists renamed, 1 old playlists deleted"
+    )
     # where each list comes from, in place of Navidrome's "Auto-imported from '<file>'" (Feishin links it)
     liked = con.execute("SELECT COUNT(*) FROM list_songs WHERE list_key LIKE 'spotify:likes%'").fetchone()[0]
     found = len((folder / "owner/Spotify Liked Songs.m3u").read_text().splitlines()) - 2

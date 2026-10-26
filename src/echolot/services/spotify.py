@@ -306,9 +306,14 @@ class Spotify:
         return {"name": d.get("name") or "", "image": ((d.get("images") or [{}])[0] or {}).get("url"),
                 "snapshot": d.get("snapshot_id") or "", "owner": (d.get("owner") or {}).get("display_name")}  # fmt: skip
 
-    def snapshots(self) -> dict[str, str]:
-        """The snapshot of every playlist in the account's library (own and followed): one request per 50."""
-        return {p["id"]: p.get("snapshot_id") or "" for p in self.pages("/me/playlists?limit=50") if p and p.get("id")}
+    def snapshots(self) -> dict[str, dict[str, str]]:
+        """Snapshot and name of every playlist in the account's library (own and followed): one request per 50."""
+        pages = self.pages("/me/playlists?limit=50")
+        return {
+            p["id"]: {"snapshot": p.get("snapshot_id") or "", "name": p.get("name") or ""}
+            for p in pages
+            if p and p.get("id")
+        }
 
     def likes_state(self) -> str:
         """'<count>:<newest added>:<its id>': changes with every like added or removed (one request)."""
