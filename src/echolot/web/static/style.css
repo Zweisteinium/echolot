@@ -1021,3 +1021,35 @@ body.with-player main { padding-bottom: 5rem; }
 .player-close { color: var(--muted); line-height: 0; padding: 0.2rem; }
 .player-sc { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 @media (max-width: 640px) { .player { grid-template-columns: 2.5rem auto 1fr auto; } .player-time, .player-source { display: none; } }
+
+/* Discogs (web/discogs): releases Discogs lacks, filters beside the title; a row opens what to submit, each
+   field with its copy button, in the order of Discogs' form */
+.discogs-filters, .discogs-check { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.discogs-filters select, .discogs-check select { max-width: 16rem; }
+.discogs-check { margin: 0 0 0.9rem; }
+.discogs-rows tbody tr { cursor: pointer; }
+.discogs-rows tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.discogs-rows .release-title { font-weight: 550; }
+dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
+.dc-head { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 0.75rem; }
+.dc-head img { flex: none; border-radius: var(--radius-sm); object-fit: cover; background: var(--track); }
+.dc-head h2 { margin: 0 0 0.25rem; font-size: 1.15rem; }
+.dc-head p { margin: 0; }
+.dc .flash { margin: 0 0 0.75rem; }
+.dc-fields { display: grid; border-top: 1px solid var(--border); }
+.dc-field { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.2rem 1rem; padding: 0.45rem 0;
+  border-bottom: 1px solid var(--border); }
+.dc-label { font-size: 0.85rem; font-weight: 550; }
+.dc-label .hint { display: block; font-weight: 400; font-size: 0.75rem; color: var(--muted); }
+.dc-value { display: flex; align-items: center; gap: 0.5rem; min-width: 0; overflow-wrap: anywhere; }
+.dc-value > span:first-child { flex: 1; }
+.dc-copy { flex: none; padding: 0.15rem 0.5rem; font-size: 0.75rem; }
+.dc h3 { margin: 1rem 0 0.4rem; font-size: 0.95rem; }
+.dc-tracks td { vertical-align: top; }
+.dc-tracks .dc-copy { margin-left: 0.3rem; }
+.dc .dialog-actions { align-items: center; flex-wrap: wrap; }
+.dc .dc-link:first-child { margin-right: auto; }
+@media (max-width: 640px) {
+  .dc-field { grid-template-columns: minmax(0, 1fr); }
+  .dc-head img { width: 64px; height: 64px; }
+}

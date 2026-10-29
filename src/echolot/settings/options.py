@@ -78,7 +78,13 @@ class Soulseek(Section):
     stall_minutes: int = Field(10, ge=2, le=120, description="a download without progress this long is given up")
 
 
-SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Navidrome, Files, Jobs, Spotify, Soulseek]
+class Discogs(Section):
+    SECTION = "discogs"
+    enabled: bool = Field(False, description="the Discogs page: which releases Discogs lacks (token in the vault)")
+    user: str = Field("", description="the Discogs account of the token (shown in the settings)")
+
+
+SECTIONS: list[type[Section]] = [SourceOptions, Metrics, Auth, Navidrome, Files, Jobs, Spotify, Soulseek, Discogs]
 BY_NAME = {s.SECTION: s for s in SECTIONS}
 
 

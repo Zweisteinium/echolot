@@ -16,7 +16,7 @@
   <header>
     <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
     {% if user %}
-    {% set library = nav in ('library', 'missing', 'buy') %}{% set history = nav in ('activity', 'changes') %}
+    {% set library = nav in ('library', 'missing', 'buy', 'discogs') %}{% set history = nav in ('activity', 'changes') %}
     <nav aria-label="Pages">
       <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>Search</a>
       <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>Playlists</a>
