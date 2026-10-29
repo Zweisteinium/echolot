@@ -206,6 +206,7 @@ def test_the_page_and_the_suggestion(library: Settings, login: Callable[..., Tes
         assert text in dialog, text
     assert ">Neo Trance<" in dialog and ">Trance<" in dialog and "<b>Electronic</b>" in dialog  # (yours, Beatport's)
     assert ">320 kbps<" in dialog and "Description: <b>EP</b>" in dialog and "Optional, and what stays empty" in dialog
+    assert "<b>File</b> · <b>FLAC</b>" in dialog and "Beatport sells it as FLAC, WAV, AIFF, MP3" in dialog
     assert client.get("/discogs/release", params={"album": "nobody|nothing"}).status_code == 404
     con = db.connect(library.db_path)
     with con:  # Second: on Discogs only as a CD, no Beatport release
@@ -217,6 +218,7 @@ def test_the_page_and_the_suggestion(library: Settings, login: Callable[..., Tes
     bare = client.get("/discogs/release", params={"album": "artist b|second"}).text
     assert "No release on Beatport found" in bare and ">Not On Label (Artist B Self-released)<" in bare
     assert "only as" in bare and "<b>Electronic</b>" in bare and ">Neo Trance<" in bare  # (your genre still counts)
+    assert "FLAC if the store sells it" in bare and "Beatport sells" not in bare
     viewer = login(create_app(library), "guest", admin=False)
     assert viewer.get("/discogs").status_code == 200 and 'action="/discogs/check"' not in viewer.get("/discogs").text
     assert viewer.post("/discogs/check", data={"list": "spotify:likes:1"}, follow_redirects=False).status_code == 403

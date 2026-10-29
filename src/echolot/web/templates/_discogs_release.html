@@ -36,10 +36,11 @@
       </div>
     </div>
     <div class="dc-field">
-      <div class="dc-label">Format<span class="hint">one submission is one format: the one you downloaded (MP3, WAV, FLAC and AIFF are each their own release)</span></div>
+      <div class="dc-label">Format<span class="hint">each file type is its own release on Discogs: one submission per type, the one you downloaded</span></div>
       <div class="dc-value dc-stack">
-        <span><b>File</b> · Qty {{ copy('qty', s.qty) }} <span class="muted small">(the number of files)</span></span>
-        <span class="small">File type: <b>MP3</b> with free text {{ copy('kbps', '320 kbps') }} <span class="muted">· or</span> <b>WAV</b>, <b>FLAC</b>, <b>AIFF</b> <span class="muted">(lossless: no free text)</span></span>
+        <span><b>File</b> · <b>FLAC</b> · Qty {{ copy('qty', s.qty) }} <span class="muted small">(the number of files)</span></span>
+        {% if s.formats %}<span class="small">Beatport sells it as {{ s.formats|join(', ') }}: FLAC is the one to enter first. The others are a submission each, later: <b>WAV</b>, <b>AIFF</b> without free text; <b>MP3</b> with free text {{ copy('kbps', '320 kbps') }}</span>
+        {% else %}<span class="small">FLAC if the store sells it, else the type it sells: <b>WAV</b>, <b>AIFF</b> without free text; <b>MP3</b> with its bitrate as free text, e.g. {{ copy('kbps', '320 kbps') }}</span>{% endif %}
         {% if s.description %}<span class="small">Description: <b>{{ s.description }}</b> <span class="muted">(as the release calls itself)</span></span>{% endif %}
       </div>
     </div>

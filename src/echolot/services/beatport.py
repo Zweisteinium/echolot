@@ -18,6 +18,9 @@ SITE = "https://www.beatport.com"
 USER_AGENT = f"Echolot/{__version__} (+https://github.com/Zweisteinium/echolot)"
 PAUSE = 2.0  # seconds between two requests
 TIMEOUT = 30
+# what a purchase downloads as, for any release: the account's audio quality setting (the page has no list per
+# release); best first, MP3 at 320 kbps
+FORMATS = ("FLAC", "WAV", "AIFF", "MP3")
 DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 _LAST = [0.0]
 _LOCK = threading.Lock()

@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from echolot import db
 from echolot.jobs import discogs as job
+from echolot.services import beatport
 from echolot.settings import options
 from echolot.web import stats
 from echolot.web.common import DB, back, page
@@ -176,6 +177,7 @@ def suggestion(a: job.Album, row: Any) -> dict[str, Any]:
         "self_released": f"Not On Label ({artists[0]} Self-released)",
         "barcode": store.get("upc") or "",
         "qty": len(tracks) or a.tracks or len(a.songs),
+        "formats": list(beatport.FORMATS) if store else [],
         "description": {"LP": "Album"}.get(described[1], described[1]) if described else "",
         "released": store.get("date") or a.released,
         "tracks": tracks,
