@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadF
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from echolot.jobs import schedule
-from echolot.services import navidrome
+from echolot.services import discogs, navidrome
 from echolot.settings import configfile, options
 from echolot.settings.sources import ConfigError
 from echolot.web import accounts
@@ -31,6 +31,8 @@ def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
         navidrome=options.get(con, options.Navidrome),
+        discogs=options.get(con, options.Discogs),
+        discogs_token=request.app.state.vault.has(con, discogs.TOKEN),
         navidrome_env=os.environ.get("ECHOLOT_NAVIDROME_URL", ""),
         navidrome_ok=_service_state(request, con),
         vault_source=request.app.state.vault.source,
@@ -110,6 +112,28 @@ def settings_access(
     if problem:
         return back("/settings", error=f"Saved. The service account does not work yet: {problem}")
     return back("/settings", ok="Access settings saved; the service account works.")
+
+
+@router.post("/settings/discogs", include_in_schema=False)
+def settings_discogs(
+    request: Request, con: DB, enabled: Annotated[bool, Form()] = False, token: Annotated[str, Form()] = ""
+) -> RedirectResponse:
+    """Discogs on or off, and its token (empty: keep the stored one). A new token is asked about once (whose
+    it is); Discogs on needs one."""
+    vault, token = request.app.state.vault, token.strip()
+    user = options.get(con, options.Discogs).user
+    if token:
+        try:
+            user = discogs.identity(token)
+        except discogs.DiscogsError as e:
+            return back("/settings#discogs", error=f"Not saved: {e}.")
+    elif enabled and not vault.has(con, discogs.TOKEN):
+        return back("/settings#discogs", error="Not saved: Discogs needs a token.")
+    with con:
+        if token:
+            vault.set(con, discogs.TOKEN, token)
+        options.update(con, options.Discogs, enabled=enabled, user=user)
+    return back("/settings#discogs", ok="Discogs is on: see the Discogs page." if enabled else "Discogs is off.")
 
 
 # ------------------------------------------------------------ echolot.yml

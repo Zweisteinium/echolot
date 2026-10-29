@@ -136,6 +136,13 @@ JOBS = [
             "audio of your copy replaces it, anything else waits in Review). After New SoundCloud songs only the "
             "songs never looked at; Refresh on the Buy page all of them. Bandcamp is asked as Echolot, one page "
             "every 2 s; a bot check from Bandcamp ends the run.", started_by="New SoundCloud songs"),
+    # not on the Jobs page either: Check on the Discogs page, for one list
+    JobInfo("discogs", "Discogs check", "web", None, 60,
+            "Finds the releases of a list Discogs lacks.",
+            "Looks up each release of a list's library songs on Discogs (one search each, about one a second), "
+            "and for one Discogs lacks as a download its Beatport release (two pages, 2 s apart), for the "
+            "suggestion of what to submit. Releases looked at before are left out unless asked again. Only "
+            "with Discogs on in the settings; nothing is submitted.", started_by="Check on the Discogs page"),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
 STEPS = {  # each job's short name inside its task, for the schedule and the live state

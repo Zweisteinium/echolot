@@ -11,6 +11,7 @@
     <a href="#soulseek">Soulseek search</a>
     <a href="#files">Files</a>
     <a href="#access">Access</a>
+    <a href="#discogs">Discogs</a>
     <a href="#data">Data and backup</a>
   </nav>
 </aside>
@@ -94,6 +95,27 @@
     <div class="field">
       <div class="label">Metrics<span class="hint">for Prometheus; else it needs an API token</span></div>
       <div class="control"><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label></div>
+    </div>
+  </div>
+  <div class="section-actions"><button class="primary">Save</button></div>
+</section>
+</form>
+
+<form method="post" action="/settings/discogs">{{ csrf_input }}
+<section class="card" id="discogs">
+  <div class="section-head"><h2>Discogs</h2></div>
+  <p class="muted small">Optional: the <a href="/discogs">Discogs page</a> shows which releases of your library songs Discogs lacks, with what to submit for them (taken from Beatport). Echolot only reads Discogs and Beatport, a list at a time when an admin asks; nothing is submitted.</p>
+  <div class="fields">
+    <div class="field">
+      <div class="label">Discogs page<span class="hint">off: the page and its checks are gone; what was found stays</span></div>
+      <div class="control"><label><input type="checkbox" name="enabled" value="1" {% if discogs.enabled %}checked{% endif %}> On</label></div>
+    </div>
+    <div class="field">
+      <label for="discogs_token">Token<span class="hint">a personal access token: discogs.com, Settings, Developers, Generate token. Kept in the vault</span></label>
+      <div class="control">
+        <input id="discogs_token" type="password" name="token" placeholder="{{ 'stored (empty: keep)' if discogs_token else 'token' }}" autocomplete="off" data-bwignore data-1p-ignore aria-label="Discogs token">
+        {% if discogs_token %}<span class="pill ok-pill">{{ discogs.user or 'stored' }}</span>{% endif %}
+      </div>
     </div>
   </div>
   <div class="section-actions"><button class="primary">Save</button></div>

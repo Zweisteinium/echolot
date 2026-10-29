@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 38
+VERSION = 39
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -40,6 +40,16 @@ CREATE TABLE bandcamp (             -- a song's track on Bandcamp, linked from i
     currency TEXT NOT NULL DEFAULT '',
     free INTEGER NOT NULL DEFAULT 0,  -- a free download (no email asked): downloaded by the job
     result TEXT NOT NULL DEFAULT '',  -- what the free download came to (filed, not the song, ...)
+    checked TEXT NOT NULL
+);
+CREATE TABLE discogs (              -- a release of library songs and what Discogs lists of it (jobs/discogs)
+    album TEXT PRIMARY KEY,         -- jobs/discogs.album_key: its first artist and title, as words
+    artist TEXT NOT NULL,
+    title TEXT NOT NULL,
+    state TEXT NOT NULL,            -- listed (as a download), digital (only in other formats), missing
+    found TEXT,                     -- JSON: the Discogs release found (listed, digital)
+    store TEXT,                     -- JSON: its Beatport release (services/beatport); {}: none; NULL: not looked
+    genre TEXT NOT NULL DEFAULT '', -- its songs' genre in Navidrome (the most common)
     checked TEXT NOT NULL
 );
 CREATE TABLE lists (                -- the followed lists as last fetched, once however many users follow one
@@ -486,6 +496,10 @@ MIGRATIONS = {
         "discover_likes l WHERE l.user_id = CAST(substr(list_songs.list_key, 17) AS INTEGER) AND 'discover:' || "
         "substr(l.song_id, 4) = list_songs.song_key), added) WHERE list_key LIKE 'discover:wished:%'",
         "UPDATE lists SET snapshot = NULL WHERE service = 'spotify'",
+    ],
+    39: [  # what Discogs lists of the library's releases (jobs/discogs)
+        "CREATE TABLE IF NOT EXISTS discogs (album TEXT PRIMARY KEY, artist TEXT NOT NULL, title TEXT NOT NULL, "
+        "state TEXT NOT NULL, found TEXT, store TEXT, genre TEXT NOT NULL DEFAULT '', checked TEXT NOT NULL)"
     ],
 }
 

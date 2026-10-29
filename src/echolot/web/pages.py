@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from echolot import db
 from echolot.library import filing, history, recording
 from echolot.services import soundcloud, spotify
-from echolot.web import charts, jobs, stats
+from echolot.web import charts, discogs, jobs, stats
 from echolot.web.common import DB, back, page
 from echolot.web.format import num, size
 
@@ -36,6 +36,7 @@ def overview(request: Request, con: DB) -> HTMLResponse:
     )  # the library's files by quality, and the songs missing
     growth = _growth(con, stats.scope(request.state.user), o)
     buy = len(stats.buy(con, stats.scope(request.state.user)))  # (songs Bandcamp sells lossless: the Buy page)
+    on_discogs = discogs.to_add(con, stats.scope(request.state.user))  # (releases Discogs lacks; None: off)
     return page(
         request,
         "overview.html",
@@ -45,6 +46,7 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         growth=growth,
         connected=connected,
         buy=buy,
+        on_discogs=on_discogs,
         **running,
     )
 

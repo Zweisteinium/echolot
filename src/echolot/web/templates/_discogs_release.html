@@ -1,0 +1,64 @@
+{# a release's suggestion for Discogs' form (web/discogs.discogs_release), in the Discogs dialog #}
+{% macro field(id, label, value, hint='') -%}
+<div class="dc-field">
+  <div class="dc-label">{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</div>
+  <div class="dc-value">{% if value %}<span id="dc-{{ id }}">{{ value }}</span><button type="button" class="dc-copy" data-copy="#dc-{{ id }}">Copy</button>{% else %}<span class="muted">none</span>{% endif %}</div>
+</div>
+{%- endmacro %}
+<div class="dc">
+  <div class="dc-head">
+    {% if s.cover %}<img src="{{ s.cover }}" alt="" width="88" height="88" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+    <div>
+      <h2>{{ s.artists|join(', ') }} – {{ s.title }}</h2>
+      <p class="muted small">
+        {% if row.state == 'digital' %}Discogs has it only as <a href="{{ found.url }}" target="_blank" rel="noopener">{{ found.formats|join(', ') }}</a>{% if found.catno %} ({{ found.label }}, {{ found.catno }}){% endif %}: the download version is missing.
+        {% elif row.state == 'listed' %}Discogs lists it: <a href="{{ found.url }}" target="_blank" rel="noopener">{{ found.title }}</a> ({{ found.formats|join(', ') }}){% if not found.exact %}, under a slightly different title{% endif %}.
+        {% else %}Discogs does not list it: Echolot searched for “{{ a.artist }} {{ a.title }}”{% endif %}
+        · {{ a.songs|length }} of your songs · {{ a.lists.values()|join(', ') }}
+      </p>
+    </div>
+  </div>
+  {% if not s.from_store %}
+  <p class="flash error small">No release on Beatport found. Discogs needs a download store (or a free download) as the source: without one, look for it on Bandcamp or another store first. Below only what Spotify and your library know.</p>
+  {% endif %}
+  <div class="dc-fields">
+    {% for name in s.artists %}{{ field('artist-' ~ loop.index, 'Artist' if loop.first else '', name, 'pick the right one when Discogs knows several (Name (2))' if loop.first else '') }}{% endfor %}
+    {{ field('title', 'Title', s.title) }}
+    {{ field('label', 'Label', s.label, 'type Label') }}
+    {{ field('catno', 'Catalog number', s.catno) }}
+    {{ field('barcode', 'Barcode', s.barcode, 'type Barcode: the UPC of this store release') }}
+    <div class="dc-field">
+      <div class="dc-label">Format<span class="hint">one line per format you can verify</span></div>
+      <div class="dc-value"><span><b>File</b> · Qty {{ s.qty }}{% if s.description %} · {{ s.description }}{% endif %} · MP3 with 320 kbps as free text, or WAV, AIFF, FLAC</span></div>
+    </div>
+    {{ field('released', 'Released', s.released) }}
+    {{ field('genre', 'Genre', s.genre) }}
+    {{ field('style', 'Style', s.style, ('Beatport says ' ~ s.style ~ '; ' if s.style else '') ~ ('your genre: ' ~ s.your_genre if s.your_genre else 'check it against Discogs\' styles')) }}
+    {{ field('notes', 'Submission notes', s.notes, 'where the data comes from') }}
+  </div>
+  <h3>Tracklist <span class="count">{{ s.tracks|length or a.songs|length }}</span></h3>
+  {% if s.tracks %}
+  <table class="rows dc-tracks">
+    <thead><tr><th>#</th><th>Title</th><th class="num">Duration</th></tr></thead>
+    <tbody>
+    {% for t in s.tracks %}
+      <tr>
+        <td class="muted">{{ t.position }}</td>
+        <td><span id="dc-track-{{ loop.index }}">{{ t.title }}</span> <button type="button" class="dc-copy" data-copy="#dc-track-{{ loop.index }}">Copy</button>
+          {% if t.artists or t.credits %}<div class="muted small">{% if t.artists %}Artist: {{ t.artists|join(', ') }}{% endif %}{% if t.artists and t.credits %} · {% endif %}{{ t.credits|join(', ') }}</div>{% endif %}</td>
+        <td class="num nowrap">{{ t.length }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted small">Not known without the store's release: your library has {{ a.songs|length }} of its {{ a.tracks or '?' }} tracks.</p>
+  {% endif %}
+  <div class="dialog-actions">
+    <a class="small dc-link" href="{{ s.search }}" target="_blank" rel="noopener">Search Discogs ↗</a>
+    {% if s.url %}<a class="small dc-link" href="{{ s.url }}" target="_blank" rel="noopener">Beatport page ↗</a>{% endif %}
+    {% if s.cover %}<a class="small dc-link" href="{{ s.cover }}" target="_blank" rel="noopener" title="The store's cover: Discogs' image rules decide whether it may be used">Cover ↗</a>{% endif %}
+    <button type="button" data-close>Close</button>
+    <a class="button primary" href="{{ add }}" target="_blank" rel="noopener">Add on Discogs ↗</a>
+  </div>
+</div>
