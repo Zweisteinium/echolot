@@ -24,16 +24,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
     ca-certificates xz-utils libsoxr-dev libmp3lame-dev libssl-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSL -o chromaprint.tar.gz \
+RUN curl -fsSL --retry 3 --retry-all-errors --connect-timeout 30 -o chromaprint.tar.gz \
     "https://github.com/acoustid/chromaprint/releases/download/v${CHROMAPRINT_VERSION}/chromaprint-${CHROMAPRINT_VERSION}.tar.gz" \
     && echo "${CHROMAPRINT_SHA256}  chromaprint.tar.gz" | sha256sum -c - \
     && tar xzf chromaprint.tar.gz \
     && cmake -S "chromaprint-${CHROMAPRINT_VERSION}" -B chromaprint-build -DCMAKE_BUILD_TYPE=Release \
        -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_TOOLS=OFF -DBUILD_TESTS=OFF -DFFT_LIB=kissfft \
     && cmake --build chromaprint-build -j "$(nproc)" && cmake --install chromaprint-build
-RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-    && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - \
-    && tar xJf ffmpeg.tar.xz && cd "ffmpeg-${FFMPEG_VERSION}" \
+# ffmpeg.org drops connections from CI runners at times: retried, then Debian's copy (the same tarball, same checksum)
+RUN for url in "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+        "https://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_${FFMPEG_VERSION}.orig.tar.xz"; do \
+      curl -fsSL --retry 3 --retry-all-errors --connect-timeout 30 -o ffmpeg.tar.xz "$url" \
+      && echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && break; rm -f ffmpeg.tar.xz; done \
+    && test -f ffmpeg.tar.xz && tar xJf ffmpeg.tar.xz && cd "ffmpeg-${FFMPEG_VERSION}" \
     && ./configure --prefix=/usr/local --enable-shared --disable-static --extra-libs="-lstdc++ -lm" --enable-version3 \
        --disable-debug --disable-doc --disable-ffplay --disable-autodetect --disable-hwaccels --disable-devices \
        --enable-chromaprint --enable-libsoxr --enable-libmp3lame --enable-openssl --enable-zlib --enable-iconv \
