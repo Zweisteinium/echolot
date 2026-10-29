@@ -202,7 +202,7 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
             found.setdefault(rel, []).append(p)
     notes = comments(con)
     titles = {rel: row["title"] for rel, (row, _) in _files(con).items()}
-    for rel in current & set(found):
+    for rel in sorted(current & set(found)):
         owner = owner_of.get(rel.split("/", 1)[0]) if "/" in rel else None
         for p in found[rel]:
             fields = {"ownerId": owner} if owner and p.get("ownerId") != owner else {}
