@@ -200,24 +200,45 @@ def test_the_page_and_the_suggestion(library: Settings, login: Callable[..., Tes
     assert "First EP" not in client.get("/discogs?list=spotify:playlist:BBB222").text
     assert "Discogs · 1" in client.get("/library").text
     dialog = client.get("/discogs/release", params={"album": "artist a|first ep"}).text
-    notes = "Release details from its Beatport page: https://www.beatport.com/release/first-ep/77"
+    notes = "Release details from the Beatport release page: https://www.beatport.com/release/first-ep/77"
     shown = ["Trance Label", "TL001", "123456789012", "First Song (Extended Mix)", "6:31", "Remix – Guest", notes]
     for text in [*shown, 'data-copy="#dc-catno"']:
         assert text in dialog, text
-    assert "Style" in dialog and ">Trance<" in dialog
+    assert ">Neo Trance<" in dialog and ">Trance<" in dialog and "<b>Electronic</b>" in dialog  # (yours, Beatport's)
+    assert ">320 kbps<" in dialog and "Description: <b>EP</b>" in dialog and "Optional, and what stays empty" in dialog
     assert client.get("/discogs/release", params={"album": "nobody|nothing"}).status_code == 404
+    con = db.connect(library.db_path)
+    with con:  # Second: on Discogs only as a CD, no Beatport release
+        found = json.dumps({"url": "https://www.discogs.com/release/9", "formats": ["CD"], "label": "", "catno": ""})
+        con.execute(
+            "UPDATE discogs SET state = 'digital', found = ?, store = '{}' WHERE album = 'artist b|second'", (found,)
+        )
+    con.close()
+    bare = client.get("/discogs/release", params={"album": "artist b|second"}).text
+    assert "No release on Beatport found" in bare and ">Not On Label (Artist B Self-released)<" in bare
+    assert "only as" in bare and "<b>Electronic</b>" in bare and ">Neo Trance<" in bare  # (your genre still counts)
     viewer = login(create_app(library), "guest", admin=False)
     assert viewer.get("/discogs").status_code == 200 and 'action="/discogs/check"' not in viewer.get("/discogs").text
     assert viewer.post("/discogs/check", data={"list": "spotify:likes:1"}, follow_redirects=False).status_code == 403
 
 
-def test_self_released_is_not_on_label(library: Settings) -> None:
-    from echolot.web.discogs import suggestion
+def test_what_the_suggestion_says(library: Settings) -> None:
+    from echolot.web.discogs import styles, suggestion
 
     row = {"store": json.dumps(STORE | {"label": "DistroKid", "catno": "123456789012"}), "genre": ""}
     s = suggestion(album(), row)
     assert (s["label"], s["catno"]) == ("Not On Label (Artist A Self-released)", "none")
     assert suggestion(album(), {"store": json.dumps(STORE | {"catno": STORE["upc"]}), "genre": ""})["catno"] == "none"
+    assert styles("Neo Trance", "Hard Dance / Hardcore / Neo Rave") == ["Neo Trance"]  # (Beatport's bucket: too vague)
+    assert styles("Tekk", "Techno (Peak Time / Driving)") == ["Techno"] and styles("Vocal Trance") == []
+    rap = suggestion(album(), {"store": json.dumps(STORE | {"genre": "Dance / Pop"}), "genre": "Trap"})
+    assert (rap["styles"], rap["genres"]) == (["Trap"], ["Hip Hop"])
+    nothing = suggestion(album(), {"store": "{}", "genre": "Tekk"})  # no store release: no label, no genre known
+    assert (nothing["label"], nothing["genres"], nothing["self_released"]) == (
+        "",
+        [],
+        "Not On Label (Artist A Self-released)",
+    )
 
 
 def test_settings_turn_it_on_with_a_token(settings: Settings, login, monkeypatch: pytest.MonkeyPatch) -> None:

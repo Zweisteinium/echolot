@@ -25,6 +25,17 @@ SHOW = {  # the page's choice of rows: label, which states, only with a store re
 }
 ADD = "https://www.discogs.com/release/add"
 SELF = re.compile(r"\b(?:distrokid|cd ?baby|tunecore|amuse|ditto music|routenote|unitedmasters|spinnup)\b", re.I)
+GENRES_OF = {"Trap": ["Hip Hop"], "Phonk": ["Hip Hop"], "Dance-pop": ["Electronic", "Pop"]}  # (else Electronic)
+# Discogs styles (checked against its search on 2026-10-29) a library genre or Beatport's can be
+STYLE_NAMES = """
+Acid, Acid House, Ambient, Bassline, Breakbeat, Dance-pop, Deep House, Donk, Downtempo, Drum n Bass,
+Dubstep, EBM, Electro, Electro House, Euro House, Eurobeat, Eurodance, Freetekno, Gabber, Goa Trance,
+Hands Up, Happy Hardcore, Hard House, Hard Techno, Hard Trance, Hardcore, Hardstyle, Hi NRG, House,
+Industrial, Italodance, Jumpstyle, Makina, Minimal Techno, Neo Trance, Nu-Disco, Progressive House,
+Progressive Trance, Psy-Trance, Schranz, Speed Garage, Synth-pop, Synthwave, Tech House, Tech Trance,
+Techno, Trance, Tropical House, UK Garage
+"""
+STYLES = {*re.split(r",\s*", STYLE_NAMES.strip()), *GENRES_OF}
 
 
 def _on(con: sqlite3.Connection) -> bool:
@@ -122,9 +133,21 @@ def _length(seconds: int) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}" if seconds else ""
 
 
-def suggestion(a: job.Album, row: sqlite3.Row) -> dict[str, Any]:
-    """What to enter in Discogs' form, in its order: from the Beatport release, else what Spotify and the
-    library know (then the tracks are only the library's songs of it)."""
+def styles(*genres: str) -> list[str]:
+    """The Discogs styles among genres (the library's, Beatport's "Hard Dance / Hardcore / Neo Rave" in parts; one
+    in brackets is dropped: "Trance (Main Floor)"), at most two. A bucket of several (Beatport's) is too vague."""
+    out: list[str] = []
+    for genre in genres:
+        parts = [p.strip() for p in re.sub(r"\s*\(.*\)$", "", genre or "").split(" / ")]
+        found = [p for p in parts if p in STYLES]
+        if len(parts) == 1 and found and found[0] not in out:
+            out.append(found[0])
+    return out[:2]
+
+
+def suggestion(a: job.Album, row: Any) -> dict[str, Any]:
+    """What to enter in Discogs' form, in its order, only what is sure: from the Beatport release, else what
+    Spotify and the library know (then the tracks are only the library's songs of it)."""
     store = _store(row) or {}
     artists = store.get("artists") or a.artists[:1]
     name = store.get("name") or a.title
@@ -135,28 +158,33 @@ def suggestion(a: job.Album, row: sqlite3.Row) -> dict[str, Any]:
         credits = [f"Remix – {r}" for r in t.get("remixers") or []]
         length = _length(t.get("seconds") or 0)
         tracks.append({"position": str(n), "artists": own, "title": title, "length": length, "credits": credits})
-    style = re.sub(r"\s*\(.*\)$", "", store.get("genre") or "").strip()
     label, catno = store.get("label") or "", store.get("catno") or ""
     if SELF.search(label):  # (a distributor for artists: Discogs calls that self-released)
         label, catno = f"Not On Label ({artists[0]} Self-released)", "none"
-    elif catno and catno == store.get("upc"):
+    elif label and (not catno or catno == store.get("upc")):
         catno = "none"
+    chosen = styles(row["genre"], store.get("genre") or "")
+    genres = [g for st in chosen for g in GENRES_OF.get(st, ["Electronic"])]
+    genres = genres or (["Electronic"] if store else [])
+    described = re.search(r"\b(EP|LP|Album)\b", name)
     return {
         "from_store": bool(store),
         "artists": artists,
         "title": name,
         "label": label,
         "catno": catno,
+        "self_released": f"Not On Label ({artists[0]} Self-released)",
         "barcode": store.get("upc") or "",
         "qty": len(tracks) or a.tracks or len(a.songs),
-        "description": "EP" if re.search(r"\bEP\b", name) else "",
+        "description": {"LP": "Album"}.get(described[1], described[1]) if described else "",
         "released": store.get("date") or a.released,
         "tracks": tracks,
-        "genre": "Electronic" if store else "",
-        "style": style,
+        "genres": list(dict.fromkeys(genres)),
+        "styles": chosen,
         "your_genre": row["genre"],
+        "store_genre": store.get("genre") or "",
         "cover": store.get("cover") or "",
         "url": store.get("url") or "",
-        "notes": f"Release details from its Beatport page: {store['url']}" if store.get("url") else "",
+        "notes": f"Release details from the Beatport release page: {store['url']}" if store.get("url") else "",
         "search": "https://www.discogs.com/search/?" + urllib.parse.urlencode({"q": f"{a.artist} {a.title}"}),
     }

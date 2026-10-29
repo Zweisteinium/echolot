@@ -1041,12 +1041,16 @@ dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
   border-bottom: 1px solid var(--border); }
 .dc-label { font-size: 0.85rem; font-weight: 550; }
 .dc-label .hint { display: block; font-weight: 400; font-size: 0.75rem; color: var(--muted); }
-.dc-value { display: flex; align-items: center; gap: 0.5rem; min-width: 0; overflow-wrap: anywhere; }
-.dc-value > span:first-child { flex: 1; }
+.dc-value { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; min-width: 0; overflow-wrap: anywhere; }
+.dc-stack { flex-direction: column; align-items: flex-start; }
+.dc-copyable { display: inline-flex; align-items: center; gap: 0.35rem; }
+.dc-more { margin-top: 0.75rem; }
+.dc-more summary { cursor: pointer; font-size: 0.85rem; font-weight: 550; color: var(--muted); }
+.dc-more .dc-fields { margin-top: 0.4rem; }
 .dc-copy { flex: none; padding: 0.15rem 0.5rem; font-size: 0.75rem; }
 .dc h3 { margin: 1rem 0 0.4rem; font-size: 0.95rem; }
+.dc .dc-tracks + p { margin: 0.3rem 0 0.75rem; }
 .dc-tracks td { vertical-align: top; }
-.dc-tracks .dc-copy { margin-left: 0.3rem; }
 .dc .dialog-actions { align-items: center; flex-wrap: wrap; }
 .dc .dc-link:first-child { margin-right: auto; }
 @media (max-width: 640px) {
