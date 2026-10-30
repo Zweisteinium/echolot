@@ -290,7 +290,8 @@ def api_file(
     Spotify's stream (a lossy one is uploaded too: better than no song). A recording that is not genuine
     lossless, or no better than the library's copy, means Spotify has nothing better of the song
     (recording.answer). One of the lossless stream made from a lossy file is judged as any fake FLAC is: by its
-    source (a re-release can be worse than the copy)."""
+    source (a re-release can be worse than the copy). The answer's `recording`: its tier and lossy source as
+    Echolot's lossy checks judge it (the spectrum check and lossprint: "MP3 ~288 kbps"), for the device to show."""
     try:
         item = recording.item_of(con, device["id"], item_id)
     except recording.RecordingError as e:
@@ -305,43 +306,43 @@ def api_file(
     if library is None:
         raise HTTPException(409, "No library configured.")
     paths = filing.Paths(library.parent)
-    result, detail, tier = _check_and_file(request, con, item, file, paths)
+    result, detail, tier, source = _check_and_file(request, con, item, file, paths)
     detail = f"{detail} · {note.strip()}" if note.strip() else detail
     recording.answer(con, item, result, detail, tier, stream.strip().lower())
-    return _answer(con, item, result, detail)
+    return _answer(con, item, result, detail) | {"recording": {"tier": tier, "source": source}}
 
 
 def _check_and_file(
     request: Request, con: sqlite3.Connection, item: sqlite3.Row, file: UploadFile, paths: filing.Paths
-) -> tuple[str, str, str]:
-    """(result, detail, the recording's tier) of a recording: rejected (not audio, another recording than the
+) -> tuple[str, str, str, str]:
+    """(result, detail, the recording's tier and lossy source: "MP3 ~288 kbps", upload.File) of a recording: rejected (not audio, another recording than the
     release's, or than your copy when Spotify plays the song as a release that may be another: recording.unsure),
     not_better (the library's copy is as good: upload.compare), or filed."""
     song = next(iter(stats.upload_songs(con, item["user_id"], item["song_key"])), None)
     if song is None:
-        return "rejected", "the song is no longer in your lists", ""
+        return "rejected", "the song is no longer in your lists", "", ""
     batch = upload.start(paths)
     try:
         keep_hires = options.get(con, options.Files).keep_hires
         f = upload.add(paths, batch, file.filename or "recording.flac", file.file, keep_hires)
         if f.error:
-            return "rejected", f"not audio: {f.error}", ""
+            return "rejected", f"not audio: {f.error}", "", ""
         tier = f.tier
         fit = upload.fit(con, f, song, paths.tracks)
         plays = recording.unsure(con, item["song_key"], item["uri"] or "")
         if why := upload.different(fit, copy=bool(plays)):  # not offered again (Try again lifts it)
             detail = f"{recording.DIFFERENT}: {why}" + (f" (Spotify plays it as {plays})" if plays else "")
             recording.block(con, item["song_key"], item["uri"], "other", detail)
-            return "rejected", detail, tier
+            return "rejected", detail, tier, f.source
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
-            return "not_better", copy.why, tier
+            return "not_better", copy.why, tier, f.source
         lines = upload.import_files(con, paths, request.app.state.vault, batch, {f.n: song["key"]}, source="mitschnitt")
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
-            return "rejected", line, tier
+            return "rejected", line, tier, f.source
         # (filing found a better copy after all: "the library has a better copy", import_files' line)
-        return ("not_better" if "has a better copy" in line else "filed"), line, tier
+        return ("not_better" if "has a better copy" in line else "filed"), line, tier, f.source
     finally:
         upload.cancel(paths, batch)
 

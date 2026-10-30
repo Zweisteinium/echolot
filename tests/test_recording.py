@@ -595,6 +595,7 @@ def test_a_recording_made_from_lossy(
     best = recording.blocks(con).get(item["key"])
     con.close()
     assert r["result"] == "filed" and imported == [(tier, "AAC ~258 kbps")]
+    assert r["recording"] == {"tier": tier, "source": "AAC ~258 kbps"}  # (for the device to show)
     assert best["reason"] == reason  # Spotify has nothing better
 
 
