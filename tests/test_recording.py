@@ -229,6 +229,7 @@ def test_the_upload_into_the_song(
     assert r.json()["result"] == "rejected" and "Sounds different" in r.json()["detail"]
     assert "(fingerprint 0.40, waveform 0.10)" in r.json()["detail"]  # (the scores, to judge it later)
     con = db.connect(app.state.settings.db_path)
+    assert item["key"] not in recording.blocks(con)  # filed genuine lossless: no mark
     best = recording.blocks(con)[nxt["key"]]  # Spotify's is another recording: not offered again
     assert best["reason"] == "other" and "fingerprint 0.40" in best["detail"]
     assert nxt["key"] not in [t.key for t in recording.candidates(con, 1)]
@@ -394,8 +395,9 @@ def test_spotify_has_nothing_better(
     app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A song Spotify plays lossy only, or whose recording is not genuine lossless (filed, or no better than the
-    library's copy), is not offered again, for anyone, while Spotify plays it as that track; the lists mark it,
-    the Record dialog counts it out. A genuine lossless recording leaves no mark; a relink or Try again lifts it."""
+    library's copy: a genuine lossless one too, when it is quieter), is not offered again, for anyone, while
+    Spotify plays it as that track; the lists mark it, the Record dialog counts it out. A relink or Try again
+    lifts it."""
     tiers = {"spotify:s1": "lossless", "spotify:s2": "fake"}
 
     def add(paths, batch, name, fileobj, keep_hires=False):
@@ -403,9 +405,8 @@ def test_spotify_has_nothing_better(
 
     monkeypatch.setattr(upload, "add", add)
     monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
-    monkeypatch.setattr(
-        upload, "compare", lambda paths, f, song: upload.Copy(False, "~128 kbps source, your copy fake FLAC")
-    )
+    why = {"lossless": "6.7 dB quieter than your 127 kbps", "fake": "~128 kbps source, your copy fake FLAC"}
+    monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(False, why[f.tier]))
     owner = login(app)
     device = as_device(app, connect(owner, app))
     owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
@@ -414,8 +415,9 @@ def test_spotify_has_nothing_better(
         device.post(f"/api/recorder/items/{item['id']}/file", files={"file": (item["key"], b"fLaC", "audio/flac")})
     con = db.connect(app.state.settings.db_path)
     best = recording.blocks(con)
-    assert list(best) == ["spotify:s2"] and best["spotify:s2"]["reason"] == "same"  # s1 was genuine lossless
-    assert best["spotify:s2"]["uri"] == "spotify:track:s2"
+    assert {k: r["reason"] for k, r in best.items()} == {"spotify:s1": "same", "spotify:s2": "same"}
+    assert best["spotify:s2"]["uri"] == "spotify:track:s2" and "quieter" in best["spotify:s1"]["detail"]
+    assert recording.unblock(con, "spotify:s1")  # (the rest is about s2)
     assert "spotify:s2" not in [t.key for t in recording.candidates(con, 1)]
     assert "1 Spotify has nothing better of" in recording.survey(con, 1)[1]
     timon = auth.logged_in(con, "timon", "nd-timon", False).id

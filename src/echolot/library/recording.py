@@ -660,11 +660,11 @@ def answer(
     TRIES times), or queued again as it was and its session paused (took_over: the user played Spotify, or
     stopped the device; a session paused already keeps its reason, by_user from the device's own Stop).
     Spotify has nothing better of the song (block) when it plays it lossy only (lossy_only; a lossy recording:
-    `tier`, or `stream` lossy as the device heard it), or when a recording that is not genuine lossless was filed
-    or no better than the library's copy."""
+    `tier`, or `stream` lossy as the device heard it), when a recording that is not genuine lossless was filed,
+    or when one was no better than the library's copy (a genuine lossless one too: quieter, upload.QUIETER)."""
     if result in (*UPLOADED, *SKIPS):
         _finish(con, item["id"], result, detail)
-        uploaded = result in ("filed", "not_better") and tier and tier != "lossless"
+        uploaded = tier and (result == "not_better" or (result == "filed" and tier != "lossless"))
         if result == "lossy_only" or uploaded:
             lossy = result == "lossy_only" or stream == "lossy" or tier.startswith("lossy")
             reason = "lossy" if lossy else "same" if result == "not_better" else "recorded"

@@ -288,8 +288,9 @@ def api_file(
     one whose lease ran out still comes in unless it was handed out again (recording.open_for). `note`: the
     device's word on the recording (kept with the result); `stream`: lossless or lossy, as the device heard
     Spotify's stream (a lossy one is uploaded too: better than no song). A recording that is not genuine
-    lossless means Spotify has nothing better of the song (recording.answer). One of the lossless stream made
-    from a lossy file is judged as any fake FLAC is: by its source (a re-release can be worse than the copy)."""
+    lossless, or no better than the library's copy, means Spotify has nothing better of the song
+    (recording.answer). One of the lossless stream made from a lossy file is judged as any fake FLAC is: by its
+    source (a re-release can be worse than the copy)."""
     try:
         item = recording.item_of(con, device["id"], item_id)
     except recording.RecordingError as e:
