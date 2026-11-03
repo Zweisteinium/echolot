@@ -67,6 +67,25 @@ def test_download_states() -> None:
     assert "download failure" in d.transfer(job).reason  # the daemon's own message
 
 
+def test_a_peer_that_failed_is_tried_last_then_not_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sockseek counts only successes (its fails-to-ignore never applies): Echolot remembers the failures."""
+    monkeypatch.setattr(soulseek, "_peers", {})
+    d = Replay({("GET", "/api/jobs/"): "search-results"})
+    assert [c.rank for c in d.results("search-1")] == [0, 1]
+    soulseek.record("local", False)
+    assert [c.rank for c in d.results("search-1")] == [0, 1]  # (the only peer: still tried)
+    d.answers = {("POST", "/api/jobs/"): "download-submit"}
+    c = soulseek.Candidate("local", "Scooter\\Scooter - Aiii Shot The DJ.flac", 1, 95, 44100, 5, "flac", True, 100, 0)
+    job = d.download("search-1", c, "/music/inbox/soulseek/x", soulseek.search_settings())
+    d.answers = {("GET", "/api/jobs/"): "download-failed"}
+    assert d.transfer(job).state == "failed" and soulseek.peer("local") == -2
+    d.answers = {("GET", "/api/jobs/"): "search-results"}
+    assert d.results("search-1") == []
+    d.answers = {("GET", "/api/jobs/"): "download-failed"}
+    d.transfer(job)  # looked at again: counted once
+    assert soulseek.peer("local") == -2
+
+
 def test_unknown_job_is_lost() -> None:
     d = Replay({("GET", "/api/jobs/"): "job-unknown"})
     with pytest.raises(soulseek.Lost):

@@ -29,7 +29,7 @@ def wav(path: Path, seconds: int = 200) -> None:
 
 
 class FakeDaemon:
-    """Search results by query title: [(user, path, seconds, behaviour)]; behaviour: ok, stuck, fail."""
+    """Search results by query title: [(user, path, seconds, behaviour)]; behaviour: ok, stuck, slow, fail."""
 
     files: ClassVar[dict[str, list[tuple[str, str, int, str]]]] = {}
     searches: ClassVar[list[tuple[str, str, int, dict]]] = []
@@ -68,6 +68,9 @@ class FakeDaemon:
         behaviour, path, seconds = self.jobs[job]
         if behaviour == "stuck":
             return soulseek.Transfer("running", None, 0, 1000, "")
+        if behaviour == "slow":  # a byte more at every look
+            self.jobs[job] = (behaviour, path, seconds + 1)
+            return soulseek.Transfer("running", None, seconds + 1, 10**9, "")
         if behaviour == "fail":
             return soulseek.Transfer("failed", None, 0, 1000, "AllDownloadsFailed")
         wav(Path(path), 300 if behaviour == "long" else seconds)  # long: the peer's length was wrong
@@ -132,6 +135,23 @@ def test_found_after_skipping_wrong_and_stuck_results(run: Run, monkeypatch: pyt
     artist, title, length, settings = FakeDaemon.searches[-1]
     assert (artist, title, length) == ("Artist C", "Gone Song", 180)
     assert settings["search"]["desperateSearch"] and not settings["search"]["necessaryCond"]["strictArtist"]
+
+
+def test_a_download_too_slow_to_end_in_time_is_given_up(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A peer that sends, but so slowly that the file would take longer than TRANSFER_SECONDS: given up
+    after SLOW_AFTER, not only at TRANSFER_SECONDS, and the next file is tried."""
+    monotonic = iter(range(0, 10**6, 200))  # every look at the clock: 200 s later
+    monkeypatch.setattr(acquire.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(acquire, "POLL_SECONDS", 0)
+    FakeDaemon.files["Gone Song"] = [("u1", "Music\\Artist C\\Artist C - Gone Song.flac", 180, "slow"),
+                                     ("u2", "Music\\Artist C\\Single\\Gone Song.flac", 180, "ok")]  # fmt: skip
+    cancelled = []
+    monkeypatch.setattr(FakeDaemon, "cancel", lambda self, job: cancelled.append(job))
+    rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
+    assert "1 new" in acquire._search(run, rows, "search")
+    assert cancelled == ["Music\\Artist C\\Artist C - Gone Song.flac"]
+    assert len(FakeDaemon.downloads) == 2
+    assert next(monotonic) < acquire.TRANSFER_SECONDS  # given up at its speed, long before the limit
 
 
 def test_filed_and_attempts_cleared(run: Run) -> None:

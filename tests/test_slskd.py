@@ -134,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     FAKE.reset(tmp_path)
     monkeypatch.setattr(slskd, "_searches", __import__("collections").deque())  # a fresh search budget
-    monkeypatch.setattr(slskd, "_peers", {})  # no peer failed yet
+    monkeypatch.setattr(soulseek, "_peers", {})  # no peer failed yet
     server = HTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield slskd.Slskd(f"http://127.0.0.1:{server.server_port}", tmp_path, "admin", "pw", timeout=5)
@@ -303,7 +303,7 @@ def test_a_peer_that_failed_is_tried_last_then_not_at_all(client: slskd.Slskd) -
     FAKE.deliver = "Succeeded"
     other = client.results(job)[-1]
     assert client.transfer(client.download(job, other, "echolot/c", {})).state == "done"
-    assert slskd._peer("other") == 1 and slskd._peer("flaky") == -2
+    assert soulseek.peer("other") == 1 and soulseek.peer("flaky") == -2
 
 
 def test_a_download_without_progress_is_given_up(client: slskd.Slskd, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,4 +319,4 @@ def test_a_download_without_progress_is_given_up(client: slskd.Slskd, monkeypatc
     monkeypatch.setattr(slskd.time, "monotonic", lambda: clock)
     t = client.transfer(dl)
     assert (t.state, t.reason) == ("failed", "no progress for 90 s")
-    assert not FAKE.transfers and slskd._peer("u") == -1  # cancelled in slskd
+    assert not FAKE.transfers and soulseek.peer("u") == -1  # cancelled in slskd

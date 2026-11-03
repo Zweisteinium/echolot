@@ -7,7 +7,7 @@ What Sockseek does for its daemon, Echolot does here: the search text (without f
 search repeats a search without results with the title alone and the artist alone), the filters and the
 ranking of soulseek.SEARCH, Soulseek's search limit, giving a download up that makes no progress
 (maxStaleTime), and peers whose downloads failed: ranked last after one failure, left out after two (Sockseek's
-fails-to-downrank 1, fails-to-ignore 2; here for PEER_MEMORY). slskd logs in with an API key or with its web login
+fails-to-downrank 1, fails-to-ignore 2; for soulseek.PEER_MEMORY). slskd logs in with an API key or with its web login
 (user and password).
 """
 
@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from echolot.library import audio, rules
-from echolot.services.soulseek import Candidate, DaemonError, Lost, Transfer
+from echolot.services.soulseek import Candidate, DaemonError, Lost, Transfer, peer, record
 
 OTHER_USER = "slskd saved it as another user: run slskd as Echolot's user (user: PUID:PGID in its compose file)"
 SECRET = "slskd.secret"  # the vault's name of slskd's password (with a user) or API key (without)
@@ -36,12 +36,9 @@ SEARCH_LIMIT = (34, 220)  # Soulseek allows about 34 searches per 220 s: kept by
 # (milliseconds, though slskd's API notes call it seconds); 15 s is slskd's default
 SEARCH_IDLE_MS = 15_000
 FAST = 1_000_000  # bytes/s from which a peer counts as fast (the ranking: fast before slow)
-PEER_MEMORY = 6 * 3600  # s a peer's failed downloads count against it
 BUSY_TRIES = 10  # slskd answers 429 while it handles another search or enqueue: tried again this often
 _searches: deque[float] = deque()
 _searches_lock = threading.Lock()
-_peers: dict[str, tuple[int, float]] = {}  # user -> (downloads done minus failed, when that last changed)
-_peers_lock = threading.Lock()
 _post_lock = threading.Lock()  # one search or enqueue at a time (slskd: "Only one concurrent operation")
 _FT = re.compile(r"\s*[\(\[]\s*(?:feat|ft|featuring|with)\.?\s[^\)\]]*[\)\]]|\s+(?:feat|ft|featuring)\.?\s.*$", re.I)
 
@@ -69,19 +66,6 @@ def _throttle(stop: threading.Event | None = None) -> None:
             raise DaemonError("stopped while waiting for a search slot")
         if stop is None:
             time.sleep(min(wait, 5))
-
-
-def _peer(user: str) -> int:
-    """Downloads from the peer done minus failed (failures older than PEER_MEMORY forgotten)."""
-    with _peers_lock:
-        n, at = _peers.get(user, (0, 0.0))
-    return 0 if n < 0 and time.monotonic() - at > PEER_MEMORY else n
-
-
-def _record(user: str, ok: bool) -> None:
-    n = _peer(user)
-    with _peers_lock:
-        _peers[user] = (n + (1 if ok else -1), time.monotonic())
 
 
 class Slskd:
@@ -230,7 +214,7 @@ class Slskd:
             for resp in self._call("GET", f"/searches/{sid}/responses") or []:
                 for f in resp.get("files") or []:
                     c = _candidate(resp, f)
-                    if f.get("isLocked") or (only and c.ext not in only) or _peer(c.user) <= -2:
+                    if f.get("isLocked") or (only and c.ext not in only) or peer(c.user) <= -2:
                         continue
                     if tolerance and j["length"] and c.length and abs(c.length - j["length"]) > tolerance:
                         continue
@@ -284,7 +268,7 @@ class Slskd:
             elif job.get("stale") and time.monotonic() - since > job["stale"] / 1000:
                 self.cancel(job_id)  # queued at the peer, or the peer does not answer: as Sockseek, the next file
                 self._moved.pop(job_id, None)
-                _record(job["user"], False)
+                record(job["user"], False)
                 return Transfer("failed", None, done, total, f"no progress for {job['stale'] // 1000} s")
             return Transfer("running", None, done, total, "")
         self._moved.pop(job_id, None)
@@ -299,7 +283,7 @@ class Slskd:
                 return Transfer("failed", None, done, total, f"{OTHER_USER} (owner uid {folder.stat().st_uid})")
             if files:
                 self._forget(job, t)
-                _record(job["user"], True)
+                record(job["user"], True)
                 return Transfer("done", str(files[-1]), done, total, "")
             # slskd reports success, then moves the file from its incomplete folder: wait for it a while
             first = self._done_at.setdefault(job_id, time.monotonic())
@@ -310,7 +294,7 @@ class Slskd:
         self._forget(job, t)
         if "Cancelled" in state:
             return Transfer("cancelled", None, done, total, str(reason))
-        _record(job["user"], False)
+        record(job["user"], False)
         return Transfer("failed", None, done, total, str(reason))
 
     def _forget(self, job: dict, t: dict) -> None:
@@ -391,4 +375,4 @@ def _rank(c: Candidate, job: dict, want: dict) -> tuple:
         not want.get("strictTitle") or rules.words(job["title"]).strip() in rules.words(c.name),
         not want.get("strictArtist") or any(f" {w} " in rules.words(c.path) for w in rules.artist_words(job["artist"])),
     ]
-    return (_peer(c.user) < 0, -sum(met), not c.free_slot, c.speed < FAST, c.queue, -c.bitrate, -c.speed)
+    return (peer(c.user) < 0, -sum(met), not c.free_slot, c.speed < FAST, c.queue, -c.bitrate, -c.speed)

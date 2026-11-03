@@ -26,6 +26,24 @@ SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [
                       "maxSampleRate": 48000, "strictTitle": True, "strictArtist": True},
     "maxStaleTime": 90000,  # ms without progress before Sockseek gives a transfer up
 }  # fmt: skip
+PEER_MEMORY = 6 * 3600  # s a peer's failed downloads count against it
+_peers: dict[str, tuple[int, float]] = {}  # user -> (downloads done minus failed, when that last changed)
+_peers_lock = threading.Lock()
+
+
+def peer(user: str) -> int:
+    """Downloads from the peer done minus failed (failures older than PEER_MEMORY forgotten). Sockseek's own
+    fails-to-ignore never applies: it counts only successes. One that failed is tried last, one that failed
+    twice not at all (slskd.results, Daemon.results)."""
+    with _peers_lock:
+        n, at = _peers.get(user, (0, 0.0))
+    return 0 if n < 0 and time.monotonic() - at > PEER_MEMORY else n
+
+
+def record(user: str, ok: bool) -> None:
+    n = peer(user)
+    with _peers_lock:
+        _peers[user] = (n + (1 if ok else -1), time.monotonic())
 
 
 def search_settings(*, desperate: bool = False, flac_only: bool = False) -> dict:
@@ -99,6 +117,7 @@ class Daemon:
     def __init__(self, url: str, timeout: float = 30) -> None:
         self.url, self.timeout = url.rstrip("/"), timeout
         self._submitted: dict[str, float] = {}  # job id -> when it was started here
+        self._users: dict[str, str] = {}  # download job id -> its peer
 
     def _call(self, method: str, path: str, body: object = None) -> Any:
         data = None if body is None else json.dumps(body).encode()
@@ -155,7 +174,7 @@ class Daemon:
         items = (self._call("GET", f"/api/jobs/{job_id}/results/files") or {}).get("items") or []
         out = []
         for rank, it in enumerate(items):
-            ref, peer = it.get("ref") or {}, it.get("peer") or {}
+            ref, sender = it.get("ref") or {}, it.get("peer") or {}
             path = ref.get("filename") or it.get("filename") or ""
             # peers send length and bitrate as attributes, if at all; the extension is often empty
             attrs = {a.get("type"): a.get("value") for a in it.get("attributes") or [] if isinstance(a, dict)}
@@ -165,9 +184,12 @@ class Daemon:
                 bitrate=int(it.get("bitRate") or attrs.get("BitRate") or 0),
                 samplerate=int(it.get("sampleRate") or attrs.get("SampleRate") or 0),
                 length=int(it.get("length") or attrs.get("Length") or 0), ext=ext,
-                free_slot=bool(peer.get("hasFreeUploadSlot")), speed=int(peer.get("uploadSpeed") or 0),
+                free_slot=bool(sender.get("hasFreeUploadSlot")), speed=int(sender.get("uploadSpeed") or 0),
                 rank=rank,
             ))  # fmt: skip
+        out = sorted((c for c in out if peer(c.user) > -2), key=lambda c: peer(c.user) < 0)
+        for rank, c in enumerate(out):
+            c.rank = rank
         return out
 
     def download(self, search_job: str, c: Candidate, parent_dir: str, settings: dict) -> str:
@@ -177,6 +199,7 @@ class Daemon:
                               "options": {"outputParentDir": parent_dir, "downloadSettings": settings}})  # fmt: skip
         jobs = started if isinstance(started, list) else [started]
         self._submitted[jobs[0]["jobId"]] = time.monotonic()
+        self._users[jobs[0]["jobId"]] = c.user
         return jobs[0]["jobId"]
 
     def transfer(self, job_id: str) -> Transfer:
@@ -187,6 +210,8 @@ class Daemon:
             return Transfer("running", None, done, total, "")
         outcome = s.get("terminalOutcome") or ""
         state = {"Succeeded": "done", "Cancelled": "cancelled"}.get(outcome, "failed")
+        if (user := self._users.pop(job_id, None)) and state != "cancelled":
+            record(user, state == "done")
         reason = s.get("failureMessage") or s.get("failureReason") or outcome
         return Transfer(state, p.get("downloadPath") if state == "done" else None, done, total, str(reason))
 

@@ -48,6 +48,7 @@ LOOSEN = [(4, {"desperate": True, "strict_artist": False}), (2, {"desperate": Tr
 MAX_RESULTS = 5  # downloads tried per song and attempt
 SEARCH_SECONDS = 300  # a search waits at most this long (queued behind the rate limit included)
 TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
+SLOW_AFTER = 120  # s a download moves before its speed tells whether it ends in TRANSFER_SECONDS
 POLL_SECONDS = 2  # how often a running download is looked at
 EDIT_REVIEW = "another edit, in review"  # a YouTube song's download that is probably a library song's other edit
 FOUND = {"new", "upgrade", "duplicate", "linked", EDIT_REVIEW}  # linked: the library had it under other names
@@ -263,9 +264,9 @@ class Fetcher:
     def watch(self, job: str, key: str = "") -> soulseek.Transfer:
         """Wait for a download (of the song `key`: its progress noted, see track); give it up when it makes no
         progress for stall_minutes (queued at the peer: Sockseek keeps such a download alive while the peer
-        serves others)."""
+        serves others), or when at its speed it would not end within TRANSFER_SECONDS."""
         start = last_change = time.monotonic()
-        last_bytes = -1
+        last_bytes, moving = -1, None  # moving: (when, bytes) first seen with bytes arrived
         while True:
             t = self.daemon.transfer(job)
             if t.state != "running":
@@ -275,10 +276,16 @@ class Fetcher:
                 track(self.run, key, "downloading", t.done_bytes, t.total_bytes)
             if t.done_bytes != last_bytes:
                 last_bytes, last_change = t.done_bytes, now
+            if moving is None and t.done_bytes:
+                moving = (now, t.done_bytes)
             stalled = now - last_change > self.opts.stall_minutes * 60
-            if stalled or now - start > TRANSFER_SECONDS or self.run.stop.is_set():
+            slow = False
+            if moving and now - moving[0] >= SLOW_AFTER and t.total_bytes > t.done_bytes:
+                speed = max((t.done_bytes - moving[1]) / (now - moving[0]), 1)
+                slow = now - start + (t.total_bytes - t.done_bytes) / speed > TRANSFER_SECONDS
+            if stalled or slow or now - start > TRANSFER_SECONDS or self.run.stop.is_set():
                 self.daemon.cancel(job)
-                why = "no progress (queued at the peer)" if stalled else "stopped"
+                why = "no progress (queued at the peer)" if stalled else "too slow" if slow else "stopped"
                 return soulseek.Transfer("cancelled", None, t.done_bytes, t.total_bytes, why)
             self.run.stop.wait(POLL_SECONDS)
 
