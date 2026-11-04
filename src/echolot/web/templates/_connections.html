@@ -6,7 +6,7 @@
   {% elif sp.error %}<a class="pill bad-pill" href="/playlists#spotify" title="{{ sp.error }}">Spotify: error</a>
   {% else %}<a class="pill warn-pill" href="/playlists#spotify">Spotify: not connected</a>{% endif %}
   {% if sc.connected %}<a class="pill ok-pill" href="/playlists#soundcloud">SoundCloud: {{ sc.name }}</a>
-  {% elif sc.error %}<a class="pill bad-pill" href="/playlists#soundcloud" title="{{ sc.error }}">SoundCloud: token invalid</a>
+  {% elif sc.error %}<a class="pill bad-pill" href="/playlists#soundcloud" title="{{ sc.error }}">SoundCloud: token {{ 'expired' if sc.expired else 'invalid' }}</a>
   {% else %}<a class="pill warn-pill" href="/playlists#soundcloud">SoundCloud: not connected</a>{% endif %}
   {% if sl.ready %}<a class="pill ok-pill"{{ to|safe }}>Soulseek: logged in</a>
   {% elif not sl.reachable %}<a class="pill bad-pill"{{ to|safe }} title="{{ sl.error }}">Soulseek: daemon not reachable</a>

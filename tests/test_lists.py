@@ -509,13 +509,15 @@ def test_a_soundcloud_list_is_read_when_it_changed_or_hourly(run: Run) -> None:
         )
     assert not lists._sc_changed(con, likes, states)  # unchanged, read 10 min ago
     assert lists._sc_changed(con, likes, {likes.url: "219:2026-10-02T09:00:00Z:43"})  # a new like
-    assert lists._sc_changed(con, likes, {})  # the state could not be asked
+    assert lists._sc_changed(con, likes, {})  # the state could not be asked (no token)
+    assert not lists._sc_changed(con, likes, {}, refused=True)  # the token refused: waits for the hour
     with con:
         con.execute(
             "UPDATE lists SET fetched_at = ? WHERE key = ?",
             ((datetime.now() - timedelta(hours=2)).isoformat(), likes.key),
         )
     assert lists._sc_changed(con, likes, states)  # read again at least hourly
+    assert lists._sc_changed(con, likes, {}, refused=True)
     con.close()
 
 
