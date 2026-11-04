@@ -1,12 +1,16 @@
 """SoundCloud's web API with the account's OAuth token (SoundCloud gives out no app keys): who the token
 belongs to, the sets in its library (own and liked) for the Sources page, the song search (Discover) and
-a track's stream for a player (web/subsonic). Downloads go through yt-dlp.
+a track's stream for a player (web/subsonic). Downloads go through yt-dlp. The browser's login token lasts a
+day: Echolot renews it with the login's refresh token as the browser does (token_of).
 """
 
 import base64
 import datetime
 import json
+import logging
 import sqlite3
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -17,7 +21,15 @@ if TYPE_CHECKING:
     from echolot.settings.vault import Vault
 
 API = "https://api-v2.soundcloud.com"
+SECURE = "https://secure.soundcloud.com"  # its login server: renews tokens
 TOKEN = "soundcloud.token"  # TOKEN:<user id>: one login per user
+REFRESH = "soundcloud.refresh_token"  # REFRESH:<user id>: the browser's cookie oauth_refresh_token, works once
+RENEW_BEFORE = 3600  # s before a token expires that it is renewed
+RETRY_AFTER = 900  # s after a renewal failed (SoundCloud not reachable) before the next try
+
+log = logging.getLogger(__name__)
+_renewing = threading.Lock()  # one renewal at a time: a second with the same refresh token would be refused
+_failed: dict[int, float] = {}  # user id -> when a renewal last failed
 
 
 def token_name(user_id: int) -> str:
@@ -25,30 +37,105 @@ def token_name(user_id: int) -> str:
     return f"{TOKEN}:{user_id}"
 
 
+def refresh_name(user_id: int) -> str:
+    """The vault name of a user's SoundCloud refresh token."""
+    return f"{REFRESH}:{user_id}"
+
+
 def token_of(con: sqlite3.Connection, vault: "Vault", user_id: int) -> str | None:
-    return vault.get(con, token_name(user_id))
+    """The user's token, renewed first when it expires within RENEW_BEFORE and their refresh token is
+    stored (the new pair is stored at once: the old refresh token works no more). Not renewed: the stored
+    one, which SoundCloud then refuses as expired."""
+    token = vault.get(con, token_name(user_id))
+    if not (token and _due(token)) or time.time() < _failed.get(user_id, 0) + RETRY_AFTER:
+        return token
+    with _renewing:
+        token = vault.get(con, token_name(user_id)) or token  # (renewed meanwhile by another thread?)
+        if not _due(token) or not (refresh := vault.get(con, refresh_name(user_id))):
+            return token
+        try:
+            new, refresh = renew(token, refresh)
+        except Refused as e:  # used up or logged out: of no more use
+            log.warning("soundcloud: the token of user %s is not renewed: %s", user_id, e)
+            with con:
+                vault.delete(con, refresh_name(user_id))
+            return token
+        except SoundCloudError as e:
+            log.warning("soundcloud: the token of user %s is not renewed (tried again later): %s", user_id, e)
+            _failed[user_id] = time.time()
+            return token
+        try:
+            with con:
+                vault.set(con, token_name(user_id), new)
+                vault.set(con, refresh_name(user_id), refresh)
+        except sqlite3.Error as e:  # (the old pair works no more: only a new login helps)
+            log.error("soundcloud: the renewed token of user %s could not be stored: %s", user_id, e)
+            return new
+        _failed.pop(user_id, None)
+        log.info("soundcloud: the token of user %s renewed, works until %s", user_id, expires(new))
+        return new
+
+
+def _due(token: str) -> bool:
+    return (when := expires(token)) is not None and when.timestamp() < time.time() + RENEW_BEFORE
 
 
 def any_token(con: sqlite3.Connection, vault: "Vault") -> str | None:
     """A connected user's token, the oldest user's first: for what is no one's in particular (a song's
     artwork, a download; SoundCloud hands them to any account)."""
     users = [r[0] for r in con.execute("SELECT id FROM users WHERE NOT disabled ORDER BY id")]
-    return next((t for uid in users if (t := vault.get(con, token_name(uid)))), None)
+    return next((t for uid in users if (t := token_of(con, vault, uid))), None)
 
 
 class SoundCloudError(RuntimeError):
     """The token is missing, expired or refused (message for the user)."""
 
 
+class Refused(SoundCloudError):
+    """SoundCloud refused a refresh token: used already, or the login ended."""
+
+
+def _claims(token: str) -> dict[str, Any]:
+    """What a JWT token says about itself; {} for older ones (2-…)."""
+    try:
+        part = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except (IndexError, ValueError):
+        return {}
+    return claims if isinstance(claims, dict) else {}
+
+
 def expires(token: str) -> datetime.datetime | None:
     """When the token stops working, if it says: the browser's login tokens are JWTs that last a day (the
     browser renews its own); older ones (2-…) say nothing."""
     try:
-        part = token.split(".")[1]
-        claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
-        return datetime.datetime.fromtimestamp(int(claims["exp"]), datetime.UTC)
-    except (IndexError, KeyError, TypeError, ValueError):
+        return datetime.datetime.fromtimestamp(int(_claims(token)["exp"]), datetime.UTC)
+    except (KeyError, TypeError, ValueError):
         return None
+
+
+def renew(token: str, refresh: str) -> tuple[str, str]:
+    """A new token and refresh token for a login's refresh token, asked of SoundCloud's login server as its
+    website asks (for the web app the token names, no app secret). The token lasts a day; the refresh token
+    works once (Refused after): only the new one renews next."""
+    client = _claims(token).get("client_id")
+    if not client:
+        raise SoundCloudError("The refresh token needs the token beside it (the one that starts with eyJ).")
+    body = urllib.parse.urlencode({"client_id": client, "grant_type": "refresh_token", "refresh_token": refresh})
+    form = {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "User-Agent": "Mozilla/5.0"}
+    req = urllib.request.Request(f"{SECURE}/oauth/token", data=body.encode(), headers=form)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 401):  # {"error": "invalid_grant"}
+            raise Refused("SoundCloud refused the refresh token (used already, copied wrong or logged out).") from e
+        raise SoundCloudError(f"SoundCloud: HTTP {e.code} renewing the token") from e
+    except (OSError, TimeoutError, ValueError) as e:
+        raise SoundCloudError(f"SoundCloud not reachable: {e}") from e
+    if not (isinstance(d, dict) and d.get("access_token") and d.get("refresh_token")):
+        raise SoundCloudError("SoundCloud answered without a new token.")
+    return d["access_token"], d["refresh_token"]
 
 
 def expired(token: str) -> bool:

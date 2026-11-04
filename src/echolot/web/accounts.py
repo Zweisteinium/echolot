@@ -63,7 +63,7 @@ def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> d
         token, token_error = None, str(e)
     with ThreadPoolExecutor(3) as pool:
         sp = pool.submit(_spotify_status, state, uid)
-        sc = pool.submit(_soundcloud_status, token, token_error)
+        sc = pool.submit(_soundcloud_status, token, token_error, state.vault.has(con, soundcloud.refresh_name(uid)))
         daemon = pool.submit(_daemon_status, opts.url, client)
         result = {"spotify": sp.result(), "soundcloud": sc.result(), "soulseek": slsk | daemon.result()}
     state.account_status[uid] = (time.monotonic(), result)
@@ -96,12 +96,14 @@ def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
     return sp
 
 
-def _soundcloud_status(token: str | None, token_error: str | None) -> dict[str, Any]:
+def _soundcloud_status(token: str | None, token_error: str | None, renews: bool = False) -> dict[str, Any]:
+    """renews: its refresh token is stored (Echolot renews the token)."""
     if token_error or not token:
         return {"connected": False} | ({"error": token_error} if token_error else {})
     when = soundcloud.expires(token)
     try:
-        return {"connected": True, "expires": when.astimezone() if when else None, **soundcloud.me(token)}
+        me = soundcloud.me(token)
+        return {"connected": True, "expires": when.astimezone() if when else None, "renews": renews, **me}
     except soundcloud.SoundCloudError as e:
         return {"connected": False, "error": str(e), "expired": soundcloud.expired(token)}
 
@@ -241,23 +243,35 @@ def spotify_disconnect(request: Request, con: DB) -> RedirectResponse:
 
 
 @router.post("/accounts/soundcloud")
-def soundcloud_token(request: Request, con: DB, token: Annotated[str, Form()]) -> RedirectResponse:
-    token = token.strip().removeprefix("OAuth ").strip()
+def soundcloud_token(
+    request: Request, con: DB, token: Annotated[str, Form()], refresh: Annotated[str, Form()] = ""
+) -> RedirectResponse:
+    """The browser's token, and its refresh token if given: renewed at once, so it is known to work and
+    Echolot's (the browser's copy is used up)."""
+    token, refresh = token.strip().removeprefix("OAuth ").strip(), refresh.strip()
     try:
+        if refresh:
+            token, refresh = soundcloud.renew(token, refresh)
         me = soundcloud.me(token)
     except soundcloud.SoundCloudError as e:
         return back("/playlists#soundcloud", error=str(e))
-    uid = request.state.user.id
+    uid, vault = request.state.user.id, request.app.state.vault
     with con:
-        request.app.state.vault.set(con, soundcloud.token_name(uid), token)
+        vault.set(con, soundcloud.token_name(uid), token)
+        if refresh:
+            vault.set(con, soundcloud.refresh_name(uid), refresh)
+        else:  # (one of another login renews no more)
+            vault.delete(con, soundcloud.refresh_name(uid))
         con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (me["user"], uid))
-    return back("/playlists#soundcloud", ok=f"SoundCloud connected as {me['name']}.")
+    renews = " Echolot renews its token each day." if refresh else ""
+    return back("/playlists#soundcloud", ok=f"SoundCloud connected as {me['name']}.{renews}")
 
 
 @router.post("/accounts/soundcloud/disconnect")
 def soundcloud_disconnect(request: Request, con: DB) -> RedirectResponse:
     with con:
         request.app.state.vault.delete(con, soundcloud.token_name(request.state.user.id))
+        request.app.state.vault.delete(con, soundcloud.refresh_name(request.state.user.id))
     return back("/playlists#soundcloud", ok="SoundCloud disconnected. Your lists and songs stay.")
 
 
