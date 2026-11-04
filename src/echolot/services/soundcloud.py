@@ -3,6 +3,8 @@ belongs to, the sets in its library (own and liked) for the Sources page, the so
 a track's stream for a player (web/subsonic). Downloads go through yt-dlp.
 """
 
+import base64
+import datetime
 import json
 import sqlite3
 import urllib.error
@@ -38,6 +40,21 @@ class SoundCloudError(RuntimeError):
     """The token is missing, expired or refused (message for the user)."""
 
 
+def expires(token: str) -> datetime.datetime | None:
+    """When the token stops working, if it says: the browser's login tokens are JWTs that last a day (the
+    browser renews its own); older ones (2-…) say nothing."""
+    try:
+        part = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+        return datetime.datetime.fromtimestamp(int(claims["exp"]), datetime.UTC)
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+
+
+def expired(token: str) -> bool:
+    return (when := expires(token)) is not None and when <= datetime.datetime.now(datetime.UTC)
+
+
 def _get(token: str, path: str) -> Any:
     req = urllib.request.Request(f"{API}{path}", headers={"Authorization": f"OAuth {token}",
                                                           "User-Agent": "Mozilla/5.0"})  # fmt: skip
@@ -45,6 +62,10 @@ def _get(token: str, path: str) -> Any:
         with urllib.request.urlopen(req, timeout=20) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
+        if e.code in (401, 403) and expired(token) and (when := expires(token)):
+            raise SoundCloudError(
+                f"SoundCloud's token expired on {when.astimezone():%Y-%m-%d %H:%M}: its login tokens last a day."
+            ) from e
         if e.code in (401, 403):
             raise SoundCloudError("SoundCloud refused the token (expired or copied wrong).") from e
         raise SoundCloudError(f"SoundCloud: HTTP {e.code}") from e

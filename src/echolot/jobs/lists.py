@@ -620,12 +620,15 @@ def soundcloud(run: "Run") -> str:
             return "no SoundCloud lists"
         tokens = {s.key: _sc_token(con, run.vault, s.key) for s in srcs}  # a follower's own (a private set)
         states: dict[str, str] = {}
+        refused: set[str] = set()
         for token in dict.fromkeys(t for t in tokens.values() if t):
             try:
                 states |= sc_api.states(token)
             except sc_api.SoundCloudError as e:
-                log.info("soundcloud states: %s (reading that account's lists)", e)
-        total, srcs = len(srcs), [s for s in srcs if _sc_changed(con, s, states)]
+                refused.add(token)
+                log.info("soundcloud states: %s (reading that account's lists hourly)", e)
+        total = len(srcs)
+        srcs = [s for s in srcs if _sc_changed(con, s, states, tokens[s.key] in refused)]
         any_token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
@@ -741,12 +744,13 @@ def _sc_token(con: sqlite3.Connection, vault: "Vault", key: str) -> str | None:
     return next((t for uid in sources.followers(con, key) if (t := sc_api.token_of(con, vault, uid))), None)
 
 
-def _sc_changed(con: sqlite3.Connection, s: Source, states: dict[str, str]) -> bool:
+def _sc_changed(con: sqlite3.Connection, s: Source, states: dict[str, str], refused: bool = False) -> bool:
     """A SoundCloud list to read: its state changed or is unknown, or it was last read an hour ago (a
-    download that failed is tried again; it leaves no trace in the list's state)."""
+    download that failed is tried again; it leaves no trace in the list's state). Unknown because its
+    follower's token was refused: only hourly, not every list read again every few minutes."""
     row = con.execute("SELECT snapshot, fetched, fetched_at FROM lists WHERE key = ?", (s.key,)).fetchone()
     state = states.get(s.url)
-    if not (row and row["fetched"] and state and row["snapshot"] == state and row["fetched_at"]):
+    if not (row and row["fetched"] and row["fetched_at"]) or (row["snapshot"] != state if state else not refused):
         return True
     return datetime.datetime.fromisoformat(row["fetched_at"]) < datetime.datetime.now() - datetime.timedelta(hours=1)
 

@@ -99,10 +99,11 @@ def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
 def _soundcloud_status(token: str | None, token_error: str | None) -> dict[str, Any]:
     if token_error or not token:
         return {"connected": False} | ({"error": token_error} if token_error else {})
+    when = soundcloud.expires(token)
     try:
-        return {"connected": True, **soundcloud.me(token)}
+        return {"connected": True, "expires": when.astimezone() if when else None, **soundcloud.me(token)}
     except soundcloud.SoundCloudError as e:
-        return {"connected": False, "error": str(e)}
+        return {"connected": False, "error": str(e), "expired": soundcloud.expired(token)}
 
 
 def _daemon_status(url: str, client: Any = None) -> dict[str, Any]:
