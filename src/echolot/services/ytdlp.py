@@ -3,6 +3,7 @@ SoundCloud search), from the home IP (YouTube refuses VPN exits). The SoundCloud
 through a private netrc file, never the command line (ps would show it).
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -10,6 +11,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,7 @@ from echolot.library.rules import tidy_name, title_key
 
 log = logging.getLogger(__name__)
 
+NETRC_DAYS = 2  # days after which a netrc file goes (its token expired: SoundCloud's last a day)
 # originals first (kept lossless), then the best streams
 SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 
@@ -32,6 +35,10 @@ class YtDlp:
             fd = os.open(self.netrc, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write(f"machine soundcloud login oauth password {sc_token}\n")
+            for stale in private.glob("netrc-*"):
+                with contextlib.suppress(OSError):  # (gone meanwhile: another client's cleanup)
+                    if stale.stat().st_mtime < time.time() - NETRC_DAYS * 86400:
+                        stale.unlink()
 
     def run(
         self, args: list[str], stop: threading.Event | None = None, timeout: float = 3600

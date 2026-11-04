@@ -18,6 +18,7 @@ KNOWN = {
     "spotify.client_secret": "Spotify app: client secret",
     "spotify.refresh_token": "Spotify: refresh token of the connected account",
     "soundcloud.token": "SoundCloud: OAuth token of the account",
+    "soundcloud.refresh_token": "SoundCloud: refresh token that renews the account's token each day",
     "navidrome.service_password": "Navidrome: password of the service account (a Navidrome admin)",
 }
 
