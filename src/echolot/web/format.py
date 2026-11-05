@@ -70,6 +70,7 @@ def mmss(seconds: float | None) -> str:
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "spotify": "Spotify"}
 SOURCES |= {"soundcloud-search": "SoundCloud", "manual": "By hand", "mitschnitt": "Mitschnitt"}
 SOURCES |= {"bandcamp": "Bandcamp", "dropbox": "Dropbox"}
+SOURCES["echolot"] = "Echolot"  # the lists Echolot keeps itself (Wished, the Unreleased lists)
 
 
 def source(name: str | None) -> str:

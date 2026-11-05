@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from echolot.library.catalog import LOCAL
 from echolot.services import spotify as spotify_api
 from echolot.services import youtube
 from echolot.settings import options
@@ -26,6 +27,7 @@ ENTRY_KEYS = {"url", "title", "playlist"}
 LIKES = {"Spotify Liked Songs", "SoundCloud Likes"}  # the likes lists' names
 WISHED = "discover"  # a user's hearts in a player on songs the library lacked (web/subsonic): Echolot's own
 WISHED_TITLE = "Echolot · Wished"  # list, kept out of the configuration (as_config, replace_rows)
+OWN = (WISHED, LOCAL)  # the lists Echolot keeps itself (not in the configuration): Wished, the Unreleased lists
 
 
 def slug(name: str) -> str:
@@ -243,8 +245,8 @@ def _options(r: sqlite3.Row) -> dict[str, Any]:
 
 
 def _rows(con: sqlite3.Connection, user_id: int | None) -> list[sqlite3.Row]:
-    sql = "SELECT * FROM sources WHERE user_id IS ? AND service != ? ORDER BY position, key"
-    return con.execute(sql, (user_id, WISHED)).fetchall()
+    sql = "SELECT * FROM sources WHERE user_id IS ? AND service NOT IN (?, ?) ORDER BY position, key"
+    return con.execute(sql, (user_id, *OWN)).fetchall()
 
 
 def wished_key(user_id: int) -> str:
@@ -269,6 +271,23 @@ def add_wished(con: sqlite3.Connection, user_id: int) -> Source:
         (user_id, wished_key(user_id), WISHED, _now()),
     )
     return wished(con, user_id)[0]
+
+
+def unreleased(con: sqlite3.Connection, user_id: int | None) -> list[Source]:
+    """The user's Unreleased lists (library/unreleased), the oldest first: lists of unreleased songs only."""
+    if user_id is None:
+        return []
+    sql = "SELECT key, title, playlist FROM sources WHERE user_id = ? AND service = ? ORDER BY position, added, key"
+    out = []
+    for r in con.execute(sql, (user_id, LOCAL)):
+        key, playlist = r["key"], bool(r["playlist"])
+        out.append(Source(key, unreleased_name(key), LOCAL, f"/lists/{key}", r["title"], playlist, user_id))
+    return out
+
+
+def unreleased_name(key: str) -> str:
+    """An Unreleased list's playlist file name (stable: its key's, never its title's)."""
+    return f"echolot-unreleased-{key.rsplit(':', 1)[-1]}"
 
 
 def soundcloud_user(con: sqlite3.Connection, user_id: int | None) -> str:
@@ -311,8 +330,9 @@ def owners(con: sqlite3.Connection) -> list[int | None]:
 
 
 def user_lists(con: sqlite3.Connection, user_id: int | None) -> list[Source]:
-    """A user's lists in order, with their keys and names (None: the lists nobody owns yet)."""
-    return derive(as_config(con, user_id), user_id) + wished(con, user_id)
+    """A user's lists in order, with their keys and names (None: the lists nobody owns yet): those of the
+    configuration, then Wished and the Unreleased lists."""
+    return derive(as_config(con, user_id), user_id) + wished(con, user_id) + unreleased(con, user_id)
 
 
 def lists(con: sqlite3.Connection) -> list[Source]:
@@ -387,7 +407,7 @@ def replace_rows(con: sqlite3.Connection, data: dict[str, Any], user_id: int | N
             _, canonical = parse_url(e["url"])
             playlist = int(e.get("playlist", True) is not False)
             rows.append((_key(service, canonical), service, 0, canonical, e.get("title") or None, playlist, 1))
-    con.execute("DELETE FROM sources WHERE user_id IS ? AND service != ?", (user_id, WISHED))
+    con.execute("DELETE FROM sources WHERE user_id IS ? AND service NOT IN (?, ?)", (user_id, *OWN))
     for n, row in enumerate(rows):
         _insert(con, user_id, row, n)
     sc = str((data.get("soundcloud") or {}).get("user") or "").strip().strip("/")

@@ -1,0 +1,36 @@
+{# a file in the dialog for unreleased songs (web/unreleased.py): the names it is to have, its release check #}
+{% from "_macros.html" import quality %}
+<tr class="upload-row">
+  <td class="upload-file">
+    <div class="name" title="{{ f.name }}">{{ f.name }}</div>
+    {% if not f.error %}<span class="small">{{ quality(f.tier, f.kbps) }}</span>{% endif %}
+  </td>
+  <td class="unreleased-names">
+    {% if f.error %}<span class="muted">not imported</span>
+    {% else %}
+    <input type="text" name="artist_{{ f.n }}" value="{{ names.artist }}" placeholder="Artist" aria-label="Artist of {{ f.name }}" required maxlength="200">
+    <input type="text" name="title_{{ f.n }}" value="{{ names.title }}" placeholder="Title" aria-label="Title of {{ f.name }}" required maxlength="200">
+    <input type="text" name="album_{{ f.n }}" value="{{ names.album }}" placeholder="Album (optional)" aria-label="Album of {{ f.name }}" maxlength="200">
+    {% endif %}
+  </td>
+  <td class="upload-facts">
+    {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text }}</span>{% endfor %}
+    {% if checks %}<div class="checks small">
+      <span></span><span class="head" title="The same recording from 80 %, another song about 55 %">Fingerprint</span><span class="head" title="Sample by sample: the same master and mix from 90 %, another master or mix lower, another song near 0">Waveform</span>
+      {% for name, what, scores, note in checks %}<span class="ref" title="{{ what }}">{{ name }}</span>
+      {% if note %}<span class="none">{{ note }}</span>{% else %}{% for s in scores %}{% if s %}<span class="score {{ s[1] }}-text" title="{{ s[2] }}">{{ s[0] }}</span>{% else %}<span class="score muted" title="Not known">–</span>{% endif %}{% endfor %}{% endif %}
+      {% endfor %}
+    </div>{% endif %}
+    {% if not f.error %}
+    {% if found and found.release %}{% set r = found.release.result %}
+    <select name="song_{{ f.n }}" class="small" aria-label="Import {{ f.name }} as">
+      <option value="local"{% if found.release.verdict != 'released' %} selected{% endif %}>Keep it as unreleased</option>
+      {% if found.mine %}<option value="{{ found.mine.key }}" selected>Import as your {{ found.mine.artist }} – {{ found.mine.title }} (released, on your lists)</option>
+      {% else %}<option value="wish:{{ found.sid }}"{% if found.release.verdict == 'released' %} selected{% endif %}>Import as {{ r.artist }} – {{ r.title }} (released: into Echolot · Wished)</option>{% endif %}
+    </select>
+    {% else %}<input type="hidden" name="song_{{ f.n }}" value="local">{% endif %}
+    <button type="button" class="link small" hx-post="/unreleased/upload/{{ batch }}/{{ f.n }}/check" hx-include="closest tr" hx-target="closest tr" hx-swap="outerHTML" title="Check for a release again by the names typed in">Check again</button>
+    {% endif %}
+  </td>
+  <td class="row-action"><button type="button" class="icon-button" data-drop-row title="Leave this file out" aria-label="Leave {{ f.name }} out">×</button></td>
+</tr>

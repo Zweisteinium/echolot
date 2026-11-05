@@ -22,8 +22,10 @@ def run(run: "Run") -> str:
     con = run.connect()
     try:
         checks = {r["path"]: r for r in con.execute("SELECT * FROM lossy_checks")}
-        flacs = "SELECT path, size, mtime FROM files WHERE lower(path) LIKE '%.flac' ORDER BY path"
-        stale = [r for r in con.execute(flacs) if _stale(r, checks.get(r["path"]))]
+        flacs = (  # (an unreleased song's file was checked once, when it was uploaded: library/unreleased)
+            "SELECT path, size, mtime FROM files WHERE lower(path) LIKE '%.flac' AND path NOT LIKE ? ORDER BY path"
+        )
+        stale = [r for r in con.execute(flacs, (f"{catalog.UNRELEASED}/%",)) if _stale(r, checks.get(r["path"]))]
         todo = run.todo(stale, lambda r: r["path"])
         counts: Counter[str] = Counter()
         for n, row in enumerate(todo, 1):

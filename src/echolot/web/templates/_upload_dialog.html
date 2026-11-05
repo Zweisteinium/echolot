@@ -1,4 +1,5 @@
-{# the upload dialog: opened by hx-get="/missing/upload[?song=<key>]" hx-target="#upload-body" #}
+{# the upload dialog: opened by hx-get="/missing/upload[?song=<key>]" hx-target="#upload-body", or for
+   unreleased songs by hx-get="/unreleased/upload[?list=<key>]" (web/unreleased.py); data-post: where files go #}
 {% from "_icons.html" import sprite %}
 {{ sprite(['upload']) }}
 <dialog id="upload" class="modal" aria-label="Upload files"><div id="upload-body"></div></dialog>
@@ -35,7 +36,7 @@
         bar.setAttribute("aria-valuenow", pct);
         bar.querySelector("[data-progress-text]").textContent = `Uploading and checking ${open.filter((j) => j.done).length} of ${open.length} files`;
       }
-      const left = body.querySelectorAll("input[name^='song_']:not([disabled])").length;
+      const left = body.querySelectorAll("[name^='song_']:not([disabled])").length;
       go.disabled = pending > 0 || !left;
       go.textContent = left && !pending ? `Import ${left}` : "Import";
       for (const el of body.querySelectorAll("[data-table]")) el.hidden = !body.querySelector("[data-rows] tr");
@@ -63,7 +64,7 @@
       active.push(job);
       job.row.classList.add("working");
       const xhr = (job.xhr = new XMLHttpRequest());
-      xhr.open("POST", `/missing/upload/${b.dataset.batch}/file`);
+      xhr.open("POST", b.dataset.post || `/missing/upload/${b.dataset.batch}/file`);
       xhr.setRequestHeader("X-CSRF-Token", csrf());
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) { job.sent = e.loaded / e.total; refresh(); } };
       xhr.upload.onload = () => { job.sent = 1; job.checking = true; refresh(); };
@@ -75,6 +76,7 @@
         const row = t.firstElementChild;
         row.job = job;
         if (job.row.isConnected) job.row.replaceWith(row);
+        if (window.htmx) htmx.process(row);  // (its Check again)
         job.row = row;
         settle(job);
       };
@@ -97,6 +99,7 @@
       refresh();
     };
     document.addEventListener("htmx:afterSwap", (e) => {
+      if (body.contains(e.target) && e.target !== body) return refresh();  // a row checked again
       if (e.target !== body) return;
       if (!body.firstElementChild) return dialog.close();
       if (!dialog.open) dialog.showModal();
@@ -120,7 +123,9 @@
     document.addEventListener("htmx:responseError", (e) => {  // import failed: say so, unlock
       if (!body.contains(e.detail.elt)) return;
       const note = body.querySelector(".busy");
-      if (note) { note.hidden = false; note.className = "bad-text small"; note.textContent = `Import failed (${e.detail.xhr.status}): see the log; nothing was lost.`; }
+      let why = `Import failed (${e.detail.xhr.status}): see the log; nothing was lost.`;
+      try { const detail = JSON.parse(e.detail.xhr.responseText).detail; if (typeof detail === "string") why = detail; } catch {}
+      if (note) { note.hidden = false; note.className = "bad-text small"; note.textContent = why; }
       body.querySelectorAll("button, input").forEach((el) => { if (el.type !== "hidden") el.disabled = false; });
       refresh();
     });
@@ -131,6 +136,16 @@
       if (all) {
         for (const force of body.querySelectorAll("[data-force]")) force.checked = all.checked;
         refresh();
+        return;
+      }
+      const take = e.target.closest("[data-take]");  // a release found by its names only: imported as it on purpose
+      if (take) { take.closest("tr").querySelector("[name^='song_']").disabled = !take.checked; refresh(); return; }
+      const pick = e.target.closest("[data-list-pick]");  // the unreleased songs' list: a new one needs a name
+      if (pick) {
+        const name = body.querySelector("[data-new-list]");
+        name.hidden = pick.value !== "new";
+        name.required = pick.value === "new";
+        if (!name.hidden) name.focus();
         return;
       }
       const force = e.target.closest("[data-force]");

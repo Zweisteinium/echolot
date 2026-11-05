@@ -409,6 +409,17 @@ a.button { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0
   color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 0.36rem 0.85rem; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
 a.button:hover { border-color: var(--muted); text-decoration: none; }
+/* an Unreleased list's Rename: a button that opens its small form below it */
+.list-manage { position: relative; display: flex; }
+.list-manage > summary { display: inline-flex; align-items: center; margin: 0; font-size: 0.85rem; font-weight: 550; color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.36rem 0.85rem; cursor: pointer;
+  list-style: none; background: var(--surface); }
+.list-manage > summary::-webkit-details-marker { display: none; }
+.list-manage > summary:hover, .list-manage[open] > summary { border-color: var(--muted); }
+.list-manage > form { position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 5; display: flex; gap: 0.4rem;
+  padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 0 12px 30px -12px rgb(16 24 40 / 0.35); }
+.list-manage input { width: 16rem; max-width: 60vw; }
 a.button .icon { color: var(--muted); }
 /* a card's action buttons */
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
@@ -807,6 +818,17 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
   .upload-file { max-width: none; }
 }
 .upload-results { margin: 0.5rem 0 0.75rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+/* the dialog for unreleased songs: the batch's list, origin and cover above the files; each file's names */
+.unreleased-batch { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem 1.1rem; margin-bottom: 0.8rem; }
+.unreleased-batch .batch-field { display: grid; gap: 0.25rem; min-width: 0; }
+.unreleased-batch .batch-field > label { font-size: 0.8rem; color: var(--muted); }
+.unreleased-batch .pick { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.unreleased-batch input[type="text"] { width: 13rem; max-width: 100%; }
+.unreleased-batch [hidden] { display: none; }
+.unreleased-names input { display: block; width: 100%; margin-bottom: 0.3rem; padding: 0.28rem 0.5rem; font-size: 0.85rem; }
+.unreleased-names input:invalid:not(:placeholder-shown), .unreleased-names input:placeholder-shown:required {
+  border-color: color-mix(in srgb, var(--warn) 60%, var(--border)); }
+.upload-facts select { display: block; max-width: 100%; margin-top: 0.35rem; font-size: 0.8rem; padding: 0.25rem 0.4rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 
 /* a download's facts (Review, Activity) */

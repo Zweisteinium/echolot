@@ -79,6 +79,13 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> permission 
     ("POST", "/missing/upload/{batch}/file"): "upload",
     ("POST", "/missing/upload/{batch}/import"): "upload",
     ("POST", "/missing/upload/{batch}/cancel"): "upload",
+    ("GET", "/unreleased/upload"): "upload",  # unreleased songs and their lists (web/unreleased)
+    ("POST", "/unreleased/upload/{batch}/file"): "upload",
+    ("POST", "/unreleased/upload/{batch}/{n}/check"): "upload",
+    ("POST", "/unreleased/upload/{batch}/import"): "upload",
+    ("POST", "/unreleased/{key}/rename"): "upload",
+    ("POST", "/unreleased/{key}/delete"): "upload",
+    ("POST", "/unreleased/{key}/remove"): "upload",
     ("POST", "/songs/{key:path}/search"): "run",
     ("POST", "/songs/{key:path}/close-remove"): "review",
     ("POST", "/jobs/mine"): "run",

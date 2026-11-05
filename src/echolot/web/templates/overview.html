@@ -217,12 +217,13 @@
   <div class="card-head">
     <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
     <div class="actions">
-      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
+      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, better copies of songs you have, or released songs on none of your lists (into Echolot · Wished)">{{ icon('upload', 14) }} Upload files</button>
+      <button type="button" hx-get="/unreleased/upload" hx-target="#upload-body" title="Music that exists nowhere else (a friend's own tracks, customs deleted everywhere), into your Unreleased lists: kept as uploaded, never searched or upgraded">{{ icon('upload', 14) }} Upload unreleased</button>{% endif %}
       {% if user.can('upload') and o.lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
     </div>
   </div>
-  {% set groups = o.lists|groupby('service') %}
-  {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube'] %}
+  {% set groups = o.lists|groupby('grp') %}
+  {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube', 'echolot'] %}
   {% for svc in order + (by_service|reject('in', order)|list) if svc in by_service %}
   {% set group = by_service[svc] %}
   {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
@@ -239,7 +240,7 @@
       {% for l in group %}
       {% set m = l.songs - l.have %}
       <tr>
-        <td class="name">{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}{% if not o.scoped and l.owners %} <span class="muted small" title="who follows it">· {{ l.owners }}</span>{% endif %}</td>
+        <td class="name">{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if l.service == 'local' %} <span class="pill" title="Unreleased songs you uploaded: kept as they are, never searched or upgraded">unreleased</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}{% if not o.scoped and l.owners %} <span class="muted small" title="who follows it">· {{ l.owners }}</span>{% endif %}</td>
         <td class="num" data-label="Songs">{{ l.songs|num }}</td>
         <td class="bar">{{ qbar(tier_counts(l)) }}</td>
         <td class="num muted" data-label="FLAC">{{ share(l.lossless, l.songs) }}</td>

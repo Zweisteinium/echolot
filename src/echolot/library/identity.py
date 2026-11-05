@@ -245,6 +245,15 @@ def preview(isrc: str) -> bytes | None:
         return None
 
 
+def clip(url: str) -> bytes | None:
+    """A 30 s preview (MP3) by its address (a catalogue's search answer gives it); None if it can't be had."""
+    try:
+        return _get(url, raw=True) or None
+    except (OSError, ValueError) as e:
+        log.info("preview %s: %s", url, e)
+        return None
+
+
 def _pcm_of(data: bytes) -> np.ndarray:
     cmd = ["ffmpeg", "-v", "error", "-i", "pipe:0", "-ac", "1", "-ar", str(_RATE), "-f", "f32le", "-"]
     try:

@@ -13,6 +13,11 @@
     {% else %}<label class="force small" title="Take the close match out of the library (kept 30 days in inbox/replaced); left unticked it stays a file of its own"><input type="checkbox" name="remove_{{ f.n }}" value="1"> Remove the close match</label>{% endif %}{% endif %}
     {% if not go and not f.error and different %}<label class="force small" title="It sounds like another recording than the release's preview or your copy; import it as this song all the same{{ ' (your copy is kept 30 days in inbox/replaced)' if song.file }}"><input type="checkbox" data-force> {{ 'Replace anyway' if song.file else 'Import anyway' }}</label>
     {% elif not go and song.file and not f.error %}<label class="force small" title="Replace your copy with this file even though it is not better (yours is kept 30 days in inbox/replaced)"><input type="checkbox" data-force> Replace anyway</label>{% endif %}
+    {% elif found and found.release %}{% set r, sure = found.release.result, found.release.verdict == 'released' %}
+    <input type="hidden" name="song_{{ f.n }}" value="wish:{{ found.sid }}"{% if not sure %} disabled{% endif %}>
+    <div class="name">{{ r.artist }} – {{ r.title }}</div>
+    <div class="muted small" title="A released song on none of your lists: it goes into your Echolot · Wished, as a song you get on the Search page">{% for part in [r.album, r.year] if part %}{{ part }} · {% endfor %}into Echolot · Wished</div>
+    {% if not sure %}<label class="force small" title="Import it as this song all the same (into your Echolot · Wished)"><input type="checkbox" data-take> Import as this song</label>{% endif %}
     {% else %}<span class="muted">not imported</span>{% endif %}
   </td>
   <td class="upload-facts">

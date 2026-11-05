@@ -18,8 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from echolot.library import audio, catalog, filing, identity, origin, rules
+from echolot.library import audio, catalog, discover, filing, identity, origin, recordings, rules
 from echolot.library.filing import Paths, Want
+from echolot.settings.sources import WISHED_TITLE
 
 if TYPE_CHECKING:
     from echolot.settings.vault import Vault
@@ -195,6 +196,86 @@ def _by_title(f: File, stem: str, songs: list[sqlite3.Row]) -> str | None:
     return fits[0]["key"] if len(fits) == 1 else None
 
 
+def names(f: File) -> tuple[str, str]:
+    """The artist and title a file names: its tags, else its file name ("Artist - Title", without a track
+    number); ('', '') when neither does."""
+    if f.artist and f.title:
+        return f.artist, f.title
+    stem = re.sub(r"^\d{2} ", "", Path(f.path).stem if f.path else Path(f.name).stem)  # (its number in the batch)
+    stem = re.sub(r"^\d{1,3}\s*[-._)]\s*", "", stem)  # "01 - ", "01. "
+    artist, sep, title = stem.partition(" - ")
+    if sep and artist.strip() and title.strip():
+        return f.artist or artist.strip(), f.title or title.strip()
+    return f.artist, f.title
+
+
+@dataclass
+class Release:
+    """What the release check found of a file (release): the release (its names, album, year, cover and where
+    it is: discover.Result), how the file fits its 30 s preview (fit: the length off it, fingerprint,
+    waveform) and what that says (verdict): 'released' (the release's recording, at the release's length),
+    'resembles' (the recording in another edit or length, or unclear) or '' (named so, its audio not
+    compared: no preview)."""
+
+    result: discover.Result
+    fit: Fit
+    verdict: str
+
+
+CANDIDATES = 3  # releases named as the file whose previews are held against it (a request each)
+NEAR = 6.0  # s: a file this much off the release's length (or 3 %) is the release's edit
+
+
+def release(f: File, artist: str, title: str, search: Any) -> Release | None:
+    """Is the file a release? A catalogue search (`search`: a query -> discover.Hit list, Deezer's, which
+    gives previews) for its names; the CANDIDATES first results with the file's core title, each one's
+    preview held against the file (the fingerprint: the recording; then the best one's waveform: the master
+    and mix). None: nothing named so, or only other recordings (fingerprint OTHER or less); the search's
+    errors are raised (catalogs.CatalogError)."""
+    if f.error or f.path is None or not artist.strip() or not title.strip():
+        return None
+    core = rules.title_key(rules.segments(title)[0])
+    results = [r for r in discover.merge(search(f"{artist} {title}")) if r.seconds]
+    named = [r for r in results if core and rules.title_key(rules.segments(r.title)[0]) == core][:CANDIDATES]
+    mine = identity.fingerprint(f.path)
+    best: tuple[tuple[bool, float], discover.Result, float, bytes] | None = None
+    for r in named:
+        url = next((h.preview for h in r.sources if h.preview), "")
+        clip = identity.clip(url) if url and mine is not None and len(mine) else None
+        ref = identity.fingerprint(clip) if clip else None
+        if ref is None or not len(ref):
+            continue
+        fp = round(identity.similarity(ref, mine), 2)
+        rank = (fp >= identity.SAME and _near(f.seconds, r.seconds), fp)
+        if best is None or rank > best[0]:
+            best = (rank, r, fp, clip)
+    if best is None:  # no preview to compare: by its names only
+        return Release(named[0], Fit(_diff(f.seconds, named[0].seconds)), "") if named else None
+    (released, _), r, fp, clip = best
+    if fp <= identity.OTHER:
+        return None
+    wave = identity.waveform(f.path, clip)
+    fit = Fit(_diff(f.seconds, r.seconds), fp, round(wave, 2) if wave is not None else None)
+    return Release(r, fit, "released" if released else "resembles")
+
+
+def _near(seconds: float, length: float) -> bool:
+    return not seconds or not length or abs(seconds - length) <= max(NEAR, 0.03 * length)
+
+
+def _diff(seconds: float, length: float) -> float | None:
+    return round(seconds - length) if seconds and length else None
+
+
+def have_as(con: sqlite3.Connection, paths: Paths, f: File, title: str) -> str:
+    """The library file that is the same audio as the upload (a like title and length: recordings.already),
+    as its path; '' when there is none."""
+    if f.error or f.path is None or not title:
+        return ""
+    e = recordings.already(paths, f.path, title, f.seconds, recordings.Index(catalog.Catalog.from_db(con)))
+    return e.path if e else ""
+
+
 def needs(song: sqlite3.Row) -> bool:
     """A song without its own file: missing, or covered by a close match (another version)."""
     return not song["file"] or bool(song["close_match"])
@@ -363,6 +444,13 @@ def _no_preview(song: sqlite3.Row) -> str:
     return "Deezer has none" if song["isrc"] else "the song has no ISRC"
 
 
+def release_checks(found: Release) -> list[tuple[str, str, list[Score], str]]:
+    """The release check for the dialog, as checks shows it: the release's preview."""
+    what = f"The 30 s preview of {found.result.artist} – {found.result.title}"
+    scores = _graded(found.fit.fingerprint, found.fit.waveform, "the release's preview")
+    return [("Preview", what, scores, "" if any(scores) else "no preview")]
+
+
 def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None = None) -> list[tuple[str, str, str]]:
     """Short labels for a file as its song: "Looks right" (a song you have: "Better than your 160 kbps"), or
     what is off; a copy no better than yours is "Not better than your FLAC". (text, style ok|warn|bad, detail)"""
@@ -395,16 +483,54 @@ def labels(f: File, song: sqlite3.Row | None, fit: Fit | None, copy: Copy | None
         out.append(("Other master or mix", "warn", "The same recording, but its waveform is not the release's"))
     elif wave is None and my_wave is not None and my_wave < identity.WAVE_SAME:
         out.append(("Other master or mix", "warn", "The same recording, but its waveform is not your copy's"))
-    if f.tier == "fake":
-        out.append(("Fake FLAC", "warn", "A FLAC made from a lossy file (spectrum check)"))
-    if f.peak is not None and f.peak <= QUIET_PEAK:
-        detail = "Releases peak near 0 dB: recorded at a low volume? (at 25 % it peaks at -12 dB)"
-        out.append((f"Quiet: peaks at {f.peak:g} dB", "warn", detail))
+    out += file_notes(f)
     if not out:
         heard = "the release's audio" if wave is not None else "the release's recording" if fp is not None else ""
         why = f"Length fits, {heard or f'audio not compared (no preview: {_no_preview(song)})'}"
         out.append(("Looks right", "ok", why))
     return out
+
+
+def file_notes(f: File) -> list["Label"]:
+    """What the file itself shows, whatever song it is: a FLAC made from a lossy file, a quiet recording."""
+    out = []
+    if f.tier == "fake":
+        out.append(("Fake FLAC", "warn", "A FLAC made from a lossy file (spectrum check)"))
+    if f.peak is not None and f.peak <= QUIET_PEAK:
+        detail = "Releases peak near 0 dB: recorded at a low volume? (at 25 % it peaks at -12 dB)"
+        out.append((f"Quiet: peaks at {f.peak:g} dB", "warn", detail))
+    return out
+
+
+Label = tuple[str, str, str]  # (text, style ok|warn|bad, what it says)
+
+
+def found_labels(f: File, found: Release | None, have: str, failed: str, unreleased: bool = False) -> list[Label]:
+    """Short labels for a file that is none of your songs, by its release check (release): for the upload
+    dialog (a release can be imported into your Echolot · Wished) or, `unreleased`, for the dialog of
+    unreleased songs (a release is better imported as the released song)."""
+    if f.error:
+        return [("Not audio", "bad", f.error)]
+    out = [("Not checked", "warn", failed)] if failed else []
+    who = f"{found.result.artist} – {found.result.title}" if found else ""
+    if found is None and not unreleased:
+        out.append(("No song found", "bad", "None of your songs, and no release named so (Deezer)"))
+    elif found is None and not failed:
+        out.append(("Not released", "ok", "No release named so (Deezer): an unreleased song"))
+    elif found and found.verdict == "released":
+        why = f"The recording of {who} at its length"
+        if unreleased:
+            out.append(("Released", "warn", f"{why}: better imported as that song (into your {WISHED_TITLE})"))
+        else:
+            out.append(("Released", "ok", f"{why}: imported as that song into your {WISHED_TITLE}"))
+    elif found and found.verdict == "resembles":
+        why = f"Like {who}, but in another edit or length (or unclear)"
+        out.append(("Resembles a release", "warn", f"{why}: {'an edit of it?' if unreleased else 'is it that?'}"))
+    elif found:
+        out.append(("Named like a release", "warn", f"{who} has these names; no preview to compare the audio with"))
+    if have:
+        out.append(("You have it", "warn", f"The same audio as your {have}"))
+    return out + file_notes(f)
 
 
 def _mmss(seconds: float) -> str:
