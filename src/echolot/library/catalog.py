@@ -167,7 +167,7 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None) -> str
         con.executemany(
             "INSERT INTO files (path, size, mtime, duration, kbps) VALUES (?, ?, ?, ?, ?) "
             "ON CONFLICT (path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime, "
-            "duration = excluded.duration, kbps = excluded.kbps",
+            "duration = excluded.duration, kbps = excluded.kbps, pages = NULL",  # (its tags are read again)
             changed,
         )
         con.executemany("DELETE FROM files WHERE path = ?", [(p,) for p in gone])

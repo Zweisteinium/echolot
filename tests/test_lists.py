@@ -1,7 +1,9 @@
 """Reading the lists at their source (lists.py) and writing the playlists (playlists.py)."""
 
 import json
+import os
 import threading
+import time
 import wave
 from pathlib import Path
 from typing import ClassVar
@@ -406,6 +408,45 @@ def test_a_soundcloud_song_the_library_has_by_its_page_is_not_downloaded(
     con.close()
     assert tuple(song) == ("DJ Nobody", "Night Drive", "DJ Nobody/DJ Nobody - Night Drive.flac", 1)
     assert lists.soundcloud(run).endswith("; 0 new songs")  # known now: nothing linked or downloaded again
+
+
+def test_the_pages_in_the_files_tags_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The library's source tags are kept (files.pages): a run after a restart reads none again (on 2026-11-05
+    the first new like after a deploy read all 7,786 files' tags, two minutes); a changed file is read again."""
+    from mutagen.flac import FLAC
+
+    copy = run.paths.tracks / "DJ Nobody" / "DJ Nobody - Night Drive.flac"
+    copy.parent.mkdir(parents=True)
+    copy.write_bytes((Path(__file__).parent / "fixtures" / "audio" / "silence.flac").read_bytes())
+    tags = FLAC(copy)
+    tags.update({"source": "https://soundcloud.com/dj-nobody/night-drive"})
+    tags.save()
+    library(run)
+    read = []
+    real = lists.tagging.read
+    monkeypatch.setattr(lists.tagging, "read", lambda path: read.append(path.name) or real(path))
+    con = run.connect()
+    try:
+        first = lists._file_pages(con, run.paths.tracks)
+        assert first["DJ Nobody/DJ Nobody - Night Drive.flac"] == [
+            lists._page_key("https://soundcloud.com/dj-nobody/night-drive")
+        ]
+        assert read.count("DJ Nobody - Night Drive.flac") == 1
+        read.clear()
+        assert lists._file_pages(con, run.paths.tracks) == first and not read  # kept: nothing read again
+        tags = FLAC(copy)
+        tags["source"] = "https://soundcloud.com/dj-nobody/night-drive-2"
+        tags.save()
+        os.utime(copy, (time.time() + 5, time.time() + 5))
+        changed = lists._file_pages(con, run.paths.tracks)  # changed since the scan: read, not kept
+        assert read == ["DJ Nobody - Night Drive.flac"] and changed != first
+        library(run)  # the scan notes the change: read once more, then kept
+        read.clear()
+        lists._file_pages(con, run.paths.tracks)
+        lists._file_pages(con, run.paths.tracks)
+        assert read == ["DJ Nobody - Night Drive.flac"]
+    finally:
+        con.close()
 
 
 def library(run: Run) -> None:

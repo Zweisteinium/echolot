@@ -677,6 +677,8 @@ def soundcloud(run: "Run") -> str:
     finally:
         con.close()
     new = [(tid, url) for tid, url in urls.items() if tid not in have and url]
+    if new:
+        run.say(f"looking for {len(new)} new song{'s' if len(new) != 1 else ''} in the library")
     new, known = _filed_before(run, ydl, any_token, new) if new else (new, 0)
     added = 0
     if new and not run.stop.is_set():
@@ -797,7 +799,25 @@ def _names(con: sqlite3.Connection, uploader: str, artist: str, title: str) -> t
     return a, t
 
 
-_PAGES: dict[str, tuple[float, list[str]]] = {}  # library file -> (mtime, the pages in its source tags)
+def _file_pages(con: sqlite3.Connection, tracks: Path) -> dict[str, list[str]]:
+    """Library file -> the track pages in its source tags (_page_key). They are kept in files.pages and read
+    again only from a file that changed since (a restart reads nothing again); a file changed after the last
+    library scan is read, not kept (the scan notes the change first)."""
+    out, keep = {}, []
+    for path, mtime, pages in con.execute("SELECT path, mtime, pages FROM files").fetchall():
+        try:
+            now = int((tracks / path).stat().st_mtime)
+        except OSError:
+            continue
+        if pages is not None and now == mtime:
+            out[path] = json.loads(pages)
+            continue
+        out[path] = [_page_key(u) for u in tagging.read(tracks / path)["sources"] if u.startswith("http")]
+        if now == mtime:
+            keep.append((json.dumps(out[path]), path, mtime))
+    with con:
+        con.executemany("UPDATE files SET pages = ? WHERE path = ? AND mtime = ?", keep)
+    return out
 
 
 def _page_key(url: str) -> str:
@@ -812,21 +832,14 @@ def _filed_before(
     Echolot). Those are linked to the file, not downloaded; anything less certain (a name alone) is downloaded
     and its audio checked (recordings.already). A track a set lists by its API address gets its page first
     (with a login 50 per request, else one by one). Returns the songs left to download and how many were
-    linked. Tags are read once per file change."""
+    linked. Tags are read once per file change (_file_pages)."""
     con = run.connect()
     try:
         cat = catalog.Catalog.from_db(con)
+        tagged = _file_pages(con, run.paths.tracks)
         pages: dict[str, catalog.Entry] = {}
         for e in cat.entries:
-            path = run.paths.tracks / e.path
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                continue
-            if (seen := _PAGES.get(e.path)) is None or seen[0] != mtime:
-                seen = mtime, [_page_key(u) for u in tagging.read(path)["sources"] if u.startswith("http")]
-                _PAGES[e.path] = seen
-            for page in seen[1]:
+            for page in tagged.get(e.path, []):
                 pages.setdefault(page, e)
         resolved: dict[str, str] = {}
         api = [tid for tid, url in new if "://api" in url] if pages else []  # (api-v2.soundcloud.com/tracks/<id>)

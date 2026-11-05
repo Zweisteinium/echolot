@@ -34,7 +34,10 @@ def add_file(con, paths: Paths, rel: str, seconds: float, kbps: int) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(b"audio")
     with con:
-        con.execute("INSERT INTO files VALUES (?, 5, 0, ?, ?, NULL)", (rel, seconds, kbps))
+        con.execute(
+            "INSERT INTO files (path, size, mtime, duration, kbps, quality) VALUES (?, 5, 0, ?, ?, NULL)",
+            (rel, seconds, kbps),
+        )
 
 
 def file_of(con, key: str) -> str | None:
