@@ -128,6 +128,35 @@ _BEST = (
 _UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND ({_GONE} OR {_HELD})), 0) AS unobtainable"
 
 
+BEST_TIERS = [  # how near the songs are to the best quality there is (best_tiers), best first
+    (
+        "best",
+        "At their best",
+        "genuine lossless, or the best copy there is: Spotify has nothing better, or no longer plays it",
+    ),
+    (
+        "better",
+        "Can get better",
+        "lossy or a FLAC made from lossy, a close match, or Spotify played another song lately",
+    ),
+    ("missing", "Missing", "not in the library yet"),
+    ("gone", "Not to be had", "missing, and no source hands it out: greyed out, taken down, DRM"),
+]
+
+
+def best_tiers(con: Connection, uid: int | None = None) -> list[tuple[str, str, int]]:
+    """(tier, label, songs) of a user's songs (or everyone's) on BEST_TIERS, as the lists' Best column counts."""
+    mine, args = _mine(uid)
+    gone = f"coalesce(sum(s.file IS NULL AND ({_GONE} OR {_HELD})), 0)"
+    best, gone, have, songs = con.execute(
+        f"SELECT {_BEST}, {gone}, count(s.file), count(*) FROM wanted s LEFT JOIN files f ON f.path = s.file "
+        f"LEFT JOIN availability av ON av.song_key = s.key WHERE {mine}",
+        args,
+    ).fetchone()
+    counts = {"best": best, "better": have - best, "missing": songs - have - gone, "gone": gone}
+    return [(k, label, counts[k]) for k, label, _ in BEST_TIERS]
+
+
 def lists(con: Connection, uid: int | None = None) -> list[Row]:
     """The followed lists (a user's, with their own playlist choice; or everyone's, with who follows
     each) with song counts per quality tier (tier_counts), and how many are at the best quality there is

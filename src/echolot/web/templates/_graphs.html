@@ -1,0 +1,42 @@
+{# the Library page's graphs (pages._graphs): songs, size or quality over the stretch of time shown (a chip of
+   window.ranges, or one dragged across a graph); /library/graphs sends it again for another stretch #}
+{% from "_chart.html" import growth_chart, stack_chart %}
+{% set panels = (('songs', 'Songs', 'your songs in the library' if o.scoped else 'songs in the library'), ('size', 'Size', 'the size of the library'), ('quality', 'Quality', 'the quality of ' ~ ('your songs' if o.scoped else 'the songs'))) %}
+{% set show = request.query_params.get('show') if request.query_params.get('show') in ('songs', 'size', 'quality') else 'songs' %}
+<div class="growth-panels" id="graphs" data-graphs data-range="{{ window.range }}">
+  <div class="graph-bar">
+    <div class="segmented" role="radiogroup" aria-label="The graph shows">
+      {% for key, label, _ in panels %}<label><input type="radio" name="growth" value="{{ key }}"{% if key == show %} checked{% endif %}> {{ label }}</label>{% endfor %}
+    </div>
+  </div>
+  {% for key, label, what in panels %}
+  {% set g = growth[key] %}
+  <div class="growth-panel" data-panel="{{ key }}"{% if key != show %} hidden{% endif %}>
+    {% if g %}
+    <div class="headline">
+      <span class="figure">{{ g.now }}</span>{% if key == 'quality' %}<span class="figure-unit">FLAC</span>{% endif %}
+      <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span>{% if g.week %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% endif %}{% if key == 'size' and o.scoped %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap">the whole library</span>{% endif %}</span>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <div class="ranges" role="group" aria-label="Time shown">
+    {% for key, (label, _) in window.ranges.items() %}<button type="button" class="range-chip" data-range="{{ key }}"{% if key == window.range %} aria-pressed="true"{% endif %}>{{ label }}</button>{% endfor %}
+    {% if window.zoomed %}<span class="zoomed">{{ window.zoomed }}</span>{% endif %}
+    <span class="muted small drag-hint">Drag across the graph to zoom in</span>
+  </div>
+  {% for key, label, what in panels %}
+  {% set g = growth[key] %}
+  <div class="growth-panel" data-panel="{{ key }}"{% if key != show %} hidden{% endif %}>
+    {% if g and key == 'quality' %}
+    {{ stack_chart(g, 'graph-' ~ key, 'Share of ' ~ what ~ ' in genuine lossless since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
+    {% elif g %}
+    {{ growth_chart(g, 'graph-' ~ key, 'Growth of ' ~ what ~ ' since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
+    {% elif window.range == 'all' and not window.zoomed %}
+    <p class="muted growth-empty">The graph of {{ what }} starts with the first hourly snapshot.</p>
+    {% else %}
+    <p class="muted growth-empty">No figures of {{ what }} in this stretch of time.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>

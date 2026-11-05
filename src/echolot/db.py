@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 39
+VERSION = 40
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -500,6 +500,10 @@ MIGRATIONS = {
     39: [  # what Discogs lists of the library's releases (jobs/discogs)
         "CREATE TABLE IF NOT EXISTS discogs (album TEXT PRIMARY KEY, artist TEXT NOT NULL, title TEXT NOT NULL, "
         "state TEXT NOT NULL, found TEXT, store TEXT, genre TEXT NOT NULL DEFAULT '', checked TEXT NOT NULL)"
+    ],
+    40: [  # the growth graph no longer starts with hours rebuilt from the events: only what was counted stays
+        "DELETE FROM snapshots WHERE ts < (SELECT value FROM meta WHERE key = 'history_rebuilt')",
+        "DELETE FROM meta WHERE key = 'history_rebuilt'",
     ],
 }
 

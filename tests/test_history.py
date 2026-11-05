@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from echolot import db
 from echolot.config import Settings
 from echolot.library import history
+from echolot.library.catalog import QUALITY
 from echolot.web import create_app
 
 
@@ -50,38 +51,14 @@ def test_times_are_utc() -> None:
     assert history.utc("2026-07-01") == history.utc(datetime(2026, 7, 1))
 
 
-def local(t: str) -> str:
-    """A UTC time as the events have it: local time without a zone."""
-    return datetime.fromisoformat(t).astimezone().replace(tzinfo=None).isoformat()
-
-
-def test_rebuild_fills_in_the_time_before_the_first_snapshot(con) -> None:
-    """The library's files from the events (exact), its size near, songs in proportion to the files; once."""
-    first = "2026-09-27T12:30:00Z"
-    sql = "INSERT INTO events (ts, action, path, bytes) VALUES (?, ?, 'x', ?)"
-    with con:  # (the fixture's events are out of the way)
-        con.execute("UPDATE snapshots SET ts = ?", (first,))
-        con.execute("UPDATE snapshots SET value = 1000 WHERE metric = 'library_bytes'")
-        con.execute("DELETE FROM events WHERE action IN ('new', 'upgrade', 'retired')")
-        con.execute(sql, (local("2026-09-27T07:40:00+00:00"), "new", 100))
-        con.execute(sql, (local("2026-09-27T09:40:00+00:00"), "new", 100))
-        con.execute(sql, (local("2026-09-27T10:40:00+00:00"), "retired", 50))
-    assert history.rebuild(con) == 7  # 06:00 (before the first event) to 12:00
-    files = history.totals(con, "library_files")
-    assert [v for _, v in files] == [2, 2, 3, 3, 4, 3, 3, 3] and files[-1][0] == first  # 3 files at the snapshot
-    assert files[0][0] == "2026-09-27T06:00:00Z"
-    size = dict(history.totals(con, "library_bytes"))
-    assert size[first] - size["2026-09-27T06:00:00Z"] == 150  # 2 x 100 in, 50 out
-    songs = dict(history.totals(con, "songs_in_library"))
-    assert songs["2026-09-27T06:00:00Z"] == round(songs[first] * 2 / 3)  # in proportion to the files
-    assert history.rebuild(con) == 0 and db.get_meta(con, history.REBUILT) == first  # once
-
-
-def test_rebuild_without_events_before_the_first_snapshot(con) -> None:
-    with con:
-        con.execute("DELETE FROM events")
-    assert history.rebuild(con) == 0 and db.get_meta(con, history.REBUILT)
-    assert len(history.totals(con, "library_files")) == 1
+def test_keyed(con) -> None:
+    """A metric's keys at each snapshot; a user's, without their prefix."""
+    history.snapshot(con, datetime.now() + timedelta(hours=1))
+    rows = history.keyed(con, "library_files_by_quality")
+    assert len(rows) == 2 and rows[0][1].keys() == {k for k, _ in QUALITY}
+    mine = history.keyed(con, "user_songs_by_quality", "1:")
+    assert len(mine) == 2 and "lossless" in mine[0][1]
+    assert not history.keyed(con, "user_songs_by_quality", "99:")
 
 
 def test_series(con) -> None:

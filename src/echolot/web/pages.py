@@ -1,13 +1,12 @@
 """The pages that show the library: overview, missing songs, a list and the activity."""
 
 import sqlite3
-from datetime import datetime
-from typing import Annotated
+from datetime import datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from echolot import db
 from echolot.library import filing, history, recording
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, discogs, jobs, stats
@@ -27,49 +26,122 @@ def old_overview(request: Request) -> RedirectResponse:
 @router.get("/library", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
     """The user's songs (an admin's, or everyone's as they chose), with the library's size besides."""
-    o, vault = stats.overview(con, stats.scope(request.state.user)), request.app.state.vault
-    uid = request.state.user.id
-    connected = vault.has(con, spotify.refresh_name(uid)) or vault.has(con, soundcloud.token_name(uid))
-    donut, running = (
-        charts.donut(o["tiers"], size=160, width=22),
-        jobs.status(request, con),
-    )  # the library's files by quality, and the songs missing
-    growth = _growth(con, stats.scope(request.state.user), o)
-    buy = len(stats.buy(con, stats.scope(request.state.user)))  # (songs Bandcamp sells lossless: the Buy page)
-    on_discogs = discogs.to_add(con, stats.scope(request.state.user))  # (releases Discogs lacks; None: off)
+    uid = stats.scope(request.state.user)
+    o, vault = stats.overview(con, uid), request.app.state.vault
+    connected = vault.has(con, spotify.refresh_name(request.state.user.id)) or vault.has(
+        con, soundcloud.token_name(request.state.user.id)
+    )
+    rings = {  # the library's files by quality and the songs missing; the songs by how near their best they are
+        "quality": charts.donut(o["tiers"], size=160, width=22),
+        "best": charts.donut(best := stats.best_tiers(con, uid), size=160, width=22),
+    }
+    buy = len(stats.buy(con, uid))  # (songs Bandcamp sells lossless: the Buy page)
+    on_discogs = discogs.to_add(con, uid)  # (releases Discogs lacks; None: off)
     return page(
         request,
         "overview.html",
         nav="library",
         o=o,
-        donut=donut,
-        growth=growth,
+        rings=rings,
+        best=best,
+        best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
         connected=connected,
         buy=buy,
         on_discogs=on_discogs,
-        **running,
+        **_graphs(con, uid, o, *_window(request.query_params)),
+        **jobs.status(request, con),
     )
 
 
-def _growth(con: sqlite3.Connection, uid: int | None, o: dict) -> dict[str, charts.Growth | None]:
+@router.get("/library/graphs", response_class=HTMLResponse)
+def graphs(request: Request, con: DB) -> HTMLResponse:
+    """The Library page's graphs for a stretch of time (?range=7d|30d|90d|all, or ?from=&to= in UTC)."""
+    uid = stats.scope(request.state.user)
+    return page(
+        request,
+        "_graphs.html",
+        o=(o := stats.overview(con, uid)),
+        **_graphs(con, uid, o, *_window(request.query_params)),
+    )
+
+
+RANGES = {"7d": ("7 d", 7), "30d": ("30 d", 30), "90d": ("3 mo", 90), "all": ("All", None)}  # the graphs' chips
+
+
+def _window(query: Any) -> tuple[str, str, str]:
+    """(range, from, to): a chip of RANGES, or "" for a stretch chosen on the graph (from and to, UTC); from
+    is "" for all of it, to "" for until now."""
+    if (start := _stamp(query.get("from"))) and (stop := _stamp(query.get("to"))) and start < stop:
+        return "", start, stop
+    chosen = query.get("range") if query.get("range") in RANGES else "all"
+    days = RANGES[chosen][1]
+    return chosen, history.utc(datetime.now() - timedelta(days=days)) if days else "", ""
+
+
+def _stamp(value: str | None) -> str:
+    try:
+        return history.utc(datetime.fromisoformat(value)) if value else ""
+    except ValueError:
+        return ""
+
+
+def _span(start: str, stop: str) -> str:
+    """A stretch dragged on a graph, in local time: "12 Oct – 19 Oct", with the hours when it is short."""
+    a, b = (datetime.fromisoformat(ts).astimezone() for ts in (start, stop))
+    if b - a <= timedelta(days=2):
+        return f"{a.day} {a:%b %H:%M} – {b.day} {b:%b %H:%M}"
+    return f"{a.day} {a:%b} – {b.day} {b:%b}"
+
+
+def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[str, Any]]:
+    """The points from `start` to `stop` ("": open), with the one before and the one after: the line
+    reaches the edges, and a stretch between two points still shows."""
+    inside = [n for n, (ts, _) in enumerate(points) if (not start or ts >= start) and (not stop or ts <= stop)]
+    if not inside:
+        before = [n for n, (ts, _) in enumerate(points) if start and ts < start]
+        inside = before[-1:]
+    if not inside:
+        return []
+    return points[max(inside[0] - 1, 0) if start else 0 : inside[-1] + 2]
+
+
+def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, start: str, stop: str) -> dict[str, Any]:
     """The songs in the library over time, as files (a recording several list entries share counts once:
-    the user's, or everyone's), and the library's size (everyone's); each ends with the value of now."""
+    the user's, or everyone's), the library's size (everyone's) and the files' quality with the songs missing
+    (as the ring shows them), for the stretch shown; each ends with the value of now."""
     now = history.utc(datetime.now())
-    rebuilt = db.get_meta(con, history.REBUILT)
+    files = _files(con, uid, o)
+    songs = [*files, (now, o["files"])]
+    sizes = [*history.totals(con, "library_bytes"), (now, o["library_size"])]
+    quality = [*_quality(con, uid, dict(files)), (now, {k: n for k, _, n in o["tiers"]})]
     return {
-        "songs": charts.growth(
-            [*_files(con, uid, o), (now, o["files"])],
-            lambda v: f"{num(round(v))} songs",
-            lambda v: num(round(v)),
-            rebuilt,
-        ),
-        "size": charts.growth(
-            [*history.totals(con, "library_bytes"), (now, o["library_size"])],
-            size,
-            lambda v: "0" if not v else f"{v / 1e9:g} GB" if v >= 1e9 else f"{v / 1e6:g} MB",
-            rebuilt,
-        ),
+        "growth": {
+            "songs": charts.growth(
+                _crop(songs, start, stop), lambda v: f"{num(round(v))} songs", lambda v: num(round(v))
+            ),
+            "size": charts.growth(
+                _crop(sizes, start, stop),
+                size,
+                lambda v: "0" if not v else f"{v / 1e9:g} GB" if v >= 1e9 else f"{v / 1e6:g} MB",
+            ),
+            "quality": charts.stacked(_crop(quality, start, stop), [(k, label) for k, label in stats.TIERS]),
+        },
+        "window": {"range": chosen, "ranges": RANGES, "zoomed": _span(start, stop) if not chosen else ""},
     }
+
+
+def _quality(con: sqlite3.Connection, uid: int | None, files: dict[str, float]) -> list[tuple[str, dict[str, float]]]:
+    """The library files per quality tier over time with the songs missing (everyone's); a user's: their songs
+    per tier, taken in the proportion of their files then (as the songs graph counts them)."""
+    if uid is None:
+        missing = dict(history.totals(con, "songs_missing"))
+        return [(ts, {**n, "missing": missing.get(ts, 0)}) for ts, n in history.keyed(con, "library_files_by_quality")]
+    missing = dict(history.totals(con, "user_songs_missing", str(uid)))
+    out = []
+    for ts, n in history.keyed(con, "user_songs_by_quality", f"{uid}:"):
+        scale = files[ts] / sum(n.values()) if files.get(ts) and sum(n.values()) else 1
+        out.append((ts, {**{k: v * scale for k, v in n.items()}, "missing": missing.get(ts, 0)}))
+    return out
 
 
 def _files(con: sqlite3.Connection, uid: int | None, o: dict) -> list[tuple[str, float]]:
