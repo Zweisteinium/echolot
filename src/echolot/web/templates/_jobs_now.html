@@ -1,0 +1,8 @@
+{# the Library page's line of the jobs (web/jobs.jobs_now): what runs now, else when the next starts; polled
+   while one runs. To others than admins only the task's name (a song's name may be another user's) #}
+{% set active = tasks|selectattr('running')|list %}
+<a class="pill job-pill{{ ' on' if active }}" href="/jobs" hx-get="/jobs/now" hx-trigger="every {{ '4s' if active else '60s' }}" hx-swap="outerHTML" title="The jobs: what runs, when, and what each one does">
+  {%- if paused %}<span class="dot err"></span>Jobs paused
+  {%- elif active %}{% set run = active[0].running[0].run %}<span class="dot on"></span><b>{{ active[0].task.label }}</b>{% if user.admin and run.progress %}<span class="job-pill-text">{{ run.progress }}</span>{% endif %}{% if active|length > 1 %} <span class="muted">+{{ active|length - 1 }}</span>{% endif %}
+  {%- else %}{% set due = tasks|selectattr('next')|rejectattr('task.maintenance')|sort(attribute='next')|first %}<span class="dot"></span>Jobs idle{% if due %} · {{ due.task.label }} {{ due.next|until }}{% endif %}{% endif -%}
+</a>

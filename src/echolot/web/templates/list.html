@@ -4,10 +4,15 @@
 {% block title %}{{ lst.title }} · Echolot{% endblock %}
 {% block content %}
 {% set missing = tiers[-1][2] %}
+<a class="crumb" href="/library">← Library</a>
 <section class="card">
   <div class="card-head">
     <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
-    <span class="list-actions">{% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button> {% endif %}{% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button> {% endif %}{{ service(lst.service) }} <a class="small" href="{{ lst.url }}" target="_blank" rel="noopener">open source ↗</a></span>
+    <div class="actions">
+      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
+      {% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
+      <a class="button" href="{{ lst.url }}" target="_blank" rel="noopener" title="The list at its source">{{ icon(lst.service, 14) }} Open on {{ lst.service|source }} ↗</a>
+    </div>
   </div>
   <p class="lead">{{ (songs|length - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
   {{ qbar(tiers, large=True) }}
@@ -16,7 +21,7 @@
 {% if lst.service == 'spotify' and user.can('upload') %}<div id="recording" hx-get="/recordings/panel?list={{ lst.key|urlencode }}" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
 
 <section class="card">
-  <table class="rows">
+  <table class="rows songs list-songs row-blocks">
     {% set upload = user.can('upload') %}
     <thead><tr><th class="num">#</th>{{ song_heads() }}<th>Quality</th><th class="hide-narrow">File</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>

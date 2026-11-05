@@ -36,7 +36,12 @@ def test_overview(client: TestClient) -> None:
     assert "Playlist A" in html
     assert 'href="/lists/spotify:playlist:BBB222"' in html
     assert "no playlist" in html
-    assert "Run now" in html and "Resume" in html  # jobs paused since the takeover
+    assert 'hx-get="/jobs/now"' in html  # the jobs' line; the jobs on their page (History · Jobs)
+    jobs = client.get("/jobs").text
+    assert (
+        "Run now" in jobs and "Resume" in jobs and 'aria-current="page">Jobs</a>' in jobs
+    )  # paused since the takeover
+    assert "Jobs paused" in client.get("/jobs/now").text
 
 
 def test_sizes_and_shares() -> None:
@@ -217,7 +222,7 @@ def test_activity_a_merge_of_the_same_audio_is_one_entry(settings: Settings) -> 
 
 def test_jobs(client: TestClient) -> None:
     response = client.post("/jobs/library/run", follow_redirects=False)
-    assert response.status_code == 303 and response.headers["location"].startswith("/library?ok=")
+    assert response.status_code == 303 and response.headers["location"].startswith("/jobs?ok=")
     assert set(client.app.state.worker.requested) == {"library"}
     assert client.post("/jobs/nope/run").status_code == 404
     html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
@@ -226,7 +231,7 @@ def test_jobs(client: TestClient) -> None:
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
     assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
     html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # shown at once, asked again every second
-    assert "starting …" in html and 'hx-trigger="every 1s"' in html
+    assert "starts in a moment" in html and ">Starting</span>" in html and 'hx-trigger="every 1s"' in html
 
 
 def test_static_stylesheet(client: TestClient) -> None:
@@ -532,14 +537,18 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     run.note(f"{long}: not found")
     wk.runs["upgrade"] = run
     html = client.get("/jobs").text
-    for label in ("New songs", "Missing songs", "FLAC upgrade", "Maintenance (4)"):
+    for label in ("New songs", "Missing songs", "FLAC upgrade", 'Maintenance <span class="muted">4</span>'):
         assert label in html
     assert 'aria-valuenow="12"' in html and 'style="width: 4.8%"' in html  # 12 of 250
     assert f'title="12 of 250 songs: 2 upgrade, 10 not found · {long}"' in html  # cut in the line, whole on hover
-    assert 'name="names" value="upgrade"' in html and ">Stop</button>" in html and "Live log (1)" in html
+    assert (
+        'name="names" value="upgrade"' in html
+        and ">Stop</button>" in html
+        and 'Live log <span class="muted">1</span>' in html
+    )
     run.say("SoundCloud: listing Likes")  # starts with its step's name: not said twice
     wk.runs["soundcloud"] = run
-    assert "SoundCloud</span>" not in client.get("/jobs").text
+    assert "<b>SoundCloud</b>" not in client.get("/jobs").text
     del wk.runs["soundcloud"]
     assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
     del wk.runs["upgrade"]

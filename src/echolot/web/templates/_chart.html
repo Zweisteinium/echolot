@@ -50,7 +50,7 @@
 {# shares over time (charts.stacked): a band per quality tier in the ring's colours, the best at the bottom;
    the axis starts where its labels say. The pointer shows every tier then #}
 {% macro stack_chart(g, name, caption) -%}
-<figure class="growth stack" data-growth data-stack data-points="{{ g.points }}" data-start="{{ g.start }}" data-stop="{{ g.stop }}">
+<figure class="growth stacked" data-growth data-stack data-points="{{ g.points }}" data-start="{{ g.start }}" data-stop="{{ g.stop }}">
   <div class="plot">
     {% for t in g.values %}<span class="y" style="top: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}
     <div class="canvas">

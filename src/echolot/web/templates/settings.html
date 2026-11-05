@@ -1,3 +1,4 @@
+{% from "_macros.html" import how %}
 {% extends "base.html" %}
 {% block title %}Server settings · Echolot{% endblock %}
 {% block content %}
@@ -21,7 +22,7 @@
 <form method="post" action="/settings">{{ csrf_input }}
 <section class="card" id="jobs">
   <div class="section-head"><h2>When the jobs run</h2></div>
-  <p class="muted small">Minutes between starts (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Soulseek jobs share one connection: a due job waits for the running one and keeps its turn. Jobs can also be started by hand on the <a href="/">overview</a>.</p>
+  {% call how('schedule', 'Each job: minutes between starts, fixed local times, or off.') %}Minutes between starts (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Soulseek jobs share one connection: a due job waits for the running one and keeps its turn. Jobs can also be started by hand under <a href="/jobs">History · Jobs</a>.{% endcall %}
   <table class="rows schedule">
     <thead><tr><th>Step</th><th>When</th><th class="hide-narrow"></th></tr></thead>
     {% for task, steps in tasks %}

@@ -1,76 +1,66 @@
-{# the jobs card: one row per task (schedule.TASKS) with its steps (jobs) behind ⓘ, the run going on (its line
-   and progress bar) and its live log; maintenance folded away. htmx reloads it every few seconds while something
-   runs and morphs it in (scrolling and a selection stay); open infos and logs stay open (base.html, data-info) -#}
+{# the jobs (History · Jobs): a card per task (schedule.TASKS), all alike: its name and state, one line of what
+   it does now or did last, when it runs, its buttons; what it is for and its steps behind ⓘ, its log behind Log.
+   Maintenance folded away. htmx reloads it every few seconds while something runs and morphs it in (scrolling
+   and a selection stay); open infos and logs stay open (base.html, data-info) -#}
 {% from "_icons.html" import icon -%}
-{% macro task_row(t) -%}
+{% macro job_card(t) -%}
 {% set task, last = t.task, t.last -%}
 {% set names = t.running|map(attribute='job.name')|join(',') -%}
-<article class="task{{ ' running' if t.running }}">
-  <div class="task-head">
-    <div class="task-title">
-      <h3>{{ task.label }} <button type="button" class="info-toggle" data-info="task-info-{{ task.name }}" aria-controls="task-info-{{ task.name }}" aria-expanded="false" aria-label="How {{ task.label }} works" title="How it works">{{ icon('info', 15) }}</button></h3>
-      <p class="muted small">{{ task.help }}</p>
-    </div>
-    <div class="task-actions">
-      {% if not user.admin %}
-      {% set own = {'new': ('check', 'Check my lists now'), 'missing': ('search', 'Search my missing songs now')}.get(task.name) %}
-      {% if own and user.can('run') %}<form method="post" action="/jobs/mine" hx-post="/jobs/mine" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="what" value="{{ own[0] }}"><button>{{ own[1] }}</button></form>{% endif %}
-      {% elif t.running %}
-      <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">Stop</button></form>
-      {% else %}
-      {% for label, jobs, hint in task.buttons %}
-      <form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button{{ ' class="primary"' if loop.first and not task.maintenance }} title="{{ hint }}">{{ label }}</button></form>
-      {% endfor %}
-      {% endif %}
-    </div>
+{% set failed = last and last.last.ok == 0 and not t.running -%}
+{% set stopping = t.running|selectattr('stopping')|list -%}
+{% if t.running %}{% set state, style = ('Stopping', 'warn') if stopping else ('Running', 'ok') %}
+{% elif t.waiting %}{% set state, style = ('Starting' if t.waiting.starting else 'Due'), 'warn' %}
+{% elif paused and t.next %}{% set state, style = 'Paused', 'muted' %}
+{% elif failed %}{% set state, style = 'Failed', 'bad' %}
+{% else %}{% set state, style = 'Idle', 'muted' %}{% endif -%}
+<article class="job {{ style }}">
+  <div class="job-top">
+    <h3>{{ task.label }}</h3>
+    <span class="job-state {{ style }}">{% if t.running and not stopping %}<span class="dot on"></span>{% endif %}{{ state }}</span>
+    <button type="button" class="info-toggle" data-info="job-about-{{ task.name }}" aria-controls="job-about-{{ task.name }}" aria-expanded="false" aria-label="What {{ task.label }} does" title="What it does">{{ icon('info', 16) }}</button>
   </div>
-  {# the same rows for every task: Now (while it runs or is due), Last, Schedule, Next #}
-  <dl class="task-facts small">
-    {% for s in t.running %}{% set run = s.run %}
-    <dt>Now</dt>
-    <dd>
-      <div class="task-now">
-        <span class="dot {{ 'wait' if s.stopping or run.give_way.is_set() else 'on' }}"></span>
-        {% if t.steps|length > 1 and steps[s.job.name] and not run.progress.startswith(steps[s.job.name]) %}<span class="task-step">{{ steps[s.job.name] }}</span>{% endif %}
-        {% set progress = (run.progress or 'starting …') if user.admin else 'running' %}{# a song's name may be another user's #}
-        <span class="task-line" title="{{ progress }}">
-          {%- if s.stopping %}stopping: the songs in progress end first
-          {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress{{ '' if paused else ', goes on afterwards' }}
-          {%- else %}{{ progress }}{% endif %}</span>
-      </div>
-      {% if run.total %}<div class="task-bar" role="progressbar" aria-label="{{ steps[s.job.name] or task.label }}" aria-valuemin="0" aria-valuemax="{{ run.total }}" aria-valuenow="{{ run.done }}"><span style="width: {{ (100 * run.done / run.total)|round(1) }}%"></span></div>{% endif %}
-    </dd>
+  {# one line: what it does now, else what it did last #}
+  <div class="job-line">
+    {% for s in t.running[:1] %}{% set run = s.run %}
+    {% set step = steps[s.job.name] if t.steps|length > 1 and steps[s.job.name] and not run.progress.startswith(steps[s.job.name]) else '' %}
+    {% set progress = (run.progress or 'starting …') if user.admin else 'running' %}{# a song's name may be another user's #}
+    <span class="job-text" title="{{ progress }}">{% if step %}<b>{{ step }}</b> {% endif %}
+      {%- if s.stopping %}the songs in progress end first
+      {%- elif run.give_way.is_set() %}{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress
+      {%- else %}{{ progress }}{% endif %}</span>
     {% else %}{% if t.waiting %}{% set w = t.waiting %}
-    <dt>Now</dt>
-    <dd><div class="task-now"><span class="dot wait"></span><span class="task-line">{{ steps[w.job.name] ~ ': ' if t.steps|length > 1 and steps[w.job.name] }}{{ 'starting' if w.starting else 'due' }}{{ ', after ' ~ w.waiting if w.waiting }} …</span></div></dd>
-    {% endif %}{% endfor %}
-    <dt>Last</dt>
-    <dd>
-      {% if last %}
-      {% set failed = last.last.ok == 0 %}
-      {% set step = steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] and not (last.last.message or '').startswith(steps[last.job.name]) else '' %}
-      <div class="task-now">
-        <span class="dot{{ ' err' if failed }}"></span>
-        <span class="task-line{{ ' bad-text' if failed }}" title="{{ last.last.message if user.admin or not failed }}">{{ 'failed' ~ (': ' ~ last.last.message if user.admin else '') if failed else step ~ (last.last.message or 'done') }}</span>
-        {% if last.last.started %}<span class="task-when" title="{{ last.last.started }}">{{ last.last.started|ago }}</span>{% endif %}
-      </div>
-      {% else %}<span class="muted">not run yet</span>{% endif %}
-      {% if t.log and user.admin %}<button type="button" class="link-button" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log of the last run' }} ({{ t.log|length }})</button>{% endif %}
-    </dd>
-    {% set timed = t.steps|rejectattr('rule', 'none')|list %}
-    <dt>Schedule</dt>
-    <dd><span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}{{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}</span></dd>
-    {% if not t.running and t.next %}
-    <dt>Next</dt>
-    <dd><span>{{ 'paused' if paused else t.next|until }}</span></dd>
-    {% endif %}
-  </dl>
-  <dl class="task-info small" id="task-info-{{ task.name }}" hidden>
-    {% for s in t.steps %}
-    <dt>{{ s.job.label }} <span class="muted">· {{ 'after ' ~ s.job.started_by if s.job.started_by and s.rule is none else s.rule|minutes }}</span></dt>
-    <dd>{{ s.job.details }}</dd>
+    <span class="job-text">{{ steps[w.job.name] ~ ' ' if t.steps|length > 1 and steps[w.job.name] }}{{ 'starts in a moment' if w.starting else 'due' }}{{ ', after ' ~ w.waiting if w.waiting }}</span>
+    {% elif last %}
+    {% set step = steps[last.job.name] ~ ': ' if t.steps|length > 1 and steps[last.job.name] and not (last.last.message or '').startswith(steps[last.job.name]) else '' %}
+    <span class="job-text{{ ' bad-text' if failed }}" title="{{ last.last.message if user.admin or not failed }}">{{ ('failed' ~ (': ' ~ last.last.message if user.admin else '')) if failed else step ~ (last.last.message or 'done') }}</span>
+    {% if last.last.started %}<span class="job-when" title="{{ last.last.started }}">{{ last.last.started|ago }}</span>{% endif %}
+    {% else %}<span class="job-text muted">not run yet</span>{% endif %}{% endfor %}
+  </div>
+  {% for s in t.running[:1] if s.run.total %}<div class="task-bar" role="progressbar" aria-label="{{ task.label }}" aria-valuemin="0" aria-valuemax="{{ s.run.total }}" aria-valuenow="{{ s.run.done }}"><span style="width: {{ (100 * s.run.done / s.run.total)|round(1) }}%"></span></div>{% endfor %}
+  {% set timed = t.steps|rejectattr('rule', 'none')|list %}
+  <p class="job-meta">{{ icon('clock', 13) }}<span>{% for s in timed %}{{ steps[s.job.name] ~ ' ' if t.steps|length > 1 and steps[s.job.name] }}{{ s.rule|minutes }}{{ ' · ' if not loop.last }}{% else %}by hand{% endfor %}{% if not t.running and t.next %} · next {{ 'when resumed' if paused else t.next|until }}{% endif %}</span></p>
+  <div class="job-actions">
+    {% if not user.admin %}
+    {% set own = {'new': ('check', 'Check my lists now'), 'missing': ('search', 'Search my missing songs now')}.get(task.name) %}
+    {% if own and user.can('run') %}<form method="post" action="/jobs/mine" hx-post="/jobs/mine" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="what" value="{{ own[0] }}"><button>{{ own[1] }}</button></form>{% endif %}
+    {% elif t.running %}
+    <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">Stop</button></form>
+    {% else %}
+    {% for label, jobs, hint in task.buttons %}
+    <form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button title="{{ hint }}">{{ label }}</button></form>
     {% endfor %}
-  </dl>
+    {% endif %}
+    {% if t.log and user.admin %}<button type="button" class="link-button job-log-toggle" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log' }} <span class="muted">{{ t.log|length }}</span></button>{% endif %}
+  </div>
+  <div class="job-about" id="job-about-{{ task.name }}" hidden>
+    <p>{{ task.about or task.help }}</p>
+    <dl class="job-steps">
+      {% for s in t.steps %}
+      <dt>{{ s.job.label }} <span class="muted">· {{ 'after ' ~ s.job.started_by if s.job.started_by and s.rule is none else s.rule|minutes }}</span></dt>
+      <dd>{{ s.job.details }}</dd>
+      {% endfor %}
+    </dl>
+  </div>
   {% if t.log and user.admin %}
   <ol class="task-log small" id="task-log-{{ task.name }}" hidden>
     {% for at, line in t.log %}<li><time>{{ at }}</time><span>{{ line }}</span></li>{% endfor %}
@@ -80,19 +70,20 @@
 {%- endmacro %}
 <div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="morph">
   <div class="card-head">
-    <h2>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h2>
+    <h1>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h1>
     {% if user.admin %}
     <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}
       {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; a job started by hand still runs">Pause all</button>{% endif %}
     </form>
     {% endif %}
   </div>
-  <div class="tasks">
-    {% for t in tasks if not t.task.maintenance %}{{ task_row(t) }}{% endfor %}
+  <p class="lead">Echolot does these by itself on their schedule; {{ icon('info', 13) }} tells what each one does.</p>
+  <div class="job-grid">
+    {% for t in tasks if not t.task.maintenance %}{{ job_card(t) }}{% endfor %}
   </div>
   {% set kept = tasks|selectattr('task.maintenance')|list %}
-  <button type="button" class="link-button maintenance-toggle" data-info="jobs-maintenance" aria-controls="jobs-maintenance" aria-expanded="false">Maintenance ({{ kept|length }}){% if kept|selectattr('running')|list %} · running{% endif %}</button>
-  <div class="tasks" id="jobs-maintenance" hidden>
-    {% for t in kept %}{{ task_row(t) }}{% endfor %}
+  <button type="button" class="link-button maintenance-toggle" data-info="jobs-maintenance" aria-controls="jobs-maintenance" aria-expanded="false">Maintenance <span class="muted">{{ kept|length }}</span>{% if kept|selectattr('running')|list %} · running{% endif %}</button>
+  <div class="job-grid maintenance" id="jobs-maintenance" hidden>
+    {% for t in kept %}{{ job_card(t) }}{% endfor %}
   </div>
 </div>

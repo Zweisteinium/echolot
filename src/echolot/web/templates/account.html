@@ -1,3 +1,4 @@
+{% from "_macros.html" import how %}
 {% extends "base.html" %}
 {% block title %}Account · Echolot{% endblock %}
 {% block content %}
@@ -22,7 +23,7 @@
     <h2>Recorders</h2>
     <a class="button primary" href="mitschnitt://connect?url={{ base|urlencode }}">Connect Mitschnitt</a>
   </div>
-  <p class="muted small">Mitschnitt on your Windows PC records songs from Spotify bit-exact and puts them into your library: choose what under Record, on a Spotify list or under Library. Your devices are yours alone: nobody else here sees them or records on them. In Mitschnitt, <em>Connect Echolot</em> with the address <code>{{ base }}</code> works too.</p>
+  {% call how('recorders', 'Mitschnitt on your Windows PC records songs from Spotify bit-exact and puts them into your library: choose what under Record, on a Spotify list or under Library.') %}Your devices are yours alone: nobody else here sees them or records on them. In Mitschnitt, <em>Connect Echolot</em> with the address <code>{{ base }}</code> works too.{% endcall %}
   {% if devices %}
   <table class="rows recorders">
     <thead><tr><th>Device</th><th>Status</th><th class="hide-narrow">App</th><th class="hide-narrow">Connected</th><th></th></tr></thead>

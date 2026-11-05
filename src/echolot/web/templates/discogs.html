@@ -5,7 +5,9 @@
   'digital': ('warn-pill', 'no download', 'Discogs lists it only in other formats (vinyl, CD): the download version is missing'),
   'missing': ('bad-pill', 'missing', 'Discogs does not list it'),
 } %}
+{% from "_macros.html" import how %}
 {% block content %}
+{% from "_subnav.html" import library %}{{ library('discogs', tabs) }}
 <section class="card discogs">
   {% if not on %}
   <h1>Discogs</h1>
@@ -30,7 +32,7 @@
       <noscript><button>Show</button></noscript>
     </form>
   </div>
-  <p class="lead small">Releases of your library songs that Discogs does not list as a download. Discogs takes only releases sold or given away as downloads, not streaming-only ones, so the suggestion comes from the release on Beatport. Click a release for what to enter in Discogs' form. Genres are your songs' genres in Navidrome.{% if last and last.finished %} Last check {{ last.finished|ago }}: <span class="{{ 'bad-text' if not last.ok or (last.message or '').startswith('stopped') }}">{{ last.message or 'done' }}</span>.{% endif %}</p>
+  {% call how('discogs', 'Releases of your library songs that Discogs does not list as a download.') %}Discogs takes only releases sold or given away as downloads, not streaming-only ones, so the suggestion comes from the release on Beatport. Click a release for what to enter in Discogs' form. Genres are your songs' genres in Navidrome.{% if last and last.finished %} Last check {{ last.finished|ago }}: <span class="{{ 'bad-text' if not last.ok or (last.message or '').startswith('stopped') }}">{{ last.message or 'done' }}</span>.{% endif %}{% endcall %}
   {% if user.admin %}
   <form method="post" action="/discogs/check" class="discogs-check" onsubmit="return confirm('Check asks Discogs once per release of the list (about one a second) and Beatport for each one Discogs lacks (two pages, 2 seconds apart). Check now?')">{{ csrf_input }}
     <select name="list" aria-label="List to check" required>
@@ -43,13 +45,13 @@
   </form>
   {% endif %}
   {% if entries %}
-  <table class="rows discogs-rows">
+  <table class="rows discogs-rows row-blocks">
     <thead><tr><th>Artist</th><th>Release</th><th class="hide-narrow">Released</th><th class="hide-narrow">Genre</th><th>Discogs</th><th>Beatport</th></tr></thead>
     <tbody>
     {% for e in entries %}{% set a, r, store = e.album, e.row, e.store %}{% set pill = STATES[r.state] %}
       <tr tabindex="0" hx-get="/discogs/release?album={{ a.key|urlencode }}" hx-target="#discogs-body" hx-trigger="click, keyup[key=='Enter']" title="What to submit">
-        <td>{{ a.artist }}</td>
-        <td><span class="release-title">{{ a.title }}</span>{% if a.songs|length > 1 %} <span class="muted small">· {{ a.songs|length }} songs</span>{% endif %}</td>
+        <td class="muted">{{ a.artist }}</td>
+        <td class="lead-cell"><span class="release-title">{{ a.title }}</span>{% if a.songs|length > 1 %} <span class="muted small">· {{ a.songs|length }} songs</span>{% endif %}</td>
         <td class="hide-narrow muted small nowrap">{{ a.released }}</td>
         <td class="hide-narrow small">{{ r.genre }}</td>
         <td><span class="pill {{ pill[0] }}" title="{{ pill[2] }}">{{ pill[1] }}</span></td>

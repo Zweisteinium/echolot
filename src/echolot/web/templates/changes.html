@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import song_link %}
+{% from "_macros.html" import how, song_link %}
 {% block title %}Changes · Echolot{% endblock %}
 {% block content %}
 {% from "_subnav.html" import history %}{{ history('changes') }}
@@ -9,13 +9,13 @@
     <h1>No longer playable <span class="count">{{ now|length|num }}</span></h1>
     <span class="muted small">{% for state, label in states.items() if counts.get(state) %}{{ counts[state]|num }} {{ label|lower }}{{ ' · ' if not loop.last }}{% endfor %}</span>
   </div>
-  <p class="lead small">Songs of {{ 'everyone\'s' if user.everyone else 'your' }} lists that do not play at their source as they are: <b>taken down</b> (Spotify plays them nowhere), <b>not in this country</b>, <b>gone</b> (deleted, or made private on SoundCloud), or a SoundCloud <b>preview only</b> (30 seconds without Go+). Checked once a day; your files stay.{% if relinked %} {{ relinked|num }} more play as another release of the same recording (Spotify swaps it in): nothing to do.{% endif %}</p>
-  <table class="rows">
+  {% call how('changes', 'Songs of ' ~ ('everyone\'s' if user.everyone else 'your') ~ ' lists that no longer play at their source as they are; your files stay.') %}What each state means: <b>taken down</b> (Spotify plays them nowhere), <b>not in this country</b>, <b>gone</b> (deleted, or made private on SoundCloud), or a SoundCloud <b>preview only</b> (30 seconds without Go+). Checked once a day.{% if relinked %} {{ relinked|num }} more play as another release of the same recording (Spotify swaps it in): nothing to do.{% endif %}{% endcall %}
+  <table class="rows row-blocks">
     <thead><tr><th>Song</th><th>State</th><th>Since</th><th>In your library</th></tr></thead>
     <tbody>
     {% for r in now %}
     <tr>
-      <td>{{ song_link(r.key, r.url, r.artist ~ ' – ' ~ r.title) }}</td>
+      <td class="lead-cell">{{ song_link(r.key, r.url, r.artist ~ ' – ' ~ r.title) }}</td>
       <td><span class="pill{{ ' warn-pill' if r.state == 'preview' else ' bad-pill' }}">{{ states.get(r.state, r.state) }}</span></td>
       <td class="small nowrap">{% if r.since %}{{ r.since }}{% else %}<span class="muted" title="It was so at the first check: since when is not known">unknown</span>{% endif %}</td>
       <td class="small">{% if r.file %}<span class="ok-text">yes</span>{% else %}<a href="/missing" class="bad-text">missing</a>{% endif %}</td>
@@ -36,7 +36,7 @@
       <a href="/changes?kind=lists" data-label="Lists" {% if kind == 'lists' %}aria-current="page"{% endif %}>Lists</a>
     </nav>
   </div>
-  <table class="rows">
+  <table class="rows row-blocks">
     <thead><tr><th>When</th><th>Change</th><th>Song</th><th>Details</th></tr></thead>
     <tbody>
     {% for c in entries %}
@@ -44,7 +44,7 @@
     <tr>
       <td class="muted small nowrap" title="{{ c.ts }}">{{ c.ts|ago }}</td>
       <td><span class="pill{{ ' ' ~ label[1] ~ '-pill' if label[1] }}">{{ label[0] }}</span></td>
-      <td>{% if c.song_key %}{{ song_link(c.song_key, c.url, (c.artist or '?') ~ ' – ' ~ (c.title or '?')) }}{% else %}<span class="muted">the list itself</span>{% endif %}</td>
+      <td class="lead-cell">{% if c.song_key %}{{ song_link(c.song_key, c.url, (c.artist or '?') ~ ' – ' ~ (c.title or '?')) }}{% else %}<span class="muted">the list itself</span>{% endif %}</td>
       <td class="small">
         {%- if c.list_title %}<span class="muted">{{ c.list_title }}</span>{% endif %}
         {%- if c.change in ('replaced', 're-uploaded') and c.new_title %} · now {{ c.new_artist }} – {{ c.new_title }}{% endif %}

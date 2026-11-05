@@ -1,5 +1,5 @@
-"""The jobs: their table on the overview (htmx refreshes it while jobs run), starting and stopping them,
-pausing the schedule, and the same as JSON."""
+"""The jobs: their page (History · Jobs; htmx refreshes it while jobs run) and the line on the Library page of
+what runs now, starting and stopping them, pausing the schedule, and the same as JSON."""
 
 import sqlite3
 from datetime import datetime
@@ -71,13 +71,21 @@ def _tasks(rows: list[dict], finished: dict) -> list[dict]:
 def answer(request: Request, con: sqlite3.Connection, ok: str) -> Response:
     if request.headers.get("hx-request"):
         return page(request, "_jobs.html", **status(request, con))
-    return back("/library", ok=ok)
+    return back("/jobs", ok=ok)
 
 
 @router.get("/jobs", response_class=HTMLResponse, include_in_schema=False)
-def jobs_fragment(request: Request, con: DB) -> HTMLResponse:
-    """The jobs table (htmx refreshes it while jobs run)."""
-    return page(request, "_jobs.html", **status(request, con))
+def jobs_page(request: Request, con: DB) -> HTMLResponse:
+    """The jobs page; to htmx (it refreshes it while jobs run) only its card."""
+    if request.headers.get("hx-request"):
+        return page(request, "_jobs.html", **status(request, con))
+    return page(request, "jobs.html", nav="jobs", **status(request, con))
+
+
+@router.get("/jobs/now", response_class=HTMLResponse, include_in_schema=False)
+def jobs_now(request: Request, con: DB) -> HTMLResponse:
+    """The Library page's line of what runs now (else that all is quiet, or paused), linking to the jobs."""
+    return page(request, "_jobs_now.html", **status(request, con))
 
 
 @router.get("/api/jobs", tags=["jobs"])

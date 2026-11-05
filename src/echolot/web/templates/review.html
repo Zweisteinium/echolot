@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_macros.html" import how %}
 {% block title %}Review · Echolot{% endblock %}
 {% block content %}
 <section class="card">
@@ -23,7 +24,7 @@
     <h1>Worth a look <span class="count">{{ songs.kept|length|num }}</span></h1>
     {% if items.kept|length > songs.kept|length %}<span class="muted small">{{ items.kept|length|num }} downloads</span>{% endif %}
   </div>
-  <p class="lead small">Downloads that failed the automatic check, so they are not in your library and the search goes on. They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have lossy; <em>Perfect match</em> replaces your copy, <em>Close match</em> keeps both.</p>
+  {% call how('review-look', 'Downloads that failed the automatic check, so they are not in your library and the search goes on.') %}They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have lossy; <em>Perfect match</em> replaces your copy, <em>Close match</em> keeps both.{% endcall %}
   <div class="review-list">
     {% for g in songs.kept %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}
@@ -37,7 +38,7 @@
     <h2>Decisions by others <span class="count">{{ others|length|num }}</span></h2>
     <span class="muted small">the last 30 days, of users who are no admins</span>
   </div>
-  <p class="muted small">A song is often on several users' lists, so their decision changes the library for everyone. <em>Take back</em> undoes one: a decision not applied yet is dropped; a Perfect or Close match goes back to Please confirm; a No match is lifted (a file it removed comes back while <code>replaced/</code> still has it, else the song is searched again).</p>
+  {% call how('review-decisions', 'A song is often on several users\' lists, so their decision changes the library for everyone.') %}<em>Take back</em> undoes one: a decision not applied yet is dropped; a Perfect or Close match goes back to Please confirm; a No match is lifted (a file it removed comes back while <code>replaced/</code> still has it, else the song is searched again).{% endcall %}
   {% if others %}
   <table class="rows">
     <thead><tr><th>Song</th><th>Decision</th><th>By</th><th>When</th><th>Result</th><th></th></tr></thead>
@@ -66,6 +67,6 @@
     <dt>No match</dt>
     <dd>Not the song. The file goes, this download is never taken for the song again, and the song is searched again.</dd>
   </dl>
-  <p class="muted small">All downloads of a song are on one card, the likeliest first (the audio check, the artist, the length). Taking one as a Perfect or Close match discards the others. A decision is applied by the Library job within a few minutes; until then <em>Revert</em> takes it back.</p>
+  {% call how('review-cards', 'All downloads of a song are on one card, the likeliest first (the audio check, the artist, the length).') %}Taking one as a Perfect or Close match discards the others. A decision is applied by the Library job within a few minutes; until then <em>Revert</em> takes it back.{% endcall %}
 </section>
 {% endblock %}
