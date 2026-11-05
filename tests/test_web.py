@@ -65,9 +65,52 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
         con.execute("UPDATE snapshots SET value = 1 WHERE metric = 'user_library_files'")  # (one file then)
     con.close()
     html = client.get("/stats").text
-    assert html.count('<figure class="growth"') == 2 and 'name="growth" value="size"' in html
+    assert html.count('<figure class="growth') == 3 and 'name="growth" value="quality"' in html
     assert 'data-panel="size" hidden' in html and '<span class="figure">3 songs</span>' in html  # the owner's 3 files
     assert "&#34;1 songs&#34;" in html and ">+2 songs</span>" in html  # one file at the snapshot, two more since
+    assert "data-stack" in html and 'class="band q-lossless"' in html  # the quality over time, its tiers as bands
+
+
+def test_graphs_for_a_stretch_of_time(client: TestClient, settings: Settings) -> None:
+    """A chip shows the last days (from the point before them), a stretch dragged across a graph just that;
+    a snapshot outside it is left out. The tab shown stays."""
+    con = db.connect(settings.db_path)
+    history.snapshot(con)
+    with con:
+        con.execute("UPDATE snapshots SET ts = '2026-09-01T10:00:00Z'")
+    history.snapshot(con, force=True)
+    with con:
+        con.execute("UPDATE snapshots SET ts = '2026-10-01T10:00:00Z' WHERE ts > '2026-09-02'")
+    con.close()
+    html = client.get("/library/graphs", params={"range": "7d", "show": "quality"}).text
+    assert (
+        'data-graphs data-range="7d"' in html
+        and 'value="quality" checked' in html
+        and 'data-panel="songs" hidden' in html
+    )
+    assert 'data-range="7d" aria-pressed="true"' in html
+    stretch = {"from": "2026-09-20T00:00:00.000Z", "to": "2026-10-05T00:00:00.000Z"}
+    html = client.get("/library/graphs", params=stretch).text
+    assert 'data-range=""' in html and "20 Sep – 5 Oct" in html and "aria-pressed" not in html
+    assert "1 Sep" in html  # (the point before the stretch: the line reaches its edge)
+    html = client.get("/library/graphs", params={"from": "nonsense", "to": "2026-10-05"}).text
+    assert 'data-range="all"' in html  # not a stretch: all of it
+
+
+def test_best_ring(client: TestClient, settings: Settings) -> None:
+    """The songs on the lists by how near they are to their best (the lists' Best column): beside the quality
+    ring, behind its toggle; its shares leave out the songs not to be had."""
+    con = db.connect(settings.db_path)
+    try:
+        tiers = dict((k, n) for k, _, n in stats.best_tiers(con, OWNER))
+        wanted, have = con.execute(
+            f"SELECT count(*), count(file) FROM wanted s WHERE {stats._mine(OWNER)[0]}", (OWNER,)
+        ).fetchone()
+    finally:
+        con.close()
+    assert sum(tiers.values()) == wanted and tiers["best"] + tiers["better"] == have
+    html = client.get("/library").text
+    assert 'data-ring="best" hidden' in html and 'value="best"' in html and "At their best" in html
 
 
 def test_missing(client: TestClient) -> None:

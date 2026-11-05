@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import qbar, share %}
 {% from "_icons.html" import icon %}
-{% from "_chart.html" import donut_chart, growth_chart %}
+{% from "_chart.html" import donut_chart %}
 {% block title %}Library · Echolot{% endblock %}
 {% block content %}
 {% set missing = o.wanted - o.have %}
@@ -12,31 +12,17 @@
     <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
   </div>
   <div class="stats-main">
-    <div class="growth-panels">
-      {% if growth.songs or growth.size %}
-      <div class="segmented" role="radiogroup" aria-label="The graph shows">
-        <label><input type="radio" name="growth" value="songs" checked> Songs</label>
-        <label><input type="radio" name="growth" value="size"> Size</label>
-      </div>
-      {% endif %}
-      {% for key, g, what in (('songs', growth.songs, 'your songs in the library' if o.scoped else 'songs in the library'), ('size', growth.size, 'the size of the library')) %}
-      <div class="growth-panel" data-panel="{{ key }}"{% if key != 'songs' %} hidden{% endif %}>
-        {% if g %}
-        <div class="headline">
-          <span class="figure">{{ g.now }}</span>
-          <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span> <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% if key == 'size' and o.scoped %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap">the whole library</span>{% endif %}</span>
+    {% include "_graphs.html" %}
+    <div class="quality-side" data-rings>
+      <div class="side-head">
+        <div class="side-label">{{ 'Quality of your songs' if o.scoped else 'Quality' }}</div>
+        <div class="segmented small-seg" role="radiogroup" aria-label="The ring shows">
+          <label title="The library's files by quality, and the songs missing"><input type="radio" name="ring" value="quality" checked> Now</label>
+          <label title="The songs on the lists by how near they are to the best quality there is"><input type="radio" name="ring" value="best"> Best possible</label>
         </div>
-        {{ growth_chart(g, 'growth-' ~ key, 'Growth of ' ~ what ~ ' since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
-        {% else %}
-        <p class="muted growth-empty">The graph of {{ what }} starts with the first hourly snapshot.</p>
-        {% endif %}
       </div>
-      {% endfor %}
-    </div>
-    <div class="quality-side">
-      <div class="side-label">{{ 'Quality of your songs' if o.scoped else 'Quality' }}</div>
-      <div class="quality-split">
-        {{ donut_chart(donut, share(o.lossless, donut.total), 'FLAC') }}
+      <div class="quality-split" data-ring="quality">
+        {{ donut_chart(rings.quality, share(o.lossless, rings.quality.total), 'FLAC') }}
         <table class="legend-table">
           <tbody>
           {% for k, label, n in o.tiers %}
@@ -44,11 +30,28 @@
             <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
             <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
             <td class="num">{{ n|num }}</td>
-            <td class="num muted">{{ share(n, donut.total) }}</td>
+            <td class="num muted">{{ share(n, rings.quality.total) }}</td>
           </tr>
           {% endfor %}
           </tbody>
         </table>
+      </div>
+      {% set obtainable = rings.best.total - best[-1][2] %}
+      <div class="quality-split" data-ring="best" hidden>
+        {{ donut_chart(rings.best, share(best[0][2], obtainable), 'at their best') }}
+        <table class="legend-table">
+          <tbody>
+          {% for k, label, n in best %}
+          <tr class="q-{{ k }}{{ ' dim' if not n }}" title="{{ best_hints[k]|capitalize }}">
+            <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
+            <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
+            <td class="num">{{ n|num }}</td>
+            <td class="num muted">{{ share(n, obtainable) if k != 'gone' else '' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        <p class="muted small ring-note">Of the {{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists; the shares leave out those not to be had, as the lists' Best column does.</p>
       </div>
     </div>
   </div>
@@ -82,40 +85,116 @@
   </div>
 </section>
 <script>
-  // the graph shows songs or size (remembered in this browser), and the value under the pointer
+  // the graph shows songs, size or quality, over a chip's stretch of time or one dragged across it (both
+  // remembered in this browser, a dragged one until the page is left); the value under the pointer; the
+  // ring shows the quality now or how near the songs are to their best
   (() => {
     const card = document.querySelector("[data-stats]");
     if (!card) return;
-    const KEY = "echolot:growth";
+    const store = (key, value) => { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) { return null; } };
+    const SHOW = "echolot:growth", RANGE = "echolot:growth-range", RING = "echolot:ring";
+    const tab = () => card.querySelector('input[name="growth"]:checked')?.value || "songs";
     const show = (what) => {
+      if (!card.querySelector(`[data-panel="${what}"]`)) return;
       for (const panel of card.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== what;
       const radio = card.querySelector(`input[name="growth"][value="${what}"]`);
       if (radio) radio.checked = true;
     };
-    try { const saved = localStorage.getItem(KEY); if (saved === "songs" || saved === "size") show(saved); } catch (e) {}
+    const ring = (what) => {
+      for (const el of card.querySelectorAll("[data-ring]")) el.hidden = el.dataset.ring !== what;
+      const radio = card.querySelector(`input[name="ring"][value="${what}"]`);
+      if (radio) radio.checked = true;
+    };
+    const load = (query) => {  // the graphs for another stretch of time
+      const graphs = card.querySelector("[data-graphs]");
+      graphs.classList.add("loading");
+      htmx.ajax("GET", `/library/graphs?${new URLSearchParams({ ...query, show: tab() })}`, { target: graphs, swap: "outerHTML" });
+    };
+    const saved = store(SHOW);
+    if (saved) show(saved);
+    if (store(RING) === "best") ring("best");
+    const range = store(RANGE);
+    if (range && range !== card.querySelector("[data-graphs]")?.dataset.range && ["7d", "30d", "90d"].includes(range)) {
+      document.addEventListener("DOMContentLoaded", () => load({ range }), { once: true });  // (htmx loads deferred)
+    }
     card.addEventListener("change", (e) => {
-      if (e.target.name !== "growth") return;
-      show(e.target.value);
-      try { localStorage.setItem(KEY, e.target.value); } catch (err) {}
+      if (e.target.name === "growth") { show(e.target.value); store(SHOW, e.target.value); }
+      if (e.target.name === "ring") { ring(e.target.value); store(RING, e.target.value); }
     });
-    for (const figure of card.querySelectorAll("[data-growth]")) {
+    card.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-range]");
+      if (!chip || !chip.closest("[data-graphs]") || chip.tagName !== "BUTTON") return;
+      store(RANGE, chip.dataset.range);
+      load({ range: chip.dataset.range });
+    });
+    const wire = (figure) => {
       const points = JSON.parse(figure.dataset.points), plot = figure.querySelector(".canvas");
       const cursor = plot.querySelector(".cursor"), mark = plot.querySelector(".mark"), tip = plot.querySelector(".tip");
-      plot.addEventListener("pointermove", (e) => {
-        const box = plot.getBoundingClientRect(), x = (100 * (e.clientX - box.left)) / box.width;
+      const brush = plot.querySelector(".brush"), stack = "stack" in figure.dataset;
+      let from = null;  // where a drag began (percent from the left), while one goes on
+      const at = (e) => { const box = plot.getBoundingClientRect(); return Math.min(Math.max((100 * (e.clientX - box.left)) / box.width, 0), 100); };
+      const hide = () => { cursor.hidden = mark.hidden = tip.hidden = true; };
+      const point = (x) => {
         let near = points[0];
         for (const p of points) if (Math.abs(p[0] - x) < Math.abs(near[0] - x)) near = p;
         cursor.style.left = mark.style.left = `${near[0]}%`;
         mark.style.top = tip.style.top = `${near[1]}%`;
-        const value = document.createElement("b");
-        value.textContent = near[3];
-        tip.replaceChildren(value, near[2]);
+        if (stack) {  // every tier then, the best first
+          const rows = near[3].filter((r) => r[2] > 0).map(([key, label, n, share]) => {
+            const row = document.createElement("span");
+            row.className = `tip-row q-${key}`;
+            const sw = document.createElement("i"), name = document.createElement("span"), value = document.createElement("b");
+            sw.className = "swatch"; name.textContent = label; value.textContent = `${share.toFixed(1)} %`;
+            value.title = `${n.toLocaleString()} songs`;
+            row.append(sw, name, value);
+            return row;
+          });
+          const when = document.createElement("span");
+          when.className = "tip-when"; when.textContent = near[2];
+          tip.replaceChildren(when, ...rows);
+        } else {
+          const value = document.createElement("b");
+          value.textContent = near[3];
+          tip.replaceChildren(value, near[2]);
+        }
         cursor.hidden = mark.hidden = tip.hidden = false;
-        const half = tip.offsetWidth / 2, at = (near[0] / 100) * box.width;
-        tip.style.left = `${Math.min(Math.max(at, half), box.width - half)}px`;  // (inside the card)
+        const box = plot.getBoundingClientRect(), half = tip.offsetWidth / 2, left = (near[0] / 100) * box.width;
+        tip.style.left = `${Math.min(Math.max(left, half), box.width - half)}px`;  // (inside the card)
+      };
+      plot.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        from = at(e);
+        plot.setPointerCapture(e.pointerId);
       });
-      plot.addEventListener("pointerleave", () => { cursor.hidden = mark.hidden = tip.hidden = true; });
-    }
+      plot.addEventListener("pointermove", (e) => {
+        const x = at(e);
+        if (from !== null && Math.abs(x - from) > 1.5) {  // dragging: the stretch to zoom into
+          hide();
+          brush.style.left = `${Math.min(from, x)}%`;
+          brush.style.width = `${Math.abs(x - from)}%`;
+          brush.hidden = false;
+          return;
+        }
+        if (from === null) point(x);
+      });
+      const end = (e) => {
+        if (from === null) return;
+        const x = at(e), a = Math.min(from, x), b = Math.max(from, x);
+        from = null;
+        brush.hidden = true;
+        if (b - a <= 1.5) return;
+        const start = Date.parse(figure.dataset.start), stop = Date.parse(figure.dataset.stop);
+        const time = (share) => new Date(start + ((stop - start) * share) / 100).toISOString();
+        load({ from: time(a), to: time(b) });
+      };
+      plot.addEventListener("pointerup", end);
+      plot.addEventListener("pointercancel", () => { from = null; brush.hidden = true; });
+      plot.addEventListener("pointerleave", () => { if (from === null) hide(); });
+      plot.addEventListener("dblclick", () => load({ range: store(RANGE) || "all" }));
+    };
+    const wireAll = () => card.querySelectorAll("[data-growth]:not([data-wired])").forEach((f) => { f.dataset.wired = ""; wire(f); });
+    wireAll();
+    card.addEventListener("htmx:afterSettle", wireAll);
   })();
 </script>
 

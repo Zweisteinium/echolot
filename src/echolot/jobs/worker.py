@@ -146,8 +146,6 @@ def upkeep(run: Run) -> str:
                 log.info("Navidrome's hearts: %s", e)
         if history.snapshot(con):
             parts.append("snapshot stored")
-        if hours := history.rebuild(con):  # once: the time before the first snapshot
-            parts.append(f"history rebuilt for {hours} hours before the first snapshot")
         today = datetime.date.today().isoformat()
         if db.get_meta(con, "purged") != today:
             if gone := filing.purge(run.paths):

@@ -19,10 +19,11 @@
 {%- endmacro %}
 
 
-{# the library's growth (charts.growth): a line over an area, stretched to its frame; labels, the last point and
-   the pointer's value are HTML on top (they keep their shape); the rebuilt start is dashed, a gap dotted #}
+{# a graph over time (charts.growth): a line over an area, stretched to its frame; labels, the last point and
+   the pointer's value are HTML on top (they keep their shape); a gap is dotted. Dragging across it chooses a
+   stretch to zoom into (data-start, data-stop: the stretch it shows) #}
 {% macro growth_chart(g, name, caption) -%}
-<figure class="growth" data-growth data-points="{{ g.points }}">
+<figure class="growth" data-growth data-points="{{ g.points }}" data-start="{{ g.start }}" data-stop="{{ g.stop }}">
   <div class="plot">
     {% for t in g.values %}<span class="y" style="top: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}
     <div class="canvas">
@@ -33,17 +34,52 @@
       </defs>
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
       <path class="area" d="{{ g.area }}" fill="url(#{{ name }}-fill)"></path>
-      {% if g.rebuilt %}<path class="line rebuilt" d="{{ g.rebuilt }}"></path>{% endif %}
       {% if g.gaps %}<path class="line gap" d="{{ g.gaps }}"></path>{% endif %}
       <path class="line" d="{{ g.line }}" stroke="url(#{{ name }}-line)"></path>
     </svg>
-    <span class="end" style="left: {{ g.end[0] }}%; top: {{ g.end[1] }}%" aria-hidden="true"></span>
-    <span class="cursor" aria-hidden="true" hidden></span><span class="mark" aria-hidden="true" hidden></span><span class="tip" aria-hidden="true" hidden></span>
+    {{ _pointer(g) }}
     </div>
   </div>
-  <div class="dates" aria-hidden="true">{% for t in g.dates %}<span style="left: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}</div>
-  {% if g.rebuilt %}<p class="rebuilt-note"><span class="dash" aria-hidden="true"></span>rebuilt from the activity log</p>{% endif %}
-  {% if g.gaps %}<p class="rebuilt-note"><span class="dash dots" aria-hidden="true"></span>no figures: Echolot was off</p>{% endif %}
+  {{ _dates(g) }}
+  {% if g.gaps %}<p class="graph-note"><span class="dash dots" aria-hidden="true"></span>no figures: Echolot was off</p>{% endif %}
   <figcaption class="sr-only">{{ caption }}</figcaption>
 </figure>
+{%- endmacro %}
+
+
+{# shares over time (charts.stacked): a band per quality tier in the ring's colours, the best at the bottom;
+   the axis starts where its labels say. The pointer shows every tier then #}
+{% macro stack_chart(g, name, caption) -%}
+<figure class="growth stack" data-growth data-stack data-points="{{ g.points }}" data-start="{{ g.start }}" data-stop="{{ g.stop }}">
+  <div class="plot">
+    {% for t in g.values %}<span class="y" style="top: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}
+    <div class="canvas">
+    <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <defs>
+        <pattern id="{{ name }}-stripes" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="6" height="6" class="stripe-bg"></rect><rect width="3" height="6" class="stripe"></rect>
+        </pattern>
+      </defs>
+      {% for b in g.bands %}<path class="band q-{{ b.key }}" d="{{ b.area }}"{% if b.key == 'fake' %} fill="url(#{{ name }}-stripes)"{% endif %}></path>{% endfor %}
+      {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
+      {% for b in g.bands[:-1] %}<path class="edge q-{{ b.key }}" d="{{ b.edge }}"></path>{% endfor %}
+    </svg>
+    {{ _pointer(g) }}
+    </div>
+  </div>
+  {{ _dates(g) }}
+  <figcaption class="sr-only">{{ caption }}</figcaption>
+</figure>
+{%- endmacro %}
+
+
+{% macro _pointer(g) -%}
+<span class="end" style="left: {{ g.end[0] }}%; top: {{ g.end[1] }}%" aria-hidden="true"></span>
+<span class="cursor" aria-hidden="true" hidden></span><span class="mark" aria-hidden="true" hidden></span><span class="tip" aria-hidden="true" hidden></span>
+<span class="brush" aria-hidden="true" hidden></span>
+{%- endmacro %}
+
+
+{% macro _dates(g) -%}
+<div class="dates" aria-hidden="true">{% for t in g.dates %}<span style="left: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}</div>
 {%- endmacro %}

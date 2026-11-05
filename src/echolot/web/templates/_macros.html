@@ -63,11 +63,11 @@
 
 {# why a song is not to record (recording.marks): Spotify has nothing better of it (best: who may record clicks the
    mark to offer the song for recording again), no longer plays it (gone), played another song for it lately
-   (lately); or it is in the list twice (twin). A word joiner keeps it on the line of the word before it. #}
+   (lately: a clock, it is offered again later); or it is in the list twice (twin). A word joiner keeps it on the line of the word before it. #}
 {% macro song_mark(key, m, can) -%}
 {%- if m and m.kind == 'best' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to try recording it again." aria-label="{{ m.why }}; try again"
   hx-post="/songs/{{ key|urlencode }}/spotify-again" hx-swap="outerHTML" hx-confirm="Offer this song for recording again?">{{ icon('info', 13) }}</button>
-{%- elif m %}&#8288;<span class="spotify-best" title="{{ m.why }}" aria-label="{{ m.why }}">{{ icon('info', 13) }}</span>
+{%- elif m %}&#8288;<span class="spotify-best" title="{{ m.why }}" aria-label="{{ m.why }}">{{ icon('clock' if m.kind == 'lately' else 'info', 13) }}</span>
 {%- endif %}
 {%- endmacro %}
 
