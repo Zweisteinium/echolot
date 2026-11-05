@@ -289,7 +289,7 @@ def test_a_close_match_song_gets_its_own_file(settings: Settings, login: Callabl
     version.write_bytes(b"0123456789")
     with con:
         con.execute(
-            "INSERT INTO files VALUES ('Artist C/Artist C - Gone Song (Club Mix).flac', 10, 0, 300, 900, 'lossless')"
+            "INSERT INTO files (path, size, mtime, duration, kbps, quality) VALUES ('Artist C/Artist C - Gone Song (Club Mix).flac', 10, 0, 300, 900, 'lossless')"
         )
         con.execute("""UPDATE songs SET file = 'Artist C/Artist C - Gone Song (Club Mix).flac', close_match = 1,
                        link = '["Artist C", "Gone Song (Club Mix)", 300]' WHERE key = 'spotify:s3'""")

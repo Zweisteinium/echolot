@@ -23,7 +23,10 @@ def env(tmp_path: Path):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"audio")
         with con:
-            con.execute("INSERT INTO files VALUES (?, 5, 0, ?, 900, NULL)", (rel, seconds))
+            con.execute(
+                "INSERT INTO files (path, size, mtime, duration, kbps, quality) VALUES (?, 5, 0, ?, 900, NULL)",
+                (rel, seconds),
+            )
     song = "INSERT INTO songs (key, service, artist, title, length, file) VALUES (?, ?, 'JJD', 'Adventure', ?, ?)"
     with con:
         con.execute(song, ("spotify:a", "spotify", 298, "JJD/JJD - Adventure.flac"))
@@ -43,7 +46,9 @@ def test_other_edits_by_name_any_length(env) -> None:
     ]
     assert recordings.other_edits(cat, want, 297, "JJD/JJD - Adventure (4m39s).opus") == []  # the same length
     with con:  # a collaboration filed under its other artist: found through its song
-        con.execute("INSERT INTO files VALUES ('Distrion/Distrion - Rubik.flac', 5, 0, 214, 900, NULL)")
+        con.execute(
+            "INSERT INTO files (path, size, mtime, duration, kbps, quality) VALUES ('Distrion/Distrion - Rubik.flac', 5, 0, 214, 900, NULL)"
+        )
         con.execute(
             "INSERT INTO songs (key, service, artist, title, length, artists, file) VALUES "
             "('spotify:r', 'spotify', 'Electro-Light', 'Rubik', 214, '[\"Electro-Light\", \"Distrion\"]', 'Distrion/Distrion - Rubik.flac')"

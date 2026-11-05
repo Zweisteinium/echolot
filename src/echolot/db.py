@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 40
+VERSION = 41
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -12,7 +12,8 @@ CREATE TABLE files (                -- audio files in the library
     mtime INTEGER NOT NULL,
     duration REAL NOT NULL,         -- seconds, 0 = unknown
     kbps INTEGER NOT NULL,
-    quality TEXT                    -- see catalog.QUALITY
+    quality TEXT,                   -- see catalog.QUALITY
+    pages TEXT                      -- JSON: the track pages in its source tags (jobs/lists); NULL: not read since it changed
 );
 CREATE TABLE lossy_sourced (        -- FLACs the lossy checks found to be made from lossy files (audio.judge)
     stem TEXT PRIMARY KEY,          -- files.path without extension
@@ -504,6 +505,9 @@ MIGRATIONS = {
     40: [  # the growth graph no longer starts with hours rebuilt from the events: only what was counted stays
         "DELETE FROM snapshots WHERE ts < (SELECT value FROM meta WHERE key = 'history_rebuilt')",
         "DELETE FROM meta WHERE key = 'history_rebuilt'",
+    ],
+    41: [  # the track pages in each file's source tags, kept until it changes: read again only then (jobs/lists)
+        "ALTER TABLE files ADD COLUMN pages TEXT"
     ],
 }
 
