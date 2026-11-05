@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from echolot.library import filing, history, recording
 from echolot.services import soundcloud, spotify
-from echolot.web import charts, discogs, jobs, stats
+from echolot.web import charts, discogs, stats
 from echolot.web.common import DB, back, page
 from echolot.web.format import num, size
 
@@ -35,8 +35,6 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         "quality": charts.donut(o["tiers"], size=160, width=22),
         "best": charts.donut(best := stats.best_tiers(con, uid), size=160, width=22),
     }
-    buy = len(stats.buy(con, uid))  # (songs Bandcamp sells lossless: the Buy page)
-    on_discogs = discogs.to_add(con, uid)  # (releases Discogs lacks; None: off)
     return page(
         request,
         "overview.html",
@@ -46,10 +44,8 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         best=best,
         best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
         connected=connected,
-        buy=buy,
-        on_discogs=on_discogs,
+        tabs=library_tabs(con, uid),
         **_graphs(con, uid, o, *_window(request.query_params)),
-        **jobs.status(request, con),
     )
 
 
@@ -63,6 +59,14 @@ def graphs(request: Request, con: DB) -> HTMLResponse:
         o=(o := stats.overview(con, uid)),
         **_graphs(con, uid, o, *_window(request.query_params)),
     )
+
+
+def library_tabs(con: sqlite3.Connection, uid: int | None) -> dict[str, int | None]:
+    """The counts on the Library page's tabs: the songs missing, those to buy on Bandcamp (the Buy page), the
+    releases Discogs lacks (None while Discogs is off: no tab)."""
+    mine, args = stats._mine(uid)
+    missing = con.execute(f"SELECT count(*) FROM wanted s WHERE s.file IS NULL AND {mine}", args).fetchone()[0]
+    return {"missing": missing, "buy": len(stats.buy(con, uid)), "discogs": discogs.to_add(con, uid)}
 
 
 RANGES = {"7d": ("7 d", 7), "30d": ("30 d", 30), "90d": ("3 mo", 90), "all": ("All", None)}  # the graphs' chips
@@ -165,7 +169,15 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
     lists, close = stats.lists(con, uid), stats.close_matches(con, uid)
     marks = recording.marks(con, request.state.user.id, songs)
     return page(
-        request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, marks=marks
+        request,
+        "missing.html",
+        nav="missing",
+        songs=songs,
+        close=close,
+        lists=lists,
+        selected=list_key,
+        marks=marks,
+        tabs=library_tabs(con, uid),
     )
 
 
@@ -176,7 +188,8 @@ def buy_page(request: Request, con: DB) -> HTMLResponse:
     last = con.execute("SELECT * FROM jobs WHERE name = 'bandcamp'").fetchone()
     runs, asked = request.app.state.worker.state()
     running = "bandcamp" in runs or "bandcamp" in asked
-    return page(request, "buy.html", nav="buy", songs=songs, last=last, running=running)
+    tabs = library_tabs(con, stats.scope(request.state.user))
+    return page(request, "buy.html", nav="buy", songs=songs, last=last, running=running, tabs=tabs)
 
 
 @router.post("/buy/refresh")
@@ -198,7 +211,7 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     marks = recording.marks(con, request.state.user.id, songs) if lst["service"] == "spotify" else {}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}  # (Bandcamp sells these)
     return page(
-        request, "list.html", nav="playlists", lst=lst, songs=songs, same=same, tiers=tiers, marks=marks, offers=offers
+        request, "list.html", nav="library", lst=lst, songs=songs, same=same, tiers=tiers, marks=marks, offers=offers
     )
 
 

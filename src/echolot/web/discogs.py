@@ -63,9 +63,11 @@ def _store(row: sqlite3.Row) -> dict[str, Any] | None:
 def discogs_page(
     request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "", genre: str = "", show: str = "todo"
 ) -> HTMLResponse:
-    if not _on(con):
-        return page(request, "discogs.html", nav="discogs", on=False)
+    from echolot.web.pages import library_tabs  # (pages imports this module)
+
     uid = stats.scope(request.state.user)
+    if not _on(con):
+        return page(request, "discogs.html", nav="discogs", on=False, tabs=library_tabs(con, uid))
     albums, rows = _rows(con, uid)
     _, states, need_store = SHOW.get(show, SHOW["todo"])
     lists: dict[str, list] = {}  # list key -> [title, releases, looked at]
@@ -90,6 +92,7 @@ def discogs_page(
         "discogs.html",
         nav="discogs",
         on=True,
+        tabs=library_tabs(con, uid),
         entries=entries,
         lists=sorted(lists.items(), key=lambda kv: kv[1][0].lower()),
         genres=genres,

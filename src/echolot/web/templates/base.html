@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Echolot{% endblock %}</title>
   <link rel="icon" href="{{ asset('echolot.svg') }}" type="image/svg+xml">
   <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="48x48">
@@ -16,13 +16,15 @@
   <header>
     <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
     {% if user %}
-    {% set library = nav in ('library', 'missing', 'buy', 'discogs') %}{% set history = nav in ('activity', 'changes') %}
-    <nav aria-label="Pages">
-      <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>Search</a>
-      <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>Playlists</a>
-      <a href="/library" data-label="Library" {% if library %}aria-current="page"{% endif %}>Library</a>
-      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>Review</a>{% endif %}
-      <a href="/activity" data-label="History" {% if history %}aria-current="page"{% endif %}>History</a>
+    {% from "_icons.html" import icon %}
+    {% set library = nav in ('library', 'missing', 'buy', 'discogs') %}{% set history = nav in ('activity', 'changes', 'jobs') %}
+    {# the pages; on a phone a tab bar at the bottom, each with its icon #}
+    <nav aria-label="Pages" class="pages">
+      <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>{{ icon('search', 22) }}<span>Search</span></a>
+      <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>{{ icon('playlist', 22) }}<span>Playlists</span></a>
+      <a href="/library" data-label="Library" {% if library %}aria-current="page"{% endif %}>{{ icon('songs', 22) }}<span>Library</span></a>
+      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>{{ icon('check', 22) }}<span>Review</span></a>{% endif %}
+      <a href="/activity" data-label="History" {% if history %}aria-current="page"{% endif %}>{{ icon('clock', 22) }}<span>History</span></a>
     </nav>
     {% if user.admin %}
     <form method="post" action="/account/view" class="view-switch" title="Whose lists and songs the pages show">{{ csrf_input }}
@@ -215,7 +217,7 @@
     // remember which collapsible sections are closed (per browser; the page works without it)
     for (const d of document.querySelectorAll("details[data-remember]")) {
       const key = "echolot:" + d.dataset.remember;
-      try { if (localStorage.getItem(key) === "closed") d.open = false; } catch (e) {}
+      try { const was = localStorage.getItem(key); if (was) d.open = was === "open"; } catch (e) {}
       d.addEventListener("toggle", () => {
         try { localStorage.setItem(key, d.open ? "open" : "closed"); } catch (e) {}
       });

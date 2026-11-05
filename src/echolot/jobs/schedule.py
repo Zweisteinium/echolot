@@ -164,7 +164,8 @@ STEPS = {  # each job's short name inside its task, for the schedule and the liv
 @dataclass(frozen=True)
 class Task:
     """What the jobs page shows: one task, done by one or more jobs (its steps), with its buttons
-    (label, the jobs they start, hover text). Maintenance tasks are folded away."""
+    (label, the jobs they start, hover text) and what it does in plain words (its info card, above the
+    steps' details). Maintenance tasks are folded away."""
 
     name: str
     label: str
@@ -172,6 +173,7 @@ class Task:
     jobs: tuple[str, ...]
     buttons: tuple[tuple[str, tuple[str, ...], str], ...]
     maintenance: bool = False
+    about: str = ""
 
 
 TASKS = [
@@ -181,6 +183,7 @@ TASKS = [
         "Checks your lists; new songs come from Soulseek, YouTube or SoundCloud.",
         ("sync", "youtube", "search_new", "soundcloud"),
         (("Check now", ("sync", "youtube", "soundcloud"), "Check the Spotify, YouTube and SoundCloud lists now"),),
+        about="Every few minutes Echolot asks Spotify and SoundCloud whether your lists changed, and reads your YouTube playlists less often (YouTube reports no changes). A new song is linked when the library has it already; otherwise it is downloaded, from Soulseek as FLAC where it can, else from YouTube or SoundCloud. A download that might not be the song waits in Review.",
     ),
     Task(
         "missing",
@@ -188,6 +191,7 @@ TASKS = [
         "Searches songs found nowhere again: Soulseek, YouTube and SoundCloud.",
         ("sweep", "fallback"),
         (("Search all now", ("sweep", "fallback"), "Search every missing song now, whatever its wait"),),
+        about="The songs no source had are searched again: Soulseek at its busiest hours (evenings and weekends, as set), YouTube and SoundCloud every few hours. Each song daily at first, weekly after a week without a find, with looser search terms the longer it is missing.",
     ),
     Task(
         "upgrade",
@@ -198,6 +202,7 @@ TASKS = [
             ("Run now", ("upgrade",), "The next batch, the longest waiting first, whatever their wait"),
             ("All songs", ("upgrade_all",), "Every lossy song at once; gives way to new songs and goes on after"),
         ),
+        about="For every song you have only lossy (an MP3, a stream, a FLAC made from one), Echolot looks for a genuine FLAC on Soulseek a few times a day: soon after it came, then less often. A FLAC found replaces your copy under the same name. All songs searches every lossy song at once.",
     ),
     Task(
         "library",
@@ -206,6 +211,7 @@ TASKS = [
         ("library",),
         (("Run now", ("library",), "Rescan the library now"),),
         maintenance=True,
+        about="Keeps Echolot and the music folder in step: notices files that were added, changed or removed, applies your review decisions, and writes a playlist for every list.",
     ),
     Task(
         "availability",
@@ -214,6 +220,7 @@ TASKS = [
         ("availability",),
         (("Run now", ("availability",), "Check every song now"),),
         maintenance=True,
+        about="Once a day every song of every list is checked at its source: whether it still plays, was taken down or is gone. What changed shows on the Changes page.",
     ),
     Task(
         "lossy",
@@ -222,6 +229,7 @@ TASKS = [
         ("lossy",),
         (("Run now", ("lossy",), "Check the FLACs not checked yet now"),),
         maintenance=True,
+        about="Listens to every FLAC already in the library for signs of a lossy source, the same two checks every download gets. A FLAC made from an MP3 then counts as lossy and gets a FLAC upgrade.",
     ),
     Task(
         "covers",
@@ -230,6 +238,7 @@ TASKS = [
         ("covers",),
         (("Run now", ("covers",), "Replace the uploaders' covers with your songs' covers"),),
         maintenance=True,
+        about="Gives every file the cover of its song on Spotify or SoundCloud, in place of the picture the uploader embedded. The old pictures are kept.",
     ),
 ]
 TASK_OF = {job: t for t in TASKS for job in t.jobs}

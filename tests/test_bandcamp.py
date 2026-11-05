@@ -171,7 +171,7 @@ def test_the_buy_page_and_the_badge(settings, login: Callable[..., TestClient]) 
     buy = client.get("/buy").text
     assert "Trance Tune" in buy and "Bandcamp 1.50 €" in buy and 'action="/buy/refresh"' in buy
     assert 'href="https://artist.bandcamp.com/track/trance-tune"' in client.get("/lists/soundcloud:someone/likes").text
-    assert "Buy on Bandcamp · 1" in client.get("/library").text
+    assert '<a href="/buy">Buy <span class="tab-count">1</span></a>' in client.get("/library").text  # its tab
     viewer = login(create_app(settings), "guest", admin=False)
     assert 'action="/buy/refresh"' not in viewer.get("/buy").text
     assert viewer.post("/buy/refresh", follow_redirects=False).status_code == 403

@@ -198,7 +198,7 @@ def test_the_page_and_the_suggestion(library: Settings, login: Callable[..., Tes
     assert "Second" in client.get("/discogs?show=all").text
     assert "First EP" not in client.get("/discogs?genre=Techno").text
     assert "First EP" not in client.get("/discogs?list=spotify:playlist:BBB222").text
-    assert "Discogs · 1" in client.get("/library").text
+    assert '<a href="/discogs">Discogs <span class="tab-count">1</span></a>' in client.get("/library").text  # its tab
     dialog = client.get("/discogs/release", params={"album": "artist a|first ep"}).text
     notes = "Release details from the Beatport release page: https://www.beatport.com/release/first-ep/77"
     shown = ["Trance Label", "TL001", "123456789012", "First Song (Extended Mix)", "6:31", "Remix – Guest", notes]

@@ -246,6 +246,10 @@ def stacked(points: list[tuple[str, dict[str, float]]], tiers: list[tuple[str, s
             area += "M" + "L".join(upper + lower) + "Z"
         bands.append(Band(key, label, area, edge))
     first, last, ago = shares[0][0], shares[-1][0], t.week_ago()
+
+    def down(share: float) -> float:  # (as the ring's share: rounded down, 100.0 only when all are)
+        return math.floor(share * 10 + 1e-9) / 10
+
     rows = [
         [
             round(100 * t.x(i) / W, 2),
@@ -263,7 +267,7 @@ def stacked(points: list[tuple[str, dict[str, float]]], tiers: list[tuple[str, s
             values=[Tick(100 - 100 * (v - floor) / (100 - floor), f"{v} %") for v in range(floor, 101, step)],
             end=(100 * t.x(t.keep[-1]) / W, 100 * y(last) / H),
             points=json.dumps(rows),
-            now=f"{last:.1f} %",
+            now=f"{down(last):.1f} %",
             total=_signed(last - first, _points),
             week=_signed(last - shares[ago][0], _points) if ago is not None else "",
         ),

@@ -1,17 +1,18 @@
-{# the Library page's connection line; a pill leads to where it is set up (Playlists; Soulseek: Settings, for admins) #}
+{# the Library page's connection line: a status chip per service (its dot the state, a problem in words), leading to
+   where it is set up (Playlists; Soulseek: Settings, for admins) #}
 {% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
 {% set to = '{{ to|safe }}' if user.admin else '' %}
 <nav class="connections" aria-label="Connections">
-  {% if sp.connected and not sp.error %}<a class="pill ok-pill" href="/playlists#spotify">Spotify: {{ sp.name }}</a>
-  {% elif sp.error %}<a class="pill bad-pill" href="/playlists#spotify" title="{{ sp.error }}">Spotify: error</a>
-  {% else %}<a class="pill warn-pill" href="/playlists#spotify">Spotify: not connected</a>{% endif %}
-  {% if sc.connected %}<a class="pill ok-pill" href="/playlists#soundcloud">SoundCloud: {{ sc.name }}</a>
-  {% elif sc.error %}<a class="pill bad-pill" href="/playlists#soundcloud" title="{{ sc.error }}">SoundCloud: token {{ 'expired' if sc.expired else 'invalid' }}</a>
-  {% else %}<a class="pill warn-pill" href="/playlists#soundcloud">SoundCloud: not connected</a>{% endif %}
-  {% if sl.ready %}<a class="pill ok-pill"{{ to|safe }}>Soulseek: logged in</a>
-  {% elif not sl.reachable %}<a class="pill bad-pill"{{ to|safe }} title="{{ sl.error }}">Soulseek: daemon not reachable</a>
-  {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="pill bad-pill"{{ to|safe }} title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">Soulseek: disconnected</a>
-  {% elif sl.user %}<a class="pill"{{ to|safe }}>Soulseek: logs in with the next search</a>
-  {% else %}<a class="pill warn-pill"{{ to|safe }}>Soulseek: no account</a>{% endif %}
-  {% if free is not none %}<span class="pill{{ ' bad-pill' if free < low_disk }}">{{ free|size }} free</span>{% endif %}
+  {% if sp.connected and not sp.error %}<a class="status ok" href="/playlists#spotify">Spotify: {{ sp.name }}</a>
+  {% elif sp.error %}<a class="status bad" href="/playlists#spotify" title="{{ sp.error }}">Spotify: error</a>
+  {% else %}<a class="status warn" href="/playlists#spotify">Spotify: not connected</a>{% endif %}
+  {% if sc.connected %}<a class="status ok" href="/playlists#soundcloud">SoundCloud: {{ sc.name }}</a>
+  {% elif sc.error %}<a class="status bad" href="/playlists#soundcloud" title="{{ sc.error }}">SoundCloud: token {{ 'expired' if sc.expired else 'invalid' }}</a>
+  {% else %}<a class="status warn" href="/playlists#soundcloud">SoundCloud: not connected</a>{% endif %}
+  {% if sl.ready %}<a class="status ok"{{ to|safe }}>Soulseek: logged in</a>
+  {% elif not sl.reachable %}<a class="status bad"{{ to|safe }} title="{{ sl.error }}">Soulseek: daemon not reachable</a>
+  {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="status bad"{{ to|safe }} title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">Soulseek: disconnected</a>
+  {% elif sl.user %}<a class="status"{{ to|safe }}>Soulseek: logs in with the next search</a>
+  {% else %}<a class="status warn"{{ to|safe }}>Soulseek: no account</a>{% endif %}
+  {% if free is not none %}<span class="status{{ ' bad' if free < low_disk else ' ok' }}">{{ free|size }} free</span>{% endif %}
 </nav>

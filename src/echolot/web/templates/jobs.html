@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Jobs · Echolot{% endblock %}
+{% block content %}
+{% from "_subnav.html" import history %}{{ history('jobs') }}
+<section class="card">
+  {% include "_jobs.html" %}
+</section>
+{% endblock %}

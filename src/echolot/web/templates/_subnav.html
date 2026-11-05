@@ -1,7 +1,15 @@
-{# the pages of one menu entry, above the page (History: Activity, Changes) #}
+{# the pages of one menu entry, above the page (Library: Overview, Missing, Buy, Discogs; History: Activity,
+   Changes, Jobs); a tab may carry a count #}
 {% macro subnav(label, items, current) -%}
-<nav class="subnav" aria-label="{{ label }}">{% for key, href, name in items %}<a href="{{ href }}"{% if key == current %} aria-current="page"{% endif %}>{{ name }}</a>{% endfor %}</nav>
+<nav class="subnav" aria-label="{{ label }}">{% for item in items %}{% set count = item[3] if item|length > 3 else none %}<a href="{{ item[1] }}"{% if item[0] == current %} aria-current="page"{% endif %}>{{ item[2] }}{% if count %} <span class="tab-count">{{ count|num }}</span>{% endif %}</a>{% endfor %}</nav>
 {%- endmacro %}
 {% macro history(current) -%}
-{{ subnav('History', [('activity', '/activity', 'Activity'), ('changes', '/changes', 'Changes')], current) }}
+{{ subnav('History', [('activity', '/activity', 'Activity'), ('changes', '/changes', 'Changes'), ('jobs', '/jobs', 'Jobs')], current) }}
+{%- endmacro %}
+{# tabs: pages.library_tabs (Buy only with something to buy or on it, Discogs only while on) #}
+{% macro library(current, tabs) -%}
+{% set items = [('overview', '/library', 'Overview'), ('missing', '/missing', 'Missing', tabs.missing)] %}
+{% if tabs.buy or current == 'buy' %}{% set items = items + [('buy', '/buy', 'Buy', tabs.buy)] %}{% endif %}
+{% if tabs.discogs is not none %}{% set items = items + [('discogs', '/discogs', 'Discogs', tabs.discogs)] %}{% endif %}
+{{ subnav('Library', items, current) }}
 {%- endmacro %}
