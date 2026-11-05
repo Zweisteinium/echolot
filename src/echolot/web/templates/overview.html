@@ -33,7 +33,7 @@
           {% for k, label, n in o.tiers %}
           <tr class="q-{{ k }}{{ ' dim' if not n }}">
             <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
-            <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
+            <td>{{ label }}</td>
             <td class="num">{{ n|num }}</td>
             <td class="num muted">{{ share(n, rings.quality.total) }}</td>
           </tr>
@@ -49,7 +49,7 @@
           {% for k, label, n in best %}
           <tr class="q-{{ k }}{{ ' dim' if not n }}" title="{{ best_hints[k]|capitalize }}">
             <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
-            <td>{% if k == 'missing' and n %}<a class="bad-text" href="/missing">{{ label }}</a>{% else %}{{ label }}{% endif %}</td>
+            <td>{{ label }}</td>
             <td class="num">{{ n|num }}</td>
             <td class="num muted">{{ share(n, obtainable) if k != 'gone' else '' }}</td>
           </tr>
@@ -149,10 +149,10 @@
           const rows = near[3].filter((r) => r[2] > 0).map(([key, label, n, share]) => {
             const row = document.createElement("span");
             row.className = `tip-row q-${key}`;
-            const sw = document.createElement("i"), name = document.createElement("span"), value = document.createElement("b");
+            const sw = document.createElement("i"), name = document.createElement("span"), count = document.createElement("span"), value = document.createElement("b");
             sw.className = "swatch"; name.textContent = label; value.textContent = `${share.toFixed(1)} %`;
-            value.title = `${n.toLocaleString()} songs`;
-            row.append(sw, name, value);
+            count.className = "tip-count"; count.textContent = n.toLocaleString("en-US");
+            row.append(sw, name, count, value);
             return row;
           });
           const when = document.createElement("span");
@@ -210,7 +210,6 @@
     <div class="actions">
       {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
       {% if user.can('upload') and o.lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
-      <a class="button" href="/playlists" title="Follow lists, connect Spotify and SoundCloud">{{ icon('playlist', 14) }} Manage lists</a>
     </div>
   </div>
   {% set groups = o.lists|groupby('service') %}

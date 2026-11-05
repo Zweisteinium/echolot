@@ -171,22 +171,23 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
 .page-top .subnav { margin: 0; }
 .page-top > *, .status-row > * { min-width: 0; max-width: 100%; }
 .status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-/* a service's or the jobs' state: a dot and a name, a problem in words */
+/* a service's or the jobs' state: an icon and the account, a problem in words and coloured */
 .status { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.12rem 0.6rem; border-radius: 999px;
   font-size: 0.78rem; font-weight: 550; white-space: nowrap; color: var(--muted); background: var(--surface);
   border: 1px solid var(--border); }
 a.status:hover { text-decoration: none; border-color: var(--muted); color: var(--text); }
-.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: 0.6; }
-.status.ok::before { background: var(--ok); opacity: 1; }
-.status.warn { color: var(--warn); } .status.warn::before { background: var(--warn); opacity: 1; }
+.status > span { overflow: hidden; text-overflow: ellipsis; }
+.status .icon { flex: none; opacity: 0.75; }
+.status.ok .icon { color: var(--ok); opacity: 1; }
+.status.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--border)); }
 .status.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
-.status.bad::before { background: var(--bad); opacity: 1; }
-.job-pill { display: inline-flex; align-items: center; gap: 0.1rem; max-width: 30rem; padding: 0.12rem 0.65rem; font-size: 0.78rem;
+.status.disk { font-variant-numeric: tabular-nums; }
+.job-pill { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; white-space: nowrap; padding: 0.12rem 0.65rem; font-size: 0.78rem;
   font-weight: 500; color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
 .job-pill:hover { text-decoration: none; border-color: var(--muted); color: var(--text); }
 .job-pill b { color: var(--text); font-weight: 600; }
-.job-pill .dot { margin-right: 0.4rem; }
-.job-pill-text { margin-left: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.job-pill b { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.job-pill-count { font-variant-numeric: tabular-nums; color: var(--text); }
 .job-pill.on { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); }
 header .view-switch { display: inline-flex; gap: 2px; padding: 2px; background: var(--track); border-radius: var(--radius-sm); margin: 0; }
 header .view-switch button { border: 0; border-radius: 6px; padding: 0.15rem 0.6rem; font-size: 0.8rem; background: none; color: var(--muted); }
@@ -242,32 +243,61 @@ a.pill { text-decoration: none; }
 @keyframes dot-ping { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3); opacity: 0; } }
 .dot.wait { background: var(--warn); opacity: 1; }
 .dot.err { background: var(--bad); opacity: 1; }
-/* jobs (History · Jobs): a card per task, all alike: name and state, one line of what it does or did, when it
-   runs, its buttons; what it is for behind ⓘ, its log behind Log */
-.job-grid { display: grid; align-items: start; grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr)); gap: 0.85rem; margin-top: 0.5rem; }
-.job-grid[hidden] { display: none; }
-.job { display: flex; flex-direction: column; gap: 0.55rem; min-width: 0; padding: 0.9rem 1rem; border: 1px solid var(--border);
-  border-radius: var(--radius); background: var(--surface); }
-.job.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 8%, transparent); }
+/* jobs (History · Jobs): a card per task, all alike: on the left its name, state, next start and buttons, on
+   the right a tile per step (job) with its counts, schedule and last run; what it is for behind ⓘ, its log
+   behind Log. The tiles keep their width (auto-fill), so they line up from card to card */
+.job-list { display: grid; gap: 0.7rem; margin-top: 0.5rem; }
+.job-list[hidden] { display: none; }
+.job { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: 0.75rem 1.25rem; min-width: 0; padding: 0.9rem 1rem;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.job.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
 .job.bad { border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
-.job-top { display: flex; align-items: center; gap: 0.5rem; }
+.job-side { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.job-top { display: flex; align-items: center; gap: 0.4rem; }
 .job-top h3 { margin: 0; font-size: 0.98rem; font-weight: 650; }
-.job-top .info-toggle { margin-left: auto; }
+.job-status { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; }
+.job-next { color: var(--muted); font-size: 0.78rem; }
 .job-state { display: inline-flex; align-items: center; padding: 0 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 650;
   color: var(--muted); background: var(--track); }
 .job-state .dot { width: 6px; height: 6px; margin-right: 0.35rem; }
 .job-state.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .job-state.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .job-state.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.job-line { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; font-size: 0.88rem; }
-.job-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.job-when { flex: none; color: var(--muted); font-size: 0.8rem; }
-.job-meta { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
-.job-meta .icon { margin-top: 0.12rem; }
-.job-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; padding-top: 0.15rem; }
+.job-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; padding-top: 0.2rem; }
 .job-actions form { margin: 0; }
-.job-log-toggle { margin-left: auto; font-size: 0.82rem; }
+.job-actions button { padding: 0.25rem 0.7rem; font-size: 0.84rem; }
+.job-actions button .icon { vertical-align: -2px; }
+.job-log-toggle { font-size: 0.82rem; }
+.job-actions .link-button { padding: 0.25rem 0.2rem; }
+.job-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); gap: 0.5rem; align-content: start; }
+.step { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; padding: 0.55rem 0.7rem 0.5rem;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--track) 55%, var(--surface)); }
+.step.live { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: color-mix(in srgb, var(--ok) 5%, var(--surface)); }
+.job-tiles > .step:only-child { grid-column: span 2; }  /* a task of one step: room for its longer line */
+.step.bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
+.step-name { display: flex; align-items: center; gap: 0.35rem; min-width: 0; color: var(--muted); font-size: 0.76rem; font-weight: 650; }
+.step-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-facts { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; font-size: 0.83rem; line-height: 1.45; }
+.fact { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.fact b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.fact i { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.job-facts > .fact:first-child { font-size: 0.95rem; }  /* the tile's headline: its first count */
+.fact.zero { opacity: 0.6; }
+.fact.zero b { color: var(--muted); }
+.fact-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.82rem; }
+.outcomes { display: flex; flex-wrap: wrap; gap: 0.1rem 0.75rem; margin-top: 0.1rem; }
+.outcome { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--muted); }
+.outcome b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.outcome.ok .icon { color: var(--ok); }
+.outcome.warn .icon { color: var(--warn); }
+.outcome.bad .icon { color: var(--bad); }
+.step .task-bar { margin: 0.1rem 0; }
+.step-foot { display: flex; justify-content: space-between; gap: 0.1rem 0.6rem; margin-top: auto; padding-top: 0.3rem;
+  border-top: 1px solid var(--border); color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
+.step-foot .icon { vertical-align: -2px; }
+.step-rule { min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }  /* one line, whole on hover */
+.step-foot > span:last-child:not(.step-rule) { flex: none; }
+.job-about, .job > .task-log { grid-column: 1 / -1; }
 .job-about { padding: 0.7rem 0.85rem; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 6%, var(--track));
   font-size: 0.85rem; line-height: 1.5; }
 .job-about[hidden] { display: none; }
@@ -276,48 +306,22 @@ a.pill { text-decoration: none; }
 .job-steps dt { color: var(--text); font-weight: 600; margin-top: 0.5rem; }
 .job-steps dt:first-child { margin-top: 0; }
 .job-steps dd { margin: 0.1rem 0 0; color: var(--muted); font-size: 0.8rem; }
-.job-grid.maintenance .job { background: color-mix(in srgb, var(--track) 35%, var(--surface)); }
-/* jobs: one row per task; the state in one line, its log folded away */
-.tasks { display: grid; }
-.task { display: grid; gap: 0.35rem; padding: 0.85rem 0; border-top: 1px solid var(--border); min-width: 0; }
-.tasks .task:first-child { border-top: none; }
-.task-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem 1rem; flex-wrap: wrap; }
-.task-title { min-width: 0; flex: 1 1 18rem; }
-.task-title h3 { margin: 0; font-size: 1rem; }
-.task-title p { margin: 0.1rem 0 0; }
-.task-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-/* a task's facts, the same rows for every task: Now (while it runs), Last, Schedule, Next */
-.task-facts { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 0.25rem 0.75rem; margin: 0.15rem 0 0; }
-.task-facts dt { color: var(--muted); font-weight: 600; }
-.task-facts dd { margin: 0; min-width: 0; display: grid; gap: 0.3rem; }
-.task-now { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-.task-now .dot { flex: none; }
-.task-step { flex: none; font-weight: 600; }
-.task-line { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-when { flex: none; color: var(--muted); }
-.task-when::before { content: "·"; margin-right: 0.5rem; }
-.task-bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; max-width: 40rem; }
+.task-bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
 .task-bar > span { display: block; height: 100%; background: var(--brand); transition: width 0.4s; }
-.task-facts .link-button { justify-self: start; }
-.task-info { margin: 0.2rem 0 0; padding: 0.6rem 0.8rem; border-radius: var(--radius); background: var(--track); }
-.task-info dt { font-weight: 600; margin-top: 0.4rem; }
-.task-info dt:first-child { margin-top: 0; }
-.task-info dd { margin: 0.1rem 0 0; line-height: 1.45; }
-@media (max-width: 720px) { .task-info { grid-template-columns: minmax(0, 1fr); } }  /* narrow: each step above its text */
 .task-log { list-style: none; margin: 0.2rem 0 0; padding: 0.5rem 0.7rem; max-height: 16rem; overflow-y: auto;
   border: 1px solid var(--border); border-radius: var(--radius); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem; line-height: 1.5; }
 .task-log li { display: grid; grid-template-columns: auto 1fr; gap: 0.7rem; }
 .task-log time { color: var(--muted); }
 .task-log span { overflow-wrap: anywhere; min-width: 0; }
-.task-info[hidden], .task-log[hidden], .tasks[hidden] { display: none; }
+.task-log[hidden] { display: none; }
 .link-button { border: none; background: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 .link-button:hover { text-decoration: underline; }
-.maintenance-toggle { margin-top: 0.6rem; font-size: 0.85rem; }
+.job-group { margin: 1.6rem 0 0; font-size: 1rem; font-weight: 650; }
+.job-group-lead { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.85rem; }
 .schedule .schedule-task th { padding-top: 1rem; font-size: 0.85rem; color: var(--text); font-weight: 650; }
 .info-toggle { border: none; background: none; padding: 0 0.15rem; color: var(--muted); cursor: pointer; vertical-align: -0.15em; }
 .info-toggle:hover, .info-toggle[aria-expanded="true"] { color: var(--text); }
-.job-info { margin: 0.35rem 0 0.15rem; line-height: 1.45; color: var(--text); }
 
 .flash { border-radius: var(--radius-sm); padding: 0.6rem 1rem; border: 1px solid; }
 .flash.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent);
@@ -584,7 +588,8 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 }
 .growth .tip-when { display: block; margin-bottom: 0.25rem; }
 .growth .tip-row { display: flex; align-items: center; gap: 0.45rem; color: var(--text); line-height: 1.5; }
-.growth .tip-row b { display: inline; margin-left: auto; padding-left: 1rem; font-size: 0.8rem; }
+.growth .tip-row .tip-count { margin-left: auto; padding-left: 1rem; color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.growth .tip-row b { display: inline; min-width: 3.4rem; text-align: right; font-size: 0.8rem; }
 .growth .dates span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .growth .dates span:first-child { transform: none; }
 .growth .dates span:last-child { transform: translateX(-100%); }
@@ -1205,6 +1210,12 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   .subnav a { white-space: nowrap; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
   .subnav .tab-count { margin-left: 0.2rem; padding: 0 0.3rem; font-size: 0.7rem; }
   .status-row { gap: 0.3rem; }
+  .job { grid-template-columns: minmax(0, 1fr); padding: 0.8rem; }
+  .job-tiles { grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); }
+  .job-tiles > .step:only-child { grid-column: 1 / -1; }
+  .step-foot { flex-wrap: wrap; }
+  .step-rule { flex-basis: 100%; }
+  .job-side { gap: 0.4rem; }
   details.group > summary > .muted { white-space: normal; }
   .card-head { gap: 0.6rem; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
