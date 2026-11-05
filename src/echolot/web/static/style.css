@@ -245,7 +245,7 @@ a.pill { text-decoration: none; }
 .dot.err { background: var(--bad); opacity: 1; }
 /* jobs (History · Jobs): a card per task, all alike: on the left its name, state, next start and buttons, on
    the right a tile per step (job) with its counts, schedule and last run; what it is for behind ⓘ, its log
-   behind Log. The tiles keep their width (auto-fill), so they line up from card to card */
+   behind Log. The tiles share the card's width evenly (auto-fit), and wrap when it gets narrow */
 .job-list { display: grid; gap: 0.7rem; margin-top: 0.5rem; }
 .job-list[hidden] { display: none; }
 .job { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: 0.75rem 1.25rem; min-width: 0; padding: 0.9rem 1rem;
@@ -269,11 +269,13 @@ a.pill { text-decoration: none; }
 .job-actions button .icon { vertical-align: -2px; }
 .job-log-toggle { font-size: 0.82rem; }
 .job-actions .link-button { padding: 0.25rem 0.2rem; }
-.job-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); gap: 0.5rem; align-content: start; }
+.job-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: 0.5rem; align-content: stretch; }
 .step { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; padding: 0.55rem 0.7rem 0.5rem;
   border: 1px solid transparent; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--track) 55%, var(--surface)); }
 .step.live { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: color-mix(in srgb, var(--ok) 5%, var(--surface)); }
-.job-tiles > .step:only-child { grid-column: span 2; }  /* a task of one step: room for its longer line */
+/* a task of one step: its tile the whole width, its counts side by side */
+.job-tiles > .step:only-child .job-facts { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 1.6rem; }
+.job-tiles > .step:only-child .job-facts > .fact:first-child { font-size: inherit; }
 .step.bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
 .step-name { display: flex; align-items: center; gap: 0.35rem; min-width: 0; color: var(--muted); font-size: 0.76rem; font-weight: 650; }
 .step-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1211,10 +1213,10 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   .subnav .tab-count { margin-left: 0.2rem; padding: 0 0.3rem; font-size: 0.7rem; }
   .status-row { gap: 0.3rem; }
   .job { grid-template-columns: minmax(0, 1fr); padding: 0.8rem; }
-  .job-tiles { grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); }
-  .job-tiles > .step:only-child { grid-column: 1 / -1; }
+  .job-tiles { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
   .step-foot { flex-wrap: wrap; }
   .step-rule { flex-basis: 100%; }
+  .job-tiles > .step:only-child .step-rule { flex-basis: 0; }  /* the whole width: one line still */
   .job-side { gap: 0.4rem; }
   details.group > summary > .muted { white-space: normal; }
   .card-head { gap: 0.6rem; }
