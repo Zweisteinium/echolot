@@ -352,8 +352,8 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
     nav = client.get("/missing").text
     assert all(f'data-label="{n}"' in nav for n in ("Search", "Playlists", "Library", "Review", "History"))
     assert (
-        'href="/library" data-label="Library" aria-current="page"' in nav and 'aria-label="Library"' in nav
-    )  # its tabs
+        'href="/library" data-label="Library" aria-current="page"' in nav and '<a class="crumb" href="/library">' in nav
+    )  # under Library, back to it
     assert ">Server settings</a>" in nav and "Inbox" not in nav and "Stats" not in nav
     account = client.get("/account").text
     assert 'id="recorders"' in account and 'id="tokens"' in account and 'aria-label="Your account"' not in account

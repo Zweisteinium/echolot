@@ -165,7 +165,7 @@ STEPS = {  # each job's short name inside its task, for the schedule and the liv
 class Task:
     """What the jobs page shows: one task, done by one or more jobs (its steps), with its buttons
     (label, the jobs they start, hover text) and what it does in plain words (its info card, above the
-    steps' details). Maintenance tasks are folded away."""
+    steps' details). Maintenance tasks are listed below their heading."""
 
     name: str
     label: str

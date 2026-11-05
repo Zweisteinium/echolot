@@ -1,18 +1,21 @@
-{# the Library page's connection line: a status chip per service (its dot the state, a problem in words), leading to
-   where it is set up (Playlists; Soulseek: Settings, for admins) #}
+{# the Library page's connection line: a chip per service, its icon and the account; a problem in words and
+   coloured, leading to where it is set up (Playlists; Soulseek: Settings, for admins). A chip in order links
+   nowhere (the nav has Playlists) #}
+{% from "_icons.html" import icon %}
 {% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
-{% set to = '{{ to|safe }}' if user.admin else '' %}
+{% set to = ' href="/settings#soulseek-client"' if user.admin else '' %}
 <nav class="connections" aria-label="Connections">
-  {% if sp.connected and not sp.error %}<a class="status ok" href="/playlists#spotify">Spotify: {{ sp.name }}</a>
-  {% elif sp.error %}<a class="status bad" href="/playlists#spotify" title="{{ sp.error }}">Spotify: error</a>
-  {% else %}<a class="status warn" href="/playlists#spotify">Spotify: not connected</a>{% endif %}
-  {% if sc.connected %}<a class="status ok" href="/playlists#soundcloud">SoundCloud: {{ sc.name }}</a>
-  {% elif sc.error %}<a class="status bad" href="/playlists#soundcloud" title="{{ sc.error }}">SoundCloud: token {{ 'expired' if sc.expired else 'invalid' }}</a>
-  {% else %}<a class="status warn" href="/playlists#soundcloud">SoundCloud: not connected</a>{% endif %}
-  {% if sl.ready %}<a class="status ok"{{ to|safe }}>Soulseek: logged in</a>
-  {% elif not sl.reachable %}<a class="status bad"{{ to|safe }} title="{{ sl.error }}">Soulseek: daemon not reachable</a>
-  {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="status bad"{{ to|safe }} title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">Soulseek: disconnected</a>
-  {% elif sl.user %}<a class="status"{{ to|safe }}>Soulseek: logs in with the next search</a>
-  {% else %}<a class="status warn"{{ to|safe }}>Soulseek: no account</a>{% endif %}
-  {% if free is not none %}<span class="status{{ ' bad' if free < low_disk else ' ok' }}">{{ free|size }} free</span>{% endif %}
+  {% if sp.connected and not sp.error %}<span class="status ok" title="Spotify: {{ sp.name }}">{{ icon('spotify', 13) }}<span>{{ sp.name }}</span></span>
+  {% elif sp.error %}<a class="status bad" href="/playlists#spotify" title="{{ sp.error }}">{{ icon('spotify', 13) }}<span>error</span></a>
+  {% else %}<a class="status warn" href="/playlists#spotify" title="Spotify: not connected">{{ icon('spotify', 13) }}<span>not connected</span></a>{% endif %}
+  {% if sc.connected %}<span class="status ok" title="SoundCloud: {{ sc.name }}">{{ icon('soundcloud', 13) }}<span>{{ sc.name }}</span></span>
+  {% elif sc.error %}<a class="status bad" href="/playlists#soundcloud" title="{{ sc.error }}">{{ icon('soundcloud', 13) }}<span>token {{ 'expired' if sc.expired else 'invalid' }}</span></a>
+  {% else %}<a class="status warn" href="/playlists#soundcloud" title="SoundCloud: not connected">{{ icon('soundcloud', 13) }}<span>not connected</span></a>{% endif %}
+  {% set who = sl.user if user.admin and sl.user else '' %}{# the server's account: its name to admins #}
+  {% if sl.ready %}<span class="status ok" title="Soulseek: logged in{{ ' as ' ~ who if who }}">{{ icon('soulseek', 13) }}<span>{{ who or 'logged in' }}</span></span>
+  {% elif not sl.reachable %}<a class="status bad"{{ to|safe }} title="{{ sl.error }}">{{ icon('soulseek', 13) }}<span>daemon not reachable</span></a>
+  {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="status bad"{{ to|safe }} title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">{{ icon('soulseek', 13) }}<span>disconnected</span></a>
+  {% elif sl.user %}<span class="status" title="Soulseek logs in with the next search">{{ icon('soulseek', 13) }}<span>{{ who or 'logs in when needed' }}</span></span>
+  {% else %}<a class="status warn"{{ to|safe }} title="Soulseek: no account">{{ icon('soulseek', 13) }}<span>no account</span></a>{% endif %}
+  {% if free is not none %}<span class="status disk{{ ' bad' if free < low_disk }}" title="Free in the library's folder">{{ free|size }} free</span>{% endif %}
 </nav>

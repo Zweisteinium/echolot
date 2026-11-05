@@ -1,5 +1,7 @@
 """How numbers, sizes, times and schedules read on the pages (the templates' filters)."""
 
+import re
+from dataclasses import dataclass
 from datetime import datetime
 
 
@@ -97,3 +99,52 @@ def price(amount: float | None, currency: str = "", free: bool = False) -> str:
 FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes, "source": source}
 FILTERS["span"] = span
 FILTERS["price"] = price
+
+
+OUTCOMES = {  # a song's outcome in a job's line (jobs/acquire): its icon and tone; the word is the hover text
+    "new": ("add", "ok"),
+    "upgrade": ("arrow-up", "ok"),
+    "linked": ("link", "ok"),
+    "not found": ("search-off", ""),
+    "interrupted": ("pause", "warn"),
+    "failed": ("close", "bad"),
+    "bad file": ("block", "bad"),
+}
+_COUNT = re.compile(r"(\d+)(?: of (\d+))?(?: ([a-z][a-z0-9 '’()-]*))?")  # "43 lists", "163 of 200 songs"
+
+
+@dataclass(frozen=True)
+class Fact:
+    """A piece of a job's line: a count (n, of a total, with its label; an outcome with its icon), or text."""
+
+    n: int | None = None
+    of: int | None = None
+    label: str = ""
+    icon: str = ""
+    tone: str = ""
+
+
+def _fact(part: str) -> Fact | None:
+    if not (m := _COUNT.fullmatch(part)) or not (m[2] or m[3]):
+        return None
+    icon, tone = OUTCOMES.get(m[3] or "", ("", ""))
+    return Fact(int(m[1]), int(m[2]) if m[2] else None, m[3] or "", icon, tone)
+
+
+def facts(line: str | None, step: str = "") -> list[Fact]:
+    """A job's line in pieces: "163 of 200 songs: 4 interrupted, 158 not found" is a count of a total and two
+    outcomes. Clauses part at "; ", a head from its rest at ": "; a part is counts if each of its ", " pieces
+    is one (a count and a lowercase label: song names stay text), else it is text. A head that is the job's
+    step name (its tile says it) is left out."""
+    out = []
+    for clause in (line or "").split("; "):
+        head, colon, rest = clause.partition(": ")
+        for part in (head, rest) if colon else (head,):
+            pieces = [_fact(p) for p in part.split(", ")]
+            out += [f for f in pieces if f] if all(pieces) else [Fact(label=part)]
+    if out and step and out[0] == Fact(label=step):
+        out = out[1:]
+    return [f for f in out if f.n is not None or f.label]
+
+
+FILTERS["facts"] = facts

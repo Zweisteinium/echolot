@@ -362,8 +362,8 @@ def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
 def test_connection_line(client: TestClient) -> None:
     assert 'hx-get="/accounts/line"' in client.get("/stats").text
     html = client.get("/accounts/line").text
-    assert "Spotify: not connected" in html and "SoundCloud: not connected" in html
-    assert "Soulseek: daemon not reachable" in html and " free</span>" in html
+    assert 'title="Spotify: not connected"' in html and 'title="SoundCloud: not connected"' in html
+    assert "<span>daemon not reachable</span>" in html and " free</span>" in html
 
 
 def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,7 +376,7 @@ def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, mon
     con.close()
     state = {"ready": False, "state": "Disconnected", "flags": ["Disconnected"], "version": "", "started": ""}
     monkeypatch.setattr(soulseek.Daemon, "status", lambda self: state)
-    assert "Soulseek: disconnected" in client.get("/accounts/line").text
+    assert "<span>disconnected</span>" in client.get("/accounts/line").text
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
@@ -525,33 +525,38 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
 
 
 def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: Settings) -> None:
-    """One row per task; a running job shows its line (cut, the whole on hover), its progress bar, Stop and
-    its live log; a task's button starts its jobs, Stop stops them."""
+    """A card per task, a tile per step; a running job shows its line in counts (outcomes as icons, text cut
+    with the whole on hover), its progress bar, Stop and its live log; a task's button starts its jobs, Stop
+    stops them."""
     from echolot.jobs.worker import Run
     from echolot.settings.vault import Vault
 
     wk = client.app.state.worker
     run = Run(schedule.BY_NAME["upgrade"], settings, Vault.from_env(settings.data_dir, {}), "schedule")
     long = "Artist – A Very Long Title (Extended Mix) [https://soundcloud.com/some/very/long/link/" + "x" * 120 + "]"
-    run.say(f"12 of 250 songs: 2 upgrade, 10 not found · {long}", 12, 250)
+    run.say("12 of 250 songs: 2 upgrade, 10 not found", 12, 250)
     run.note(f"{long}: not found")
     wk.runs["upgrade"] = run
     html = client.get("/jobs").text
-    for label in ("New songs", "Missing songs", "FLAC upgrade", 'Maintenance <span class="muted">4</span>'):
+    for label in ("New songs", "Missing songs", "FLAC upgrade", '<h2 class="job-group">Maintenance</h2>'):
         assert label in html
     assert 'aria-valuenow="12"' in html and 'style="width: 4.8%"' in html  # 12 of 250
-    assert f'title="12 of 250 songs: 2 upgrade, 10 not found · {long}"' in html  # cut in the line, whole on hover
+    assert "<b>12</b><i>/250</i> <span>songs</span>" in html
+    assert 'title="2 upgrade"' in html and 'title="10 not found"' in html and "<span>not found</span>" not in html
+    run.say(f"13 of 250: {long}", 12, 250)
+    assert f'<span class="fact-text" title="{long}">' in client.get("/jobs").text  # cut in the tile, whole on hover
     assert (
         'name="names" value="upgrade"' in html
-        and ">Stop</button>" in html
+        and " Stop</button>" in html
         and 'Live log <span class="muted">1</span>' in html
     )
-    run.say("SoundCloud: listing Likes")  # starts with its step's name: not said twice
-    wk.runs["soundcloud"] = run
-    assert "<b>SoundCloud</b>" not in client.get("/jobs").text
-    del wk.runs["soundcloud"]
     assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
     del wk.runs["upgrade"]
+    run.say("SoundCloud: listing Likes")  # starts with its step's name, which its tile says: not said twice
+    wk.runs["soundcloud"] = run
+    html = client.get("/jobs").text
+    assert 'title="SoundCloud"' not in html and 'title="listing Likes"' in html
+    del wk.runs["soundcloud"]
     client.post("/jobs/start", data={"names": "sync,soundcloud"})
     assert {"sync", "soundcloud"} <= set(wk.requested)
     assert client.post("/jobs/start", data={"names": "nope"}).status_code == 404

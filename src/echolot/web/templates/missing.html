@@ -11,7 +11,7 @@
 {% macro found(r) %}{{ r.results }} result{{ 's' if r.results != 1 }}{% if r.results %}, {{ r.fits or 'none' }} fit{{ 's' if r.fits == 1 }}{% endif %}{% if r.rejected %} <span class="muted">(not fitting: {% for k, n in r.rejected|dictsort(by='value', reverse=true) %}{{ n }} {{ k }}{{ ', ' if not loop.last }}{% endfor %})</span>{% endif %}{% endmacro %}
 {% macro outcome(action, detail) %}{% if action == 'wrong-song' %}not the song{% elif action == 'mismatch' %}another length{% elif detail %}{{ detail }}{% else %}{{ action }}{% endif %}{% endmacro %}
 {% block content %}
-{% from "_subnav.html" import library %}{{ library('missing', tabs) }}
+<a class="crumb" href="/library">← Library</a>
 <section class="card">
   <div class="card-head">
     <h1>Missing <span class="count" id="missing-count">{{ songs|length|num }}</span></h1>
@@ -37,7 +37,7 @@
       <td class="small tried">
         {% if s.notes or s.in_review %}<div class="chips">
           {% for text, style, why in s.notes %}<span class="pill {{ style }}-pill" title="{{ why }}">{{ text }}</span>{% endfor %}
-          {% if s.in_review %}<a class="pill warn-pill" href="/review" title="A download of another length waits for your decision">in review</a>{% endif %}
+          {% if s.in_review %}<span class="pill warn-pill" title="A download of another length waits for your decision in Review">in review</span>{% endif %}
         </div>{% endif %}
         {% if s.tries or s.fallback or s.last_fallback or s.rejected %}
         <details>

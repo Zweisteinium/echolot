@@ -1,8 +1,10 @@
-{# the Library page's line of the jobs (web/jobs.jobs_now): what runs now, else when the next starts; polled
-   while one runs. To others than admins only the task's name (a song's name may be another user's) #}
+{# the Library page's line of the jobs (web/jobs.jobs_now), one short line that never wraps: the task running
+   and how far (163/200), else when the next starts; polled while one runs. What it does in words only in the
+   hover text, and only to admins (a song's name may be another user's) #}
 {% set active = tasks|selectattr('running')|list %}
-<a class="pill job-pill{{ ' on' if active }}" href="/jobs" hx-get="/jobs/now" hx-trigger="every {{ '4s' if active else '60s' }}" hx-swap="outerHTML" title="The jobs: what runs, when, and what each one does">
+{% set run = active[0].running[0].run if active else none %}
+<a class="pill job-pill{{ ' on' if active }}" href="/jobs" hx-get="/jobs/now" hx-trigger="every {{ '4s' if active else '60s' }}" hx-swap="outerHTML" title="{{ run.progress if run and user.admin and run.progress else 'The jobs: what runs, when, and what each one does' }}">
   {%- if paused %}<span class="dot err"></span>Jobs paused
-  {%- elif active %}{% set run = active[0].running[0].run %}<span class="dot on"></span><b>{{ active[0].task.label }}</b>{% if user.admin and run.progress %}<span class="job-pill-text">{{ run.progress }}</span>{% endif %}{% if active|length > 1 %} <span class="muted">+{{ active|length - 1 }}</span>{% endif %}
-  {%- else %}{% set due = tasks|selectattr('next')|rejectattr('task.maintenance')|sort(attribute='next')|first %}<span class="dot"></span>Jobs idle{% if due %} · {{ due.task.label }} {{ due.next|until }}{% endif %}{% endif -%}
+  {%- elif active %}<span class="dot on"></span><b>{{ active[0].task.label }}</b>{% if run.total %}<span class="job-pill-count">{{ run.done|num }}/{{ run.total|num }}</span>{% endif %}{% if active|length > 1 %}<span class="muted" title="{{ active[1:]|map(attribute='task.label')|join(', ') }}">+{{ active|length - 1 }}</span>{% endif %}
+  {%- else %}{% set due = tasks|selectattr('next')|rejectattr('task.maintenance')|sort(attribute='next')|first %}<span class="dot"></span>Jobs idle{% if due %}<span class="muted">· {{ due.task.label }} {{ due.next|until }}</span>{% endif %}{% endif -%}
 </a>

@@ -62,11 +62,9 @@ def graphs(request: Request, con: DB) -> HTMLResponse:
 
 
 def library_tabs(con: sqlite3.Connection, uid: int | None) -> dict[str, int | None]:
-    """The counts on the Library page's tabs: the songs missing, those to buy on Bandcamp (the Buy page), the
-    releases Discogs lacks (None while Discogs is off: no tab)."""
-    mine, args = stats._mine(uid)
-    missing = con.execute(f"SELECT count(*) FROM wanted s WHERE s.file IS NULL AND {mine}", args).fetchone()[0]
-    return {"missing": missing, "buy": len(stats.buy(con, uid)), "discogs": discogs.to_add(con, uid)}
+    """The counts on the Library page's tabs: the songs to buy on Bandcamp (the Buy page), the releases Discogs
+    lacks (None while Discogs is off: no tab)."""
+    return {"buy": len(stats.buy(con, uid)), "discogs": discogs.to_add(con, uid)}
 
 
 RANGES = {"7d": ("7 d", 7), "30d": ("30 d", 30), "90d": ("3 mo", 90), "all": ("All", None)}  # the graphs' chips
@@ -169,15 +167,7 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
     lists, close = stats.lists(con, uid), stats.close_matches(con, uid)
     marks = recording.marks(con, request.state.user.id, songs)
     return page(
-        request,
-        "missing.html",
-        nav="missing",
-        songs=songs,
-        close=close,
-        lists=lists,
-        selected=list_key,
-        marks=marks,
-        tabs=library_tabs(con, uid),
+        request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, marks=marks
     )
 
 
