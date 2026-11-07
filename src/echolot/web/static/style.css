@@ -522,6 +522,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth-panels { position: relative; }
 .growth-panels > .graph-bar { position: absolute; top: 0.35rem; right: 0; z-index: 1; }  /* it switches this graph */
 .growth-panels.loading { opacity: 0.55; transition: opacity 0.2s 0.15s; }
+.growth-panels.graphs-wait { min-height: 26.4rem; }  /* the graphs' height while they come (pages.graphs) */
 .ranges { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.25rem; margin-top: 0.9rem; font-size: 0.78rem; }
 .range-chip { padding: 0.12rem 0.6rem; border: 1px solid transparent; border-radius: 999px; background: none;
   color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
@@ -1025,6 +1026,7 @@ a.button.primary:hover { filter: brightness(1.08); }
   .recorders td:last-child button { padding: 0.32rem 0.55rem; }
   .growth-panels > .graph-bar { position: static; margin-bottom: 0.6rem; }  /* the tabs above the figure */
   .growth-panels .headline { padding-right: 0; }
+  .growth-panels.graphs-wait { min-height: 29.1rem; }
 }
 @media (max-width: 380px) {
   .rows th, .rows td { padding-left: 0.35rem; padding-right: 0.35rem; }

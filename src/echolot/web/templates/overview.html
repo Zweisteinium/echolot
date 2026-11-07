@@ -16,7 +16,7 @@
     <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
   </div>
   <div class="stats-main">
-    {% include "_graphs.html" %}
+    <div class="growth-panels loading graphs-wait" id="graphs" data-graphs data-range=""><p class="muted growth-empty" data-graphs-note>Loading the graphs…</p></div>{# (_graphs.html, loaded right after the page by the script below) #}
     <div class="quality-side" data-rings>
       <div class="side-head">
         <div class="side-label">{{ 'Quality of your songs' if o.scoped else 'Quality' }}</div>
@@ -99,7 +99,7 @@
     if (!card) return;
     const store = (key, value) => { try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch (e) { return null; } };
     const SHOW = "echolot:growth", RANGE = "echolot:growth-range", RING = "echolot:ring";
-    const tab = () => card.querySelector('input[name="growth"]:checked')?.value || "songs";
+    const tab = () => card.querySelector('input[name="growth"]:checked')?.value || store(SHOW) || "songs";
     const show = (what) => {
       if (!card.querySelector(`[data-panel="${what}"]`)) return;
       for (const panel of card.querySelectorAll("[data-panel]")) panel.hidden = panel.dataset.panel !== what;
@@ -119,10 +119,15 @@
     const saved = store(SHOW);
     if (saved) show(saved);
     if (store(RING) === "best") ring("best");
-    const range = store(RANGE);
-    if (range && range !== card.querySelector("[data-graphs]")?.dataset.range && ["7d", "30d", "90d"].includes(range)) {
-      document.addEventListener("DOMContentLoaded", () => load({ range }), { once: true });  // (htmx loads deferred)
-    }
+    const range = store(RANGE);  // the graphs come after the page, for the stretch last chosen here
+    const first = () => load({ range: ["7d", "30d", "90d", "all"].includes(range) ? range : "all" });
+    if (window.htmx) first(); else document.addEventListener("DOMContentLoaded", first, { once: true });  // (htmx loads deferred)
+    card.addEventListener("htmx:responseError", (e) => {  // (graphs that did not come: said so, not loading forever)
+      const graphs = card.querySelector("[data-graphs]"), note = graphs?.querySelector("[data-graphs-note]");
+      if (!graphs || e.detail.target !== graphs) return;
+      graphs.classList.remove("loading");
+      if (note) note.textContent = "The graphs could not be loaded. Reload the page to try again.";
+    });
     card.addEventListener("change", (e) => {
       if (e.target.name === "growth") { show(e.target.value); store(SHOW, e.target.value); }
       if (e.target.name === "ring") { ring(e.target.value); store(RING, e.target.value); }

@@ -45,7 +45,6 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
         connected=connected,
         tabs=library_tabs(con, uid),
-        **_graphs(con, uid, o, *_window(request.query_params)),
     )
 
 

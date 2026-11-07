@@ -112,6 +112,23 @@ def _nice(top: float) -> tuple[float, float]:
     return best
 
 
+def _span(low: float, high: float) -> tuple[float, float, float]:
+    """(axis minimum, maximum, step) for values from `low` to `high`: from 0 (_nice) while they reach down to
+    within their own spread of it; else cut to them, between round steps a little beyond both (a flat line:
+    a narrow band around it), so that a change of a few songs or GB shows however large the library is."""
+    if low <= high - low:
+        top, step = _nice(high * 1.08)
+        return 0, top, step
+    spread = max(high - low, high * 0.002, 3)
+    pad = spread * 0.08
+    step = _nice(spread + 2 * pad)[1]
+    while True:
+        bottom, top = step * math.floor((low - pad) / step), step * math.ceil((high + pad) / step)
+        if (top - bottom) / step <= 5:
+            return bottom, top, step
+        step *= 2
+
+
 def _signed(change: float, value: Callable[[float], str]) -> str:
     return f"{'+' if change >= 0 else '−'}{value(abs(change))}"
 
@@ -165,8 +182,9 @@ class _Time:
 def growth(
     points: list[tuple[str, float]], value: Callable[[float], str], axis: Callable[[float], str]
 ) -> Growth | None:
-    """A metric over time ((UTC ts, value), oldest first) as a line over an area from 0; `value` formats a
-    value, `axis` an axis label. A count of 0 before the first that is not is none: taken before the library
+    """A metric over time ((UTC ts, value), oldest first) as a line over an area, on an axis from 0 or cut to
+    the values shown (_span: a zoomed stretch of a large library); `value` formats a value, `axis` an axis
+    label. A count of 0 before the first that is not is none: taken before the library
     was first read. Where GAP passed without a point, the line and its area break, and a dotted line bridges
     it. None for fewer than two points."""
     while len(points) > 1 and points[0][1] == 0 and points[1][1] != 0:
@@ -174,10 +192,10 @@ def growth(
     if len(points) < 2:
         return None
     t = _Time([ts for ts, _ in points])
-    top, step = _nice(max(v for _, v in points) * 1.08)
+    bottom, top, step = _span(min(v for _, v in points), max(v for _, v in points))
 
     def xy(i: int) -> tuple[float, float]:
-        return t.x(i), H - H * points[i][1] / top
+        return t.x(i), H - H * (points[i][1] - bottom) / (top - bottom)
 
     def path(run: list[int]) -> str:
         return "".join(f"{'L' if n else 'M'}{xy(i)[0]:.1f},{xy(i)[1]:.1f}" for n, i in enumerate(run))
@@ -192,7 +210,10 @@ def growth(
     last, ago = xy(t.keep[-1]), t.week_ago()
     return Growth(
         **t.frame(
-            values=[Tick(100 - 100 * k * step / top, axis(k * step)) for k in range(round(top / step) + 1)],
+            values=[
+                Tick(100 - 100 * k * step / (top - bottom), axis(bottom + k * step))
+                for k in range(round((top - bottom) / step) + 1)
+            ],
             end=(100 * last[0] / W, 100 * last[1] / H),
             points=json.dumps(
                 [

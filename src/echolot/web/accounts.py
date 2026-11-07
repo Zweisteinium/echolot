@@ -3,9 +3,11 @@ up: automatic when the redirect reaches Echolot, else the final address pasted b
 web token, checked right away). Admins also set up the Spotify app and Soulseek (the account the Sockseek
 daemon logs in with; Echolot writes its login file, the daemon restarts with it)."""
 
+import logging
 import secrets
 import shutil
 import sqlite3
+import threading
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
@@ -20,10 +22,11 @@ from echolot.settings import options
 from echolot.settings.vault import VaultError
 from echolot.web.common import DB, back, page
 
+log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 CALLBACK = "/accounts/spotify/callback"
 STATE = "spotify_login_state"  # meta: '<state> <unix time> <redirect address>' of the last login
-CACHE_SECONDS = 120  # the overview's connection line reuses a status this young
+ONLINE_SECONDS = 600  # the overview's line asks Spotify and SoundCloud again (in the background) after this
 LOW_DISK = 20 * 2**30
 
 
@@ -38,14 +41,14 @@ def redirect_uri(request: Request) -> str:
 
 
 def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> dict[str, Any]:
-    """What the logged-in user has connected (and Soulseek), for this page and the overview: asks the
-    services at once (`cached`: a result of the last CACHE_SECONDS will do)."""
+    """What the logged-in user has connected (and Soulseek), for this page and the overview. Soulseek's daemon
+    is asked every time (it runs beside Echolot); Spotify and SoundCloud at once, or with `cached` (the
+    overview's line) their last answer right away, asked again in the background once it is ONLINE_SECONDS
+    old (the next load shows that)."""
     state, uid = request.app.state, request.state.user.id
     if not hasattr(state, "account_status"):
         state.account_status = {}
     last = state.account_status.get(uid)
-    if cached and last and time.monotonic() - last[0] < CACHE_SECONDS:
-        return last[1]
     opts = options.get(con, options.Soulseek)
     slsk: dict[str, Any] = {
         "user": opts.user,
@@ -57,17 +60,53 @@ def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> d
         "slskd_secret": state.vault.has(con, slskd.SECRET),
     }
     client = slskd.connect(con, state.vault, opts, timeout=5) if opts.backend == "slskd" else None
+    if cached and last:
+        if time.monotonic() - last[0] >= ONLINE_SECONDS:
+            _ask_later(state, uid)
+        return last[1] | {"soulseek": slsk | _daemon_status(opts.url, client)}
+    with ThreadPoolExecutor(1) as pool:
+        daemon = pool.submit(_daemon_status, opts.url, client)
+        online = _online(state, con, uid)
+        return online | {"soulseek": slsk | daemon.result()}
+
+
+def _online(state: Any, con: sqlite3.Connection, uid: int) -> dict[str, Any]:
+    """The user's Spotify and SoundCloud accounts as the services answer now (kept for the line)."""
     try:  # a secret stored with another key can't be read: shown as the account's error
         token, token_error = soundcloud.token_of(con, state.vault, uid), None
     except VaultError as e:
         token, token_error = None, str(e)
-    with ThreadPoolExecutor(3) as pool:
+    with ThreadPoolExecutor(2) as pool:
         sp = pool.submit(_spotify_status, state, uid)
         sc = pool.submit(_soundcloud_status, token, token_error, state.vault.has(con, soundcloud.refresh_name(uid)))
-        daemon = pool.submit(_daemon_status, opts.url, client)
-        result = {"spotify": sp.result(), "soundcloud": sc.result(), "soulseek": slsk | daemon.result()}
+        result = {"spotify": sp.result(), "soundcloud": sc.result()}
     state.account_status[uid] = (time.monotonic(), result)
     return result
+
+
+_asking: set[int] = set()  # users whose accounts are being asked in the background
+_asking_lock = threading.Lock()
+
+
+def _ask_later(state: Any, uid: int) -> None:
+    """Ask the user's accounts again in a thread of its own (once at a time per user)."""
+    with _asking_lock:
+        if uid in _asking:
+            return
+        _asking.add(uid)
+
+    def ask() -> None:
+        con = db.connect(state.settings.db_path)
+        try:
+            _online(state, con, uid)
+        except Exception:  # (the old answer stays; the next load asks again)
+            log.exception("accounts: the status of user %s was not renewed", uid)
+        finally:
+            con.close()
+            with _asking_lock:
+                _asking.discard(uid)
+
+    threading.Thread(target=ask, name=f"accounts-{uid}", daemon=True).start()
 
 
 def known(request: Request, con: sqlite3.Connection) -> dict[str, Any]:

@@ -55,13 +55,16 @@ def test_sizes_and_shares() -> None:
 
 
 def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
-    """No snapshot: no graph yet; one: from it to now, the songs (shown, as files) and the size (behind the
-    toggle). The last point is the value of now, not the last snapshot's."""
+    """The Library page loads its graphs right after itself (/library/graphs). No snapshot: no graph yet; one:
+    from it to now, the songs (shown, as files) and the size (behind the toggle). The last point is the value
+    of now, not the last snapshot's."""
     con = db.connect(settings.db_path)
     with con:
         con.execute("DELETE FROM snapshots")
     con.close()
-    html = client.get("/stats").text
+    page = client.get("/stats").text
+    assert "data-graphs" in page and '<figure class="growth"' not in page and "/library/graphs?" in page
+    html = client.get("/library/graphs").text
     assert "starts with the first hourly snapshot" in html and '<figure class="growth"' not in html
     con = db.connect(settings.db_path)
     history.snapshot(con)
@@ -69,7 +72,7 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
         con.execute("UPDATE snapshots SET ts = '2026-09-27T10:00:00Z'")
         con.execute("UPDATE snapshots SET value = 1 WHERE metric = 'user_library_files'")  # (one file then)
     con.close()
-    html = client.get("/stats").text
+    html = client.get("/library/graphs").text
     assert html.count('<figure class="growth') == 3 and 'name="growth" value="quality"' in html
     assert 'data-panel="size" hidden' in html and '<span class="figure">3 songs</span>' in html  # the owner's 3 files
     assert "&#34;1 songs&#34;" in html and ">+2 songs</span>" in html  # one file at the snapshot, two more since
@@ -602,3 +605,41 @@ def test_spotify_403_says_to_check_the_users_email(client: TestClient, monkeypat
     )
     html = client.get("/playlists").text
     assert "User Management in the Spotify developer app" not in html and "no longer has Premium" in html
+
+
+def test_pages_are_compressed_and_pictures_not(client: TestClient) -> None:
+    r = client.get("/stats", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200 and r.headers.get("content-encoding") == "gzip" and "Library" in r.text
+    r = client.get("/static/apple-touch-icon.png", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200 and "content-encoding" not in r.headers  # (a PNG: compressed already)
+
+
+def test_connection_line_answers_from_the_last_check(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The line shows the last answer of Spotify and SoundCloud at once and asks them again in the background
+    once it is old; Soulseek's daemon is asked every time; Playlists asks the services at once."""
+    import threading
+
+    from echolot.services import soulseek
+    from echolot.web import accounts
+
+    calls: list[int] = []
+
+    def spotify_status(state: object, uid: int) -> dict:
+        calls.append(uid)
+        return {"connected": True, "name": f"account{len(calls)}"}
+
+    monkeypatch.setattr(accounts, "_spotify_status", spotify_status)
+    assert "<span>account1</span>" in client.get("/accounts/line").text and len(calls) == 1
+    assert "<span>account1</span>" in client.get("/accounts/line").text and len(calls) == 1  # young: kept
+    state = {"ready": False, "state": "Disconnected", "flags": ["Disconnected"], "version": "", "started": ""}
+    monkeypatch.setattr(soulseek.Daemon, "status", lambda self: state)
+    monkeypatch.setattr(accounts, "ONLINE_SECONDS", 0)
+    html = client.get("/accounts/line").text
+    assert "<span>account1</span>" in html and "<span>daemon not reachable</span>" not in html  # (asked now)
+    for t in threading.enumerate():
+        if t.name.startswith("accounts-"):
+            t.join(5)
+    monkeypatch.setattr(accounts, "ONLINE_SECONDS", 600)
+    assert len(calls) == 2 and "<span>account2</span>" in client.get("/accounts/line").text
+    client.get("/playlists")
+    assert len(calls) == 3

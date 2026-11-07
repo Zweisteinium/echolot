@@ -11,6 +11,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
+from starlette.middleware.gzip import GZipMiddleware
 
 from echolot import COMMIT, __version__, db
 from echolot.config import Settings
@@ -92,6 +93,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings, app.state.worker = settings, worker
     app.state.vault, app.state.throttle = secrets, auth.Throttle()
     app.middleware("http")(access.authenticate)
+    # pages and fragments compressed (a long list's 2 MB as some 220 KB); Starlette leaves audio, pictures,
+    # event streams and ranges (206) alone. Added last: it wraps everything, the login's answers too
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
     app.mount("/static", Assets(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(FILTERS)

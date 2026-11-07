@@ -97,3 +97,18 @@ def test_stacked_shares() -> None:
     assert len(hover) == 3 and hover[0][3][2] == ["missing", "Missing", 2, 2.0]
     assert round(g.end[1], 1) == round(100 * (1 - (87.4 - 70) / 30), 1)  # the lossless band's top
     assert charts.stacked(points[:1], tiers) is None
+
+
+def test_growth_axis_is_cut_to_a_stretch_of_a_large_library() -> None:
+    """A day of a 220 GB library spans a few GB: the axis is cut to them (from a round value), so the change
+    shows; a library that grew from little keeps its axis from 0, and a flat line gets a narrow band."""
+    day = [("2026-11-06T12:00:00Z", 218.4e9), ("2026-11-07T00:00:00Z", 219.1e9), ("2026-11-07T12:00:00Z", 219.7e9)]
+    g = charts.growth(day, fmt, axis)
+    bottom, top = (float(g.values[k].label) for k in (0, -1))
+    assert 217e9 < bottom < 218.4e9 and 219.7e9 < top < 221e9 and len(g.values) <= 6
+    assert g.values[0].pos == 100 and g.values[-1].pos == 0
+    ys = [p[1] for p in json.loads(g.points)]
+    assert min(ys) > 0 and max(ys) < 100 and max(ys) - min(ys) > 50  # the line uses most of the height
+    assert charts._span(2000, 5535) == (0, 6000, 2000)  # from 0: the values reach down near it
+    low, high, step = charts._span(7791, 7791)  # flat: a narrow band of whole steps around it
+    assert low < 7791 < high and step >= 1 and (high - low) / step <= 5
