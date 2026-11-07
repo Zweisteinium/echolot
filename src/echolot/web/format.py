@@ -72,6 +72,7 @@ SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundClo
 SOURCES |= {"soundcloud-search": "SoundCloud", "manual": "By hand"}  # the search fallback's downloads; added by hand
 SOURCES["mitschnitt"] = "Mitschnitt"  # recorded by the user's recorder (web/recorders)
 SOURCES["bandcamp"] = "Bandcamp"  # a free download the artist offers there (jobs/bandcamp)
+SOURCES["dropbox"] = "Dropbox"  # a file a SoundCloud page links to (jobs/bandcamp, services/free_links)
 
 
 def source(name: str | None) -> str:
