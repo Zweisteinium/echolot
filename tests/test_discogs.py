@@ -1,5 +1,5 @@
-"""Discogs: what it lists of the library's releases (jobs/discogs, services/discogs and beatport), off by
-default, the page, the suggestion dialog and the settings."""
+"""Discogs: which library releases it lists (with Beatport's details), the page, the suggestion and the
+settings."""
 
 import io
 import json

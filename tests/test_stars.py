@@ -54,8 +54,8 @@ def mine(con: sqlite3.Connection) -> list[tuple]:
 
 
 def test_the_liked_songs_get_their_hearts_once(con: sqlite3.Connection) -> None:
-    """Every liked song with a file gets a heart, the oldest like first; one the user gave already is theirs
-    (never taken back). Nothing changed: Navidrome is not asked."""
+    """Every liked song with a file gets a heart; one the user gave already stays theirs. Nothing changed:
+    Navidrome is not asked."""
     nd = Navidrome([S1, S2, TUNE], hearts={f"id:{S2}"})
     assert stars.sync(con, nd, "tracks") == "2 hearts given in Navidrome"
     assert nd.calls == [("songs",), ("star", f"id:{TUNE}", f"id:{S1}")]
@@ -113,8 +113,7 @@ def test_a_file_navidrome_lacks_gets_its_heart_later(con: sqlite3.Connection) ->
 
 
 def test_a_better_file_takes_the_heart_over(con: sqlite3.Connection) -> None:
-    """A song with another file now (an upgrade): the new file gets the heart, the old one (still in Navidrome)
-    loses Echolot's."""
+    """After an upgrade the new file gets the heart, the old one (still in Navidrome) loses Echolot's."""
     new = "Artist A/Artist A - First Song.flac"
     nd = Navidrome([S1, S2, TUNE, new])
     stars.sync(con, nd, "tracks")
@@ -125,7 +124,7 @@ def test_a_better_file_takes_the_heart_over(con: sqlite3.Connection) -> None:
 
 
 def test_navidromes_paths_below_another_folder(con: sqlite3.Connection) -> None:
-    """Navidrome's library holds Echolot's folder (music/echolot): its paths have more in front."""
+    """Navidrome's library holds Echolot's folder: its paths have a longer prefix."""
     nd = Navidrome([S1, S2, TUNE], prefix="echolot/tracks/")
     nd.paths["other/tracks2/Artist A/Artist A - First Song.mp3"] = "id:other"
     assert stars.sync(con, nd, "tracks") == "3 hearts given in Navidrome"
@@ -133,7 +132,7 @@ def test_navidromes_paths_below_another_folder(con: sqlite3.Connection) -> None:
 
 
 def test_the_hearts_follow_when_the_songs_were_liked(con: sqlite3.Connection) -> None:
-    """Across the lists, the oldest like first. Once all likes are timed, Echolot's hearts are given once more in
+    """Oldest like first, across the lists. Once all likes are timed, Echolot's hearts are given once more in
     that order (not the user's own, nor one they took back)."""
     nd = Navidrome([S1, S2, TUNE], hearts={f"id:{S2}"})
     assert stars.sync(con, nd, "tracks") == "2 hearts given in Navidrome"  # not timed: as listed
@@ -155,8 +154,7 @@ def test_the_hearts_follow_when_the_songs_were_liked(con: sqlite3.Connection) ->
 
 
 def test_a_song_echolot_hearted_stays_its_in_another_list(con: sqlite3.Connection) -> None:
-    """A song liked in a second list after Echolot gave its heart: the heart stays Echolot's, so it goes once the
-    song is unliked in both."""
+    """A heart Echolot gave stays its own when the song is liked in a second list; it goes once unliked in both."""
     nd = Navidrome([S1, S2, TUNE])
     stars.sync(con, nd, "tracks")
     with con:
@@ -172,8 +170,7 @@ def test_a_song_echolot_hearted_stays_its_in_another_list(con: sqlite3.Connectio
 
 
 def test_a_call_as_the_user(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Echolot names the user in its header; a Navidrome that does not trust Echolot's address asks for a
-    login, which says what to set."""
+    """The user goes in a header; a Navidrome not trusting Echolot's address gets an error naming the setting."""
     sent: list = []
     answers = [
         {"status": "ok", "starred2": {"song": [{"id": "a"}, {"id": "b"}]}},

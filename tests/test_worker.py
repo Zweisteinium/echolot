@@ -83,7 +83,7 @@ def test_one_job_per_resource_and_failures_recorded(w) -> None:
         ran = [(n, now, now) for n in ("sweep", "upgrade", "youtube")]
         con.executemany("INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", ran)
     con.close()
-    wk._start_due()  # the fallback is next in line
+    wk._start_due()
     wait_for(lambda: len(started) == 1)
     assert started == ["fallback"]
     release.set()
@@ -122,9 +122,8 @@ def test_cancel(w) -> None:
 
 
 def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
-    """New songs do not wait for a long upgrade: New Spotify songs starts right away while the upgrade ends
-    its songs in progress, then the upgrade goes on with the songs it left, as started (Run now: whatever
-    their wait). Spotify lists (no Soulseek) does not stop it."""
+    """New songs make a running upgrade give way after its songs in progress; it then resumes with the
+    songs left, as started. Spotify lists (no Soulseek) does not stop it."""
     wk, _, _, settings = w
     con = db.connect(settings.db_path)
     with con:  # nothing due by the schedule
@@ -140,7 +139,7 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
     def upgrade(r: worker.Run) -> str:
         ran.append(("upgrade", r.budget, r.trigger, r.skip))
         if r.budget is None and r.give_way.wait(5):
-            in_progress.wait(5)  # its songs in progress end
+            in_progress.wait(5)
             r.handled, r.left = {"spotify:a", "spotify:b"}, 7
         return "upgrade done"
 
@@ -174,8 +173,8 @@ def test_the_upgrade_gives_way_and_goes_on_after(w) -> None:
 
 
 def test_pausing_ends_scheduled_runs_after_their_songs(w) -> None:
-    """A pause (as a deploy does) makes the runs give way, also one started by hand before (the covers can
-    take hours); one started by hand while paused goes on."""
+    """A pause makes running jobs give way, also ones started by hand before it; one started by hand while
+    paused goes on."""
     wk, _, release, settings = w  # paused
     wk.trigger("sync")
     wk._start_due()
@@ -229,8 +228,8 @@ def test_only_a_more_urgent_job_makes_one_give_way(w) -> None:
 
 
 def test_a_run_that_gave_way_goes_on_after_a_restart(w) -> None:
-    """A deploy pauses the jobs: the runs give way and Echolot restarts; the new worker goes on with them,
-    without the songs they did, once the jobs are resumed."""
+    """A run that gave way is resumed by the next worker (after a restart) once unpaused, minus the songs
+    it did."""
     wk, started, release, settings = w  # paused
     wk.resume = {"fallback": (50, "manual", frozenset({"spotify:a", "spotify:b"}))}
     wk._save_resume()
@@ -260,9 +259,8 @@ def test_a_run_that_gave_way_goes_on_after_a_restart(w) -> None:
 
 
 def test_a_list_check_runs_beside_the_search_and_claims_only_to_download(w) -> None:
-    """New SoundCloud songs every few minutes does not stop the YouTube & SoundCloud search: it checks its
-    lists beside it, and only to download new songs does the search give way (Run.claim). YouTube lists,
-    due meanwhile, waits for the check (one beside is enough)."""
+    """A SoundCloud list check runs beside the search; only Run.claim (to download) makes the search give
+    way. A second list check waits (one beside is enough)."""
     wk, started, release, settings = w
     con = db.connect(settings.db_path)
     with con:  # nothing due by the schedule
@@ -277,7 +275,7 @@ def test_a_list_check_runs_beside_the_search_and_claims_only_to_download(w) -> N
     def soundcloud(r: worker.Run) -> str:
         checking.set()
         if claim.wait(5):
-            r.claim()  # new songs to download
+            r.claim()
         return "1 new song"
 
     worker.FUNCTIONS["soundcloud"] = soundcloud
@@ -298,9 +296,8 @@ def test_a_list_check_runs_beside_the_search_and_claims_only_to_download(w) -> N
 
 
 def test_a_follow_up_waits_while_paused_and_keeps_the_songs_waits(w) -> None:
-    """What a job starts after it (Run.after: the search after New songs search) is no run by hand: while
-    the jobs are paused (a deploy) it waits, and it runs with the songs' waits (trigger "after"), not
-    every song at once as Search all now does."""
+    """A follow-up (Run.after) is not a manual run: it waits while paused and runs with trigger "after",
+    so each song's wait counts."""
     wk, _, release, settings = w  # paused
     con = db.connect(settings.db_path)
     with con:  # nothing due by the schedule
@@ -312,7 +309,7 @@ def test_a_follow_up_waits_while_paused_and_keeps_the_songs_waits(w) -> None:
     triggers: dict[str, str] = {}
 
     def search_new(r: worker.Run) -> str:
-        r.after.add("fallback")  # a song Soulseek did not have
+        r.after.add("fallback")
         return "searched"
 
     def fallback(r: worker.Run) -> str:
@@ -336,8 +333,8 @@ def test_a_follow_up_waits_while_paused_and_keeps_the_songs_waits(w) -> None:
 
 
 def test_slskd_rescans_its_share_after_the_library_changed(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    """slskd scans its share only at its start: upkeep asks it again once the library changed (new files, an
-    upgrade's other name), at most once an hour; never without an slskd set up, not while it scans."""
+    """slskd only scans at its start: ask for a rescan after library changes, at most hourly, only with
+    slskd set up; a refused ask (already scanning) is retried."""
     from echolot.jobs.schedule import BY_NAME
     from echolot.services import slskd
 

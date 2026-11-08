@@ -1,5 +1,4 @@
-"""SoundCloud's tokens (services/soundcloud.py): the browser's login tokens are JWTs that last a day,
-renewed with the login's refresh token, which works once."""
+"""SoundCloud's tokens (services/soundcloud.py): day-long JWTs, renewed with a refresh token that works once."""
 
 import base64
 import datetime
@@ -110,8 +109,8 @@ def test_a_refused_token_says_when_it_expired(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_a_token_that_expires_soon_is_renewed_once(con, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Within RENEW_BEFORE of its end: renewed with the refresh token, the new pair stored at once; threads
-    that ask meanwhile wait for that renewal (a second with the same refresh token would be refused)."""
+    """Within RENEW_BEFORE of its end: renewed and the new pair stored; threads asking meanwhile wait for
+    that one renewal (a second with the same refresh token would be refused)."""
     vault, server = Vault(Fernet.generate_key(), "test"), LoginServer("refresh-0")
     monkeypatch.setattr(soundcloud.urllib.request, "urlopen", server)
     old = jwt(hours(0.5))
@@ -153,8 +152,7 @@ def test_a_token_is_renewed_only_when_due_and_renewable(con, monkeypatch: pytest
 
 
 def test_a_refused_refresh_token_is_dropped(con, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Used up (the browser renewed with it) or logged out: SoundCloud answers 400, the refresh token goes
-    (no more asking), the expired token stays: its refusal says so."""
+    """A refresh token SoundCloud refuses (used up, logged out) is dropped; the expired token stays."""
     vault, server = Vault(Fernet.generate_key(), "test"), LoginServer("refresh-0")
     monkeypatch.setattr(soundcloud.urllib.request, "urlopen", server)
     old = jwt(hours(-2))
@@ -182,8 +180,7 @@ def test_a_renewal_soundcloud_does_not_answer_is_tried_again_later(con, monkeypa
 def test_connecting_with_the_refresh_token_renews_at_once(
     settings: Settings, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The two cookies: the refresh token is tried at once (so it is known to work), the new pair stored;
-    without it the token alone, and a refresh token stored before goes."""
+    """A pasted refresh token is tried at once and the new pair stored; a token alone drops the stored one."""
     app = create_app(settings)
     client, server = login(app), LoginServer("refresh-0")
     monkeypatch.setattr(soundcloud.urllib.request, "urlopen", server)

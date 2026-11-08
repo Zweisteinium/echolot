@@ -62,8 +62,7 @@ def drawn(d: charts.Donut) -> dict[str, float]:
 
 
 def test_ring_slices_keep_the_order_of_their_counts() -> None:
-    """The library on 2026-11-05: 147 songs drew as short as 16 (the gap was taken from the minimum). Now a
-    slice's length is its share of the ring less the gaps; only one below 2.5px is drawn that long."""
+    """A slice is its share of the ring less the gaps, at least 2.5px: more songs never draw shorter."""
     counts = {"lossless": 6816, "fake": 224, "lossy-high": 198, "lossy-mid": 147, "lossy-low": 397, "missing": 16}
     tiers = [(k, "", n) for k, n in counts.items()]
     d = charts.donut(tiers, size=160, width=22)
@@ -79,8 +78,8 @@ def test_ring_slices_keep_the_order_of_their_counts() -> None:
 
 
 def test_stacked_shares() -> None:
-    """Each tier's share as a band, the first at the bottom; the axis starts at a round share below the first
-    tier's lowest (here 70 % for 78 %); the headline in percentage points."""
+    """A band per tier, the first at the bottom; the axis starts at a round share below the first tier's
+    lowest (70 % for 78 %); the headline in percentage points."""
     tiers = [("lossless", "Lossless"), ("lossy-low", "Lossy"), ("missing", "Missing")]
     points = [
         ("2026-09-27T23:00:00Z", {"lossless": 78, "lossy-low": 20, "missing": 2}),
@@ -104,8 +103,8 @@ def test_stacked_shares() -> None:
 
 
 def test_growth_axis_is_cut_to_a_stretch_of_a_large_library() -> None:
-    """A day of a 220 GB library spans a few GB: the axis is cut to them (from a round value), so the change
-    shows; a library that grew from little keeps its axis from 0, and a flat line gets a narrow band."""
+    """A small change on a large value cuts the axis to that stretch; growth from little keeps 0, a flat line
+    gets a narrow band."""
     day = [("2026-11-06T12:00:00Z", 218.4e9), ("2026-11-07T00:00:00Z", 219.1e9), ("2026-11-07T12:00:00Z", 219.7e9)]
     g = charts.growth(day, fmt, axis)
     bottom, top = (float(g.values[k].label) for k in (0, -1))

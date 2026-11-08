@@ -1,5 +1,4 @@
-"""Songs of other names whose files are the same audio keep one file, the better one, whichever came first
-(library/recordings.merge_same); a fingerprint alone does not decide (identity.same_master)."""
+"""Songs of other names with the same audio share one file, the better one (recordings.merge_same)."""
 
 from pathlib import Path
 

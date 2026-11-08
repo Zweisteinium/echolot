@@ -78,8 +78,7 @@ def test_add_playlist_flag_remove(con: sqlite3.Connection) -> None:
 
 
 def test_two_users_follow_a_list(con: sqlite3.Connection) -> None:
-    """Each follows with their own options; the list is one (fetched once, its state stays while anyone
-    follows it); one user's change never touches the other's lists."""
+    """One list, each follower with their own options; it stays while anyone follows it."""
     timon = auth.logged_in(con, "timon", "nd-timon", False).id
     sources.add_list(con, timon, "https://open.spotify.com/playlist/AAA111", "", False)
     sources.set_likes(con, timon, "spotify", True)
@@ -97,8 +96,7 @@ def test_two_users_follow_a_list(con: sqlite3.Connection) -> None:
 
 
 def test_adopt(con: sqlite3.Connection, settings: Settings) -> None:
-    """The lists from before users had lists go to the oldest admin with everything that was the one
-    account's; a second run changes nothing."""
+    """Lists from before users had lists go to the oldest admin with the old account's logins; once."""
     from echolot.settings.vault import Vault
 
     vault = Vault.from_env(settings.data_dir, {})

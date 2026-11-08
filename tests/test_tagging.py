@@ -155,8 +155,8 @@ def test_conflict(tags: str, song: str, conflict: bool) -> None:
 
 
 def test_normalize(env, tmp_path: Path) -> None:
-    """A dry run writes nothing; a run backs the old tags up and writes; a second run has nothing to do; a
-    file whose tags name another song is left alone; a file no song has keeps its tags."""
+    """A dry run writes nothing; a run backs up and writes, then is idempotent; a file whose tags name
+    another song is left for review; a file no song has is left alone."""
     con, paths = env
     add_song(con, "spotify:jw", "Juice WRLD", "Come & Go (with Marshmello)", file="JW/JW - Come & Go.flac")
     add_song(con, "spotify:hw", "Hardwell", "Anybody Out There", file="Hardwell/Hardwell - Anybody Out There.mp3")
@@ -197,8 +197,7 @@ def test_the_core_of_a_title() -> None:
 
 
 def test_songs_sharing_a_file_give_it_all_their_artists(env) -> None:
-    """Spotify lists Komm mit twice (with and without its featured artist): one recording, so the file gets
-    both artists, led by the song named as its folder."""
+    """Songs sharing a file give it the union of their artists, led by the folder's artist."""
     con, paths = env
     rel = "TheDoDo/TheDoDo - Komm mit.flac"
     add_song(con, "spotify:a", "TheDoDo", "Komm Mit", artists='["TheDoDo"]', file=rel)
@@ -210,8 +209,8 @@ def test_songs_sharing_a_file_give_it_all_their_artists(env) -> None:
 
 @pytest.mark.parametrize("ext", FORMATS)
 def test_a_spotify_songs_release_facts(env, ext: str) -> None:
-    """A Spotify song's file gets its release's date, track and disc number and the ISRC; the uploader's
-    other spellings of them (another release's) go. A close match or a SoundCloud song gets none."""
+    """A Spotify song's file gets its release date, track, disc and ISRC, replacing the uploader's
+    variants; a close match or a SoundCloud song gets none."""
     con, paths = env
     rel = f"Inner Voice/Inner Voice - Celestial.{ext}"
     facts = {"released": "2020-07-21", "track": 2, "tracks": 4, "disc": 1, "isrc": "qzhn92089013"}
@@ -236,7 +235,7 @@ def test_a_spotify_songs_release_facts(env, ext: str) -> None:
 
 
 def test_a_recording_on_several_releases_is_tagged_as_the_earliest(env) -> None:
-    """Beat It in one list from Thriller, in another from a later deluxe edition: the file is the album's."""
+    """A recording on several releases is tagged with the earliest one."""
     con, paths = env
     rel = "Michael Jackson/Michael Jackson - Beat It.flac"
     add_song(

@@ -1,6 +1,5 @@
-"""Whose songs the pages show (web/stats.scope): a user's own (the songs on the lists they follow), an
-admin's own or everyone's as they chose; the Review and Run permissions for a user's own songs; an
-admin taking back a user's decision; the history per user."""
+"""Whose songs the pages show (web/stats.scope): a user's own (on the lists they follow); an admin's own or
+everyone's, as they chose. Also the per-user rights, decisions and history."""
 
 from collections.abc import Callable
 
@@ -69,8 +68,7 @@ def test_review_is_for_their_own_songs(app, login: Callable[..., TestClient]) ->
 
 
 def test_an_admin_takes_back_a_users_decision(app, settings: Settings) -> None:
-    """A No match a user made (applied: the download blocked, the file deleted) is lifted: the song is
-    searched again; one not applied yet is dropped."""
+    """An applied No match of a user is lifted (the song searched again); one not applied yet is dropped."""
     uid = timon_follows_playlist_a(app)
     con = db.connect(settings.db_path)
     eid = con.execute("SELECT id FROM events WHERE song = 'spotify:s1'").fetchone()[0]
@@ -97,8 +95,7 @@ def test_an_admin_takes_back_a_users_decision(app, settings: Settings) -> None:
 
 
 def test_search_my_missing_songs(app, login: Callable[..., TestClient], settings: Settings) -> None:
-    """The Run permission: the search jobs by hand, for the user's songs only; the list check for all
-    (it asks what changed, cheap)."""
+    """The Run right starts the searches for the user's songs only; the list check for all (it is cheap)."""
     uid = timon_follows_playlist_a(app)
     timon = login(app, "timon", admin=False)
     assert timon.post("/jobs/mine", data={"what": "search"}).status_code == 403  # no permission yet

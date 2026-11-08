@@ -33,8 +33,7 @@ def test_similarity_finds_the_preview_inside_the_song() -> None:
 
 
 def test_similarity_lets_the_preview_begin_before_the_file() -> None:
-    """A recording of Spotify's stream can lack the release's silent lead-in (here 0.43 s, 3 frames) that the
-    preview has: its start is then still found."""
+    """A recording missing the release's silent lead-in (here 3 frames) still matches the preview's start."""
     rng = np.random.default_rng(3)
     song = rng.integers(0, 2**32, 900, dtype=np.uint32)
     preview = noisy(song[:221], 0.95, rng)
@@ -70,6 +69,6 @@ def test_reference_is_cached(con, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(identity, "_get", get)
     monkeypatch.setattr(identity, "fingerprint", lambda source: np.arange(5, dtype="<u4"))
     assert identity.reference(con, "A").tolist() == [0, 1, 2, 3, 4]
-    assert identity.reference(con, "A").tolist() == [0, 1, 2, 3, 4] and len(calls) == 2  # the second from refs
+    assert identity.reference(con, "A").tolist() == [0, 1, 2, 3, 4] and len(calls) == 2  # the second from the cache
     assert identity.reference(con, "B") is None and identity.reference(con, "B") is None
-    assert len(calls) == 3  # Deezer does not know B: asked again in a week
+    assert len(calls) == 3  # a miss is cached too (asked again in a week)

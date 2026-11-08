@@ -178,8 +178,8 @@ def test_search_text() -> None:
 
 
 def test_results_filtered_and_ranked(client: slskd.Slskd) -> None:
-    """The necessary conditions drop files (length, a locked file, other formats for an upgrade); the
-    preferred ones, a free slot and speed decide the order."""
+    """Required conditions drop files (length, locked, non-FLAC for an upgrade); preferred ones, a free
+    slot and speed decide the order."""
     FAKE.responses["Artist Song"] = [
         response("slow", file("Music\\Artist\\Artist - Song.flac"), speed=50_000),
         response("busy", file("Music\\Artist\\Artist - Song.flac"), free=False),
@@ -271,7 +271,7 @@ def test_the_search_limit_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_slskd_busy_with_another_search_is_asked_again(client: slskd.Slskd, monkeypatch: pytest.MonkeyPatch) -> None:
-    """slskd answers 429 while it starts another search: Echolot waits a moment and asks again."""
+    """A 429 (slskd busy starting another search) is retried."""
     monkeypatch.setattr(slskd.time, "sleep", lambda s: None)
     FAKE.busy = 3
     job = client.search("Artist", "Song", 200, soulseek.search_settings())
@@ -279,8 +279,7 @@ def test_slskd_busy_with_another_search_is_asked_again(client: slskd.Slskd, monk
 
 
 def test_a_peer_that_failed_is_tried_last_then_not_at_all(client: slskd.Slskd) -> None:
-    """As Sockseek (fails-to-downrank 1, fails-to-ignore 2): after one failed download the peer's files come
-    after everyone else's, after two they are left out; a download that goes through counts for the peer."""
+    """As Sockseek: one failed download ranks the peer last, two leave it out; a success counts for it."""
     FAKE.responses["Artist Song"] = [
         response("flaky", file("Music\\Artist\\Artist - Song.flac")),
         response("other", file("Music\\Artist\\Artist - Song.mp3", ext="mp3", bitrate=320)),
@@ -307,8 +306,7 @@ def test_a_peer_that_failed_is_tried_last_then_not_at_all(client: slskd.Slskd) -
 
 
 def test_a_download_without_progress_is_given_up(client: slskd.Slskd, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Queued at the peer (or the peer does not answer) for maxStaleTime: given up, as Sockseek does, and the
-    next file is tried; it counts as the peer's failure."""
+    """No progress for maxStaleTime (queued or silent peer): given up and counted as the peer's failure."""
     FAKE.responses["Artist Song"] = [response("u", file("Music\\Artist\\Artist - Song.flac"))]
     job = client.search("Artist", "Song", 200, soulseek.search_settings())
     client.wait(job, threading.Event(), 1e12)

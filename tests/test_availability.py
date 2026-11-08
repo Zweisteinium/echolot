@@ -1,5 +1,5 @@
-"""The availability tracker (jobs/availability.py): the lists' songs coming and going, a list that can't be
-read, the daily check of every song's state at Spotify and SoundCloud, the Changes page."""
+"""The availability tracker: list changes, unreadable lists, the daily Spotify/SoundCloud check, the Changes
+page."""
 
 import datetime
 import json
@@ -27,9 +27,8 @@ def changes(con) -> list[tuple]:
 
 
 def test_a_lists_songs_coming_and_going(settings: Settings) -> None:
-    """Added, removed, and a swap for another release of the same recording (the same ISRC; on SoundCloud
-    a re-upload: the same uploader, title and length) as one change; nothing at a list's first reading. A
-    list that can't be read is a change once it has failed for an hour."""
+    """Added, removed, and a swap for the same recording (same ISRC; on SoundCloud same uploader, title and
+    length) as one change; nothing at a list's first reading. Unreadable counts only after an hour."""
     con = db.connect(settings.db_path)
     song = "INSERT INTO songs (key, service, artist, title, length, isrc) VALUES (?, ?, ?, ?, ?, ?)"
     with con:
@@ -60,8 +59,8 @@ def test_a_lists_songs_coming_and_going(settings: Settings) -> None:
 
 
 class FakeSpotify:
-    """s1 plays, s2 is taken down (no market has it), s3 does not play here (others have it), s9 is gone,
-    s7 plays as another release (relinked). A search by ISRC finds the releases in `releases` (ISRC -> id)."""
+    """s1 plays, s2 taken down (no market), s3 blocked here, s9 gone, s7 relinked to s7b. ISRC search finds
+    `releases` (ISRC -> id)."""
 
     releases: ClassVar[dict[str, str]] = {}
     searched: ClassVar[list[str]] = []
@@ -126,7 +125,7 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
 def test_the_daily_check(run: Run) -> None:
     con = run.connect()
     song = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', ?, ?, 1)"
-    with con:  # s7 on a list too, and a song removed lately (why: this check)
+    with con:  # s7 on a list, s9 recently removed (detail gets the reason)
         con.execute(song, ("spotify:s7", "A", "B"))
         con.execute(
             "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')"
@@ -162,8 +161,8 @@ def test_the_daily_check(run: Run) -> None:
 
 
 def test_what_a_relinked_song_plays_as(run: Run) -> None:
-    """A relinked song's release by its own names, as the player shows them (asked without a market: with one,
-    Spotify gives the list's), once per release it is relinked to; none once it plays as itself."""
+    """A relinked song stores the release it plays as, by its own names (asked without a market, which would
+    give the list's), once per release; cleared once it plays as itself."""
     con = run.connect()
     with con:
         con.execute(
@@ -187,7 +186,7 @@ def test_what_a_relinked_song_plays_as(run: Run) -> None:
     }
     con.close()
     availability.check(run)
-    assert FakeSpotify.asked.count("s7b") == 1  # (known: not asked again)
+    assert FakeSpotify.asked.count("s7b") == 1  # known: not asked again
     FakeSpotify.relinked = False
     availability.check(run)
     con = run.connect()
@@ -196,10 +195,8 @@ def test_what_a_relinked_song_plays_as(run: Run) -> None:
 
 
 def test_another_release_by_its_isrc(run: Run, login: Callable[..., TestClient]) -> None:
-    """A song that plays nowhere as its own release plays as another one with its ISRC, which Spotify does not
-    relink it to: that one's track is checked again each day, and looked for anew only after a week (or when it
-    plays no more). Song links open the release that plays: a relinked song's own link starts its album by
-    position, and a greyed-out track before it shifts that."""
+    """A song unplayable as itself is replaced by another release with its ISRC: rechecked daily, searched
+    anew after a week or when it stops playing. Song links open the release that plays."""
     FakeSpotify.releases["ISRC2"] = "s2c"
     con = run.connect()
     with con:  # s2 and s7 (relinked) on the playlist

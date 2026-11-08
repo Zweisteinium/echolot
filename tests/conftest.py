@@ -102,7 +102,7 @@ def seed(con: sqlite3.Connection) -> None:
 
 @pytest.fixture(autouse=True)
 def no_internet(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tests never leave the machine: a name other than the loopback's is not found (as offline)."""
+    """Tests stay offline: any host but loopback fails to resolve."""
     lookup = socket.getaddrinfo
 
     def local_only(host, *args, **kwargs):
@@ -125,7 +125,7 @@ def offline_audio_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_lossprint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """lossprint never runs in tests (where it is installed, as in the image): as not installed."""
+    """lossprint acts as not installed, even where it is (as in the image)."""
     monkeypatch.setattr("echolot.library.audio.lossprint", lambda path: None)
 
 
@@ -169,8 +169,7 @@ def settings(bare_settings: Settings) -> Settings:
 
 @pytest.fixture(autouse=True)
 def fake_navidrome(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
-    """Navidrome's login, faked: PASSWORD is everyone's password; the returned map makes a name a
-    Navidrome admin (its id is 'nd-<name>')."""
+    """Fake Navidrome login: PASSWORD works for everyone; the returned map makes a name an admin (id 'nd-<name>')."""
     from echolot.services import navidrome
 
     admins: dict[str, bool] = {}
@@ -184,9 +183,8 @@ def fake_navidrome(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
 
 
 def logged_in(app: FastAPI, name: str = "owner", admin: bool = True) -> TestClient:
-    """A client (no `with`: the scheduler thread stays off) logged in with a Navidrome account (an admin
-    in Echolot, or not; by default the owner of the small collection), sending the session's CSRF token
-    with every request."""
+    """A client logged in as a Navidrome account (default: the owner), sending the CSRF token; no `with`,
+    so the scheduler thread stays off."""
     client = TestClient(app)
     con = db.connect(app.state.settings.db_path)
     try:

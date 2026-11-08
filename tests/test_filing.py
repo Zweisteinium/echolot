@@ -106,8 +106,8 @@ def test_same_song_twice_is_a_duplicate(env) -> None:
 
 
 def test_a_fake_flac_that_takes_over_stays_marked(env) -> None:
-    """A recording made from a lossy file replaces a 160 kbps copy of the same name: it stays a fake
-    FLAC (retiring "A - Song.mp3" once unmarked the new "A - Song.flac" too), and its event says so."""
+    """A fake FLAC replacing a lossy copy of the same stem stays marked fake, in lossy_sourced and its event
+    (retiring the MP3 once cleared the shared stem's mark)."""
     con, paths, _ = env
     mp3 = paths.tracks / "A" / "A - Song.mp3"
     mp3.parent.mkdir()
@@ -161,7 +161,7 @@ def test_only_near_misses_are_kept(env) -> None:
 
 
 def test_collaboration_listed_twice_is_one_song(env) -> None:
-    """Spotify: "Mabe, Catch Vibe - Atlantis" and "Catch Vibe, Mabe - Atlantis" (single and EP)."""
+    """The same artists in another order are one song ("Mabe, Catch Vibe" vs "Catch Vibe, Mabe")."""
     con, paths, _ = env
     filing.file_into(
         con, paths, download(paths, "a.wav", 350), Want("Mabe", "Atlantis", 350, "", ["Mabe", "Catch Vibe"]), "x"
@@ -182,7 +182,7 @@ def test_one_folder_per_artist(env) -> None:
 
 
 def test_mix_cut_found_at_any_length(env) -> None:
-    """Neelix - The Twenty Five: the liked song is a 1:43 cut of a DJ mix; the 4:55 release counts."""
+    """A "- Mixed" cut of a DJ mix is found by the full release at any length."""
     con, paths, _ = env
     title = "The Twenty Five (Official Nature One Anthem 2019)"
     filing.file_into(con, paths, download(paths, "full.wav", 295), Want("Neelix", title, 295), "x")
@@ -255,7 +255,7 @@ def test_revert_until_applied(env) -> None:
 
 
 def test_accept_links_the_same_recording_under_another_artist(env, monkeypatch) -> None:
-    """Spotify: "Pbb Yea - Chilln" and "TheDoDo - Chilln"; YouTube has one video, tagged Pbb Yea."""
+    """An accepted download whose tags name a library file's artist links the song to that file."""
     con, paths, run = env
     filing.file_into(con, paths, download(paths, "a.wav", 227), Want("Pbb Yea", "Chilln", 227, "spotify:pbb"), "x")
     with con:
@@ -266,7 +266,6 @@ def test_accept_links_the_same_recording_under_another_artist(env, monkeypatch) 
     e = events(con)[-1]
     assert e["action"] == "wrong-song"  # the artist is only in the tags of the real file: here nowhere
     monkeypatch.setattr("echolot.library.audio.read_tags", lambda p: (["Pbb Yea"], "Chilln"))
-    # a rejected download of the song, kept: accepted, it turns out to be Pbb Yea's file
     kept = paths.inbox("review") / "2026-09-27" / "TheDoDo - Chilln [youtube].wav"
     kept.parent.mkdir(parents=True, exist_ok=True)
     download(paths, "c.wav", 227).rename(kept)
@@ -285,8 +284,7 @@ def search_hit(con, paths: Paths, src: Path, want: Want, name: str, source: str 
 
 
 def test_accepted_other_length_counts_and_a_discarded_one_is_blocked(env) -> None:
-    """Downloads of another length, kept for review: accepted, the song has it whatever its length; one
-    discarded is never taken again (the search fallback would bring it back every week)."""
+    """An accepted download of another length counts for the song; a discarded one is blocked for good."""
     con, paths, run = env
     rows = [("spotify:a", "LAWTON", "Believe In"), ("spotify:b", "LAWTON", "Horizon")]
     sql = "INSERT INTO songs (key, service, artist, title, length) VALUES (?, 'spotify', ?, ?, 200)"
@@ -349,7 +347,7 @@ def add_song(con, key: str, artist: str, title: str, length: int) -> Want:
 
 
 def test_a_close_match_is_filed_under_its_own_name(env) -> None:
-    """An extended mix taken for the radio version: filed as what it is, the song linked to it."""
+    """A close match is filed under its own name and the song linked to it; search_again unlinks it."""
     con, paths, run = env
     want = add_song(con, "spotify:nc", "No Chasa", "Master Disaster", 212)
     found = "NO CHASA - MASTER DISASTER (EXTENDED MIX)"
@@ -363,14 +361,14 @@ def test_a_close_match_is_filed_under_its_own_name(env) -> None:
     assert con.execute("SELECT 1 FROM attempts WHERE song_key = 'spotify:nc'").fetchone() is None
     catalog.match_songs(con)
     assert song(con, "spotify:nc")["file"] == "No Chasa/No Chasa - Master Disaster (Extended Mix).wav"
-    review.search_again(con, "spotify:nc")  # look for the radio version again: the file stays
+    review.search_again(con, "spotify:nc")  # the file stays
     catalog.match_songs(con)
     assert song(con, "spotify:nc")["file"] is None
     assert (paths.tracks / "No Chasa" / "No Chasa - Master Disaster (Extended Mix).wav").is_file()
 
 
 def accept_visualizer(con, paths, run) -> Path:
-    """LAWTON - Believe In, accepted from a video 19 s longer: filed and linked as the song."""
+    """A video 19 s longer, accepted: filed and linked as the song."""
     want = add_song(con, "spotify:lw", "LAWTON", "Believe In", 200)
     search_hit(con, paths, download(paths, "a.wav", 219), want, "LAWTON - Believe In (Official Visualizer)")
     decide(con, run, events(con)[-1]["id"], "accept")
@@ -418,8 +416,7 @@ def test_close_guess(found: str, artists: list[str], name: str) -> None:
 
 
 def test_a_close_match_for_a_lossy_song_keeps_both(env) -> None:
-    """A FLAC whose audio is not the release's, for a song the library has lossy: taken as another version,
-    it is filed under its own name and the lossy copy stays."""
+    """A close match for a song the library has lossy is filed beside it; the lossy copy stays."""
     con, paths, run = env
     want = add_song(con, "spotify:tk", "TEKKNO", "say it right tekkno", 135)
     mp3 = paths.tracks / "TEKKNO" / "TEKKNO - say it right tekkno.mp3"
@@ -441,7 +438,7 @@ def test_a_close_match_for_a_lossy_song_keeps_both(env) -> None:
 
 
 def test_a_renamed_file_stays_the_soundcloud_songs_download(env) -> None:
-    """A SoundCloud song is its own download, found by the file name: a rename takes it along."""
+    """A SoundCloud song (matched by stem) follows its file through a rename."""
     con, paths, _ = env
     filing.file_into(con, paths, download(paths, "a.wav", 316), Want("No Chasa", "MASTER DISASTER"), "x")
     row = ("soundcloud:1", "No Chasa", "MASTER DISASTER", 316, "No Chasa/No Chasa - MASTER DISASTER")
@@ -455,7 +452,7 @@ def test_a_renamed_file_stays_the_soundcloud_songs_download(env) -> None:
 
 
 def test_a_rename_and_a_removal_keep_the_fake_mark(env) -> None:
-    """A renamed fake keeps what it was made from; a removed one's event says it was a fake (the Activity page)."""
+    """A renamed fake keeps its lossy_sourced row; a retired one's event is marked fake."""
     con, paths, _ = env
     filing.file_into(con, paths, download(paths, "a.flac", 316), Want("No Chasa", "MASTER DISASTER"), "x", fake=True)
     with con:
@@ -497,12 +494,11 @@ def test_the_same_file_is_not_kept_twice(env) -> None:
 
 
 def test_one_card_per_song_and_taking_one_discards_the_others(env, monkeypatch) -> None:
-    """Three downloads of one song, all another length: one card, the closest length first; taking one
-    discards the others once applied, and blocks them."""
+    """Downloads of one song form one card, closest length first; taking one discards and blocks the rest."""
     con, paths, run = env
     want = add_song(con, "spotify:t78", "T78", "Megator", 330)
     monkeypatch.setattr("echolot.library.audio.read_credit", lambda p: ("T78", "Megator (Original Mix)"))
-    for n, seconds in enumerate((419, 390, 400)):  # all another length: kept for review
+    for n, seconds in enumerate((419, 390, 400)):
         search_hit(con, paths, download(paths, f"{n}.wav", seconds), want, f"0{n} T78 - Megator", "soulseek")
     [g] = review.groups(review.items(con, paths.music)["kept"])
     assert [i.event["seconds"] for i in g.items] == [390, 400, 419]
@@ -531,9 +527,8 @@ def test_no_match_for_all(env) -> None:
 
 
 def test_a_close_match_whose_title_reduces_to_the_songs(env) -> None:
-    """Megator 5:30 wanted, "Megator (Original Mix)" 6:59 downloaded: both titles reduce to "megator" for the
-    matching rules, yet the original mix is another version. It is taken as a close match under its own
-    name; the link carries its length, so the song finds this file and not the radio version."""
+    """A close match whose title reduces to the song's ("(Original Mix)") gets its length in the link, so
+    the song keeps to this file and not the radio version."""
     con, paths, run = env
     want = add_song(con, "spotify:t78", "T78", "Megator", 330)
     search_hit(con, paths, download(paths, "a.wav", 419), want, "T78 - Megator (Original Mix)", "soulseek")
@@ -551,8 +546,7 @@ def test_a_close_match_whose_title_reduces_to_the_songs(env) -> None:
 
 
 def test_a_close_match_takes_any_name_but_another_files(env) -> None:
-    """The name given is the file's name: any name, a title alone takes the song's artist; a name another
-    library file has is refused (filing would otherwise add the length to it)."""
+    """A close-match name is free (a bare title gets the song's artist), but not another library file's."""
     con, paths, _ = env
     want = add_song(con, "spotify:t78", "T78", "Megator", 330)
     (paths.tracks / "T78").mkdir()
@@ -568,9 +562,7 @@ def test_a_close_match_takes_any_name_but_another_files(env) -> None:
 
 
 def test_a_perfect_match_of_another_length_replaces_the_lossy_copy(env) -> None:
-    """Rave Nation: the library has a 128 kbps copy of 4:50; a FLAC of 5:41 (a longer part, the same song)
-    is taken as a Perfect match. It replaces the copy under its name, not as a second file with the
-    length appended."""
+    """An accepted lossless file of another length replaces the lossy copy under its name, not beside it."""
     con, paths, run = env
     want = add_song(con, "spotify:rn", "T78", "Rave Nation", 302)
     lossy = paths.tracks / "T78" / "T78 - Rave Nation.mp3"
@@ -589,8 +581,8 @@ def test_a_perfect_match_of_another_length_replaces_the_lossy_copy(env) -> None:
 
 
 def test_tags_naming_another_song_need_a_confirmation(env, monkeypatch) -> None:
-    """Juice WRLD: the file name says "Come & Go", the tags say "I Want It". Filed only for review (Please
-    confirm), unless the audio check hears the release. Confirmed, it gets the song's tags."""
+    """Tags naming another song make the match probable (unless the audio check hears the release); "ok"
+    retags the file as the song."""
     con, paths, run = env
     want = add_song(con, "spotify:jw", "Juice WRLD", "Come & Go (with Marshmello)", 205)
     monkeypatch.setattr("echolot.library.audio.read_tags", lambda p: (["Juice WRLD"], "I Want It"))
@@ -607,8 +599,7 @@ def test_tags_naming_another_song_need_a_confirmation(env, monkeypatch) -> None:
 
 
 def test_review_items_are_compared_with_your_copy_once(env, monkeypatch) -> None:
-    """A FLAC kept for a song the library has lossy is compared with that copy (the hint on its card),
-    once; a download of a missing song has nothing to be compared with."""
+    """Review items are compared once with the library's copy; one for a missing song gets an empty hint."""
     con, paths, _ = env
     want = add_song(con, "spotify:rn", "T78", "Rave Nation", 302)
     lossy = paths.tracks / "T78" / "T78 - Rave Nation.mp3"
@@ -633,7 +624,7 @@ def test_review_items_are_compared_with_your_copy_once(env, monkeypatch) -> None
 
 
 def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A FLAC above 48 kHz becomes 48 kHz (96 kHz is no multiple of 44.1), 24 bit; with keep_hires it stays."""
+    """A 96 kHz FLAC is resampled to 48 kHz, 24 bit; keep_hires leaves it."""
     f = tmp_path / "hires.flac"
     f.write_bytes(b"x")
     monkeypatch.setattr(audio, "stream", lambda path, field: {"codec_name": "flac", "sample_rate": "96000"}[field])
@@ -650,8 +641,8 @@ def test_hires_is_made_44_or_48_khz_unless_kept(tmp_path: Path, monkeypatch: pyt
 
 
 def test_bad_soulseek_files_are_skipped_for_any_song(env) -> None:
-    """A damaged file: skipped for KEEP_DAYS, for good once it came damaged twice. A fake FLAC: for good in
-    the upgrade, whatever song it came for. By name and exact size."""
+    """By name and exact size, for any song: damaged once is skipped for KEEP_DAYS, twice for good; a fake
+    FLAC only in upgrades."""
     con = env[0]
     old = (datetime.datetime.now() - datetime.timedelta(days=filing.KEEP_DAYS + 5)).isoformat(timespec="seconds")
     rows = [(old, "damaged", "spotify:a", "once", 0, 100), (old, "damaged", "spotify:a", "twice", 0, 200)]
@@ -669,9 +660,8 @@ def test_bad_soulseek_files_are_skipped_for_any_song(env) -> None:
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_a_damaged_or_cut_off_flac_is_rejected(tmp_path: Path) -> None:
-    """Bytes overwritten in the middle (a broken transfer): a frame fails its checksum. Cut off: the header
-    still claims the whole song. Both are Damaged; a clean FLAC passes, also with a tag or junk after its
-    last frame."""
+    """Overwritten or cut-off FLACs are Damaged (and deleted by prepare); a clean one passes, also with a
+    tag or junk after its last frame."""
     good = tmp_path / "good.flac"
     tone = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=20", "-ac", "2", "-c:a", "flac", str(good)]
     subprocess.run(tone, check=True)
@@ -692,7 +682,7 @@ def test_a_damaged_or_cut_off_flac_is_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_levels_of_a_file_recorded_at_a_quarter(tmp_path: Path) -> None:
-    """A tone at full scale peaks at 0 dB; the same at a quarter (Spotify at 25 % in the mixer) 12 dB lower."""
+    """A quarter-gain recording (Spotify at 25 % in the mixer) measures 12 dB lower."""
     for name, gain in (("full", 1.0), ("quarter", 0.25)):
         subprocess.run(
             [
@@ -741,8 +731,8 @@ def _wav(path: Path, bits: int, floating: bool = False, rate: int = 44100, frame
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_a_wav_becomes_flac_sample_for_sample(tmp_path: Path) -> None:
-    """A WAV becomes FLAC with the same samples (16, 24 and 32 bit: 32 as 32-bit FLAC, which ffmpeg would cut
-    to 24), the WAV goes; a float WAV becomes 32-bit FLAC too (FLAC holds no floats)."""
+    """A WAV becomes a sample-exact FLAC and is removed (32 bit stays 32, not ffmpeg's 24); float WAV gives
+    32-bit FLAC."""
     for bits in (16, 24, 32):
         wav = _wav(tmp_path / f"song{bits}.wav", bits)
         before = audio.pcm_digest(wav)
@@ -756,8 +746,8 @@ def test_a_wav_becomes_flac_sample_for_sample(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_an_original_whose_flac_differs_stays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Should a FLAC's samples ever differ from its original's, the original stays as it came; its cover is
-    written inside the WAV (an ID3 in front of a RIFF file would break it)."""
+    """If the FLAC's samples differ, the original stays; its cover goes inside the WAV (an ID3 in front of
+    RIFF would break it)."""
     wav = _wav(tmp_path / "song.wav", 24)
     digests = iter(["original", "other"])
     monkeypatch.setattr(audio, "pcm_digest", lambda p: next(digests))

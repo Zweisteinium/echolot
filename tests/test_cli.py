@@ -57,7 +57,7 @@ def test_tags_normalize(
 def test_jobs_pause_waits_for_the_running_ones(
     settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """What a deploy does: remember whether the jobs were paused, pause them and wait until none runs."""
+    """As a deploy does: pause the jobs and wait until none runs."""
     from echolot import db
     from echolot.settings import options
 

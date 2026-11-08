@@ -105,9 +105,8 @@ def missing(run: Run) -> list:
 
 
 def test_found_after_skipping_wrong_and_stuck_results(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Gone Song (s3, 180 s, searched 3 times: loosened). A remix is never downloaded, a transfer queued
-    at the peer is given up, a file whose real length is another version's is rejected, the next one is
-    filed."""
+    """Loosened search (3 tries): a remix is skipped by name, a stuck transfer given up, a file of another
+    version's length rejected; the next fitting one is filed."""
     monotonic = iter(range(0, 10**6, 200))  # every look at the clock: 200 s later
     monkeypatch.setattr(acquire.time, "monotonic", lambda: next(monotonic))
     monkeypatch.setattr(acquire, "POLL_SECONDS", 0)
@@ -138,8 +137,7 @@ def test_found_after_skipping_wrong_and_stuck_results(run: Run, monkeypatch: pyt
 
 
 def test_a_download_too_slow_to_end_in_time_is_given_up(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A peer that sends, but so slowly that the file would take longer than TRANSFER_SECONDS: given up
-    after SLOW_AFTER, not only at TRANSFER_SECONDS, and the next file is tried."""
+    """A transfer too slow to finish within TRANSFER_SECONDS is given up early (SLOW_AFTER); the next file is tried."""
     monotonic = iter(range(0, 10**6, 200))  # every look at the clock: 200 s later
     monkeypatch.setattr(acquire.time, "monotonic", lambda: next(monotonic))
     monkeypatch.setattr(acquire, "POLL_SECONDS", 0)
@@ -173,8 +171,7 @@ def test_filed_and_attempts_cleared(run: Run) -> None:
 
 
 def test_through_slskd(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With slskd as the backend: its downloads folder is the inbox (echolot/<name>), the search is deleted
-    in slskd afterwards, and the song is filed as through Sockseek."""
+    """slskd backend: its downloads folder (echolot/<name>) is the inbox, the search is closed afterwards."""
     downloads = run.paths.music / "inbox" / "slskd"
     closed = []
 
@@ -222,7 +219,7 @@ def test_daemon_restart_counts_no_try(run: Run) -> None:
 
 
 def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:
-    """First Song is in the library as MP3: a FLAC search finds a genuine one, which takes over."""
+    """A genuine FLAC found by the upgrade search replaces the library's MP3."""
     FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
     con = run.connect()
     with con:
@@ -240,8 +237,7 @@ def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:
 
 
 def test_a_song_another_run_searches_is_left_to_it(run: Run) -> None:
-    """The scheduled upgrade starts while the full one gives way (worker): the file the full one still
-    downloads for is not searched a second time."""
+    """A file another run is still searching for (SEARCHING) is not searched again."""
     FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
     acquire.SEARCHING.add("Artist A/Artist A - First Song.mp3")
     try:
@@ -254,8 +250,7 @@ def test_a_song_another_run_searches_is_left_to_it(run: Run) -> None:
 
 
 def test_a_fake_flac_is_not_downloaded_again_for_an_upgrade(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The only FLAC of First Song is made from an MP3: no upgrade, and the next upgrade search skips that
-    file (its name and exact size) instead of downloading it again."""
+    """A FLAC made from an MP3 is no upgrade and is skipped (name and exact size) by later searches."""
     monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, True, {"verdict": "lossy"}))
     FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
     con = run.connect()
@@ -283,8 +278,7 @@ def test_levels_and_due() -> None:
 
 
 def test_login_failure_counts_no_try(run: Run) -> None:
-    """A wrong Soulseek password, or a daemon that lost Soulseek: no search starts (the songs wait for
-    it), and that is not the songs' fault."""
+    """Daemon not logged in: no search starts and no try is counted."""
     FakeDaemon.ready = False
     with pytest.raises(soulseek.DaemonError, match="Soulseek not logged in"):
         acquire._search(run, missing(run), "search")
@@ -295,9 +289,8 @@ def test_login_failure_counts_no_try(run: Run) -> None:
 
 
 def test_a_lost_login_is_waited_for(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Soulseek drops the login during a run (a server outage; the daemon's watchdog restarts it): the
-    song in progress counts no try, the run waits until the daemon can log in again and goes on with the
-    rest; one that stays out stops the run."""
+    """Login lost mid-run: the song counts no try, the run waits for the login and goes on; a login that
+    stays out stops the run."""
     con = run.connect()
     with con:
         options.update(con, options.Soulseek, parallel=1)
@@ -309,7 +302,7 @@ def test_a_lost_login_is_waited_for(run: Run, monkeypatch: pytest.MonkeyPatch) -
     def flaky(self) -> dict:
         looks.append(FakeDaemon.ready)
         if not FakeDaemon.ready and looks.count(False) >= 3:
-            FakeDaemon.ready = True  # back (a fresh daemon: logs in with the next search)
+            FakeDaemon.ready = True
         return status(self)
 
     search = FakeDaemon.search
@@ -357,8 +350,8 @@ def hit(url: str, uploader: str, title: str, seconds: int) -> dict:
 
 
 def test_fallback_keeps_another_length_for_review(run: Run) -> None:
-    """LAWTON - Believe In (200 s): SoundCloud has it, DRM-protected; YouTube only an official video of another
-    edit (219 s) and the extended mix. The video is kept for review, once; the report says why."""
+    """With only other lengths found (SoundCloud copy DRM-protected), the nearest is kept for review, once,
+    and the report says why."""
     want = Want("LAWTON", "Believe In", 200, "spotify:lawton")
     video = "LAWTON, Trancemaster Krause & Caroline Roxy - Believe In (Official Visualizer)"
     extended = hit("yt2", "Trance Paradise", "LAWTON - Believe In (Extended Mix)", 245)
@@ -379,8 +372,7 @@ def test_fallback_keeps_another_length_for_review(run: Run) -> None:
 
 
 def test_a_download_rejected_before_is_not_downloaded_again(run: Run) -> None:
-    """A file only its tags could judge (they are not the song): kept for review once, then skipped by
-    the next searches, where the same name and length show up again."""
+    """A file kept for review is skipped when the same name and length show up again from another peer."""
     FakeDaemon.files["Gone Song"] = [("u1", "Music\\Artist C\\Album\\07 Track Seven.flac", 180, "ok")]
     rows = [r for r in missing(run) if r["key"] == "spotify:s3"]
     acquire._search(run, rows, "search")
@@ -395,8 +387,7 @@ def test_a_download_rejected_before_is_not_downloaded_again(run: Run) -> None:
 
 
 def test_a_damaged_download_is_skipped_for_the_next_result(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A FLAC that does not decode cleanly: the next result is filed, the damaged file is noted (Activity) and
-    not downloaded again, wherever it shows up with the same name and size."""
+    """A damaged download is logged and never fetched again (same name and size); the next result is filed."""
     broken = "Music\\Artist C\\Artist C - Gone Song.wav"
     FakeDaemon.files["Gone Song"] = [("u1", broken, 180, "ok"), ("u2", "Share\\Artist C - Gone Song.wav", 180, "ok")]
 
@@ -424,7 +415,7 @@ def test_a_damaged_download_is_skipped_for_the_next_result(run: Run, monkeypatch
 
 
 def test_a_fallback_download_keeps_its_page(run: Run) -> None:
-    """The page a YouTube download came from is kept with the event and in the DOWNLOAD tag."""
+    """A YouTube download's page is stored in the event and the DOWNLOAD tag."""
     want = Want("Artist C", "Gone Song", 180, "spotify:s3")
     ydl = FakeYtDlp(
         {"youtube": [hit("https://www.youtube.com/watch?v=gone", "Artist C", "Artist C - Gone Song", 180)]}, {}
@@ -439,7 +430,7 @@ def test_a_fallback_download_keeps_its_page(run: Run) -> None:
 
 
 def test_a_filed_song_is_tagged_from_the_song(run: Run) -> None:
-    """The file's tags: the song's artist and title, its Spotify page, downloaded from Soulseek."""
+    """Tags come from the song: artist, title, Spotify page; DOWNLOAD is Soulseek."""
     FakeDaemon.files["Gone Song"] = [("u2", "Music\\Artist C\\Artist C - Gone Song.wav", 180, "ok")]
     acquire._search(run, [r for r in missing(run) if r["key"] == "spotify:s3"], "search")
     tags = tagging.read(run.paths.tracks / "Artist C" / "Artist C - Gone Song.wav")
@@ -448,8 +439,7 @@ def test_a_filed_song_is_tagged_from_the_song(run: Run) -> None:
 
 
 def test_a_run_that_gives_way_leaves_the_rest(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Another job of the resource is due: the song in progress ends, the others are left for the run that
-    goes on after it (worker.resume)."""
+    """On give_way the song in progress ends and the rest is left for the resumed run."""
     con = run.connect()
     with con:
         options.update(con, options.Soulseek, parallel=1)
@@ -461,16 +451,15 @@ def test_a_run_that_gives_way_leaves_the_rest(run: Run, monkeypatch: pytest.Monk
         return search(self, *args)
 
     monkeypatch.setattr(FakeDaemon, "search", search_then_due)
-    rows = missing(run) * 3  # three songs to search (the same one: only the first is)
+    rows = missing(run) * 3
     message = acquire._search(run, rows, "search")
     assert len(rows) > 1 and len(FakeDaemon.searches) == 1
     assert run.left == len(rows) - 1 and message.endswith(f"; gave way, {run.left} left")
 
 
 def test_a_soundcloud_songs_flac_waits_for_review(run: Run) -> None:
-    """Trance Tune is a SoundCloud song, in the library as M4A. The upgrade finds a FLAC, but its names are
-    an uploader's: it is kept for review, not searched again while it waits, and Perfect match replaces
-    the M4A."""
+    """A SoundCloud song's FLAC (uploader's names) waits for review, is not searched again meanwhile, and
+    replaces the M4A once accepted."""
     FakeDaemon.files["Trance Tune"] = [("u1", "Music\\Uploader\\Uploader - Trance Tune.flac", 400, "ok")]
     con = run.connect()
     with con:
@@ -498,8 +487,7 @@ def test_a_soundcloud_songs_flac_waits_for_review(run: Run) -> None:
 
 
 def test_a_song_the_library_has_under_other_names_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Spotify lists First Song twice: by ISRC, and as a single by another artist whose release sounds like
-    the library's file. Both are linked to Artist A's file instead of being searched."""
+    """Songs that are the library's recording (same ISRC, or same release audio) are linked, not searched."""
     con = run.connect()
     with con:
         con.execute("UPDATE songs SET isrc = 'QZAAA0000001' WHERE key = 'spotify:s1'")
@@ -553,9 +541,8 @@ def add_missing(run: Run, key: str, title: str, tries: int = 0, last_try: int = 
 def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Spotify lists starts New Spotify songs only when there is a new song (Soulseek jobs make way only
-    then). It searches only songs never searched; Gone Song (searched 3 times) is the evening search's. One
-    Soulseek does not have goes to YouTube and SoundCloud right after."""
+    """sync queues search_new only for a new song; search_new takes never-searched songs and queues the
+    fallback only for a miss."""
     monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "3 lists, 0 changed")
     assert acquire.sync(run) == "3 lists, 0 changed" and "search_new" not in run.after
     add_missing(run, "spotify:new", "New Song")
@@ -572,8 +559,7 @@ def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
 
 
 def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run) -> None:
-    """Spotify lists one release twice (two track ids, one ISRC): the one searched before stands for both,
-    on the Missing page with both places; once it is filed, the library job links its twin to the file."""
+    """Two track ids with one ISRC: searched and shown once (both places listed); once filed, the twin is linked."""
     from echolot.jobs import worker
     from echolot.web import stats
 
@@ -599,8 +585,8 @@ def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run) -> None:
 
 
 def test_a_song_is_found_under_its_artists_english_name(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """祖堅 正慶 on Spotify, Masayoshi Soken in the peer's folder and file: matched by the alias, filed under the
-    song's own name. With nothing that fits under the name, the English one is searched as well."""
+    """A peer file under the artist's alias matches and is filed under the song's name; the alias is searched
+    only when the name finds nothing that fits."""
     add_missing(run, "spotify:k1", "Dynamis")
     con = run.connect()
     with con:
@@ -617,7 +603,7 @@ def test_a_song_is_found_under_its_artists_english_name(run: Run, monkeypatch: p
     assert filed == "祖堅 正慶/祖堅 正慶 - Dynamis.flac"
     names: list[str] = []
 
-    def one(self, want, tries, artist_name):  # the first search sees nothing that fits, the second finds it
+    def one(self, want, tries, artist_name):
         names.append(artist_name)
         if artist_name == want.artist:
             return acquire.Outcome("not found", "no results", {"fits": 0})
@@ -646,8 +632,7 @@ def test_the_evening_search_takes_each_song_daily_then_weekly(run: Run) -> None:
 
 
 def test_the_fallback_takes_new_misses_first_and_the_upgrade_waits(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """After one Soulseek miss; a song never tried before one tried a week ago. A lossy file filed from
-    YouTube gets its first FLAC search 12 h later (Soulseek just had nothing)."""
+    """Never-tried songs go first; a lossy file filed from YouTube waits UPGRADE_WAIT for its first FLAC search."""
     add_missing(run, "spotify:new", "New Song", tries=1, last_try=int(time.time()))
     con = run.connect()
     with con:
@@ -667,9 +652,8 @@ def test_the_fallback_takes_new_misses_first_and_the_upgrade_waits(run: Run, mon
 
 
 def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Search all now (every missing song, whatever its wait) gives way after two songs, as to New
-    SoundCloud songs every few minutes: the run that goes on leaves those two out and counts on (3 of 5),
-    so a search that gives way again and again still gets through every song, each once."""
+    """A manual search that gives way resumes without the songs already handled and counts on, so every
+    song is searched exactly once."""
     for n in range(4):
         add_missing(run, f"spotify:m{n}", f"Missing {n}", tries=1)
     searched: list[str] = []
@@ -688,7 +672,7 @@ def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypa
     assert len(searched) == 2 and run.left == total - 2 and message.endswith(f"gave way, {run.left} left")
     assert run.handled == set(searched)
 
-    again = Run(BY_NAME["fallback"], run.settings, run.vault, "manual")  # as the worker goes on with it
+    again = Run(BY_NAME["fallback"], run.settings, run.vault, "manual")  # as worker.resume builds it
     again.stop, again.skip = threading.Event(), frozenset(run.handled)
     said = []
     monkeypatch.setattr(
@@ -702,7 +686,7 @@ def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypa
 
 
 def test_a_fallback_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Gone Song is in the library under another artist's name and sounds the same: linked, not filed."""
+    """A fallback download that sounds like a library file under other names is linked, not filed."""
     monkeypatch.setattr(identity, "same_master", lambda a, b: 0.995)
     wav(run.paths.tracks / "Other Name" / "Other Name - Gone Song (Radio Edit).wav", 181)
     con = run.connect()
@@ -717,8 +701,8 @@ def test_a_fallback_download_the_library_has_is_linked(run: Run, monkeypatch: py
 def test_a_soundcloud_flac_with_the_same_audio_takes_over(
     run: Run, monkeypatch: pytest.MonkeyPatch, names: str, for_review: bool
 ) -> None:
-    """The FLAC found for Trance Tune is its M4A's audio in another codec: it replaces the M4A at once; with
-    names that differ (an artist missing) it is filed for a last look (Please confirm), not kept aside."""
+    """A FLAC with the M4A's audio replaces it at once; with probable names it is also listed as filed for a
+    last look."""
     FakeDaemon.files["Trance Tune"] = [("u1", "Music\\Uploader\\Uploader - Trance Tune.flac", 400, "ok")]
     monkeypatch.setattr(identity, "same_master", lambda a, b: 0.999)
     if names == "probable":

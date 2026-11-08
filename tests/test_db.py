@@ -71,7 +71,7 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
 
 
 def test_who_could_upload_with_review_still_can(tmp_path: Path) -> None:
-    """Version 25 to 26: upload is a permission of its own; who had review (which allowed it) gets it."""
+    """25 -> 26: upload becomes its own permission; whoever had review gets it."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
@@ -88,7 +88,7 @@ def test_who_could_upload_with_review_still_can(tmp_path: Path) -> None:
 
 
 def test_the_local_accounts_go(tmp_path: Path) -> None:
-    """Version 17 to 18: the local account goes with its sessions; a Navidrome account stays, an admin."""
+    """17 -> 18: local accounts go with their sessions; Navidrome accounts stay, admins kept."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
@@ -123,7 +123,7 @@ def test_an_unknown_version_is_refused(tmp_path: Path) -> None:
 
 
 def test_the_history_becomes_the_owners(tmp_path: Path) -> None:
-    """Version 19 to 20: until then every list was one user's, so the song history so far is theirs."""
+    """19 -> 20: the history so far becomes the single list owner's."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
@@ -144,7 +144,7 @@ def test_the_history_becomes_the_owners(tmp_path: Path) -> None:
 
 
 def test_snapshot_times_become_utc(tmp_path: Path) -> None:
-    """Version 24 to 25: the snapshots' local times in UTC (the server's time zone, as Python's)."""
+    """24 -> 25: local snapshot times become UTC (server time zone); ones already in UTC stay."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
@@ -161,7 +161,7 @@ def test_snapshot_times_become_utc(tmp_path: Path) -> None:
 
 
 def test_a_removed_fake_flac_is_marked_on_its_event(tmp_path: Path) -> None:
-    """Version 34 to 35: a removed FLAC the Lossy check found made from lossy gets its fake mark (filing.retire)."""
+    """34 -> 35: a retired FLAC the lossy check judged lossy gets the fake mark on its event."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
@@ -186,12 +186,12 @@ def test_a_removed_fake_flac_is_marked_on_its_event(tmp_path: Path) -> None:
 
 
 def test_a_relinked_songs_wrong_song_no_longer_skips_it(tmp_path: Path) -> None:
-    """Version 35 to 36: a recording of a song Spotify relinks was checked by the list's names, not the relink's:
-    its "played as another song" ends its days left out (recording.SKIP_DAYS); one of the song's own track stays."""
+    """35 -> 36: a wrong_song verdict on a relinked track (checked by the list's names) is cleared so it is
+    retried; one on the song's own track stays."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
-    con.execute("PRAGMA foreign_keys = OFF")  # (the items alone)
+    con.execute("PRAGMA foreign_keys = OFF")  # items without their recording
     with con:
         for n, (key, uri) in enumerate((("spotify:a", "spotify:track:b"), ("spotify:c", "spotify:track:c"))):
             con.execute(
@@ -212,12 +212,12 @@ def test_a_relinked_songs_wrong_song_no_longer_skips_it(tmp_path: Path) -> None:
 
 
 def test_the_list_songs_get_their_times(tmp_path: Path) -> None:
-    """Version 37 to 38: a list's songs were there since Echolot first saw them, a wish since it was made; the
-    likes lists and the Spotify lists are read again for their sources' times."""
+    """37 -> 38: list songs get added times from list_history, wishes from their like; likes and Spotify
+    lists are re-read for the source's times."""
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
-    con.execute("PRAGMA foreign_keys = OFF")  # (the rows alone)
+    con.execute("PRAGMA foreign_keys = OFF")  # rows without their songs
     with con:
         for key in ("spotify:playlist:P", "spotify:likes:1", "soundcloud:me/likes", "discover:wished:1"):
             sql = "INSERT INTO lists (key, service, title, position, snapshot) VALUES (?, ?, '', 0, 'x')"

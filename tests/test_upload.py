@@ -1,5 +1,4 @@
-"""Upload by hand for missing songs (library/upload.py, web/upload.py): files checked in a dialog, each
-one's song guessed and changeable, imported on confirm as that song; the rest of the batch goes."""
+"""Upload by hand (library/upload.py, web/upload.py): the dialog's checks, song guesses and the import."""
 
 import re
 import shutil
@@ -21,7 +20,7 @@ AUDIO = Path(__file__).parent / "fixtures" / "audio"
 
 @pytest.fixture(autouse=True)
 def no_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The check before a file is shown (audio.prepare runs ffmpeg): audio passes as it is, text does not."""
+    """audio.prepare without ffmpeg: audio passes as it is, a .txt is rejected."""
 
     def prepare(path: Path, keep_hires: bool = False) -> audio.Prepared:
         if path.suffix == ".txt":
@@ -37,7 +36,7 @@ def batch_of(html: str) -> str:
 
 
 def post_files(client: TestClient, files: list[tuple], data: dict | None = None) -> str:
-    """As the dialog does it: opened (a new batch), then each file uploaded on its own; the rows, with the batch."""
+    """Open the dialog (a new batch), upload each file on its own; returns the rows wrapped with the batch."""
     song = (data or {}).get("song", "")
     dialog = client.get("/missing/upload", params={"song": song} if song else None)
     assert dialog.status_code == 200 and "data-files" in dialog.text
@@ -134,8 +133,8 @@ def test_guess_by_title_and_length() -> None:
 
 
 def test_a_file_naming_no_artist_is_found_by_its_whole_title_and_length() -> None:
-    """No tags and a name of the title alone: the one song with that whole title (version words and all) as
-    long, within 2 s; two of that title and length, or a file that names another artist: none."""
+    """Untagged, title-only name: the one song with that whole title and length (2 s); ambiguous or another
+    artist named: none."""
     songs = [
         {"key": "f", "artist": "Ferrand", "title": "C'est Beau La Bourgeoisie (Edit)", "length": 252.3, "file": "x"},
         {
@@ -184,8 +183,8 @@ def test_labels() -> None:
 
 
 def test_labels_against_your_copy() -> None:
-    """Without a preview (a SoundCloud song: no ISRC) your copy tells another recording; with one, the release's
-    recording unlike your copy is only flagged (yours may be the wrong song), as is another master than yours."""
+    """No preview (no ISRC): your copy decides another recording. With a preview, unlike your copy or
+    another master is only flagged (yours may be the wrong song)."""
     song = {"key": "soundcloud:1", "artist": "Mischluft", "title": "Bisschen Liebe", "length": 218, "isrc": None}
     have = song | {
         "file": "Mischluft/x.m4a",
@@ -231,8 +230,7 @@ def test_the_audio_check_by_reference() -> None:
 
 
 def test_an_upload_much_quieter_than_your_copy_is_no_better(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Recorded at 25 % (Spotify in the Windows mixer): 12 dB under your copy, so no better however lossless.
-    Peaking at -12 dB it is flagged on its own too; for a missing song it is still imported (your call)."""
+    """12 dB under your copy is no better however lossless; for a missing song it is only flagged, importable."""
     paths = Paths(tmp_path)
     (paths.tracks / "Gusted").mkdir(parents=True)
     (paths.tracks / "Gusted/Gusted - You Make Me.opus").write_bytes(b"x")
@@ -262,8 +260,8 @@ def test_an_upload_much_quieter_than_your_copy_is_no_better(monkeypatch: pytest.
 
 
 def test_a_fake_flac_counts_by_its_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Enmity's FLAC made from a ~256 kbps file beats a 123 kbps Opus of the same reach (20 kHz); one made from
-    ~128 kbps does not, nor one whose sound stops lower than the copy's; a lossy file needs a quarter more."""
+    """A fake FLAC from ~256 kbps beats a 123 kbps Opus of the same band; from ~128 kbps or a lower cutoff it
+    does not; a lossy file needs a quarter more kbps."""
     paths = Paths(tmp_path)
     (paths.tracks / "Enmity").mkdir(parents=True)
     (paths.tracks / "Enmity/Enmity - Sex.opus").write_bytes(b"x")
@@ -291,7 +289,7 @@ def test_a_fake_flac_counts_by_its_source(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., TestClient]) -> None:
-    """First Song is an MP3 in the library: a FLAC of it uploaded on its list page takes over its name."""
+    """A better upload replaces the library copy (an MP3) and takes over its name."""
     client = login(create_app(settings))
     assert 'hx-get="/missing/upload?song=spotify%3As1"' in client.get("/lists/spotify:playlist:AAA111").text
     assert "data-force-all hidden" in client.get("/missing/upload").text  # Replace all (shown once one is no better)
@@ -312,8 +310,8 @@ def test_a_better_copy_replaces_yours(settings: Settings, login: Callable[..., T
 
 
 def test_a_close_match_song_gets_its_own_file(settings: Settings, login: Callable[..., TestClient]) -> None:
-    """Gone Song covered by a close match (another version): an upload of the song itself is filed under its own
-    name, the song is no close match any more; the version stays a file of its own, or goes when ticked."""
+    """An upload for a song covered by a close match is filed under its own name and clears the close match;
+    the version is removed only when ticked."""
     con = db.connect(settings.db_path)
     version = settings.library_dir / "Artist C" / "Artist C - Gone Song (Club Mix).flac"
     version.parent.mkdir(parents=True, exist_ok=True)
@@ -361,7 +359,7 @@ def test_remove_a_close_match(settings: Settings, login: Callable[..., TestClien
 
 
 def test_files_added_one_by_one(tmp_path: Path) -> None:
-    """A batch opened empty takes files one at a time, each with the next number; a cancelled one takes none."""
+    """Files added one at a time get the next number; a cancelled batch takes none."""
     paths = Paths(tmp_path)
     batch = upload.start(paths)
     import io
@@ -376,7 +374,7 @@ def test_files_added_one_by_one(tmp_path: Path) -> None:
 
 
 def test_an_upload_is_assigned_by_its_tags(settings: Settings) -> None:
-    """A file's SPOTIFY_TRACK_ID names its song (also as the release Spotify plays it as), else its ISRC."""
+    """SPOTIFY_TRACK_ID names the song (also a relinked one), else the ISRC."""
     con = db.connect(settings.db_path)
     with con:
         con.execute("UPDATE songs SET isrc = 'GBX1' WHERE key = 'spotify:s2'")
@@ -411,9 +409,8 @@ def test_against_your_copy_by_its_audio(tmp_path: Path) -> None:
 
 
 def test_the_artists_own_release_is_the_best_there_is(settings: Settings, login: Callable[..., TestClient]) -> None:
-    """A file uploaded from the song's free download (the From field, filled in from its link): noted with
-    the link (History, the DOWNLOAD tag); even lossy it is the best there is: at its best, off the Buy list,
-    not in the FLAC upgrade, marked in the list with Try again, which lifts all of it."""
+    """The artist's free download, even lossy, is the best there is (off the Buy list, out of the FLAC
+    upgrade) unless Bandcamp sells it; Try again lifts it."""
     from echolot import db
     from echolot.jobs import acquire
     from echolot.library import origin
@@ -434,10 +431,10 @@ def test_the_artists_own_release_is_the_best_there_is(settings: Settings, login:
     assert '<option value="free" selected>Hypeddit: the artist&#39;s free download</option>' in html
     con = db.connect(settings.db_path)
     try:
-        assert "soundcloud:1001" in {r["key"] for r in stats.buy(con)}  # (before: its free download on the Buy list)
-        assert "soundcloud:1001" in {r["key"] for r in acquire._upgradable(con)}  # (and in the FLAC upgrade)
+        assert "soundcloud:1001" in {r["key"] for r in stats.buy(con)}  # before the note
+        assert "soundcloud:1001" in {r["key"] for r in acquire._upgradable(con)}
         file = con.execute("SELECT file FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0]
-        origin.note(con, "soundcloud:1001", file, "free")  # (as the import does for the file it became)
+        origin.note(con, "soundcloud:1001", file, "free")
         assert "soundcloud:1001" not in {r["key"] for r in stats.buy(con)}
         best = dict((k, n) for k, _, n in stats.best_tiers(con))
         assert best["best"] >= 1 and "soundcloud:1001" in {r[0] for r in con.execute(origin.BEST)}
@@ -463,8 +460,7 @@ def test_the_artists_own_release_is_the_best_there_is(settings: Settings, login:
 
 
 def test_an_import_notes_where_the_file_came_from(settings: Settings, login: Callable[..., TestClient]) -> None:
-    """The From field reaches the import: the origin is noted for the file the song has now, and History
-    (and so the file's DOWNLOAD tag) gets the link."""
+    """The From field notes the origin for the song's new file and puts the link in History."""
     from echolot import db
 
     con = db.connect(settings.db_path)

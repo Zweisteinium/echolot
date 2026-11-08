@@ -393,8 +393,7 @@ def test_a_gate_is_listed_to_get_by_hand(run, settings, login, monkeypatch: pyte
 
 
 def test_songs_looked_at_before_get_their_free_links_without_bandcamp(run, settings, monkeypatch) -> None:
-    """After the update every song's free links are read once (one SoundCloud request per 50), but Bandcamp is
-    asked only for songs never looked at, as before."""
+    """Songs without free_links rows get them read again; Bandcamp is asked only for songs never looked at."""
     monkeypatch.setattr(bandcamp, "offer", lambda url, title="", seconds=0: None)
     job.run(run("after"))
     con = db.connect(settings.db_path)

@@ -83,9 +83,8 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
 
 
 def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A list two users follow is read once; a follower not connected to Spotify does not keep it from
-    being read (the other's login reads it), and a public playlist only unconnected users follow is read with
-    Echolot's own app (no user)."""
+    """A list two users follow is read once, by a connected follower; a playlist only unconnected users follow
+    is read with Echolot's own app."""
     from echolot.settings import auth, sources
 
     logins: list[int | None] = []
@@ -140,8 +139,7 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_lists_songs_keep_when_they_came(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Spotify tells when each song came into a list (kept in UTC); a song liked since is read alone and the others
-    keep their times; a list with songs not timed yet is read in full."""
+    """Songs keep their added time (UTC); a new like is read alone, a list with an untimed song in full."""
     timed = [{**s, "added": f"2026-0{n + 1}-01T10:00:00Z"} for n, s in enumerate(FakeSpotify.liked)]
     monkeypatch.setattr(FakeSpotify, "liked", timed)
     lists.fetch_spotify(run)
@@ -180,9 +178,8 @@ def test_a_wish_is_timed_when_it_was_made(run: Run) -> None:
 
 
 def test_an_artist_in_another_script_gets_its_english_name(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Spotify writes 祖堅 正慶 as Masayoshi Soken only when asked in English: asked once per such artist, for
-    all its songs (not for Latin names; one with no other English name is marked as asked); renamed, it is
-    asked again."""
+    """A non-Latin artist's English name is asked once per artist ("" if none), never for Latin names, and
+    again after a rename."""
     soken, other, more = (
         song("k1", "祖堅 正慶", "Dynamis"),
         song("k2", "川子", "Song K"),
@@ -210,8 +207,7 @@ def test_an_artist_in_another_script_gets_its_english_name(run: Run, monkeypatch
 
 
 def test_a_name_spotify_blanks_is_kept_or_asked_in_english(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Spotify names Timati "." (without a language; "Timati" in English): a new song gets the English names,
-    a list read later giving "." again keeps them."""
+    """An artist Spotify names "." gets the English name, kept when a later read gives "." again."""
     timati = {**song("t1", ".", "Groove On"), "artists": [".", "Snoop Dogg"]}
     monkeypatch.setattr(FakeSpotify, "liked", [*FakeSpotify.liked[:2], timati])
     monkeypatch.setattr(FakeSpotify, "english", {"t1": "Timati"})
@@ -253,7 +249,7 @@ def test_playlists(run: Run) -> None:
     likes = (mine / "Spotify Liked Songs.m3u").read_text().splitlines()
     assert likes == ["#EXTM3U", "#PLAYLIST:Liked Songs", "../../tracks/Artist A/Artist A - First Song.mp3"]
     assert not (mine / "spotify-BBB222.m3u").exists()  # playlist: false
-    # a list that is no longer followed loses its playlist file; a file Echolot did not write stays
+    # unfollowed: its file goes, a file Echolot did not write stays
     from echolot.settings import sources
 
     sources.remove_list(con, 1, "spotify:playlist:AAA111")
@@ -261,7 +257,7 @@ def test_playlists(run: Run) -> None:
     assert (mine / "spotify-AAA111.m3u").exists()
     playlists.write(con, folder)
     assert not (mine / "spotify-AAA111.m3u").exists() and (folder / "spotify-GONE.m3u").exists()
-    # with no list at all nothing is deleted
+    # no list at all: nothing deleted
     for s in sources.lists(con):
         if s.name in sources.LIKES:
             sources.set_likes(con, 1, s.service, False)
@@ -334,7 +330,7 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     asked = len(FakeYtDlp.asked)  # the pages of the songs stored in the first run
     lists.soundcloud(run)
     assert len(FakeYtDlp.asked) == asked  # no page asked for twice
-    con = run.connect()  # a download that left the library (e.g. retired in review) is fetched again
+    con = run.connect()  # a download that left the library is fetched again
     (run.paths.tracks / con.execute("SELECT file FROM songs WHERE key = 'soundcloud:2002'").fetchone()[0]).unlink()
     con.close()
     library(run)
@@ -342,8 +338,7 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_soundcloud_likes_keep_when_they_were_liked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """SoundCloud's API tells when each like was made (yt-dlp's listing does not): asked while a liked song has no
-    time; a set tells none (the time Echolot first saw the song there)."""
+    """Like times come from SoundCloud's API, asked while a like is untimed; a set's songs get first-seen time."""
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
     monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
     monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
@@ -372,8 +367,7 @@ def test_soundcloud_likes_keep_when_they_were_liked(run: Run, monkeypatch: pytes
 def test_a_soundcloud_song_the_library_has_by_its_page_is_not_downloaded(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A library file whose source tag holds exactly the track's page is that song (Echolot filed it so, here or in
-    the Echolot it was copied from): linked to it, not downloaded. The others are downloaded as before."""
+    """A library file whose source tag is exactly the track's page is linked, not downloaded."""
     from mutagen.flac import FLAC
 
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
@@ -412,8 +406,7 @@ def test_a_soundcloud_song_the_library_has_by_its_page_is_not_downloaded(
 
 
 def test_the_pages_in_the_files_tags_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The library's source tags are kept (files.pages): a run after a restart reads none again (on 2026-11-05
-    the first new like after a deploy read all 7,786 files' tags, two minutes); a changed file is read again."""
+    """Source tags are cached in files.pages (reading all took minutes); only a changed file is read again."""
     from mutagen.flac import FLAC
 
     copy = run.paths.tracks / "DJ Nobody" / "DJ Nobody - Night Drive.flac"
@@ -451,15 +444,14 @@ def test_the_pages_in_the_files_tags_are_read_once(run: Run, monkeypatch: pytest
 
 
 def library(run: Run) -> None:
-    """What the library job does after each SoundCloud run: rescan, match the songs to files."""
+    """Rescan, as the library job does after each SoundCloud run."""
     con = run.connect()
     catalog.refresh(con, run.paths.tracks)
     con.close()
 
 
 def test_a_soundcloud_title_naming_a_known_artist_is_turned_round(run: Run) -> None:
-    """'Song - Artist' from an uploader who is neither: the side that is an artist of the Spotify songs is the
-    artist (else a duplicate of the Spotify song, filed under the song's title as artist)."""
+    """'Song - Artist' by a third uploader: the side that is a known Spotify artist is the artist."""
     con = run.connect()
     assert lists._names(con, "user-1", "NA", "First Song (Hardstyle) - Artist A") == (
         "Artist A",
@@ -512,8 +504,7 @@ def test_a_soundcloud_title_keeps_its_characters(run: Run, uploader: str, title:
 
 
 def test_a_soundcloud_download_the_library_has_is_linked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Night Drive is in the library under another artist name and sounds the same: the SoundCloud song is
-    linked to that file, nothing is filed twice."""
+    """A download that sounds the same as a library file (other artist name) is linked to it, not filed."""
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
     monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
     monkeypatch.setattr("echolot.jobs.acquire.pictures", lambda *a, **k: None)
@@ -564,8 +555,8 @@ def test_a_soundcloud_list_is_read_when_it_changed_or_hourly(run: Run) -> None:
 
 
 def test_each_users_playlists(run: Run) -> None:
-    """A list two users follow as a playlist is two files, one in each user's folder; the playlists of
-    before users had folders go (remembered for Navidrome), a file Echolot did not write stays."""
+    """One file per following user's folder; old top-level files go (remembered for Navidrome), foreign
+    files stay."""
     from echolot import db
     from echolot.settings import auth, sources
 
@@ -592,8 +583,8 @@ def test_each_users_playlists(run: Run) -> None:
 
 
 def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
-    """Navidrome imports a file as its first admin's: Echolot gives it to its user; the playlist of a
-    file Echolot removed is deleted; one made in Navidrome (no file) or not Echolot's is never touched."""
+    """Imported playlists go to their user and get renamed and commented; a removed file's playlist is
+    deleted; ones made in Navidrome or not Echolot's are never touched."""
     from echolot import db
 
     lists.fetch_spotify(run)
@@ -643,7 +634,7 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
     assert message == (
         f"1 playlists given to their users, {n} playlist comments set, 1 playlists renamed, 1 old playlists deleted"
     )
-    # where each list comes from, in place of Navidrome's "Auto-imported from '<file>'" (Feishin links it)
+    # the comment replaces Navidrome's "Auto-imported from '<file>'"
     liked = con.execute("SELECT COUNT(*) FROM list_songs WHERE list_key LIKE 'spotify:likes%'").fetchone()[0]
     found = len((folder / "owner/Spotify Liked Songs.m3u").read_text().splitlines()) - 2
     assert liked - found == 2
@@ -655,8 +646,7 @@ def test_navidrome_gets_each_playlist_to_its_user(run: Run) -> None:
 
 
 def test_old_playlists_stay_until_the_new_ones_are_imported(run: Run) -> None:
-    """Moved files: Navidrome imports them a moment later; until then the old playlists stay, so their
-    user has their playlists all the time."""
+    """Old playlists are deleted only once Navidrome has imported the moved files."""
     from echolot import db
 
     lists.fetch_spotify(run)
@@ -697,7 +687,7 @@ def test_playlist_comments() -> None:
 
 
 def test_a_lists_name_on_the_jobs_line(settings) -> None:
-    """The line of a list read names it by the list's title (a Spotify source has none of its own)."""
+    """The jobs line names a list by its stored title, else its URL."""
     from echolot.jobs.lists import _name
     from echolot.settings.sources import Source
 

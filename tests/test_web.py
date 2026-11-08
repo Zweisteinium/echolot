@@ -36,7 +36,7 @@ def test_overview(client: TestClient) -> None:
     assert "Playlist A" in html
     assert 'href="/lists/spotify:playlist:BBB222"' in html
     assert "no playlist" in html
-    assert 'hx-get="/jobs/now"' in html  # the jobs' line; the jobs on their page (History · Jobs)
+    assert 'hx-get="/jobs/now"' in html  # the jobs' line
     jobs = client.get("/jobs").text
     assert (
         "Run now" in jobs and "Resume" in jobs and 'aria-current="page">Jobs</a>' in jobs
@@ -45,8 +45,7 @@ def test_overview(client: TestClient) -> None:
 
 
 def test_sizes_and_shares() -> None:
-    """Sizes in the unit that fits (TB with two decimals from 1 TB); shares with one decimal, rounded down, so
-    100.0 only when complete."""
+    """Sizes in the fitting unit (TB with two decimals); shares round down, so 100.0 only when complete."""
     from echolot.web import format
 
     assert [format.size(b) for b in (5e8, 146.4e9, 9.3456e12)] == ["500 MB", "146.4 GB", "9.35 TB"]
@@ -55,9 +54,8 @@ def test_sizes_and_shares() -> None:
 
 
 def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
-    """The Library page loads its graphs right after itself (/library/graphs). No snapshot: no graph yet; one:
-    from it to now, the songs (shown, as files) and the size (behind the toggle). The last point is the value
-    of now, not the last snapshot's."""
+    """Graphs load from /library/graphs: none without a snapshot; with one, from it to now, the last point
+    being the current value."""
     con = db.connect(settings.db_path)
     with con:
         con.execute("DELETE FROM snapshots")
@@ -80,8 +78,7 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
 
 
 def test_graphs_for_a_stretch_of_time(client: TestClient, settings: Settings) -> None:
-    """A chip shows the last days (from the point before them), a stretch dragged across a graph just that;
-    a snapshot outside it is left out. The tab shown stays."""
+    """A range chip or a dragged stretch limits the graphs (plus the point before); the shown tab stays."""
     con = db.connect(settings.db_path)
     history.snapshot(con)
     with con:
@@ -100,14 +97,13 @@ def test_graphs_for_a_stretch_of_time(client: TestClient, settings: Settings) ->
     stretch = {"from": "2026-09-20T00:00:00.000Z", "to": "2026-10-05T00:00:00.000Z"}
     html = client.get("/library/graphs", params=stretch).text
     assert 'data-range=""' in html and "20 Sep – 5 Oct" in html and "aria-pressed" not in html
-    assert "1 Sep" in html  # (the point before the stretch: the line reaches its edge)
+    assert "1 Sep" in html  # the point before the stretch
     html = client.get("/library/graphs", params={"from": "nonsense", "to": "2026-10-05"}).text
     assert 'data-range="all"' in html  # not a stretch: all of it
 
 
 def test_best_ring(client: TestClient, settings: Settings) -> None:
-    """The songs on the lists by how near they are to their best (the lists' Best column): beside the quality
-    ring, behind its toggle; its shares leave out the songs not to be had."""
+    """The Best ring sums to the wanted songs and sits behind the quality ring's toggle."""
     con = db.connect(settings.db_path)
     try:
         tiers = dict((k, n) for k, _, n in stats.best_tiers(con, OWNER))
@@ -142,8 +138,7 @@ def test_list_page(client: TestClient, settings: Settings) -> None:
 
 
 def test_a_recording_twice_in_a_list(client: TestClient, settings: Settings) -> None:
-    """Spotify lists a recording once per release: a list can hold it twice. The second entry is marked
-    the same song (one file, once in the playlist), not shown as a song of its own."""
+    """A recording listed twice (two releases, same file or ISRC) is marked as the same song, not shown twice."""
     rows = [
         {"position": 0, "file": "A/A - Song.flac", "isrc": "X1"},
         {"position": 1, "file": None, "isrc": "Y1"},
@@ -177,7 +172,7 @@ def test_activity(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     ("why", "source", "ext", "fake", "was"),
-    [  # a FLAC genuine lossless replaced was one made from lossy; one replaced by hand (Replace anyway) can be genuine
+    [  # "genuine lossless" replaced a lossy or fake file; by hand (Replace anyway) even a genuine FLAC
         ("replaced by genuine lossless", "soulseek", "mp3", None, ("lossy-high", 320)),
         ("replaced by genuine lossless", "soulseek", "flac", None, ("fake", 320)),
         ("replaced by hand", "manual", "opus", None, ("lossy-high", 320)),
@@ -188,7 +183,7 @@ def test_activity(client: TestClient) -> None:
 def test_activity_upgrade_is_one_entry(
     settings: Settings, why: str, source: str, ext: str, fake: int | None, was: tuple
 ) -> None:
-    """An upgrade and the file it replaced: one entry (from -> to), for everyone and for the song's user."""
+    """An upgrade and the file it replaced are one entry (from -> to), for everyone and the song's user."""
     con = db.connect(settings.db_path)
     old = f"Artist A/Artist A - First Song.{ext}"
     columns = "ts, action, path, ext, bytes, kbps, reason, fake, source, song, artist, title"
@@ -206,7 +201,7 @@ def test_activity_upgrade_is_one_entry(
 
 
 def test_activity_a_merge_of_the_same_audio_is_one_entry(settings: Settings) -> None:
-    """A song linked to a file of the same audio and its own file removed (recordings.merge_same): one entry."""
+    """A merge of the same audio (link plus removed file, recordings.merge_same) is one entry."""
     con = db.connect(settings.db_path)
     kept, gone = "Artist A/Artist A - First Song - Edit.flac", "Artist A/Artist A - FIRST SONG (EDIT).m4a"
     columns = "ts, action, path, ext, reason, song, artist, title"
@@ -230,12 +225,12 @@ def test_jobs(client: TestClient) -> None:
     assert response.status_code == 303 and response.headers["location"].startswith("/jobs?ok=")
     assert set(client.app.state.worker.requested) == {"library"}
     assert client.post("/jobs/nope/run").status_code == 404
-    html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resume
+    html = client.post("/jobs/pause", data={}, headers={"HX-Request": "true"}).text  # resumes
     assert 'id="jobs"' in html and "Pause all" in html
-    assert "after Spotify and YouTube lists" in html  # New songs search: no schedule, started when there are new songs
+    assert "after Spotify and YouTube lists" in html  # New songs search has no schedule
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
     assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
-    html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # shown at once, asked again every second
+    html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # polled every second
     assert "starts in a moment" in html and ">Starting</span>" in html and 'hx-trigger="every 1s"' in html
 
 
@@ -249,7 +244,7 @@ def test_static_stylesheet(client: TestClient) -> None:
 def test_sources_page(client: TestClient) -> None:
     html = client.get("/sources").text
     assert "Connect Spotify" in html and "Connect SoundCloud" in html  # no accounts yet
-    cards = client.get("/sources/other").text  # followed lists without an account: all of them
+    cards = client.get("/sources/other").text  # lists followed without an account
     assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
     assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
     assert 'class="mode-legend"' in html and " Playlist</label>" in cards and "Songs + playlist" not in html + cards
@@ -334,7 +329,7 @@ def test_add_by_link(client: TestClient, monkeypatch) -> None:
 
 
 def test_accounts_page(client: TestClient, settings: Settings) -> None:
-    """Connecting Spotify is on the Playlists page (its old page, /accounts, leads there)."""
+    """Connecting the accounts (Spotify on the Playlists page)."""
     html = client.get("/playlists").text
     assert "developer.spotify.com/dashboard" in html and "http://127.0.0.1:0/accounts/spotify/callback" in html
     r = client.post("/accounts/spotify/app", data={"client_id": "short"}, follow_redirects=False)
@@ -342,14 +337,14 @@ def test_accounts_page(client: TestClient, settings: Settings) -> None:
     r = client.post("/accounts/soulseek", data={"user": "me", "password": "secret pw"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     assert "user = me\n" in (settings.daemon_dir / "daemon.conf").read_text()  # (the file: test_soulseek)
-    # the Spotify login: a pasted address with another state is refused
+    # a pasted callback with another state is refused
     r = client.post("/accounts/spotify/paste", data={"url": "http://127.0.0.1:48721/callback?code=x&state=y"},
                     follow_redirects=False)  # fmt: skip
     assert "not+the+address+of+the+last" in r.headers["location"]
 
 
 def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
-    """Behind an https proxy the login returns to Echolot; the exchange uses the address the login used."""
+    """Behind an https proxy the redirect and the token exchange use the https address."""
     callback = "https://testserver/accounts/spotify/callback"
     html = client.get("https://testserver/accounts").text
     assert callback in html and "Spotify Premium required" in html and "?code=" not in html
@@ -372,7 +367,7 @@ def test_connection_line(client: TestClient) -> None:
 
 
 def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A daemon that dropped its Soulseek login is red on the overview, not "logs in with the next search"."""
+    """A daemon that dropped its Soulseek login shows as disconnected."""
     from echolot.services import soulseek
 
     con = db.connect(settings.db_path)
@@ -457,7 +452,7 @@ def test_review(client: TestClient, settings: Settings) -> None:
     close = {"decision": "close", "name": "Artist A - First Song"}
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
     assert "already a file in your library" in html and 'role="alert"' in html  # next to the download
-    assert 'value="Artist A - First Song"' in html  # the name typed is kept, the line to name it stays open
+    assert 'value="Artist A - First Song"' in html  # the typed name is kept
     close["name"] = " Artist C  -  Gone Song (Club Mix) "
     html = client.post(f"/review/{ids[1]}", data=close, headers={"HX-Request": "true"}).text
     assert "Close match as “Artist C - Gone Song (Club Mix)” · applied soon" in html
@@ -465,8 +460,7 @@ def test_review(client: TestClient, settings: Settings) -> None:
 
 
 def test_every_close_match_button_is_wired(client: TestClient, settings: Settings) -> None:
-    """Close match opens a line (data-close-line) whose input and button submit a form with the decision
-    close: each id the page refers to exists, so the button cannot silently do nothing."""
+    """Every data-close-line points at a line whose input and button submit a decision=close form."""
     two_kept_downloads(settings)
     html = client.get("/review").text
     lines = re.findall(r'data-close-line="([^"]+)"', html)
@@ -512,13 +506,13 @@ def test_close_matches_on_the_missing_page(client: TestClient, settings: Setting
 
 
 def test_library_job(client: TestClient, settings: Settings) -> None:
-    """The library job writes the playlists (what they hold: test_lists.test_playlists)."""
+    """The library job writes the playlists (contents: test_lists.test_playlists)."""
     import threading
 
     from echolot.jobs import worker
 
     playlists = settings.library_dir.parent / "playlists"
-    assert playlists.is_dir()  # made at the start, with the other folders Echolot writes
+    assert playlists.is_dir()  # made at startup
     assert (settings.library_dir.parent / "inbox" / ".ndignore").is_file()  # Navidrome skips the inbox
     (playlists / "My own.m3u").write_text("#EXTM3U\n")
     run = worker.Run(__import__("echolot.jobs.schedule", fromlist=["BY_NAME"]).BY_NAME["library"], settings,
@@ -530,9 +524,8 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
 
 
 def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: Settings, login) -> None:
-    """A card per task, a tile per step; a running job shows its line in counts (outcomes as icons, text cut
-    with the whole on hover), its progress bar, Stop and its live log; a task's button starts its jobs, Stop
-    stops them."""
+    """A card per task, a tile per step: a running job's counts, progress, Stop and live log; Start and Stop
+    act on the task's jobs."""
     from echolot.jobs.worker import Run
     from echolot.settings.vault import Vault
 
@@ -561,7 +554,7 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     assert '<li title="Artist A' not in login(client.app, "guest", admin=False).get("/jobs").text  # admins only
     assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
     del wk.runs["upgrade"]
-    run.say("SoundCloud: listing Likes")  # starts with its step's name, which its tile says: not said twice
+    run.say("SoundCloud: listing Likes")  # the step name is not repeated
     wk.runs["soundcloud"] = run
     html = client.get("/jobs").text
     assert 'title="SoundCloud"' not in html and 'title="listing Likes"' in html
@@ -574,7 +567,7 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
 
 
 def test_soulseek_backend_choice(client: TestClient, settings: Settings) -> None:
-    """slskd or the Sockseek daemon, chosen on the Accounts page; the secret is kept in the vault."""
+    """The Soulseek backend is chosen on the Accounts page; the slskd secret goes to the vault."""
     form = {
         "backend": "slskd",
         "slskd_url": "http://slskd:5030/",
@@ -598,8 +591,7 @@ def test_soulseek_backend_choice(client: TestClient, settings: Settings) -> None
 
 
 def test_spotify_403_says_to_check_the_users_email(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 403 for a connected account: almost always an account the app's owner did not add (or a wrong
-    e-mail address); other errors keep the general hint."""
+    """A Spotify 403 hints at the User Management e-mail; other errors keep the general hint."""
     from echolot.web import accounts
 
     error = "Spotify: HTTP 403 for https://api.spotify.com/v1/me"
@@ -621,8 +613,8 @@ def test_pages_are_compressed_and_pictures_not(client: TestClient) -> None:
 
 
 def test_connection_line_answers_from_the_last_check(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The line shows the last answer of Spotify and SoundCloud at once and asks them again in the background
-    once it is old; Soulseek's daemon is asked every time; Playlists asks the services at once."""
+    """The line answers from the last Spotify/SoundCloud check and refreshes it in the background once old;
+    the daemon is asked every time; Playlists asks at once."""
     import threading
 
     from echolot.services import soulseek

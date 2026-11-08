@@ -115,8 +115,7 @@ def test_scan_uses_known_durations(con, settings: Settings) -> None:
 
 
 def test_lossy_tiers_by_format() -> None:
-    """A lossy tier by how the format sounds at its bitrate (catalog.LIMITS): YouTube's Opus at 130 kbps is
-    high, an MP3 at 128 low, SoundCloud's AAC at 160 medium."""
+    """A lossy tier by how the format sounds at its bitrate (catalog.LIMITS)."""
     assert [catalog.lossy_tier("opus", k) for k in (130, 96, 64)] == ["lossy-high", "lossy-mid", "lossy-low"]
     assert [catalog.lossy_tier("mp3", k) for k in (320, 245, 192, 128)] == ["lossy-high"] * 2 + [
         "lossy-mid",
@@ -128,8 +127,7 @@ def test_lossy_tiers_by_format() -> None:
 
 
 def test_a_fake_flac_counts_in_its_sources_tier() -> None:
-    """A fake FLAC's own quality stays 'fake' (upgrades, review, recording decide by it); the pages count it
-    in the tier of the lossy file it was made from, as the checks estimate it."""
+    """A fake FLAC's quality stays 'fake'; its tier is that of the lossy file it was made from."""
     estimates = {
         "~256 kbps / V0": "lossy-high",
         "~160-192 kbps": "lossy-mid",
@@ -148,8 +146,7 @@ def test_a_fake_flac_counts_in_its_sources_tier() -> None:
 
 
 def test_a_fake_without_its_own_estimate_takes_the_lossy_checks(con) -> None:
-    """A fake whose source was not noted when it was filed takes the Lossy check's: lossprint's format and
-    bitrate where it is sure, else the spectrum's."""
+    """A fake without a noted source takes lossprint's estimate where it is sure, else the spectrum's."""
     with con:
         con.execute("UPDATE lossy_sourced SET source = '' WHERE stem = 'Artist B/Artist B - Second Song'")
         con.execute(
@@ -169,8 +166,7 @@ def test_a_fake_without_its_own_estimate_takes_the_lossy_checks(con) -> None:
 
 
 def test_the_rings_count_files_and_songs(con) -> None:
-    """Files: the music folder's files by tier, no missing (they are songs); Songs: the songs on the lists by
-    their copy's tier and the missing; both note the fake FLACs counted in their source's tier."""
+    """Files: the files by tier; Songs: the listed songs by their copy's tier, plus the missing."""
     o = stats.overview(con)
     assert [k for k, _, _ in o["tiers"]] == ["lossless", "lossy-high", "lossy-mid", "lossy-low"]
     assert sum(n for _, _, n in o["tiers"]) == o["files"] and o["file_fakes"] == 1

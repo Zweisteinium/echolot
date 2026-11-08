@@ -21,7 +21,7 @@ def done(stdout: str, stderr: str = "", rc: int = 0) -> subprocess.CompletedProc
 
 
 def test_lossprint_reads_its_jsonl(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Probability, encoder family and bitrate from its JSON line; one file, one worker, every guess (-t 0)."""
+    """Probability, encoder and bitrate from its JSON line; one worker, threshold 0 (every guess)."""
     calls: list[list[str]] = []
     monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/local/bin/lossprint")
     line = {"transcode_probability": 0.9981, "verdict": "transcode", "encoder": "opus", "bitrate_kbps": 127.3}
@@ -45,7 +45,7 @@ def test_lossprint_reads_its_jsonl(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 
 
 def test_lossprint_errors_and_absence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A file it can't judge gives its reason; not installed gives None (the spectrum check decides alone)."""
+    """A file it can't judge gives the reason; not installed gives None (the spectrum check alone)."""
     monkeypatch.setattr(audio.shutil, "which", lambda name: "/usr/local/bin/lossprint")
     monkeypatch.setattr(audio, "_run", lambda args, timeout=600: done("", "error: 8 channels; only mono and stereo", 1))
     assert REAL_LOSSPRINT(tmp_path / "a.flac") == {"error": "error: 8 channels; only mono and stereo"}
@@ -89,8 +89,7 @@ def test_judge(spec: dict, lp_: dict | None, expected: tuple[str, str]) -> None:
     assert audio.judge(spec, lp_) == expected
 
 
-# recordings of Spotify's lossless stream (Mitschnitt, bit-exact, 2026-10-16) as the checks saw them: the
-# release's own audio, whatever its verdict
+# bit-exact recordings of Spotify's lossless stream as the checks saw them: the release's own audio
 SPOTIFY = [  # song, spectrum (verdict, edge), lossprint (p, encoder, kbps), verdict
     ("Taylor Swift - Everything Has Changed", ("ok", 20400), (1.6e-07, "musepack", 367.6), "ok"),
     ("Turno - Killer VIP", ("ok", 17500), (4.2e-05, "ffmpeg_aac", 463.1), "ok"),
@@ -107,15 +106,15 @@ SPOTIFY = [  # song, spectrum (verdict, edge), lossprint (p, encoder, kbps), ver
 
 @pytest.mark.parametrize(("song", "spec", "lp_", "verdict"), SPOTIFY, ids=[s[0] for s in SPOTIFY])
 def test_spotify_masters(song: str, spec: tuple, lp_: tuple, verdict: str) -> None:
-    """Spotify's own masters: two clean, eight made from lossy files (their library copies are bit-identical to
-    six of them): lossy says made from lossy, not that a better copy exists."""
+    """Spotify's own masters, two clean and eight made from lossy: "lossy" means made from lossy, not that a
+    better copy exists."""
     assert audio.judge({"verdict": spec[0], "cutoff_hz": spec[1]}, lp(*lp_))[0] == verdict
 
 
 @pytest.mark.parametrize(("mode", "fake"), [("off", False), ("on", True), ("", True)])
 def test_on_and_off(mode: str, fake: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A FLAC only lossprint calls lossy: on (the default) it is made from lossy (lossprint's source), both checks
-    logged; off lossprint doesn't run at all."""
+    """A FLAC only lossprint calls lossy: on (the default) it is fake with lossprint's source and both checks
+    are logged; off, lossprint doesn't run."""
     f = tmp_path / "song.flac"
     f.write_bytes(b"x")
     monkeypatch.setenv("ECHOLOT_DATA_DIR", str(tmp_path))
@@ -145,15 +144,15 @@ def test_on_and_off(mode: str, fake: bool, tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_a_lossprint_source_is_worth_its_bitrate() -> None:
-    """A fake FLAC lossprint judged counts as its source's bitrate against another copy (upload.compare)."""
+    """A fake FLAC counts as its source's bitrate against another copy."""
     assert upload.worth("fake", 900, "AAC ~258 kbps") == 258
     assert upload.worth("fake", 900, "~256 kbps / V0") == 256  # the spectrum check's
     assert upload.worth("fake", 900, "AAC") == 128  # (no bitrate guessed)
 
 
 def test_the_library_check(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every library FLAC is checked once per audio (a retag is not checked again) and its verdict applied: lossy
-    marks, ok and doubtful unmark; one marked already stays so."""
+    """Each library FLAC is checked once per audio (not after a retag): lossy marks, ok and doubtful unmark,
+    one marked already stays so."""
     tracks = settings.library_dir
     for rel in (
         "Artist A/Artist A - Clean.flac",

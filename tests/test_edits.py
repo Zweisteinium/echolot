@@ -1,6 +1,5 @@
-"""A YouTube song named as a library song of another length (an upload is often a shorter edit): the same
-recording by its audio is linked to that file, nothing filed twice; probably the same goes to review
-(library/recordings.another_edit, merge_edits; jobs/lists._on_spotify finds songs without "feat.")."""
+"""A YouTube upload named like a library song of another length (often a shorter edit): the same audio is
+linked to that file, probably the same goes to review (recordings.other_edits, merge_edits)."""
 
 import json
 from pathlib import Path
@@ -65,8 +64,8 @@ def test_merge_links_a_sure_edit_and_retires_the_copy(env, monkeypatch: pytest.M
     monkeypatch.setattr(identity, "alike", lambda a, b: calls.append((a, b)) or 0.93)
     assert recordings.merge_edits(con, paths) == ["JJD - Adventure -> JJD/JJD - Adventure.flac"]
     link = json.loads(con.execute("SELECT link FROM songs WHERE key = 'youtube:v'").fetchone()[0])
-    assert link == ["JJD", "Adventure", 298]  # the song is the Spotify song's file now
-    assert not (paths.tracks / "JJD/JJD - Adventure (4m39s).opus").exists()  # its own copy retired
+    assert link == ["JJD", "Adventure", 298]
+    assert not (paths.tracks / "JJD/JJD - Adventure (4m39s).opus").exists()
     assert list(paths.inbox("replaced").rglob("*.opus"))
     catalog.match_songs(con)
     assert con.execute("SELECT file FROM songs WHERE key = 'youtube:v'").fetchone()[0] == "JJD/JJD - Adventure.flac"

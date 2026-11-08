@@ -1,4 +1,4 @@
-"""Discover: the merged search over Deezer, Apple Music and SoundCloud (library/discover, services, web), and\nin the players (web/subsonic)."""
+"""Discover: the merged search over Deezer, Apple Music and SoundCloud, on the page and in the players."""
 
 import json
 import types
@@ -12,8 +12,8 @@ from echolot.services import soundcloud as sc_api
 
 
 def test_one_release_from_several_sources_is_one_result() -> None:
-    """Deezer's "Levels - Radio Edit" and Apple's "Levels (Radio Edit)" are one song; the extended mix and a
-    song of the same name 40 s longer are others. The catalogue's names win over an uploader's."""
+    """Hits differing only in edit punctuation merge; another mix or a much longer length stays apart. The
+    catalogue's names win over an uploader's."""
     hits = [
         Hit("deezer", 0, "Avicii", "Levels - Radio Edit", 199, "Levels"),
         Hit("apple", 1, "Avicii", "Levels (Radio Edit)", 200),
@@ -31,7 +31,7 @@ def test_one_release_from_several_sources_is_one_result() -> None:
 
 
 def test_a_source_naming_only_the_main_artist_is_the_same_song() -> None:
-    """Deezer names one of three artists, Apple Music all; an hour-long mix is no song; invisible blanks go."""
+    """A hit naming only one of the artists merges; an hour-long mix is dropped; invisible blanks go."""
     hits = [
         Hit("deezer", 0, "Aexhy", "Sternschauer (Stars In Your Eyes)\u2800", 277),
         Hit("apple", 0, "1luu, Happysadgirl & Aexhy", "Sternschauer (Stars In Your Eyes)", 277),
@@ -113,8 +113,8 @@ def test_the_sources_answers_become_hits(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_the_page(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every user may search. A song the library has says so; a source that fails is named and the others
-    show; an answer is kept for the next same query only when every source answered."""
+    """Any user may search. Library songs are marked; a failing source is named, the others show; answers
+    are cached (case and spacing aside) only when every source answered."""
     from echolot.web import create_app
     from echolot.web import discover as page
 
@@ -143,7 +143,7 @@ def test_the_page(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
     client.get("/discover/results", params={"q": "first song"})
     assert len(asked) == 2  # Apple Music failed: asked again
     monkeypatch.setattr(catalogs, "apple", lambda q, country="US": [])
-    page._resting.clear()  # (Apple Music failed: it rested)
+    page._resting.clear()  # Apple Music failed: it rested
     client.get("/discover/results", params={"q": "First  Song"})
     client.get("/discover/results", params={"q": "first song"})
     assert len(asked) == 3  # every source answered: kept (the same query, any case or spacing)
@@ -151,10 +151,8 @@ def test_the_page(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Through the gate, a player's search gets Navidrome's songs and then Discover's the library lacks (the
-    library's First Song is not added twice), each saying what it is: "♥ to add" in its artist line and
-    album, a badge on its cover. A heart puts it in the user's Wished list (searched like a Spotify song, its
-    ISRC Deezer's) and says "on its way"; ids of the library's songs in the same call go on to Navidrome."""
+    """A player's search gets Navidrome's songs, then Discover hits the library lacks, marked "♥ to add".
+    A heart wishes the hit (with Deezer's ISRC) and passes only library ids on to Navidrome."""
     from fastapi.testclient import TestClient
 
     from echolot import db
@@ -260,8 +258,8 @@ def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.Monkey
 
 
 def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Get wishes a result (searched at once, the Wished list says so); the list shows how far each song is: the
-    running job's stage and a download's percent, waiting, in the library. ▶ plays a preview, else SoundCloud."""
+    """Get wishes a result and starts its search; the Wished list shows each song's progress and polls only
+    while one is on its way. ▶ plays a preview, else SoundCloud's player."""
     from echolot import db
     from echolot.jobs import acquire
     from echolot.web import create_app
@@ -313,9 +311,8 @@ def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: p
 
 
 def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Search is the start page: a pasted playlist link offers to follow it, a track link searches that song.
-    The menu: Search, Playlists, Library (Missing from there), Review, History; your account (with Recorders
-    and API tokens on it) and Server settings at the top right; the old addresses lead to the new."""
+    """Search is the start page: a playlist link offers to follow it, a track link searches that song. Pins
+    the menu, the account page's sections and the redirects from old addresses."""
     from echolot.web import create_app
     from echolot.web import discover as page
     from echolot.web import sources as sources_page

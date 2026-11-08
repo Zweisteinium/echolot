@@ -78,8 +78,8 @@ def test_throttle(app) -> None:
 
 
 def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str, bool]) -> None:
-    """Anyone else than an admin uses only their own pages (USER); every other route is an admin's, so a
-    page made later is closed until it is opened on purpose. A Navidrome admin is always an admin here."""
+    """Non-admins reach only USER routes; every other route is admin-only by default, so new pages start
+    closed. A Navidrome admin is always an admin here."""
     timon = login(app, "timon", admin=False)
     home = timon.get("/stats").text
     assert "Your files" in home and "in the library" in home and "/users" not in home and "Mine</button>" not in home
@@ -115,7 +115,7 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
         assert u is not None
         return u
 
-    # david sets permissions, but admin rights are only a Navidrome admin's to give or take
+    # only a Navidrome admin gives or takes admin rights
     form = {"admin": "1", "review": "1", "upload": "1"}
     assert david.post(f"/users/{ids['timon']}", data=form, follow_redirects=False).status_code == 303
     assert not rights("timon").admin and rights("timon").permissions == {"review", "upload"}
@@ -125,8 +125,7 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
     assert page[page.index(">timon<") :][:1500].count("only a Navidrome admin gives or takes admin rights") == 1
     assert boss.post(f"/users/{ids['boss']}", data={}, follow_redirects=False).status_code == 303
     assert rights("boss").admin  # a Navidrome admin's box is locked
-    # boss makes timon an admin: Review, Upload and Run Jobs show ticked and locked, what is stored stays;
-    # no admin any more, he has just that again (an admin form sends no permissions: its boxes are locked)
+    # as admin his permissions show ticked and locked but stay stored, so taking admin away restores them
     assert boss.post(f"/users/{ids['timon']}", data={"admin": "1"}, follow_redirects=False).status_code == 303
     assert rights("timon").admin
     page = boss.get("/users").text
@@ -140,7 +139,7 @@ def test_rights(app, login: Callable[..., TestClient], fake_navidrome: dict[str,
 
 
 def test_upload_is_a_permission_of_its_own(app, login: Callable[..., TestClient]) -> None:
-    """Uploading files by hand needs the upload permission, not review (and the buttons show only with it)."""
+    """Uploading by hand needs the upload permission, not review; the buttons show only with it."""
     timon = login(app, "timon", admin=False)
 
     def permit(*permissions: str) -> None:
@@ -160,8 +159,8 @@ def test_upload_is_a_permission_of_its_own(app, login: Callable[..., TestClient]
 
 
 def test_navidrome_users_renew_the_rights(app, login: Callable[..., TestClient]) -> None:
-    """Navidrome's user list: who is a Navidrome admin now; an account gone is disabled, logged out
-    everywhere and its API tokens end; renamed, it keeps its rights."""
+    """Navidrome's user list renews admin rights; an account gone there is disabled, logged out and its
+    tokens revoked; an empty list changes nothing."""
     timon = login(app, "timon", admin=False)
     login(app, "david")
     con = db.connect(app.state.settings.db_path)
@@ -180,7 +179,7 @@ def test_navidrome_users_renew_the_rights(app, login: Callable[..., TestClient])
 
 
 def test_a_migrated_user_is_found_by_name(app) -> None:
-    """A user from before Navidrome's ids were kept (version 17) is not taken for gone: found by its name."""
+    """A user without a Navidrome id (pre schema 17) is matched by name, not taken for gone."""
     con = db.connect(app.state.settings.db_path)
     with con:
         con.execute("INSERT INTO users (name, created, admin) VALUES ('david', 'x', 1)")
@@ -195,7 +194,7 @@ def test_a_migrated_user_is_found_by_name(app) -> None:
 
 
 def test_a_name_freed_in_navidrome(app, login: Callable[..., TestClient]) -> None:
-    """An account deleted in Navidrome and a new one with its name: the new one is another user."""
+    """A new Navidrome account reusing a deleted one's name is another user."""
     login(app, "anna", admin=False)
     con = db.connect(app.state.settings.db_path)
     auth.sync_users(con, [{"id": "nd-other", "userName": "other", "isAdmin": True}])  # anna is gone
@@ -266,8 +265,8 @@ def test_metrics_public_setting(app, login: Callable[..., TestClient]) -> None:
 
 
 def test_navidrome_settings(app, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch) -> None:
-    """An address that does not answer is not taken (nobody could log in), nor none without a fallback;
-    the service password is stored in the vault, never shown."""
+    """An unreachable address is refused, an empty one too without the env fallback; the service password
+    goes to the vault and is never shown."""
     from echolot.services import navidrome
 
     client = login(app)
@@ -289,8 +288,8 @@ def test_navidrome_settings(app, login: Callable[..., TestClient], monkeypatch: 
 
 
 def test_navidrome_login_asks_navidrome(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The login is Navidrome's own: POST /auth/login with the name and password (JSON); 401 is a wrong one.
-    The service account logs in the same way and sends the token with its API calls."""
+    """Against a fake Navidrome: POST /auth/login (401 = wrong password); the service account sends the
+    token with its API calls and must be an admin."""
     monkeypatch.undo()  # the real login, not the tests' fake
     import json
     import threading
@@ -339,7 +338,7 @@ def test_navidrome_login_asks_navidrome(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_cli_users(settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    """The way back in: there is no password here to reset, but a user can be made an admin."""
+    """The way back in: no password to reset, but the CLI can make a user an admin."""
     from echolot.cli import main
 
     monkeypatch.setenv("ECHOLOT_DATA_DIR", str(settings.data_dir))

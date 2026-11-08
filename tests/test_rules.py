@@ -305,8 +305,8 @@ def test_a_co_artist_counts_as_the_artist() -> None:
 
 
 def test_a_duo_named_the_other_way_round_in_the_path() -> None:
-    """Spotify's "Riko & Para", the scene release's "Para_x_Riko": the radio edit is the song (Sockseek's own
-    artist filter dropped it, so Echolot no longer asks for that filter), the extended mix another length."""
+    """Spotify's "Riko & Para" is the scene release's "Para_x_Riko": the radio edit matches, the extended mix
+    is another length (Sockseek's own artist filter dropped it)."""
     folder = "@@music\\Techno\\202303\\Para_x_Riko-Share_Our_Happiness-(CR0236)-16BIT-WEB-FLAC-2023-DASH\\"
     radio, extended = (
         "02-para_x_riko-share_our_happiness_(radio_edit).flac",
@@ -331,8 +331,7 @@ def test_cjk_names_with_or_without_a_space() -> None:
 
 
 def test_prejudge_needs_artist_or_title() -> None:
-    """A loosened search for "HK - Was!?!?" finds anything with "was" in it: with neither the artist nor
-    the title in the path nothing is downloaded; with the title alone the tags decide."""
+    """Loosened search: neither artist nor title in the path rejects; the title alone leaves it to the tags."""
     title = "Was!?!? (feat. OG Boobie Black)"
     other = "Music\\The Decemberists\\438 - The Decemberists - Here I Dreamt I Was An Architect.mp3"
     assert rules.prejudge("HK", title, other, 0, 180, strict_artist=False)[0] == "reject"
@@ -342,8 +341,7 @@ def test_prejudge_needs_artist_or_title() -> None:
 
 
 def test_prejudge_title_unseen_needs_the_artist_as_a_name_and_a_length() -> None:
-    """HK - Was!?!?: "HK" in "HK Gruber" is not the artist; a loosened search downloads a file that does not
-    show the title only when its length is known (the length rule decides then)."""
+    """HK is not the artist of "HK Gruber"; loosened, a path without the title needs a known length."""
     title = "Was!?!? (feat. OG Boobie Black & Sami Nasser)"
     gruber = (
         "Klassik\\Friedrich Cerha - HK Gruber\\Eine Art Chansons\\31 Eine Art Chansons - Was können sie dir tun.flac"
@@ -363,10 +361,8 @@ def test_named() -> None:
 
 
 def test_own_artist_credit_is_the_song_for_review() -> None:
-    """High Tekk's "Irgendwie Irgendwo Irgendwann" is uploaded as "... - HIGH TEKK REMIX": the song as its
-    artist released it (Spotify leaves the word out). A search result is taken, and the download is probable
-    (Review: only a listener can tell); another remixer, the artist's VIP or a request naming a version stay
-    apart."""
+    """High Tekk's "Song - HIGH TEKK REMIX" is the plain song: accepted, probable (Review). Another remixer,
+    the artist's VIP or a requested version stay apart."""
     title, sc = "Irgendwie Irgendwo Irgendwann", "Irgendwie Irgendwo Irgendwann - HIGH TEKK REMIX"
     assert rules.prejudge("High Tekk", title, f"High Tekk (Offiziell)/{sc}", 170, 170)[0] == "accept"
     match, why = rules.identify(

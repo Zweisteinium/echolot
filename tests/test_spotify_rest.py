@@ -1,6 +1,5 @@
-"""Spotify's rate limit (services/spotify): a long Retry-After stops every request until then, kept across a
-restart; a short one is waited out. Liked Songs are read only up to the first known one when only songs were
-added; the list job reads nothing while Spotify rests, and no list counts as unreadable."""
+"""Spotify's rate limit (services/spotify): a short Retry-After is waited out, a long one stops every request
+until then, across a restart. Also reading Liked Songs only up to the first known one."""
 
 import email.message
 import io
@@ -62,7 +61,7 @@ def test_a_long_retry_after_stops_every_request_until_then(client, monkeypatch: 
     with pytest.raises(spotify.SpotifyResting):
         client.get("/me/playlists")  # not asked: still resting
     assert len(asked) == 3
-    spotify._rest["until"] = 0.0  # a restart: the database still knows
+    spotify._rest["until"] = 0.0  # a restart: kept in the database
     assert spotify.resting_until(client.con) > time.time() + 24000
     with pytest.raises(spotify.SpotifyResting):
         client.get("/me/playlists")
@@ -78,7 +77,7 @@ def test_only_the_songs_liked_since_are_read(client, monkeypatch: pytest.MonkeyP
 
     asked = answer(monkeypatch, page(["n1", "n2", "o1"], 4, True))
     assert [s["id"] for s in client.liked_since({"o1", "o2"}, 2) or []] == ["n1", "n2"] and len(asked) == 1
-    answer(monkeypatch, page(["n1", "o1"], 2, True))  # one added and one unliked: not only added, read all
+    answer(monkeypatch, page(["n1", "o1"], 2, True))  # one added, one unliked: read all
     assert client.liked_since({"o1", "o2"}, 2) is None
     answer(monkeypatch, {"id": "me"})
     assert client.me() == client.me() == {"id": "me"}  # asked once

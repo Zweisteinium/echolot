@@ -1,6 +1,5 @@
-"""YouTube playlists as a source (jobs/lists.youtube): their links, a list read through YouTube Music and
-yt-dlp, the songs' names from Spotify where it has them, the videos that no longer play kept in their
-list, and the search of a YouTube song (its own video first)."""
+"""YouTube playlists as a source (jobs/lists.youtube): links, reading a list (names from Spotify where it
+has them, dead videos kept) and searching a YouTube song (its own video first)."""
 
 import threading
 from pathlib import Path
@@ -66,8 +65,7 @@ class FakeSpotify:
 
 @pytest.fixture
 def youtube(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> dict:
-    """The list as YouTube has it: `order` (yt-dlp, every video), `playing` (YouTube Music's songs), and
-    which videos YouTube is asked about (state)."""
+    """The list: `order` (yt-dlp, every video), `playing` (YouTube Music's songs), `asked` (state lookups)."""
     yt: dict = {"order": [], "playing": [], "asked": []}
     song = {
         "v1": {"id": "v1", "title": "Song A", "artists": ["Artist A"], "album": "", "length": 200, "kind": "atv"},
@@ -176,7 +174,7 @@ def test_a_youtube_song_is_searched_with_its_own_video_first(settings: Settings,
 
 
 def test_an_uploads_names() -> None:
-    """From the video's title, as uploaders write them (a public hardstyle list)."""
+    """Artists and title from a video's title, as uploaders write them."""
     cases = {
         ("Scantraxx", "Squaretraxx 003 - Frontliner & Ruthless - One Bananaz (HQ)"): (
             ["Frontliner", "Ruthless"],
@@ -213,7 +211,7 @@ def test_follow_a_youtube_list_by_its_link(settings: Settings, login, monkeypatc
 
 
 def test_a_refused_stream_is_asked_for_once_more(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """YouTube now and then refuses a stream (HTTP 403): the download is tried once more, other errors not."""
+    """A refused stream (HTTP 403) is tried once more, other errors not."""
     answers = [(None, "unable to download video data: HTTP Error 403: Forbidden"), (tmp_path / "a.opus", "")]
     tries = []
     monkeypatch.setattr(ytdlp.YtDlp, "_fetch", lambda self, url, dest, stop: tries.append(url) or answers.pop(0))
