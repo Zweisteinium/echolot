@@ -1,12 +1,8 @@
-{# the jobs (History · Jobs): a card per task (schedule.TASKS), all alike: its name, state, next start and
-   buttons in one line on top, below its steps (jobs) in columns: what each did last or does now in counts
-   (format.facts: a song's outcome as an icon and its number), the songs a Soulseek run searches now, its schedule
-   and when it ran. What the task is for and its steps behind ⓘ, its log behind Log; maintenance below its own
-   heading. htmx reloads it every few seconds while something runs and morphs it in (scrolling and a selection
-   stay); open infos and logs stay open (base.html, data-info) -#}
+{# the jobs card (History · Jobs), a card per task. Polled while something runs and morphed in, so
+   scrolling, selections and open infos/logs stay (base.html, data-info) -#}
 {% from "_icons.html" import icon -%}
 {% set STEP_ICONS = {'sync': 'spotify', 'soundcloud': 'soundcloud', 'youtube': 'youtube', 'search_new': 'soulseek', 'sweep': 'soulseek'} -%}
-{% macro show(line, step='') -%}{# a job's line as counts, outcomes and text #}
+{% macro show(line, step='') -%}
 {% set pieces = line|facts(step) -%}
 {% set outcomes = pieces|selectattr('icon')|list -%}
 <div class="job-facts">
@@ -25,7 +21,7 @@
   {% if run %}
   {% if s.stopping %}<span class="fact-text warn-text">stopping: the songs in progress end first</span>
   {% elif run.give_way.is_set() %}<span class="fact-text warn-text">{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress</span>{% endif %}
-  {% if user.admin %}{{ show(run.progress or 'starting …', steps[s.job.name]) }}{# a song's name may be another user's #}
+  {% if user.admin %}{{ show(run.progress or 'starting …', steps[s.job.name]) }}{# progress may name another user's song #}
   {% if s.songs %}<ul class="step-songs" aria-label="Searched now">{% for x in s.songs %}<li title="{{ x.name }}">{{ icon('search', 12) }}<span>{{ x.name }}</span></li>{% endfor %}</ul>{% endif %}
   {% elif run.total %}<div class="job-facts"><span class="fact"><b>{{ run.done|num }}</b><i>/{{ run.total|num }}</i></span></div>
   {% else %}<span class="fact-text">running</span>{% endif %}

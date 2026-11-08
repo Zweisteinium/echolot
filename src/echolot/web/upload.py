@@ -1,6 +1,5 @@
-"""Upload by hand: files for missing songs or better copies of songs in the library, checked in a dialog
-(Missing, the Overview, the list pages), imported on confirm (library/upload). For admins and users with
-the review permission, for the songs they see."""
+"""Upload dialog: files for missing songs or better copies, checked one by one, imported on confirm
+(library/upload). Upload permission, for the songs the user sees."""
 
 import contextlib
 from typing import Annotated
@@ -47,9 +46,7 @@ def _batch(request: Request, batch: str) -> list[upload.File]:
 
 @router.get("/missing/upload", response_class=HTMLResponse)
 def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
-    """The dialog, with a new batch: files are uploaded and checked the moment they are picked or dropped,
-    each on its own (upload_file); one Import for all once every one is done. For one song (`song`), or any
-    of yours: missing ones, better copies."""
+    """The dialog with a new batch, for one song (`song`) or any of the user's."""
     batch = upload.start(_paths(request))
     return page(request, "_upload.html", step="pick", batch=batch, song=_song(request, con, song))
 
@@ -58,9 +55,8 @@ def upload_form(request: Request, con: DB, song: str = "") -> HTMLResponse:
 def upload_file(
     request: Request, con: DB, batch: str, file: Annotated[UploadFile, File()], song: Annotated[str, Form()] = ""
 ) -> HTMLResponse:
-    """One file of the batch: saved, checked, its song found (the one its Spotify track or ISRC tag names,
-    else the one asked for, else the one its tags or name suggest; no song: not imported) and how it fits;
-    its row for the dialog."""
+    """Save and check one file; its song: by Spotify/ISRC tag, else the one asked for, else guessed from tags
+    or name. Answers its dialog row."""
     keep_hires = options.get(con, options.Files).keep_hires
     try:
         f = upload.add(_paths(request), batch, file.filename or "", file.file, keep_hires)
@@ -70,7 +66,7 @@ def upload_file(
     key = upload.tagged(con, f, songs) or (song if song in songs else upload.guess(f, list(songs.values())))
     match = songs.get(key or "") if not f.error else None
     paths = _paths(request)
-    copy = upload.compare(paths, f, match) if match else None  # a song you have: better?
+    copy = upload.compare(paths, f, match) if match else None  # better than the library's copy?
     fit = upload.fit(con, f, match, paths.tracks)
     go = upload.importable(f, match, copy, fit)
     different = upload.sounds_different(fit)
@@ -91,7 +87,7 @@ def upload_file(
 
 @router.post("/missing/upload/{batch}/import", response_class=HTMLResponse)
 async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
-    """File every file that has a song (song_<n>: those left in the dialog, a missing song or a better copy)."""
+    """File every file with a song (song_<n>); remove_<n>: drop its close match; from_<n>: its origin."""
     form = await request.form()
     songs = _songs(request, con)
     _batch(request, batch)
@@ -107,23 +103,23 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
     if not chosen:
         upload.cancel(_paths(request), batch)
         return page(request, "_upload.html", step="done", results=[], imported=[], none=True)
-    vault = request.app.state.vault  # (filing reads and writes files and asks Spotify for the cover)
+    vault = request.app.state.vault  # filing asks Spotify for the cover
     results = await run_in_threadpool(
         upload.import_files, con, _paths(request), vault, batch, chosen, remove, origins=froms
     )
-    imported = [key for _, key in results if key]  # (the page takes these songs off Missing)
+    imported = [key for _, key in results if key]  # the page takes these off Missing
     return page(request, "_upload.html", step="done", results=[line for line, _ in results], imported=imported)
 
 
 @router.post("/songs/{key:path}/origin-again", response_class=HTMLResponse)
 def song_origin_again(request: Request, con: DB, key: str) -> HTMLResponse:
-    """Search a song whose file is the artist's own release for a better copy again (its mark goes)."""
+    """Drop the "artist's own release" mark, so a better copy is searched again."""
     origin.forget(con, key)
     return HTMLResponse("")
 
 
 @router.post("/missing/upload/{batch}/cancel")
 def upload_cancel(request: Request, batch: str) -> Response:
-    with contextlib.suppress(ValueError):  # no such batch: nothing to delete
+    with contextlib.suppress(ValueError):  # no such batch
         upload.cancel(_paths(request), batch)
     return HTMLResponse("")

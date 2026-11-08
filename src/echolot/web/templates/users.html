@@ -29,12 +29,11 @@
   </table>
 </section>
 <script>
-  // an admin may do everything: their permissions show ticked and locked; unticking Admin brings back what is
-  // stored for them (being an admin never changes it)
+  // an admin's permissions show ticked and locked; unticking Admin brings back the stored ones
   document.addEventListener("change", (e) => {
     const admin = e.target.closest("[data-admin]");
     if (!admin) return;
-    admin.closest("tr").querySelector("[data-locked]").value = admin.checked ? "1" : "0";  // the boxes count again
+    admin.closest("tr").querySelector("[data-locked]").value = admin.checked ? "1" : "0";
     for (const box of admin.closest("tr").querySelectorAll("[data-permission]")) {
       box.disabled = admin.checked;
       box.checked = admin.checked || box.dataset.stored === "1";

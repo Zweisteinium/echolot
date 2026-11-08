@@ -1,5 +1,4 @@
-{# a release's suggestion for Discogs' form (web/discogs.discogs_release), in the Discogs dialog: what Discogs
-   requires and what is sure, in the form's order; what may be added or left empty folded away #}
+{# the Discogs dialog: what to enter, in the form's order; optional fields folded away #}
 {% macro copy(id, value) -%}
 <span class="dc-copyable"><span id="dc-{{ id }}">{{ value }}</span><button type="button" class="dc-copy" data-copy="#dc-{{ id }}">Copy</button></span>
 {%- endmacro %}

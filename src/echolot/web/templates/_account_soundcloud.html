@@ -1,4 +1,4 @@
-{# connecting SoundCloud (Playlists): paste the browser login's two cookies, replace them, disconnect #}
+{# SoundCloud on the Playlists page: paste the browser login's two cookies #}
   {% if s.soundcloud.error %}<p class="flash error">{{ s.soundcloud.error }} Paste the two cookies again below.</p>{% endif %}
   {% if s.soundcloud.connected %}
   <p class="muted">Echolot reads your likes and sets and downloads the songs, originals in their own quality where the uploader allows it. {% if s.soundcloud.renews %}It renews its token itself each day (this one works until {{ s.soundcloud.expires.strftime('%Y-%m-%d %H:%M') if s.soundcloud.expires else '?' }}) as long as that login is not logged out.{% elif s.soundcloud.expires %}The token works until {{ s.soundcloud.expires.strftime('%Y-%m-%d %H:%M') }}: SoundCloud's login tokens last a day. Paste the refresh token with it (steps below) and Echolot renews it itself.{% else %}The token stops working when you log out of SoundCloud in that browser: then paste a new one.{% endif %}</p>

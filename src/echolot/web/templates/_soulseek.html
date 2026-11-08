@@ -1,4 +1,4 @@
-{# the Soulseek card; reloaded every few seconds while the daemon is not ready #}
+{# the Soulseek card; polled while the daemon is not ready #}
 {% from "_icons.html" import icon %}
 {% from "_macros.html" import how %}
 <section class="card account" id="soulseek-client" {% if not s.soulseek.ready and s.soulseek.backend != 'slskd' %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>

@@ -1,10 +1,6 @@
 {% from "_icons.html" import icon %}
-{% macro service(name) -%}
-<span class="service">{{ name|source }}</span>
-{%- endmacro %}
-
-{# a song's title linked to its page at the source: Spotify tries the desktop app first (base.html) #}
-{# url: where it plays (db.play_url): a Spotify song Spotify relinks plays as that release's track #}
+{# a song's title linked to its source; Spotify tries the desktop app first (base.html). url: db.play_url
+   (a relinked Spotify song plays as that release's track) #}
 {% macro song_link(key, url, text) -%}
 {% set service, _, sid = (key or '').partition(':') -%}
 {% if service == 'spotify' and (url or '').startswith('https://open.spotify.com/track/') %}{% set sid = url.rpartition('/')[2] %}{% endif -%}
@@ -13,8 +9,7 @@
 {%- else %}{{ text }}{% endif %}
 {%- endmacro %}
 
-{# a song's Artist, Title and Length columns (song_heads, song_cells); on narrow screens its artist and length go
-   under the title. `mark`: after the title (song_mark) #}
+{# Artist, Title, Length columns; on narrow screens artist and length go under the title #}
 {% macro song_heads() -%}
 <th class="hide-narrow">Artist</th><th>Title</th><th class="num hide-narrow">Length</th>
 {%- endmacro %}
@@ -29,8 +24,7 @@
 <span class="chip q-{{ key }}"><span class="swatch" aria-hidden="true"></span>{{ label or ('FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else 'missing' if key == 'missing' else (kbps ~ ' kbps') if kbps else 'lossy') }}</span>
 {%- endmacro %}
 
-{# counts: [(tier, label, n)], best first (stats.tier_counts / tiers_of) #}
-{# a download's facts, the same on every page: source · length (± seconds off the wanted song) · quality · size #}
+{# a download's facts: source · length (± s off the wanted song) · quality · size #}
 {% macro facts(source=None, seconds=None, diff=None, tier=None, kbps=None, bytes=None) -%}
 {%- if source %}<span>{{ source|source }}</span>{% endif -%}
 {%- if seconds %}<span class="{{ 'fits' if diff is not none and diff|abs <= 3 else 'off' if diff is not none }}">{{ seconds|mmss }}{% if diff %} ({{ '%+d'|format(diff) }} s){% endif %}</span>{% endif -%}
@@ -47,7 +41,7 @@
 </span>
 {%- endmacro %}
 
-{# a share in whole percent; a small non-zero share is "< 1 %", never "0 %" #}
+{# a share with one decimal (format.share) #}
 {% macro share(n, total) -%}
 {{ percent(n, total) }} %
 {%- endmacro %}
@@ -61,9 +55,8 @@
 </ul>
 {%- endmacro %}
 
-{# why a song is not to record (recording.marks): Spotify has nothing better of it (best: who may record clicks the
-   mark to offer the song for recording again), no longer plays it (gone), played another song for it lately
-   (lately: a clock, it is offered again later); or it is in the list twice (twin). A word joiner keeps it on the line of the word before it. #}
+{# why a song is not offered for recording (recording.marks); with `can`, best and original are buttons
+   to try again. The word joiner keeps the mark on the title's last line #}
 {% macro song_mark(key, m, can) -%}
 {%- if m and m.kind == 'best' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to try recording it again." aria-label="{{ m.why }}; try again"
   hx-post="/songs/{{ key|urlencode }}/spotify-again" hx-swap="outerHTML" hx-confirm="Offer this song for recording again?">{{ icon('info', 13) }}</button>
@@ -73,19 +66,17 @@
 {%- endif %}
 {%- endmacro %}
 
-{# a song's track on Bandcamp (stats.offers): its price, linking to the page to buy it lossless #}
 {% macro bandcamp(o) -%}
 {%- if o and (o.price is not none or o.free) %}<a class="pill accent-pill" href="{{ o.url }}" target="_blank" rel="noopener" title="Lossless (FLAC) on Bandcamp: {{ o.artist }} – {{ o.title }}{{ ', a free download' if o.free }}">Bandcamp{% set p = o.price|price(o.currency, o.free) %}{{ ' ' ~ p if p }}</a>{% endif %}
 {%- endmacro %}
 
-{# a free download outside Bandcamp a SoundCloud page links to (services/free_links): a file Echolot fetches, or a
-   gate (a follow, a repost or an email for the file) to get by hand #}
+{# a free download a SoundCloud page links to (services/free_links): fetched by Echolot, or a gate
+   (follow, repost, email) to get by hand #}
 {% macro free_link(l) -%}
 {%- if l and l.url %}<a class="pill accent-pill" href="{{ l.url }}" target="_blank" rel="noopener" title="{{ ('A file on ' ~ l.site ~ ' (Echolot fetches it)') if l.fetch else ('A free download on ' ~ l.site ~ ': the file for a follow, a repost or an email, only you can give') }}{{ ': “' ~ l.label ~ '”' if l.label }}">Free · {{ l.site }}</a>{% endif %}
 {%- endmacro %}
 
-{# a page's or section's explanation: one line always shown (lead), the rest folded under "How it works"
-   (remembered per browser: base.html, data-remember) #}
+{# a lead line, the rest folded under "How it works" (remembered: base.html, data-remember) #}
 {% macro how(id, lead) -%}
 <div class="intro"><p class="lead">{{ lead }}</p><details class="how" data-remember="how-{{ id }}"><summary>How it works</summary><div class="how-body">{{ caller() }}</div></details></div>
 {%- endmacro %}

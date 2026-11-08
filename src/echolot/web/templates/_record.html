@@ -1,9 +1,7 @@
-{# the Record dialog (web/recorders), on the pages that open it: a button with
-   hx-get="/recordings/new[?list=<key>]" hx-target="#record-body". The session panel is the page's own:
-   <div id="recording" hx-get="/recordings/panel[?list=<key>]" hx-trigger="load" hx-swap="outerHTML"> #}
+{# the Record dialog: opened by hx-get="/recordings/new[?list=<key>]" hx-target="#record-body" #}
 <dialog id="record" class="modal record-dialog" aria-label="Record with Mitschnitt"><div id="record-body"></div></dialog>
 <script>
-  // the dialog opens with its form; the choice sets what the file link downloads
+  // the dialog opens with its form; the choice sets the export link's query
   (() => {
     const dialog = document.getElementById("record");
     const body = document.getElementById("record-body");
@@ -20,12 +18,10 @@
     body.addEventListener("change", update);
     dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
   })();
-  // a session's panel: the song's time and the bar (the session's songs' time heard) run on by the page's own
-  // clock, drawn every frame. The panel comes anew every 5 s with the server's time (whole seconds, from what
-  // the device last said): it only sets the clock when that is more than 2 s off (a new song, a seek), so the
-  // refreshes neither jump the time nor the bar.
+  // the session panel's clock and bar run on locally every frame; a new panel (every 5 s, whole seconds from
+  // the device) resets the clock only when more than 2 s off (a new song, a seek), so polls cause no jumps
   (() => {
-    let anchor = null;  // the song's position `at` (s) at performance.now() `t`, and the panel it was read from
+    let anchor = null;  // {song, at: position (s) at performance.now() t, el: the panel read}
     const draw = () => {
       const clock = document.querySelector("#recording [data-clock]");
       const now = performance.now();

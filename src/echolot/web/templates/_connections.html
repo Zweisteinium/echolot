@@ -1,6 +1,4 @@
-{# the Library page's connection line: a chip per service, its icon and the account; a problem in words and
-   coloured, leading to where it is set up (Playlists; Soulseek: Settings, for admins). A chip in order links
-   nowhere (the nav has Playlists) #}
+{# the Library page's connection line: a chip per service; a problem links to where it is set up #}
 {% from "_icons.html" import icon %}
 {% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
 {% set to = ' href="/settings#soulseek-client"' if user.admin else '' %}
@@ -11,7 +9,7 @@
   {% if sc.connected %}<span class="status ok" title="SoundCloud: {{ sc.name }}">{{ icon('soundcloud', 13) }}<span>{{ sc.name }}</span></span>
   {% elif sc.error %}<a class="status bad" href="/playlists#soundcloud" title="{{ sc.error }}">{{ icon('soundcloud', 13) }}<span>token {{ 'expired' if sc.expired else 'invalid' }}</span></a>
   {% else %}<a class="status warn" href="/playlists#soundcloud" title="SoundCloud: not connected">{{ icon('soundcloud', 13) }}<span>not connected</span></a>{% endif %}
-  {% set who = sl.user if user.admin and sl.user else '' %}{# the server's account: its name to admins #}
+  {% set who = sl.user if user.admin and sl.user else '' %}{# the server's Soulseek account: named to admins only #}
   {% if sl.ready %}<span class="status ok" title="Soulseek: logged in{{ ' as ' ~ who if who }}">{{ icon('soulseek', 13) }}<span>{{ who or 'logged in' }}</span></span>
   {% elif not sl.reachable %}<a class="status bad"{{ to|safe }} title="{{ sl.error }}">{{ icon('soulseek', 13) }}<span>daemon not reachable</span></a>
   {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="status bad"{{ to|safe }} title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">{{ icon('soulseek', 13) }}<span>disconnected</span></a>

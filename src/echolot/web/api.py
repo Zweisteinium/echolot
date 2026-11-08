@@ -1,4 +1,4 @@
-"""Numbers for dashboards: the hourly snapshots as JSON and in the Prometheus format."""
+"""Dashboard numbers: the hourly snapshots as JSON and in the Prometheus format."""
 
 from datetime import datetime
 from typing import Any
@@ -38,7 +38,7 @@ def api_stats_history(
     except ValueError as e:
         raise HTTPException(422, f"since/until: {e}") from e
     rows = history.series(con, metric, key, since, until)
-    return [dict(r) | {"time": int(datetime.fromisoformat(r["ts"]).timestamp())} for r in rows]  # ts, key, value
+    return [dict(r) | {"time": int(datetime.fromisoformat(r["ts"]).timestamp())} for r in rows]
 
 
 @router.get("/api/stats/downloads")

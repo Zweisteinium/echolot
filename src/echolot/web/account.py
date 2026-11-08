@@ -1,6 +1,4 @@
-"""Account page: who you are here (an admin, or your permissions), which pages an admin sees (theirs or
-everyone's), your recorder devices (web/recorders), your API tokens and your logins. The password is
-Navidrome's: it is changed there."""
+"""Account page: rights, an admin's Mine/Everyone view, recorder devices, API tokens, sessions."""
 
 import sqlite3
 import urllib.parse
@@ -34,7 +32,6 @@ def account_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/account/recorders")
 def old_recorders_page() -> RedirectResponse:
-    """The account's parts were pages of their own (0.11.1)."""
     return RedirectResponse("/account#recorders", status_code=301)
 
 
@@ -45,7 +42,6 @@ def old_tokens_page() -> RedirectResponse:
 
 @router.post("/account/view")
 def account_view(request: Request, con: DB, view: Annotated[str, Form()]) -> RedirectResponse:
-    """An admin's pages show their own lists and songs, or everyone's."""
     try:
         auth.set_view(con, request.state.user, view)
     except auth.AuthError as err:
@@ -54,7 +50,7 @@ def account_view(request: Request, con: DB, view: Annotated[str, Form()]) -> Red
 
 
 def _same_page(request: Request) -> str:
-    """Back to the page the switch was on: the path of the referring page, never another site."""
+    """The referring page's path; never another site."""
     path = urllib.parse.urlparse(request.headers.get("referer") or "/").path or "/"
     return path if path.startswith("/") and not path.startswith("//") else "/"
 
@@ -71,7 +67,7 @@ def token_create(request: Request, con: DB, name: Annotated[str, Form()]) -> Res
         token = auth.create_token(con, request.state.user, name)
     except auth.AuthError as err:
         return back("/account#tokens", error=str(err))
-    # shown once, in this response only (a redirect would put it into the URL)
+    # shown once, in this response (a redirect would put it into the URL)
     return _account_page(request, con, new_token=token, new_token_name=name.strip())
 
 

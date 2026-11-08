@@ -1,4 +1,4 @@
-"""Helpers the web modules share: database connection per request, page rendering, redirects."""
+"""Shared web helpers: a DB connection per request, page rendering, static assets, redirects."""
 
 import hashlib
 import urllib.parse
@@ -28,7 +28,7 @@ DB = Annotated[Connection, Depends(get_db)]
 
 
 def page(request: Request, template: str, status_code: int = 200, **context: Any) -> HTMLResponse:
-    """Render a template with the flash messages, the logged-in user and the CSRF token."""
+    """Render with the flash messages (?ok=, ?error=), the user and the CSRF token."""
     context.setdefault("ok", request.query_params.get("ok", ""))
     context.setdefault("error", request.query_params.get("error", ""))
     csrf = getattr(request.state, "csrf", "")
@@ -40,15 +40,13 @@ def page(request: Request, template: str, status_code: int = 200, **context: Any
 
 
 def asset_urls(folder: Path) -> Callable[[str], str]:
-    """/static/<name>?v=<content hash>: a changed file gets a new address, so no cache (browser, reverse
-    proxy) serves the old one after an update."""
+    """/static/<name>?v=<content hash>, so no cache serves an old file after an update."""
     versions = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()[:10] for p in folder.iterdir() if p.is_file()}
     return lambda name: f"/static/{name}?v={versions[name]}"
 
 
 class Assets(StaticFiles):
-    """The static files; one asked for at its content-hashed address (asset_urls) never changes there, so
-    browsers keep it for a year without asking again."""
+    """Static files; a hashed address (asset_urls) never changes, so it is cached for a year."""
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         response = await super().get_response(path, scope)
@@ -58,7 +56,7 @@ class Assets(StaticFiles):
 
 
 def back(path: str, **message: str) -> RedirectResponse:
-    """Back to a page (path, with or without #section) with a message: ok=… or error=…."""
+    """Redirect to `path` (may end in #section) with ok=… or error=…."""
     path, _, section = path.partition("#")
     query = urllib.parse.urlencode(message)
     joined = f"{path}{'&' if '?' in path else '?'}{query}" if query else path

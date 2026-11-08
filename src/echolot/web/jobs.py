@@ -1,5 +1,4 @@
-"""The jobs: their page (History · Jobs; htmx refreshes it while jobs run) and the line on the Library page of
-what runs now, starting and stopping them, pausing the schedule, and the same as JSON."""
+"""Jobs: the page (History · Jobs, polled by htmx), the Library page's status pill, start/stop/pause, JSON."""
 
 import sqlite3
 from datetime import datetime
@@ -13,16 +12,15 @@ from echolot.settings import options
 from echolot.web.common import DB, back, page
 
 router = APIRouter()
-LAST = {"last_start": "started", "last_end": "finished", "last_message": "message"}  # API name: column
+LAST = {"last_start": "started", "last_end": "finished", "last_message": "message"}  # API name -> column
 
 
 def status(request: Request, con: sqlite3.Connection) -> dict:
-    """Every job with its schedule, last run, the run in progress and the next start."""
     now = datetime.now()
     rules = schedule.rules(con)
     last = {r["name"]: r for r in con.execute("SELECT * FROM jobs")}
     runs, requested = request.app.state.worker.state()
-    holding = sorted(runs.values(), key=lambda r: not r.give_way.is_set())  # one giving way holds it no longer
+    holding = sorted(runs.values(), key=lambda r: not r.give_way.is_set())  # a run giving way loses its resource
     busy = {r.job.resource: r.job.label for r in holding}
     rows = []
     for j in schedule.JOBS:
@@ -35,7 +33,7 @@ def status(request: Request, con: sqlite3.Connection) -> dict:
         state = {"next": next_start, "waiting": waiting, "starting": starting, "stopping": stopping}
         songs = _songs(con, run) if run and j.resource == "soulseek" else []
         rows.append({"job": j, "rule": rules[j.name], "last": r, "run": run, "songs": songs} | state)
-    changing = any(r["starting"] or r["stopping"] for r in rows)  # the table asks again every second then
+    changing = any(r["starting"] or r["stopping"] for r in rows)  # the page then polls every second
     paused = options.get(con, options.Jobs).paused
     tasks = _tasks(rows, request.app.state.worker.finished())
     state = {"jobs": rows, "tasks": tasks, "steps": schedule.STEPS, "paused": paused}
@@ -43,8 +41,8 @@ def status(request: Request, con: sqlite3.Connection) -> dict:
 
 
 def _songs(con: sqlite3.Connection, run) -> list[dict]:
-    """The songs a Soulseek run works on now (acquire.track: searched, else downloaded): name and stage."""
-    fetching = dict(run.fetching)  # (the run's threads change it)
+    """The songs a Soulseek run works on now: name and stage."""
+    fetching = dict(run.fetching)  # a copy: the run's threads change it
     if not fetching:
         return []
     marks = ",".join("?" * len(fetching))
@@ -56,8 +54,8 @@ def _songs(con: sqlite3.Connection, run) -> list[dict]:
 
 
 def _tasks(rows: list[dict], finished: dict) -> list[dict]:
-    """The jobs as the page shows them: per task its steps (job rows), the runs going on, its last run (the
-    latest of its steps'), its next start, and the log to show (of the run going on, else of the last)."""
+    """Per task: its steps (job rows), running steps, latest run, next start and the log to show (of the
+    running step, else of the last one)."""
     by_job = {r["job"].name: r for r in rows}
     out = []
     for t in schedule.TASKS:
@@ -90,7 +88,7 @@ def answer(request: Request, con: sqlite3.Connection, ok: str) -> Response:
 
 @router.get("/jobs", response_class=HTMLResponse, include_in_schema=False)
 def jobs_page(request: Request, con: DB) -> HTMLResponse:
-    """The jobs page; to htmx (it refreshes it while jobs run) only its card."""
+    """The page; htmx polls get only the card."""
     if request.headers.get("hx-request"):
         return page(request, "_jobs.html", **status(request, con))
     return page(request, "jobs.html", nav="jobs", **status(request, con))
@@ -98,7 +96,7 @@ def jobs_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/jobs/now", response_class=HTMLResponse, include_in_schema=False)
 def jobs_now(request: Request, con: DB) -> HTMLResponse:
-    """The Library page's line of what runs now (else that all is quiet, or paused), linking to the jobs."""
+    """The Library page's jobs pill."""
     return page(request, "_jobs_now.html", **status(request, con))
 
 
@@ -127,22 +125,22 @@ def run_job(request: Request, con: DB, name: str) -> Response:
 
 @router.post("/jobs/start", include_in_schema=False)
 def start_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Response:
-    """A task's button: start its jobs (comma-separated names) as soon as their queues are free."""
-    jobs = [n for n in names.split(",") if n in schedule.TASK_OF]  # (a job of no task has its own button)
+    """A task's button: start its jobs (comma-separated) once their resources are free."""
+    jobs = [n for n in names.split(",") if n in schedule.TASK_OF]
     if not jobs or not all(request.app.state.worker.trigger(n) for n in jobs):
         raise HTTPException(404, "no such job")
     return answer(request, con, f"{schedule.TASK_OF[jobs[0]].label} starts in a moment.")
 
 
-OWN = {  # a user's own runs (the Run permission): (job, for their songs only)
-    "check": (("sync", False), ("youtube", False), ("soundcloud", False)),  # the list jobs: cheap for all lists
+OWN = {  # the Run permission's buttons -> (job, only the user's songs)
+    "check": (("sync", False), ("youtube", False), ("soundcloud", False)),  # list jobs are cheap for all lists
     "search": (("sweep", True), ("fallback", True)),
 }
 
 
 @router.post("/jobs/mine", include_in_schema=False)
 def own_jobs(request: Request, con: DB, what: Annotated[str, Form()]) -> Response:
-    """Check the user's lists now, or search their missing songs now (theirs only, whatever their wait)."""
+    """Check the lists now, or search the user's missing songs now (ignoring their wait)."""
     if what not in OWN:
         raise HTTPException(404, "no such run")
     uid = request.state.user.id
@@ -154,7 +152,7 @@ def own_jobs(request: Request, con: DB, what: Annotated[str, Form()]) -> Respons
 
 @router.post("/jobs/stop", include_in_schema=False)
 def stop_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Response:
-    """A task's Stop: its running jobs end after their songs in progress."""
+    """A task's Stop: running jobs end after their songs in progress."""
     stopped = [n for n in names.split(",") if request.app.state.worker.cancel(n)]
     if not stopped:
         raise HTTPException(404, "not running")

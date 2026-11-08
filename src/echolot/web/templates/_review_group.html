@@ -1,5 +1,4 @@
-{# one wanted song and its downloads up for review, the likeliest first; a decision swaps this card (htmx).
-   The left column lines up: the song's source (Spotify, SoundCloud) above each download's play button -#}
+{# a song's card with its downloads, likeliest first; a decision swaps the whole card -#}
 {% from "_macros.html" import quality, song_link -%}
 {% from "_icons.html" import icon -%}
 {% set lead, taken = g.lead, g.taken -%}

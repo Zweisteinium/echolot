@@ -1,17 +1,14 @@
-"""Discover in the players: the few Subsonic API calls Echolot answers. A gate (nginx, in front of Navidrome)
-sends it a player's searches and every request about a song the library does not have yet (an "ex-" id);
-everything else goes to Navidrome directly, so playing the library never needs Echolot, and a search falls
-back to Navidrome's own when Echolot does not answer.
+"""Discover in the players: the Subsonic calls Echolot answers. A gate (nginx in front of Navidrome) sends
+it the searches and every call about an "ex-" id; all else goes to Navidrome directly, so playback never
+needs Echolot and a search falls back to Navidrome's when Echolot does not answer.
 
-- search3: Navidrome's answer, its songs followed by up to EXTRA that Discover finds and the library lacks.
-  They are kept (discover_songs), so a player can come back to them by their id.
-- such a song's stream: SoundCloud's in full when SoundCloud has it, else a 30 s preview (Deezer, Apple
-  Music); its cover, its details (getSong).
-- a heart on it (star) is a like Echolot keeps (discover_likes), unstar takes it back; scrobbles of it are
-  dropped. Ids of the library's own songs in the same request go on to Navidrome.
+- search3: Navidrome's answer plus up to EXTRA Discover songs the library lacks (kept: discover_songs).
+- an ex- song: stream (SoundCloud in full, else a 30 s preview), getCoverArt, getSong.
+- star/unstar on one is a wish (discover_likes); its scrobbles are dropped. Library ids in the same call
+  go on to Navidrome.
 
-A player's login (u with t and s, or p) is Navidrome's: Echolot passes it on to Navidrome and keeps no
-password. Answers are JSON (f=json, as Feishin and most players ask) or else XML."""
+Navidrome checks the player's login (u with t and s, or p); Echolot keeps no password. Answers are JSON
+(f=json) or XML."""
 
 import asyncio
 import base64
@@ -44,12 +41,12 @@ from echolot.web import wishes
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 PREFIX = wishes.PREFIX
-EXTRA = 10  # Discover songs a search's first page gets
-WAIT = 4.0  # s Discover's sources get within a player's search (a slower one is left out)
-MIN_QUERY = 3  # characters a search needs before Discover is asked too
-PREVIEW = 30  # s of a preview
-AUTH = ("u", "p", "t", "s", "apiKey", "v", "c")  # a player's login and who it is
-CHECK_SECONDS = 600  # a login Navidrome took is not asked about again for this long
+EXTRA = 10  # Discover songs on a search's first page
+WAIT = 4.0  # s for Discover's sources within a player's search
+MIN_QUERY = 3  # characters before Discover is asked too
+PREVIEW = 30  # s
+AUTH = ("u", "p", "t", "s", "apiKey", "v", "c")  # the login and client parameters
+CHECK_SECONDS = 600  # a login Navidrome accepted is trusted this long
 API_VERSION = "1.16.1"
 Params = list[tuple[str, str]]
 _checked: dict[str, float] = {}
@@ -65,7 +62,7 @@ def _one(params: Params, name: str, default: str = "") -> str:
 
 
 async def _params(request: Request) -> Params:
-    """The call's parameters: the query string's and, for a POST, the form's."""
+    """The query string's parameters and, for a form POST, the form's."""
     items = list(request.query_params.multi_items())
     if request.method == "POST" and "form" in request.headers.get("content-type", ""):
         items += [(k, v) for k, v in (await request.form()).multi_items() if isinstance(v, str)]
@@ -76,7 +73,7 @@ async def _params(request: Request) -> Params:
 
 
 def _answer(params: Params, body: dict[str, Any] | None = None, error: tuple[int, str] | None = None) -> Response:
-    """A Subsonic answer in the format the player asked for (error: Subsonic's code and message)."""
+    """A Subsonic answer in the format asked for (error: Subsonic's code and message)."""
     out: dict[str, Any] = {
         "status": "failed" if error else "ok",
         "version": API_VERSION,
@@ -95,7 +92,7 @@ def _answer(params: Params, body: dict[str, Any] | None = None, error: tuple[int
 
 
 def _xml(tag: str, value: dict[str, Any]) -> str:
-    """Subsonic's XML of a JSON answer: plain values are attributes, objects and lists child elements."""
+    """Subsonic XML of a JSON answer: plain values as attributes, objects and lists as children."""
     attrs, children = [], []
     for k, v in value.items():
         if isinstance(v, dict):
@@ -116,7 +113,7 @@ NOT_FOUND = (70, "Echolot does not know this song (any more): search it again.")
 
 
 def _navidrome(con: sqlite3.Connection, method: str, params: Params) -> tuple[int, str, bytes]:
-    """Navidrome's answer to the same call: (HTTP status, content type, body)."""
+    """Navidrome's answer to the same call: (status, content type, body)."""
     url = f"{navidrome.address(con)}/rest/{method}?{urllib.parse.urlencode(params)}"
     try:
         with urllib.request.urlopen(url, timeout=20) as r:
@@ -135,8 +132,8 @@ def _ok(body: bytes) -> bool:
 
 
 def _user(con: sqlite3.Connection, params: Params) -> auth.User | bool | None:
-    """Who the player's login is (Navidrome checks it): their Echolot user, None if they never logged in to
-    Echolot, False for a wrong login."""
+    """The login's Echolot user (Navidrome checks it): None if they never logged in to Echolot, False if
+    the login is wrong."""
     login = sorted((k, v) for k, v in params if k in AUTH)
     name = _one(params, "u")
     if not name:
@@ -164,7 +161,7 @@ def _pass_on(con: sqlite3.Connection, method: str, params: Params) -> Response:
 
 
 def _plays(song: dict[str, Any]) -> tuple[str, str, float]:
-    """What a player hears: ('soundcloud', page, seconds) in full, ('preview', source, 30), or ('', '', 0)."""
+    """('soundcloud', page, seconds) in full, ('preview', source, 30), or ('', '', 0)."""
     if sc := next((h for h in song["hits"] if h["source"] == "soundcloud" and h["url"]), None):
         return "soundcloud", sc["url"], sc["seconds"] or song["seconds"]
     if pre := next((h for h in song["hits"] if h["preview"]), None):
@@ -172,22 +169,21 @@ def _plays(song: dict[str, Any]) -> tuple[str, str, float]:
     return "", "", 0
 
 
-STATES = {  # a Discover song for a user: what its artist line adds and its album says first
-    "new": "♥ to add",  # not liked: a heart fetches it
-    "wished": "on its way",  # liked, not in the library yet
-    "here": "in your library",  # liked and fetched
+STATES = {  # wishes.state -> what the artist line adds and the album starts with
+    "new": "♥ to add",
+    "wished": "on its way",
+    "here": "in your library",
 }
 
 
 def _base(sid: str) -> str:
-    """The song's id without the cover's state ("ex-…~wished": a new state is a new picture for the player)."""
+    """The id without the cover's state suffix ("ex-…~wished": a new state is a new picture to players)."""
     return sid.split("~", 1)[0]
 
 
 def _entry(sid: str, song: dict[str, Any], state: str, starred: str | None) -> dict[str, Any]:
-    """The song as Subsonic describes one (the fields players expect of Navidrome's). The artist line and the
-    album tell what it is (a player shows no more): "Icona Pop · ♥ to add", "♥ to add · Deezer · 30 s preview";
-    the cover has a badge (see _cover)."""
+    """The song as a Subsonic child, with the fields players expect from Navidrome. Artist line and album say
+    what it is ("Icona Pop · ♥ to add", "♥ to add · Deezer · 30 s preview"); the cover has a badge."""
     kind, _, seconds = _plays(song)
     names = ", ".join(discover_page.NAMES.get(h["source"], h["source"]) for h in song["hits"])
     line = f"{song['artist']} · {STATES[state]}"
@@ -223,7 +219,7 @@ def _entry(sid: str, song: dict[str, Any], state: str, starred: str | None) -> d
 
 
 def _found(request: Request, con: sqlite3.Connection, query: str, user: auth.User | None) -> list[dict[str, Any]]:
-    """Discover's songs for a search that the library lacks, kept for the player to come back to."""
+    """Discover's hits the library lacks, kept for the player to come back to."""
     hits, failed = discover_page.search(request, con, query, user.id if user else None, wait=WAIT)
     if failed:
         log.info("player search %r: %s", query, "; ".join(f"{k}: {v}" for k, v in failed.items()))
@@ -267,7 +263,7 @@ def _search3(request: Request, params: Params) -> Response:
 
 
 def _calls(request: Request, method: str, params: Params) -> Response | tuple[str, dict[str, Any], str]:
-    """Every call but search3: an answer, or for a stream ('stream', song, its id)."""
+    """Every call but search3: an answer, or ('stream', song, id) for a stream."""
     con = db.connect(request.app.state.settings.db_path)
     try:
         ids = [_base(v) for k, v in params if k in ("id", "mediaId") and v.startswith(PREFIX)]
@@ -287,7 +283,7 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
                 wishes.like(con, user, sid, song, method == "star")
             wishes.wish(request, con, user)
             return _pass_on(con, f"{method}.view", rest) if others else _answer(params)
-        if method in ("scrobble", "reportPlayback"):  # not the library's: nothing to count
+        if method in ("scrobble", "reportPlayback"):
             return _pass_on(con, f"{method}.view", rest) if others and method == "scrobble" else _answer(params)
         song = wishes.song(con, ids[0])
         if song is None:
@@ -296,7 +292,7 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
         if method == "getSong":
             starred = wishes.likes(con, who).get(ids[0])
             return _answer(params, {"song": _entry(ids[0], song, wishes.state(con, who, ids[0]), starred)})
-        if method == "getCoverArt":  # (an id without the state: the state as of now, not kept by the browser)
+        if method == "getCoverArt":  # without a state suffix: the current state, not cached
             state = next((v for k, v in params if k == "id"), "").partition("~")[2]
             if state in STATES:
                 return _cover(song, state, 86400)
@@ -310,8 +306,8 @@ def _calls(request: Request, method: str, params: Params) -> Response | tuple[st
 
 @router.get("/rest/navidrome/song/{sid}")
 def native_song(request: Request, sid: str) -> Response:
-    """GET /api/song/<ex- id> of Navidrome's own API (the gate sends it here): Feishin in Navidrome mode asks
-    it for the song that starts playing, and shows what it answers. The login is Navidrome's token."""
+    """Navidrome's own GET /api/song/<ex- id> (the gate sends it here): Feishin in Navidrome mode asks it
+    for the song that starts playing. The login is Navidrome's JWT."""
     con = db.connect(request.app.state.settings.db_path)
     try:
         name = _token_user(con, request.headers.get("x-nd-authorization", ""))
@@ -329,7 +325,7 @@ def native_song(request: Request, sid: str) -> Response:
 
 
 def _token_user(con: sqlite3.Connection, header: str) -> str | None:
-    """Whose Navidrome token it is ("Bearer <JWT>"), if Navidrome takes it: its user name (the token's sub)."""
+    """The user name (sub) of a Navidrome JWT ("Bearer <JWT>"), if Navidrome accepts it."""
     token = header.removeprefix("Bearer ").strip()
     try:
         part = token.split(".")[1]
@@ -356,7 +352,7 @@ def _token_user(con: sqlite3.Connection, header: str) -> str | None:
 
 
 def _native(sid: str, song: dict[str, Any], state: str, liked: dict[str, str]) -> dict[str, Any]:
-    """The song as Navidrome's own API describes one (the same names as _entry)."""
+    """The song as Navidrome's own API describes one."""
     entry = _entry(sid, song, state, liked.get(sid))
     artist = {"id": entry["artists"][0]["id"], "name": entry["artist"]}
     return {
@@ -429,7 +425,7 @@ async def _stream(request: Request, params: Params, song: dict[str, Any]) -> Res
 
 
 def _soundcloud_stream(request: Request, page: str) -> str:
-    """The track's stream address: with a SoundCloud login through its API (quick), else yt-dlp's."""
+    """The track's stream URL: through SoundCloud's API with any login (quick), else yt-dlp."""
     con = db.connect(request.app.state.settings.db_path)
     try:
         token = sc_api.any_token(con, request.app.state.vault)
@@ -446,7 +442,7 @@ def _soundcloud_stream(request: Request, page: str) -> str:
 
 
 async def _mp3(url: str) -> AsyncIterator[bytes]:
-    """The stream as MP3 while it comes (ffmpeg); a player that stops listening stops ffmpeg."""
+    """The stream transcoded to MP3 on the fly; a player that disconnects stops ffmpeg."""
     p = await asyncio.create_subprocess_exec(
         "ffmpeg",
         "-nostdin",
@@ -476,7 +472,7 @@ async def _mp3(url: str) -> AsyncIterator[bytes]:
 
 
 def _preview(hit: dict[str, Any]) -> bytes:
-    """A 30 s preview's MP3; Deezer's addresses expire, so Deezer is asked for a fresh one."""
+    """A preview's MP3; Deezer's URLs expire, so Deezer is asked for a fresh one."""
     url = hit["preview"]
     if hit["source"] == "deezer" and (track := hit["url"].rstrip("/").rsplit("/", 1)[-1]).isdigit():
         url = catalogs.track(track).get("preview") or url
@@ -488,7 +484,7 @@ def _preview(hit: dict[str, Any]) -> bytes:
 # ---------------------------------------------------------------- covers
 
 
-BADGES = {  # state -> colour, the badge's drawing (on a 600 x 600 cover, centred at 486, 486)
+BADGES = {  # state -> (colour, drawing on a 600 x 600 cover, centred at 486, 486)
     "new": ("#1f6bcf", '<path d="M486 436v100M436 486h100" stroke="#fff" stroke-width="24" stroke-linecap="round"/>'),
     "wished": (
         "#b7791f",
@@ -501,11 +497,11 @@ BADGES = {  # state -> colour, the badge's drawing (on a 600 x 600 cover, centre
         'stroke-linejoin="round"/>',
     ),
 }
-NO_COVER = (  # a note on grey, for a song without a picture
+NO_COVER = (  # a note on grey
     '<rect width="600" height="600" fill="#2b3240"/><g fill="#5b6578"><circle cx="262" cy="392" r="58"/>'
     '<rect x="296" y="160" width="26" height="236"/><path d="M296 160h130v64H322z"/></g>'
 )
-_covers: dict[str, tuple[bytes, str]] = {}  # the source's picture -> (bytes, type), the last ones asked
+_covers: dict[str, tuple[bytes, str]] = {}  # picture URL -> (bytes, type), the last ones fetched
 
 
 def _picture(url: str) -> tuple[bytes, str] | None:
@@ -522,9 +518,8 @@ def _picture(url: str) -> tuple[bytes, str] | None:
 
 
 def _cover(song: dict[str, Any], state: str, keep: int) -> Response:
-    """The song's picture with a badge in its corner: + (a heart adds it), a clock (on its way), a tick (in
-    the library); "30s" when only a preview plays. An SVG with the picture inside, so it needs no image library
-    and stays sharp at any size."""
+    """The picture with a state badge (+, clock, tick) and "30s" for a preview. An SVG embedding the picture:
+    no image library, sharp at any size."""
     picture = _picture(song["cover"]) if song["cover"] else None
     if picture:
         data = base64.b64encode(picture[0]).decode()

@@ -1,9 +1,5 @@
-"""Sources page: the lists of the user's connected accounts (found through their APIs) as cards, each
-followed as off, songs only, or songs and a playlist in the music server; other people's lists and
-YouTube playlists by link.
-Everyone follows their own lists (a list two users follow is fetched once).
-Stopping to follow deletes nothing: the songs stay in the library, the list's history in the database,
-following it again brings it back."""
+"""Playlists page: the lists of the user's accounts as cards (off, songs, or songs and a playlist), and
+lists by link. A list two users follow is fetched once; unfollowing deletes nothing."""
 
 import collections
 import contextlib
@@ -30,7 +26,7 @@ from echolot.web.common import DB, back, page
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 MODES = ("off", "songs", "playlist")
-KINDS = (("own", "Yours"), ("collab", "Collaborative"), ("other", "By others"))  # the filter on the page
+KINDS = (("own", "Yours"), ("collab", "Collaborative"), ("other", "By others"))
 NOT_READABLE = (
     "Spotify doesn't hand out this playlist's songs (its rules for private apps cover only your own and "
     "collaborative playlists). Copy them into a playlist of yours (select all, Add to playlist)."
@@ -38,11 +34,11 @@ NOT_READABLE = (
 FRESH_SECONDS = 300
 _found: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}  # (service, user) -> (when, cards)
 _fetching: collections.defaultdict[tuple[str, int], threading.Lock] = collections.defaultdict(threading.Lock)
-JOB = {"spotify": "sync", "soundcloud": "soundcloud", "youtube": "youtube"}  # the job that reads a service's lists
+JOB = {"spotify": "sync", "soundcloud": "soundcloud", "youtube": "youtube"}  # the job reading a service's lists
 
 
 def _state(con: sqlite3.Connection, uid: int) -> dict[str, dict[str, Any]]:
-    """A user's followed lists by key: mode, songs, have."""
+    """A user's followed lists by key: mode, songs, have, fetched, title."""
     counts = {r["key"]: r for r in stats.lists(con)}
     out = {}
     for s in sources.user_lists(con, uid):
@@ -54,15 +50,14 @@ def _state(con: sqlite3.Connection, uid: int) -> dict[str, dict[str, Any]]:
 
 
 def _card(card: dict[str, Any], state: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """A discovered or followed list with its follow state."""
     s = state.get(card["key"])
     return {**card, "mode": s["mode"] if s else "off", "have": s["have"] if s else None,
             "in_library": s["songs"] if s else None}  # fmt: skip
 
 
 def _cards_of(app: FastAPI, service: str, uid: int) -> list[dict[str, Any]]:
-    """A user's account's lists as cards: from the cache while it is fresh; an older cache answers at once
-    and is renewed in the background; only the first call waits for the service (callers meanwhile share it)."""
+    """A user's account lists as cards: a fresh cache answers; a stale one answers and is renewed in the
+    background; only the first call waits for the service (concurrent callers share it)."""
     key = (service, uid)
     cached = _found.get(key)
     if cached and time.time() - cached[0] < FRESH_SECONDS:
@@ -142,7 +137,6 @@ def sources_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/sources/found/{service}", response_class=HTMLResponse)
 def found(request: Request, con: DB, service: str) -> HTMLResponse:
-    """The lists of the user's connected account as cards (the page loads them with htmx)."""
     uid = request.state.user.id
     state = _state(con, uid)
     try:
@@ -156,7 +150,7 @@ def found(request: Request, con: DB, service: str) -> HTMLResponse:
 
 @router.get("/sources/other", response_class=HTMLResponse)
 def other(request: Request, con: DB) -> HTMLResponse:
-    """The user's followed lists that are not among their accounts' own (other people's, by link)."""
+    """The user's followed lists that are not in their accounts (added by link)."""
     uid, shown = request.state.user.id, set()
     for service in ("spotify", "soundcloud"):
         with contextlib.suppress(spotify.SpotifyError, soundcloud.SoundCloudError):
@@ -173,13 +167,12 @@ def other(request: Request, con: DB) -> HTMLResponse:
 
 
 def _account_card(key: str, uid: int) -> dict[str, Any] | None:
-    """The card of a list in one of the user's connected accounts, as last read."""
+    """A list's card from the user's cached account lists."""
     mine = (cards for (_, owner), (_, cards) in _found.items() if owner == uid)
     return next((c for cards in mine for c in cards if c["key"] == key), None)
 
 
 def _db_card(con: sqlite3.Connection, key: str, service: str, url: str) -> dict[str, Any]:
-    """What the database knows of a list added by link."""
     row = con.execute("SELECT title, cover_url FROM lists WHERE key = ?", (key,)).fetchone()
     name, image = (row["title"], row["cover_url"]) if row else (url, None)
     return {"key": key, "service": service, "url": url, "name": name, "owner": "", "songs": None, "image": image}
@@ -200,7 +193,7 @@ def follow(
     url: Annotated[str, Form()],
     mode: Annotated[str, Form()],
 ) -> Response:
-    """Follow a list (mode songs or playlist) or stop following it (off: nothing is deleted)."""
+    """Follow a list (songs or playlist) or stop (off: nothing is deleted)."""
     uid = request.state.user.id
     account_card = _account_card(key, uid)
     card = account_card or _db_card(con, key, service, url)
@@ -225,7 +218,7 @@ def follow(
     except ConfigError as e:
         return _card_answer(request, con, card, str(e))
     lists.sync_table(con)
-    if account_card:  # a list not read yet shows its account's name and cover meanwhile
+    if account_card:  # until its first read, the list shows the account's name and cover
         title_sql = "title = CASE WHEN fetched THEN title ELSE ? END, cover_url = coalesce(cover_url, ?)"
         with con:
             con.execute(f"UPDATE lists SET {title_sql} WHERE key = ?", (card["name"], card["image"], key))
@@ -235,9 +228,9 @@ def follow(
 
 
 def _preview(con: sqlite3.Connection, request: Request, service: str, url: str) -> tuple[str, str | None]:
-    """Name and cover of a list before it is read: Spotify's API when connected, else oEmbed."""
+    """Name and cover of a list before its first read: Spotify's API, else oEmbed."""
     if service == "spotify":
-        try:  # the app's own access: another user's public playlist
+        try:  # the app's own access, for another user's public playlist
             meta = spotify.Spotify(con, request.app.state.vault).playlist(spotify.playlist_id(url) or "")
             return meta["name"], meta["image"]
         except spotify.SpotifyError:
@@ -263,7 +256,6 @@ OEMBED = {
 def add(
     request: Request, con: DB, url: Annotated[str, Form()], mode: Annotated[str, Form()] = "playlist"
 ) -> RedirectResponse:
-    """Follow a list by its link (another user's playlist, a public set)."""
     try:
         service, canonical = sources.parse_url(url)
         name, image = _preview(con, request, service, canonical)

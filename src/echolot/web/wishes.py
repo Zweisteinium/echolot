@@ -1,7 +1,7 @@
-"""Songs wished from Discover: a heart in a player (web/subsonic) or Get on the Discover page (web/discover).
-A song Discover showed is kept (discover_songs, id "ex-<hash>") so a player or the page can come back to it; a
-wish is a like (discover_likes), and the user's likes are their Wished list (jobs/lists.store_wished): searched
-at once like a Spotify song, written as the playlist "Echolot · Wished"."""
+"""Wished songs: a heart in a player (web/subsonic) or Get on the Search page (web/discover).
+
+A shown result is kept (discover_songs, id "ex-<hash>") so a player can come back to it; a wish is a row in
+discover_likes. A user's likes are their Wished list (jobs/lists.store_wished), playlist "Echolot · Wished"."""
 
 import hashlib
 import json
@@ -18,8 +18,8 @@ from echolot.services import catalogs
 from echolot.settings import auth
 
 log = logging.getLogger(__name__)
-PREFIX = "ex-"  # the ids of Discover's songs
-KEEP_DAYS = 30  # a song shown and not wished is forgotten after this long
+PREFIX = "ex-"
+KEEP_DAYS = 30  # a result shown and not wished is forgotten after this
 
 
 def _now() -> str:
@@ -56,7 +56,7 @@ def state(con: sqlite3.Connection, user: auth.User | None, sid: str) -> str:
 
 
 def song_key(sid: str) -> str:
-    """The songs row a liked Discover song is wanted as."""
+    """The songs row a liked result is wanted as."""
     return "discover:" + sid.removeprefix(PREFIX)
 
 
@@ -75,8 +75,8 @@ def likes(con: sqlite3.Connection, user: auth.User | None) -> dict[str, str]:
 def like(
     con: sqlite3.Connection, user: auth.User, sid: str, song: dict[str, Any], liked: bool, where: str = "in a player"
 ) -> None:
-    """The user wishes the song (liked) or no longer does; a first wish asks Deezer for its ISRC."""
-    if liked and "isrc" not in song:  # the recording's code (Deezer's): the audio check compares with its preview
+    """Wish or unwish; a first wish asks Deezer for the ISRC (the audio check compares with its preview)."""
+    if liked and "isrc" not in song:
         song["isrc"] = ""
         deezer = next((h["url"] for h in song["hits"] if h["source"] == "deezer"), "")
         if (track := deezer.rstrip("/").rsplit("/", 1)[-1]).isdigit():
@@ -103,8 +103,7 @@ def like(
 
 
 def wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
-    """The user's Wished list as their hearts are now (jobs/lists.store_wished), and its songs searched at once
-    (search_new: the songs never searched) and the playlist written (library)."""
+    """Store the user's Wished list, then search its new songs and write the playlist."""
     rows = con.execute(
         "SELECT s.id, s.data, l.liked FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id "
         "WHERE l.user_id = ? ORDER BY l.liked DESC, s.id",
@@ -121,7 +120,7 @@ def wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
 
 
 def keep(con: sqlite3.Connection, r: discover.Result, now: str) -> tuple[str, dict[str, Any]]:
-    """A result kept to come back to (no commit): its id and record."""
+    """Keep a result to come back to (no commit): (id, record)."""
     song = record(r)
     sid = sid_of(song)
     con.execute(
@@ -133,6 +132,6 @@ def keep(con: sqlite3.Connection, r: discover.Result, now: str) -> tuple[str, di
 
 
 def forget_old(con: sqlite3.Connection) -> None:
-    """The kept songs not shown for KEEP_DAYS and not wished go (no commit)."""
+    """Drop results not shown for KEEP_DAYS and not wished (no commit)."""
     old = (datetime.now() - timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
     con.execute("DELETE FROM discover_songs WHERE seen < ? AND id NOT IN (SELECT song_id FROM discover_likes)", (old,))

@@ -29,8 +29,8 @@
   <div class="player-sc"></div>
 </div>
 <script>
-  // the player line: ▶ on a song plays its 30 s preview (an audio element) or the SoundCloud track (SoundCloud's own
-  // player, its widget, driven by these buttons; the line names SoundCloud and links the track, as it asks of players)
+  // the player line: a preview in an audio element, or SoundCloud's widget driven by these buttons (the line
+  // names and links SoundCloud, as its terms ask)
   (() => {
     const bar = document.getElementById("player");
     const $ = (s) => bar.querySelector(s);
@@ -113,7 +113,7 @@
       }
     });
     for (const ev of ["play", "pause", "ended", "timeupdate", "loadedmetadata"]) audio.addEventListener(ev, render);
-    document.addEventListener("htmx:afterSettle", render); // new results: the song playing keeps its mark
+    document.addEventListener("htmx:afterSettle", render); // new results keep the playing mark
   })();
 </script>
 {% endblock %}

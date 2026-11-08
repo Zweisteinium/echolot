@@ -16,7 +16,7 @@
     <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
   </div>
   <div class="stats-main">
-    <div class="growth-panels loading graphs-wait" id="graphs" data-graphs data-range=""><p class="muted growth-empty" data-graphs-note>Loading the graphs…</p></div>{# (_graphs.html, loaded right after the page by the script below) #}
+    <div class="growth-panels loading graphs-wait" id="graphs" data-graphs data-range=""><p class="muted growth-empty" data-graphs-note>Loading the graphs…</p></div>
     <div class="quality-side" data-rings>
       <div class="side-head">
         <div class="side-label">Quality</div>
@@ -95,9 +95,8 @@
   </div>
 </section>
 <script>
-  // the graph shows songs, size or quality, over a chip's stretch of time or one dragged across it (both
-  // remembered in this browser, a dragged one until the page is left); the value under the pointer; the
-  // ring shows the files' quality, the songs' quality or how near the songs are to their best
+  // graph and ring choices and the range chip are remembered in this browser (a dragged stretch until the page
+  // is left); the pointer shows the value under it; dragging zooms, a double click zooms out
   (() => {
     const card = document.querySelector("[data-stats]");
     if (!card) return;
@@ -115,18 +114,18 @@
       const radio = card.querySelector(`input[name="ring"][value="${what}"]`);
       if (radio) radio.checked = true;
     };
-    const load = (query) => {  // the graphs for another stretch of time
+    const load = (query) => {
       const graphs = card.querySelector("[data-graphs]");
       graphs.classList.add("loading");
       htmx.ajax("GET", `/library/graphs?${new URLSearchParams({ ...query, show: tab() })}`, { target: graphs, swap: "outerHTML" });
     };
     const saved = store(SHOW);
     if (saved) show(saved);
-    if (["songs", "best"].includes(store(RING))) ring(store(RING));  // (else Files, the first)
-    const range = store(RANGE);  // the graphs come after the page, for the stretch last chosen here
+    if (["songs", "best"].includes(store(RING))) ring(store(RING));  // else Files
+    const range = store(RANGE);
     const first = () => load({ range: ["7d", "30d", "90d", "all"].includes(range) ? range : "all" });
-    if (window.htmx) first(); else document.addEventListener("DOMContentLoaded", first, { once: true });  // (htmx loads deferred)
-    card.addEventListener("htmx:responseError", (e) => {  // (graphs that did not come: said so, not loading forever)
+    if (window.htmx) first(); else document.addEventListener("DOMContentLoaded", first, { once: true });  // htmx loads deferred
+    card.addEventListener("htmx:responseError", (e) => {  // say so instead of loading forever
       const graphs = card.querySelector("[data-graphs]"), note = graphs?.querySelector("[data-graphs-note]");
       if (!graphs || e.detail.target !== graphs) return;
       graphs.classList.remove("loading");
@@ -146,7 +145,7 @@
       const points = JSON.parse(figure.dataset.points), plot = figure.querySelector(".canvas");
       const cursor = plot.querySelector(".cursor"), mark = plot.querySelector(".mark"), tip = plot.querySelector(".tip");
       const brush = plot.querySelector(".brush"), stack = "stack" in figure.dataset;
-      let from = null;  // where a drag began (percent from the left), while one goes on
+      let from = null;  // where a drag began (percent from the left)
       const at = (e) => { const box = plot.getBoundingClientRect(); return Math.min(Math.max((100 * (e.clientX - box.left)) / box.width, 0), 100); };
       const hide = () => { cursor.hidden = mark.hidden = tip.hidden = true; };
       const point = (x) => {
@@ -154,7 +153,7 @@
         for (const p of points) if (Math.abs(p[0] - x) < Math.abs(near[0] - x)) near = p;
         cursor.style.left = mark.style.left = `${near[0]}%`;
         mark.style.top = tip.style.top = `${near[1]}%`;
-        if (stack) {  // every tier then, the best first
+        if (stack) {  // every tier, the best first
           const rows = near[3].filter((r) => r[2] > 0).map(([key, label, n, share]) => {
             const row = document.createElement("span");
             row.className = `tip-row q-${key}`;
@@ -174,7 +173,7 @@
         }
         cursor.hidden = mark.hidden = tip.hidden = false;
         const box = plot.getBoundingClientRect(), half = tip.offsetWidth / 2, left = (near[0] / 100) * box.width;
-        tip.style.left = `${Math.min(Math.max(left, half), box.width - half)}px`;  // (inside the card)
+        tip.style.left = `${Math.min(Math.max(left, half), box.width - half)}px`;  // stays inside the card
       };
       plot.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
@@ -183,7 +182,7 @@
       });
       plot.addEventListener("pointermove", (e) => {
         const x = at(e);
-        if (from !== null && Math.abs(x - from) > 1.5) {  // dragging: the stretch to zoom into
+        if (from !== null && Math.abs(x - from) > 1.5) {  // dragging
           hide();
           brush.style.left = `${Math.min(from, x)}%`;
           brush.style.width = `${Math.abs(x - from)}%`;

@@ -1,6 +1,4 @@
-"""Changes page: the availability tracker (jobs/availability) for the user's songs and lists, or an
-admin's everyone's: the songs that do not play as they are now, and what happened (taken down, gone,
-another release, removed from a list and why, added)."""
+"""Changes page: songs that no longer play (jobs/availability) and what changed in the lists."""
 
 from collections import Counter
 

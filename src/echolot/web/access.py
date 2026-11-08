@@ -1,16 +1,11 @@
-"""Who may use Echolot, and what: login with a session cookie (browsers) or an API token (scripts).
+"""Login (session cookie or API token), CSRF and per-route rights.
 
-The accounts are Navidrome's: the login form's name and password go to Navidrome (services/navidrome);
-Echolot keeps no password (settings/auth). Every request needs a session or a token, except /healthz,
-the login page, the static files, the players' Subsonic calls under /rest (Navidrome's login, checked by
-web/subsonic), the recorder apps' API under /api/recorder (their own tokens, checked by web/recorders; not
-its export, the user's) and, when the metrics setting allows it, /metrics. A session's
-changing requests (POST, PUT, ...) also need its CSRF token: the csrf_token form field or the
-X-CSRF-Token header (htmx sends it for every request).
+Navidrome checks the password; Echolot keeps none. Public: PUBLIC, /static, /rest (Subsonic, checked by
+web/subsonic), /api/recorder except its export (device tokens, web/recorders) and /metrics if allowed.
+A session's unsafe requests need its CSRF token (form field csrf_token or header X-CSRF-Token).
 
-What a user may do is decided per route (allowed): an admin everything; anyone else the routes in USER
-(their own account, lists and pages, which show only their songs) and those in PERMITTED with that
-permission. A route listed nowhere is an admin's: a new page stays closed until it is opened on purpose.
+Rights (allowed): admins everything; others the routes in USER (pages scoped to their own songs) and in
+PERMITTED with that permission. A route listed nowhere is admin-only, so a new page starts closed.
 """
 
 import hmac
@@ -33,7 +28,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 PUBLIC = {"/healthz", "/login", "/favicon.ico"}
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
-USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for their own
+USER: set[tuple[str, str]] = {  # (method, route path) any logged-in user may use
     ("GET", "/"),
     ("GET", "/stats"),
     ("GET", "/library"),
@@ -72,20 +67,20 @@ USER: set[tuple[str, str]] = {  # (method, route path): anyone logged in, for th
     ("GET", "/jobs"),
     ("GET", "/changes"),
 }
-PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> the permission it needs (auth.PERMISSIONS)
+PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> permission (auth.PERMISSIONS)
     ("GET", "/review"): "review",
     ("GET", "/review/{event_id}/audio"): "review",
     ("POST", "/review/{event_id}"): "review",
     ("POST", "/review/{event_id}/discard-all"): "review",
     ("POST", "/review/{event_id}/revert"): "review",
-    ("GET", "/missing/upload"): "upload",  # files got elsewhere for the user's songs (web/upload)
+    ("GET", "/missing/upload"): "upload",
     ("POST", "/missing/upload/{batch}/file"): "upload",
     ("POST", "/missing/upload/{batch}/import"): "upload",
     ("POST", "/missing/upload/{batch}/cancel"): "upload",
     ("POST", "/songs/{key:path}/search"): "run",
     ("POST", "/songs/{key:path}/close-remove"): "review",
     ("POST", "/jobs/mine"): "run",
-    ("GET", "/recorders/connect"): "upload",  # recording puts files into the library (web/recorders)
+    ("GET", "/recorders/connect"): "upload",  # recording puts files into the library
     ("POST", "/recorders/connect"): "upload",
     ("POST", "/recorders/{recorder_id}/rename"): "upload",
     ("POST", "/songs/{key:path}/spotify-again"): "upload",
@@ -101,7 +96,7 @@ NO_NAVIDROME = "Echolot does not know Navidrome's address yet: set ECHOLOT_NAVID
 
 
 def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
-    """(user, how: 'session' | 'token' | '', CSRF token, whether the path is public)."""
+    """(user, via: 'session' | 'token' | '', CSRF token, public path)."""
     con = db.connect(request.app.state.settings.db_path)
     try:
         path = request.url.path
@@ -142,7 +137,7 @@ async def csrf_protect(request: Request) -> None:
         return
     token = request.headers.get("x-csrf-token")
     if token is None:
-        form = await request.form()  # cached: the endpoint reads the same form
+        form = await request.form()  # cached for the endpoint
         value = form.get("csrf_token")
         token = value if isinstance(value, str) else None
     if not token or not hmac.compare_digest(token, request.state.csrf):
@@ -150,10 +145,10 @@ async def csrf_protect(request: Request) -> None:
 
 
 async def allowed(request: Request) -> None:
-    """The route is the user's to use (see the module), else 403."""
+    """403 unless the user may use this route (see the module docstring)."""
     user: auth.User | None = getattr(request.state, "user", None)
     if user is None or user.admin or getattr(request.state, "public", False):
-        return  # (no user: authenticate let a public path through only)
+        return  # no user: authenticate only lets public paths through
     route = request.scope.get("route")
     method = "GET" if request.method == "HEAD" else request.method
     key = (method, getattr(route, "path", request.url.path))
@@ -170,7 +165,6 @@ def _safe_next(target: str) -> str:
 
 
 def set_session_cookie(request: Request, response: Response, con: sqlite3.Connection, user: auth.User) -> None:
-    """Log `user` in on this browser (a new session)."""
     days = options.get(con, options.Auth).session_days
     token = auth.create_session(con, user, days)
     response.set_cookie(auth.COOKIE, token, max_age=days * 86400, httponly=True, samesite="lax",
@@ -198,7 +192,6 @@ def login(
     password: Annotated[str, Form()],
     next: Annotated[str, Form()] = "/",
 ) -> Response:
-    """Navidrome checks the name and password; the account it answers with is logged in here."""
     throttle: auth.Throttle = request.app.state.throttle
     client = request.client.host if request.client else "?"
     if wait := throttle.wait(client):
@@ -223,7 +216,7 @@ def login(
     except sqlite3.IntegrityError:
         error = f"Another Echolot user is called {account}: ask an admin."
         return _login_page(request, con, 409, next=next, name=name, error=error)
-    if user.admin and (adopted := sources.adopt(con)):  # the lists from before users had lists
+    if user.admin and (adopted := sources.adopt(con)):
         log.info("adopted at %s's login: %s", user.name, adopted)
     throttle.passed(client)
     response = RedirectResponse(_safe_next(next), status_code=303)
