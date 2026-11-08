@@ -55,8 +55,11 @@ def _run(args: list[str], timeout: float = 600) -> subprocess.CompletedProcess:
 
 def stream(path: Path, field: str) -> str:
     """One field of the first audio stream ('' if unknown); only the first value (ffprobe may print "flac,")."""
-    r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", f"stream={field}",
-              "-of", "csv=p=0", str(path)], 60)  # fmt: skip
+    try:
+        r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", f"stream={field}",
+                  "-of", "csv=p=0", str(path)], 60)  # fmt: skip
+    except (OSError, subprocess.TimeoutExpired):  # (a hanging file: unknown, so prepare rejects it)
+        return ""
     line = r.stdout.decode(errors="replace").strip().splitlines()
     return line[0].split(",")[0].strip() if line else ""
 
@@ -526,6 +529,7 @@ def write_tags(path: Path, **values: str) -> None:
 
 def has_picture(path: Path) -> bool:
     from mutagen import File
+    from mutagen.aiff import AIFF
     from mutagen.flac import FLAC
     from mutagen.id3 import ID3, ID3NoHeaderError
     from mutagen.mp4 import MP4
@@ -543,7 +547,7 @@ def has_picture(path: Path) -> bool:
             return bool(a.tags and a.tags.get("covr"))
         if isinstance(a, OggOpus | OggVorbis):
             return bool(a.get("metadata_block_picture"))
-        if isinstance(a, WAVE):  # its ID3 is a RIFF chunk, not in front of the file
+        if isinstance(a, WAVE | AIFF):  # its ID3 is a chunk of the file, not in front of it
             return bool(a.tags and a.tags.getall("APIC"))
         try:
             return any(k.startswith("APIC") for k in ID3(path))
@@ -581,6 +585,7 @@ def picture(path: Path) -> bytes | None:
 def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
     """Embed a JPEG as front cover unless the file has a picture (replace: in place of its pictures)."""
     from mutagen import File
+    from mutagen.aiff import AIFF
     from mutagen.flac import FLAC, Picture
     from mutagen.id3 import APIC, ID3, ID3NoHeaderError
     from mutagen.mp4 import MP4, MP4Cover
@@ -606,7 +611,7 @@ def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
         elif isinstance(a, OggOpus | OggVorbis):
             a["metadata_block_picture"] = [base64.b64encode(pic.write()).decode()]
             a.save()
-        elif isinstance(a, WAVE):  # an ID3 in front of a RIFF file would break it
+        elif isinstance(a, WAVE | AIFF):  # an ID3 in front of a RIFF or AIFF file would break it
             if a.tags is None:
                 a.add_tags()
             a.tags.delall("APIC")

@@ -91,7 +91,11 @@ def run(run: "Run") -> str:
                     run.left = 0 if run.stop.is_set() else len(todo) - n + 1
                     break
                 run.say(f"{run.of(n, len(todo))}: {rel}", n - 1, len(todo))
-                outcome = _one(run, con, covers, rel, backups)
+                try:
+                    outcome = _one(run, con, covers, rel, backups)
+                except Exception:  # one file's trouble (a cut-off download, a tag mutagen can't read) ends no run
+                    log.exception("cover of %s", rel)
+                    outcome = "failed"
                 if outcome in ("replaced", "failed"):
                     run.note(f"{rel}: {outcome}")
                 counts[outcome] = counts.get(outcome, 0) + 1

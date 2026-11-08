@@ -671,7 +671,12 @@ def answer(
             reason = "lossy" if lossy else "same" if result == "not_better" else "recorded"
             block(con, item["song_key"], item["uri"], reason, detail)
     elif result == "took_over":
-        sql = "UPDATE recording_items SET state = 'queued', tries = tries - 1, lease_until = NULL WHERE id = ?"
+        # the try counts back only for an item still handed out (a released one had it back already); one that
+        # ended (failed) stays ended
+        sql = (
+            "UPDATE recording_items SET state = 'queued', tries = max(tries - (state = 'recording'), 0), "
+            "lease_until = NULL WHERE id = ? AND state IN ('recording', 'queued')"
+        )
         with con:
             con.execute(sql, (item["id"],))
         control(con, item["recording_id"], "pause", "took_over")

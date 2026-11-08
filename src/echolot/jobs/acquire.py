@@ -431,8 +431,9 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
             _count(con, purpose, want.key, outcome.action, outcome.report)
         finally:
             con.close()
-        with lock:
-            run.handled.add(row["key"])
+        if outcome.action != "interrupted":  # (else a run that goes on from this one searches it again)
+            with lock:
+                run.handled.add(row["key"])
         log.info("%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail)
         run.note(f"{want.artist} – {want.title}: {outcome.action}" + (f" · {outcome.detail}" if outcome.detail else ""))
         with lock:

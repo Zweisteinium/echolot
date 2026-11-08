@@ -8,7 +8,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from echolot.library import filing, origin, upload
+from echolot.library import filing, origin, review, upload
 from echolot.settings import options
 from echolot.web import stats
 from echolot.web.common import DB, page
@@ -114,6 +114,8 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
 @router.post("/songs/{key:path}/origin-again", response_class=HTMLResponse)
 def song_origin_again(request: Request, con: DB, key: str) -> HTMLResponse:
     """Drop the "artist's own release" mark, so a better copy is searched again."""
+    if not request.state.user.admin and key not in review.songs_of(con, request.state.user.id):
+        raise HTTPException(403, "That song is on another user's lists.")
     origin.forget(con, key)
     return HTMLResponse("")
 

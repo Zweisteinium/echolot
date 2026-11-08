@@ -125,9 +125,12 @@ def tier(path: Path, kbps: int, fake: bool) -> str:
 def files(paths: Paths, batch: str) -> list[File]:
     d = folder(paths, batch)
     out = []
-    for p in sorted(d.glob("*.json")) if d.is_dir() else []:
+    # only the batch's own records ("01.json"): an upload named "x.json" is saved as "01 x.json"; and only
+    # files inside the batch, whatever a record says
+    for p in sorted(p for p in d.glob("*.json") if re.fullmatch(r"\d+\.json", p.name)) if d.is_dir() else []:
         raw = json.loads(p.read_text())
-        raw["path"] = Path(raw["path"]) if raw.get("path") else None
+        path = Path(raw["path"]) if raw.get("path") else None
+        raw["path"] = path if path and path.resolve().parent == d.resolve() else None
         out.append(File(**{k: v for k, v in raw.items() if k in _FIELDS}))  # (a field gone since: dropped)
     return out
 
@@ -174,7 +177,7 @@ def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
             continue
         match, _ = rules.identify(s["artist"], s["title"], [f.artist], f.title, stem, [], f.seconds, s["length"], 6)
         score = {"exact": 3, "probable": 2}.get(match or "", 0)
-        if not score and rules.artist_key(s["artist"]) in rules.artist_key(f"{f.artist} {stem}"):
+        if not score and any(f" {w} " in rules.words(f"{f.artist} {stem}") for w in rules.artist_words(s["artist"])):
             score = 1  # the title and the artist somewhere (never another artist's song of that title)
         if score:
             cand = (score, needs(s), -abs((f.seconds or 0) - (s["length"] or 0)), s["key"])

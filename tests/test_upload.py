@@ -130,6 +130,8 @@ def test_guess_by_title_and_length() -> None:
     assert upload.guess(upload.File(2, "track01.flac", seconds=100), songs) is None
     other = upload.File(3, "Passenger - 2 More.flac", seconds=211, artist="Passenger", title="2 More")
     assert upload.guess(other, songs) is None  # another artist's song of that title
+    clashing = upload.File(4, "Clashing Kings - 2 More.flac", seconds=211)  # "Hurts" in no word of it
+    assert upload.guess(clashing, [songs[0] | {"artist": "Ash"}]) is None  # "ash" inside "Clashing" is no artist
 
 
 def test_a_file_naming_no_artist_is_found_by_its_whole_title_and_length() -> None:
@@ -483,3 +485,15 @@ def test_an_import_notes_where_the_file_came_from(settings: Settings, login: Cal
         assert e[0] == "https://hypeddit.com/c/gone"
     finally:
         con.close()
+
+
+def test_an_uploaded_json_is_no_record_of_the_batch(settings: Settings) -> None:
+    """Only the batch's own numbered records count, and only for files inside the batch: an upload named
+    "x.json" (saved as "01 x.json") can't make the import file another path."""
+    paths = Paths(settings.library_dir.parent)
+    batch = upload.start(paths)
+    d = upload.folder(paths, batch)
+    (d / "01 evil.json").write_text('{"n": 9, "name": "x", "path": "/etc/hostname"}')
+    (d / "02.json").write_text('{"n": 2, "name": "y", "path": "/etc/hostname"}')
+    found = upload.files(paths, batch)
+    assert [f.n for f in found] == [2] and found[0].path is None

@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from typing import Annotated, Any
 
-from fastapi import APIRouter, FastAPI, Form, Request
+from fastapi import APIRouter, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from echolot import db
@@ -137,6 +137,8 @@ def sources_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/sources/found/{service}", response_class=HTMLResponse)
 def found(request: Request, con: DB, service: str) -> HTMLResponse:
+    if service not in ("spotify", "soundcloud"):
+        raise HTTPException(404, "No such service.")
     uid = request.state.user.id
     state = _state(con, uid)
     try:

@@ -678,7 +678,11 @@ def soundcloud(run: "Run") -> str:
         run.claim()  # a running fallback gives way now
         run.say(f"downloading {len(new)} new songs")
         for d in ydl.download(new, work, run.stop):
-            filed = _file_sc(run, d, urls[d["id"]], work)
+            try:
+                filed = _file_sc(run, d, urls[d["id"]], work)
+            except Exception:  # one song's trouble never stops the others, nor the lists' store after them
+                log.exception("soundcloud: filing %s", d["id"])
+                filed = 0
             added += filed
             run.note(
                 f"SoundCloud: {d.get('uploader') or ''} – {d.get('title') or d['id']}: {'new' if filed else 'not filed'}"

@@ -34,7 +34,7 @@ class YtDlp:
             fd = os.open(self.netrc, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write(f"machine soundcloud login oauth password {sc_token}\n")
-            for stale in private.glob("netrc-*"):
+            for stale in private.glob("netrc*"):
                 with contextlib.suppress(OSError):  # (gone meanwhile: another client's cleanup)
                     if stale.stat().st_mtime < time.time() - NETRC_DAYS * 86400:
                         stale.unlink()

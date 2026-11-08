@@ -59,7 +59,7 @@ class Parsed:
     sections: list[options.Section] = field(default_factory=list)
 
 
-def parse(con: sqlite3.Connection, text: str) -> Parsed:
+def parse(con: sqlite3.Connection, text: str, navidrome: bool = True) -> Parsed:
     """Check an echolot.yml completely; ConfigError describes the first problem found."""
     try:
         data = yaml.safe_load(text)
@@ -91,6 +91,9 @@ def parse(con: sqlite3.Connection, text: str) -> Parsed:
             parsed.sections.append(options.validate(model, {**current, **value}))
         except options.OptionsError as err:
             raise ConfigError(str(err)) from err
+        if model is options.Navidrome and not navidrome and parsed.sections[-1].model_dump() != current:
+            # logins send every password to that address: only a Navidrome admin moves it
+            raise ConfigError("settings.navidrome: only a Navidrome admin can change Navidrome's address or account.")
     return parsed
 
 
@@ -116,9 +119,9 @@ def _lists(con: sqlite3.Connection, given: Any, version: int) -> dict[int | None
     return {uid: value or {} for uid, value in given.items()}
 
 
-def preview(con: sqlite3.Connection, text: str) -> str:
+def preview(con: sqlite3.Connection, text: str, navidrome: bool = True) -> str:
     """What an import would change, as a unified diff of the exported configuration ('' = nothing)."""
-    parsed = parse(con, text)
+    parsed = parse(con, text, navidrome)
     before = dump(export_data(con))
     with con:  # applied and rolled back, so the result is exactly what an import would store
         con.execute("SAVEPOINT preview")
@@ -142,11 +145,11 @@ def _apply(con: sqlite3.Connection, parsed: Parsed) -> None:
         options.put(con, section)
 
 
-def apply(con: sqlite3.Connection, text: str) -> None:
+def apply(con: sqlite3.Connection, text: str, navidrome: bool = True) -> None:
     """Import an echolot.yml (checked first, then all of it in one transaction)."""
     from echolot.jobs import lists
 
-    parsed = parse(con, text)
+    parsed = parse(con, text, navidrome)
     with con:
         _apply(con, parsed)
     lists.sync_table(con)

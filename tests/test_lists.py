@@ -337,6 +337,22 @@ def test_soundcloud(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     assert lists.soundcloud(run) == "2 lists, 2 changed; 1 new songs"
 
 
+def test_one_bad_soundcloud_download_stops_nothing(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A download that fails to file (any error) is skipped: the lists are still stored, so the next run
+    doesn't read them again and fail on the same file."""
+    monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+
+    def broken(*a, **k):
+        raise OSError("disk trouble")
+
+    monkeypatch.setattr(lists, "_file_sc", broken)
+    assert lists.soundcloud(run) == "2 lists, 2 changed; 0 new songs"
+    con = run.connect()
+    assert con.execute("SELECT count(*) FROM list_songs WHERE list_key = 'soundcloud:someone/likes'").fetchone()[0] == 3
+    con.close()
+
+
 def test_soundcloud_likes_keep_when_they_were_liked(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """Like times come from SoundCloud's API, asked while a like is untimed; a set's songs get first-seen time."""
     monkeypatch.setattr(ytdlp, "YtDlp", FakeYtDlp)

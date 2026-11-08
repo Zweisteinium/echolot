@@ -144,3 +144,28 @@ def test_a_restored_file_names_its_song(settings: Settings) -> None:
     assert tuple(row) == ("restored", "Artist A", "First Song") and (paths.tracks / rel).is_file()
     assert review._replaced_file("/music/inbox/replaced/../../tracks/x.mp3", paths) is None  # only replaced/
     con.close()
+
+
+def test_a_song_shows_only_the_users_own_lists(app, login: Callable[..., TestClient]) -> None:
+    """A missing song on two users' lists names only the viewer's own list (not the owner's likes)."""
+    timon_follows_playlist_a(app)
+    con = db.connect(app.state.settings.db_path)
+    sources.add_list(con, auth.get_user(con, "timon").id, "https://open.spotify.com/playlist/BBB222")
+    con.close()
+    missing = login(app, "timon", admin=False).get("/missing").text
+    assert "Gone Song" in missing and "Renamed #1" in missing and "Liked Songs #3" not in missing
+    assert "Liked Songs #3" in login(app).get("/missing").text  # the owner's own
+
+
+def test_try_again_only_for_your_own_songs(app, login: Callable[..., TestClient]) -> None:
+    """Try again (Spotify's mark) and Search again (the origin's) act on a song for everyone: only for one on
+    the user's lists."""
+    timon_follows_playlist_a(app)
+    timon = login(app, "timon", admin=False)
+    con = db.connect(app.state.settings.db_path)
+    with con:  # (after the login, which renews the rights)
+        auth.set_rights(con, auth.get_user(con, "timon").id, False, {"upload"})
+    con.close()
+    for action in ("spotify-again", "origin-again"):
+        mine, other = timon.post(f"/songs/spotify%3As1/{action}"), timon.post(f"/songs/spotify%3As3/{action}")
+        assert mine.status_code == 200 and "another user" in other.text  # s1 on his Playlist A, s3 the owner's

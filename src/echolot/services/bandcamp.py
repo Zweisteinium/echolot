@@ -63,7 +63,8 @@ def _safe(url: str) -> str:
 def curl(url: str, timeout: int, dest: Path | None = None, max_bytes: int = 0) -> tuple[int, int, str, bytes]:
     """curl as Echolot, https only (redirects too): (exit code, HTTP status, error text, body); OSError or
     subprocess.TimeoutExpired when it does not run."""
-    cmd = ["curl", "-sS", "-L", "--proto", "=https", "--proto-redir", "=https", "--max-time", str(timeout)]
+    cmd = ["curl", "-sS", "-L", "--max-redirs", "5", "--proto", "=https", "--proto-redir", "=https"]
+    cmd += ["--max-time", str(timeout)]
     cmd += ["--max-filesize", str(max_bytes)] if max_bytes else []
     cmd += ["-A", USER_AGENT, "-w", "%{stderr}%{http_code}", *(["-o", str(dest)] if dest else []), "--", url]
     r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
@@ -82,7 +83,7 @@ def _get(url: str, dest: Path | None = None, timeout: int = 60) -> bytes:
             time.sleep(wait)
         _LAST[0] = time.monotonic()
     try:
-        returncode, code, err, body = curl(url, timeout, dest)
+        returncode, code, err, body = curl(url, timeout, dest, (1 << 30) if dest else (20 << 20))
     except (OSError, subprocess.TimeoutExpired) as e:
         raise BandcampError(f"Bandcamp: {e}") from e
     if code in (404, 410):

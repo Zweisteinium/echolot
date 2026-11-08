@@ -35,7 +35,7 @@
         {% else %}<span class="pill">Offline</span> <span class="muted">{{ d.last_seen|ago if d.last_seen else 'never seen' }}</span>{% endif %}</td>
       <td class="small muted hide-narrow">{{ d.app or '–' }}</td>
       <td class="small nowrap hide-narrow" title="{{ d.created }}">{{ d.created|ago }}</td>
-      <td><form method="post" action="/recorders/{{ d.id }}/disconnect" onsubmit="return confirm('Disconnect {{ d.name }}? It can no longer record for you; its sessions go.')">{{ csrf_input }}<button class="danger">Disconnect</button></form></td>
+      <td><form method="post" action="/recorders/{{ d.id }}/disconnect" onsubmit="return confirm({{ ('Disconnect ' ~ d.name ~ '? It can no longer record for you; its sessions go.')|tojson|forceescape }})">{{ csrf_input }}<button class="danger">Disconnect</button></form></td>
     </tr>
     {% endfor %}
   </table>

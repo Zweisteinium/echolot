@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from echolot import __version__, db
-from echolot.library import filing, recording, upload
+from echolot.library import filing, recording, review, upload
 from echolot.settings import auth, options
 from echolot.web import stats
 from echolot.web.common import DB, back, page
@@ -138,6 +138,8 @@ def record_start(
 @router.post("/songs/{key:path}/spotify-again", response_class=HTMLResponse)
 def song_spotify_again(request: Request, con: DB, key: str) -> HTMLResponse:
     """Offer a song Spotify had nothing better of for recording again."""
+    if not request.state.user.admin and key not in review.songs_of(con, request.state.user.id):
+        raise HTTPException(403, "That song is on another user's lists.")
     recording.unblock(con, key)
     return HTMLResponse("")
 
@@ -394,6 +396,9 @@ def api_export(request: Request, con: DB, below: str = "lossless") -> Response:
     """The songs of a choice as a file, for a recorder without a connection (the user's login or API token)."""
     user = request.state.user
     key = request.query_params.get("list") or None
+    lst = stats.get_list(con, key, stats.scope(user)) if key else None
+    if key and (lst is None or lst["service"] != "spotify"):
+        raise HTTPException(404, "Not one of your Spotify lists.")
     try:
         data = recording.export(con, user.id, user.name, _base(request), key, below)
     except recording.RecordingError as e:

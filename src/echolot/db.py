@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-VERSION = 44
+VERSION = 45
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -174,6 +174,8 @@ CREATE TABLE events (               -- everything that was filed into or taken o
     arrived INTEGER                 -- Soulseek: the bytes that arrived (a short transfer: fewer than peer_bytes)
 );
 CREATE INDEX events_ts ON events(ts);
+CREATE INDEX events_path ON events(path);  -- a file's filing (tags, review, place_back)
+CREATE INDEX events_song ON events(song);
 CREATE TABLE availability (         -- whether a song still plays at its source, as last checked (jobs/availability)
     song_key TEXT PRIMARY KEY,
     state TEXT NOT NULL,            -- available, taken_down (plays nowhere), blocked (not in this country),
@@ -534,6 +536,10 @@ MIGRATIONS = {
     44: [  # origins of hand uploads (library/origin), from now on
         "CREATE TABLE IF NOT EXISTS origins (song_key TEXT PRIMARY KEY, file TEXT NOT NULL, kind TEXT NOT NULL, "
         "site TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)"
+    ],
+    45: [  # lookups of a file's or a song's events scanned the table (tags normalize: one per file)
+        "CREATE INDEX IF NOT EXISTS events_path ON events(path)",
+        "CREATE INDEX IF NOT EXISTS events_song ON events(song)",
     ],
 }
 

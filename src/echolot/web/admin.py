@@ -1,5 +1,6 @@
 """Server settings page and /api/config (admins only)."""
 
+import hmac
 import os
 import sqlite3
 from datetime import date
@@ -81,6 +82,12 @@ def _service_state(request: Request, con: sqlite3.Connection) -> str:
     return ""
 
 
+MOVE_NAVIDROME = (
+    "Not saved: to change Navidrome's address or service account, enter the service account's current password "
+    "(or log in as a Navidrome admin)."
+)
+
+
 @router.post("/settings/access", include_in_schema=False)
 def settings_access(
     request: Request,
@@ -94,6 +101,16 @@ def settings_access(
     """Login length, /metrics, Navidrome's address and service account (empty password: keep). An address
     that does not answer is refused: nobody could log in."""
     url = navidrome_url.strip().rstrip("/")
+    current, stored = options.get(con, options.Navidrome), request.app.state.vault.get(con, navidrome.SERVICE_PASSWORD)
+    moved = url != current.url or (service_user.strip() or "admin") != current.service_user
+    if (
+        moved
+        and stored
+        and not request.state.user.navidrome_admin
+        and not hmac.compare_digest(service_password, stored)
+    ):
+        # logins send every password to that address: moving it takes the service password, or a Navidrome admin
+        return back("/settings", error=MOVE_NAVIDROME)
     if not url and not os.environ.get("ECHOLOT_NAVIDROME_URL"):
         return back("/settings", error="Not saved: without Navidrome's address nobody could log in.")
     if url and url != options.get(con, options.Navidrome).url and not navidrome.reachable(url):
@@ -161,7 +178,7 @@ async def config_import_preview(
     if not text.strip():
         return back("/settings", error="Choose an echolot.yml to import.")
     try:
-        diff = configfile.preview(con, text)
+        diff = configfile.preview(con, text, request.state.user.navidrome_admin)
     except ConfigError as err:
         return page(request, "config_import.html", 400, nav="settings", text=text, diff="",
                     error=f"Not imported: {err}")  # fmt: skip
@@ -171,7 +188,7 @@ async def config_import_preview(
 @router.post("/settings/config/import/apply", include_in_schema=False)
 def config_import_apply(request: Request, con: DB, text: Annotated[str, Form()]) -> RedirectResponse:
     try:
-        configfile.apply(con, text.replace("\r\n", "\n"))
+        configfile.apply(con, text.replace("\r\n", "\n"), request.state.user.navidrome_admin)
     except ConfigError as err:
         return back("/settings", error=f"Not imported: {err}")
     return back("/settings", ok="Configuration imported.")
@@ -191,9 +208,9 @@ def api_config_put(
     Answers what changes as a unified diff; with dry_run nothing is stored."""
     text = configfile.dump(data)
     try:
-        diff = configfile.preview(con, text)
+        diff = configfile.preview(con, text, request.state.user.navidrome_admin)
         if diff and not dry_run:
-            configfile.apply(con, text)
+            configfile.apply(con, text, request.state.user.navidrome_admin)
     except ConfigError as err:
         raise HTTPException(422, str(err)) from err
     return {"changed": bool(diff), "applied": bool(diff) and not dry_run, "diff": diff}

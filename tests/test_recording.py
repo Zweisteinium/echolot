@@ -340,6 +340,12 @@ def test_the_export(app: FastAPI, login: Callable[..., TestClient]) -> None:
     ]
     assert {"uri", "duration_ms", "isrc", "have", "artists"} <= set(data["tracks"][0])
     assert owner.get("/api/recorder/export", params={"below": "nope"}).status_code == 400
+    other = login(app, "timon", admin=False)
+    con = db.connect(app.state.settings.db_path)
+    with con:
+        auth.set_rights(con, auth.get_user(con, "timon").id, False, {"upload"})
+    con.close()
+    assert other.get("/api/recorder/export", params={"list": "spotify:likes:1"}).status_code == 404  # not theirs
 
 
 def test_the_devices_own_stop_keeps_its_reason(app: FastAPI, login: Callable[..., TestClient]) -> None:
@@ -521,6 +527,8 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("ALTER TABLE files DROP COLUMN tier")  # (schema 43's)
         con.execute("DROP TABLE free_links")  # (schema 42's)
         con.execute("DROP TABLE origins")  # (schema 44's)
+        con.execute("DROP INDEX events_path")  # (schema 45's)
+        con.execute("DROP INDEX events_song")
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)
@@ -647,6 +655,18 @@ def test_a_restart_or_a_stop_releases_the_song(
         ]
         == "filed"
     )
+
+
+def test_a_late_took_over_costs_no_second_try(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """A took_over after the device restarted (the song released, its try given back) gives no try back again:
+    tries never goes below 0."""
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless"})
+    item = poll(device)["item"]
+    device.post("/api/recorder/poll?wait=0", json={"state": "busy", "fresh": True})
+    device.post(f"/api/recorder/items/{item['id']}/result", json={"result": "took_over"})
+    assert item_row(app, item["id"])[:2] == ("queued", 0)
 
 
 def test_a_new_request_stops_the_old_session(app: FastAPI, login: Callable[..., TestClient]) -> None:

@@ -54,7 +54,8 @@ def _queries(url: str) -> list[dict[str, Any]]:
     if not m:
         raise Refused("Beatport sent a page without its data")
     try:
-        return json.loads(m.group(1))["props"]["pageProps"]["dehydratedState"]["queries"]
+        queries = json.loads(m.group(1))["props"]["pageProps"]["dehydratedState"]["queries"]
+        return [q for q in queries if isinstance(q, dict)]
     except (ValueError, KeyError, TypeError) as e:
         raise BeatportError("Beatport: unreadable page") from e
 
@@ -63,7 +64,8 @@ def search(q: str) -> list[dict[str, Any]]:
     """The releases a search finds: release_id, release_name, artists, track_count, release_date, ..."""
     for query in _queries(f"{SITE}/search/releases?{urllib.parse.urlencode({'q': q})}"):
         if (query.get("queryKey") or [""])[0] == "search-releases":
-            return [r for r in ((query.get("state") or {}).get("data") or {}).get("data") or [] if r]
+            data = (query.get("state") or {}).get("data")
+            return [r for r in (data.get("data") or [] if isinstance(data, dict) else []) if r]
     return []
 
 
@@ -71,8 +73,9 @@ def release(release_id: int) -> dict[str, Any]:
     """A release as the Discogs suggestion needs it: name, artists, label, catno, upc, date, cover, genre,
     url and its tracks (name, mix, artists, remixers, seconds, isrc, bpm)."""
     queries = _queries(f"{SITE}/release/-/{int(release_id)}")
-    rel = next((q["state"]["data"] for q in queries if q.get("queryKey") == [f"release-{release_id}"]), None)
-    tracks = next((q["state"]["data"] for q in queries if (q.get("queryKey") or [""])[0] == "tracks"), None)
+    data = [(q.get("queryKey") or [""], (q.get("state") or {}).get("data")) for q in queries]
+    rel = next((d for k, d in data if k == [f"release-{release_id}"]), None)
+    tracks = next((d for k, d in data if k[0] == "tracks"), None)
     if not isinstance(rel, dict) or not isinstance(tracks, dict):
         raise BeatportError("Beatport: the release page lacks the release")
     try:

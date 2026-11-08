@@ -124,7 +124,7 @@ def check(run: "Run") -> str:
             _plays_as(con, run, states)
         except spotify.SpotifyError as e:
             log.warning("availability, relinked songs on Spotify: %s", e)
-        explained = _why_removed(con)
+        explained = _why_removed(con, states)
     finally:
         con.close()
     counts = {s: sum(1 for st, _ in states.values() if st == s) for s in (*UNPLAYABLE, "preview", "replaced")}
@@ -310,12 +310,17 @@ def apply(con: sqlite3.Connection, states: dict[str, tuple[str, str | None]]) ->
     return changes
 
 
-def _why_removed(con: sqlite3.Connection) -> int:
-    """The removed songs' reason, now that their state is known."""
-    pending = con.execute(
-        "SELECT c.id, a.state FROM changes c JOIN availability a ON a.song_key = c.song_key "
-        "WHERE c.change = 'removed' AND c.detail IS NULL"
-    ).fetchall()
+def _why_removed(con: sqlite3.Connection, checked: dict[str, tuple[str, str | None]]) -> int:
+    """The removed songs' reason, for those checked in this run (a failed check leaves the rest for the next:
+    their stored state could be days old)."""
+    pending = [
+        r
+        for r in con.execute(
+            "SELECT c.id, c.song_key, a.state FROM changes c JOIN availability a ON a.song_key = c.song_key "
+            "WHERE c.change = 'removed' AND c.detail IS NULL"
+        )
+        if r["song_key"] in checked
+    ]
     with con:
         con.executemany(
             "UPDATE changes SET detail = ? WHERE id = ?",

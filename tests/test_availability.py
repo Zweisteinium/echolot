@@ -160,6 +160,30 @@ def test_the_daily_check(run: Run) -> None:
     con.close()
 
 
+def test_a_failed_spotify_check_explains_no_removal(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A removal's reason comes from this run's check: when Spotify fails, its stored state (maybe days old)
+    explains nothing; the next check does."""
+    con = run.connect()
+    with con:  # s9 removed yesterday; its state from before still says it plays
+        con.execute(
+            "INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:s9', 'spotify', 'C', 'D', 1)"
+        )
+        con.execute(
+            "INSERT INTO availability (song_key, state, since, checked) VALUES ('spotify:s9', 'available', '', '')"
+        )
+        con.execute("INSERT INTO changes (ts, song_key, list_key, change) VALUES ('x', 'spotify:s9', 'L', 'removed')")
+    con.close()
+
+    def down(*a, **k):
+        raise spotify.SpotifyError("Spotify: HTTP 500")
+
+    monkeypatch.setattr(availability, "_spotify", down)
+    availability.check(run)
+    con = run.connect()
+    assert con.execute("SELECT detail FROM changes WHERE song_key = 'spotify:s9'").fetchone()[0] is None
+    con.close()
+
+
 def test_what_a_relinked_song_plays_as(run: Run) -> None:
     """A relinked song stores the release it plays as, by its own names (asked without a market, which would
     give the list's), once per release; cleared once it plays as itself."""

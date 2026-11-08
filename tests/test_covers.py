@@ -92,3 +92,35 @@ def test_a_discover_songs_cover(settings: Settings, monkeypatch: pytest.MonkeyPa
     c.sp, c.cache = Sp(), {}
     assert c.of(song) == SONG and fetched[-1] == "https://i.scdn.co/a1"
     con.close()
+
+
+def test_one_files_trouble_ends_no_covers_run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An error the cover step doesn't expect (a cut-off download) fails that file only; the run goes on."""
+    import http.client
+
+    run = Run(BY_NAME["covers"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+    run.stop = threading.Event()
+    lib = settings.library_dir
+    for fake in [p for p in lib.rglob("*.*") if p.suffix != ".flac"]:
+        fake.unlink()
+    for artist, name in (("Artist A", "First Song"), ("Artist B", "Second Song")):
+        p = lib / artist / f"{artist} - {name}.flac"
+        p.parent.mkdir(exist_ok=True)
+        shutil.copy(AUDIO / "silence.flac", p)
+        os.utime(p, (time.time() - 3600, time.time() - 3600))
+    con = db.connect(settings.db_path)
+    catalog.scan(con, lib)
+    with con:
+        con.execute("UPDATE files SET duration = 200 WHERE path LIKE 'Artist A/%'")
+        con.execute("UPDATE files SET duration = 300 WHERE path LIKE 'Artist B/%'")
+    catalog.match_songs(con)
+    con.close()
+
+    def of(self, song):
+        if song["key"] == "spotify:s1":
+            raise http.client.IncompleteRead(b"")
+        return SONG
+
+    monkeypatch.setattr(covers.Covers, "of", of)
+    message = covers.run(run)
+    assert "1 replaced" in message and "1 failed" in message

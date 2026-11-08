@@ -216,6 +216,7 @@ def test_daemon_restart_counts_no_try(run: Run) -> None:
     con = run.connect()
     assert con.execute("SELECT tries FROM attempts WHERE song_key = 'spotify:s3'").fetchone()[0] == 3
     con.close()
+    assert "spotify:s3" not in run.handled  # a run going on from this one searches it again
 
 
 def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:

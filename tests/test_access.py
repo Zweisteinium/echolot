@@ -356,3 +356,46 @@ def test_cli_users(settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys) 
     assert bob and not bob.admin and bob.permissions == {"review", "run"}
     with pytest.raises(SystemExit, match="No user"):
         main(["user", "admin", "nobody"])
+
+
+def test_a_user_gets_every_part_of_the_library_page(app, login: Callable[..., TestClient]) -> None:
+    """What the Library page loads after itself (graphs, the jobs pill, the connection line) works for any
+    user, not only admins."""
+    viewer = login(app, "guest", admin=False)
+    for path in ("/library", "/library/graphs?range=7d", "/jobs/now", "/accounts/line"):
+        assert viewer.get(path).status_code == 200, path
+
+
+def test_only_a_navidrome_admin_or_the_service_password_moves_navidrome(
+    app, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every login sends its password to Navidrome's address: an Echolot admin who is no Navidrome admin moves
+    it (or the service account) only with the service account's current password, and never by an import."""
+    from echolot.services import navidrome
+
+    monkeypatch.setattr(navidrome, "reachable", lambda url: True)
+    monkeypatch.setattr(navidrome.Service, "users", lambda self: [])
+    owner = login(app)  # (a Navidrome admin)
+    owner.post(
+        "/settings/access", data={"session_days": 30, "navidrome_url": "http://nd:4533", "service_password": "s3"}
+    )
+    other = login(app, "timon", admin=False)
+    con = db.connect(app.state.settings.db_path)
+    with con:
+        auth.set_rights(con, auth.get_user(con, "timon").id, True, set())  # an Echolot admin only
+    con.close()
+    moved = {"session_days": 30, "navidrome_url": "http://evil:4533"}
+    assert "current password" in other.post("/settings/access", data=moved).text
+    assert "current password" in other.post("/settings/access", data=moved | {"service_password": "wrong"}).text
+    put = other.put("/api/config", json={"settings": {"navidrome": {"url": "http://evil:4533"}}})
+    assert put.status_code == 422 and "Navidrome admin" in put.text
+    con = db.connect(app.state.settings.db_path)
+    assert options.get(con, options.Navidrome).url == "http://nd:4533"
+    con.close()
+    other.post("/settings/access", data=moved | {"service_password": "s3"})  # knows the password: may
+    con = db.connect(app.state.settings.db_path)
+    assert options.get(con, options.Navidrome).url == "http://evil:4533"
+    con.close()
+    assert (
+        other.post("/settings/access", data={"session_days": 9, "navidrome_url": "http://evil:4533"}).status_code < 400
+    )

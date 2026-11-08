@@ -46,6 +46,11 @@ def _mine(uid: int | None, column: str = "s.key") -> tuple[str, tuple]:
     return (f"{column} IN ({MINE})", (uid,)) if uid is not None else ("1", ())
 
 
+def _their_lists(uid: int | None) -> tuple[str, tuple]:
+    """(SQL condition on list_songs ls, its arguments): the user's own lists ('' for everyone's)."""
+    return (f" AND ls.list_key IN ({_FOLLOWS})", (uid,)) if uid is not None else ("", ())
+
+
 ADDED = ("new", "upgrade")
 REJECTED = ("wrong-song", "mismatch", "damaged")
 
@@ -208,12 +213,13 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
     """The Buy page: songs without a genuine lossless copy that Bandcamp sells or gives away (a free download
     that did not come in), or with a free download elsewhere; free ones first, then the cheapest."""
     mine, args = _mine(uid)
+    theirs, their_args = _their_lists(uid)
     return con.execute(
         "SELECT s.key, s.artist, s.title, s.length, s.file, f.quality, f.kbps, b.url AS offer, b.artist AS offer_artist, "
         "b.title AS offer_title, b.price, b.currency, b.free, b.result, b.checked, fl.url AS link, fl.site AS "
         "link_site, fl.label AS link_label, fl.fetch AS link_fetch, fl.result AS link_result, "
         "(SELECT group_concat(l.title, ' · ') FROM list_songs ls JOIN lists l ON l.key = ls.list_key "
-        " WHERE ls.song_key = s.key) AS in_lists "
+        f" WHERE ls.song_key = s.key{theirs}) AS in_lists "
         "FROM wanted s LEFT JOIN files f ON f.path = s.file "
         "LEFT JOIN bandcamp b ON b.song_key = s.key AND b.url > '' AND (b.price IS NOT NULL OR b.free) "
         "LEFT JOIN free_links fl ON fl.song_key = s.key AND fl.url > '' AND NOT EXISTS (SELECT 1 FROM origins o "
@@ -221,7 +227,7 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
         "WHERE (b.song_key IS NOT NULL OR fl.song_key IS NOT NULL) AND (s.file IS NULL OR f.quality != 'lossless') "
         f"AND {mine} ORDER BY (coalesce(b.free, 0) OR fl.song_key IS NOT NULL) DESC, b.price IS NULL, b.price, "
         "s.artist COLLATE NOCASE",
-        args,
+        (*their_args, *args),
     ).fetchall()
 
 
@@ -275,7 +281,8 @@ def missing(
 ) -> list[dict[str, Any]]:
     """Missing songs with their lists, what the searches saw, recent rejected downloads and notes."""
     mine, mine_args = _mine(uid)
-    where, args = f"s.file IS NULL AND {mine}", list(mine_args)
+    theirs, their_args = _their_lists(uid)
+    where, args = f"s.file IS NULL AND {mine}", [*their_args, *mine_args]
     if list_key:
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
@@ -284,7 +291,7 @@ def missing(
         "s.file, s.close_match, NULL AS quality, (SELECT state FROM availability WHERE song_key = s.key) AS state, "
         "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
         "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
-        " FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key "
+        f" FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key{theirs} "
         " ORDER BY l.position, ls.position)) AS in_lists "
         f"FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key WHERE {where} "
         "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
