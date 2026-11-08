@@ -1,10 +1,9 @@
-"""Which releases of the library's Spotify songs Discogs lacks, and what to submit for them: a list's releases
-(by the songs' album and first artist) looked up on Discogs, one search each; a release it lists as a download
-(format File) is done. For the others the release on Beatport, a download store as Discogs asks for one (it
-takes no streaming-only release), is read for the suggestion: label, catalogue number, UPC, tracks. Stored in
-`discogs`, the Discogs page lists them. Only when Discogs is on (settings section discogs, a token in the
-vault), never on a schedule and not on the Jobs page: the page's Check asks for one list's releases never looked
-at (or all of them again). Read only: nothing is submitted anywhere."""
+"""Which releases of the library's Spotify songs Discogs lacks, and what to submit for them. A list's releases
+(by album and first artist) are looked up on Discogs, one search each; one it lists as a download (format
+File) is done. For the others the release on Beatport (a download store, as Discogs wants: it takes no
+streaming-only release) is read for the suggestion: label, catalogue number, UPC, tracks. Stored in
+`discogs` for the Discogs page. Only with Discogs on (settings section discogs, a token in the vault); the
+page's Check asks for one list's releases never looked at, or all again. Nothing is submitted."""
 
 import datetime
 import json
@@ -154,7 +153,7 @@ def run(run: "Run") -> str:
         known = {r[0] for r in con.execute("SELECT album FROM discogs")}
         todo = [a for a in albums(con, ask.get("list")).values() if ask.get("again") or a.key not in known]
         todo = run.todo(todo, key=lambda a: a.key)
-        genre_of = genres(con, run) if todo else {}
+        genre_of = genres(con, run) if todo and token else {}
     finally:
         con.close()
     if not token:

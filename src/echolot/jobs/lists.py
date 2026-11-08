@@ -1,10 +1,8 @@
-"""The followed lists as they are at their source: Spotify lists through the API, SoundCloud lists and
-their downloads through yt-dlp, YouTube playlists through YouTube Music and yt-dlp. A list that can't be
-read keeps its last known state.
+"""The followed lists as they are at their source: Spotify through the API, SoundCloud (and its downloads)
+through yt-dlp, YouTube through YouTube Music and yt-dlp. A list that can't be read keeps its last state.
 
-Songs are never forgotten (their links, attempts and SoundCloud downloads stay); list_songs holds what a
-list has now, list_history what it ever had; the songs coming and going are recorded as changes
-(jobs/availability).
+Songs are never forgotten (their links, attempts and downloads stay); list_songs holds what a list has now,
+list_history what it ever had; songs coming and going are changes (availability.record_list).
 """
 
 import datetime
@@ -20,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from echolot import db
-from echolot.jobs import availability
+from echolot.jobs import acquire, availability
 from echolot.jobs.acquire import finish
 from echolot.library import audio, catalog, filing, recordings, rules, tagging
 from echolot.library.filing import Want
@@ -144,7 +142,7 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
     """Insert or update a song; a value the source blanked keeps the known one (Spotify can blank the
     name of a song it removed while it stays in your list). False if it has no name at all."""
     old = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone()
-    if old and _blanked(meta.get("artist") or "", meta.get("artists")):  # "." for Timati: the known names stay
+    if old and _blanked(meta.get("artist") or "", meta.get("artists")):
         meta = {k: v for k, v in meta.items() if k not in ("artist", "artists")}
     cur = {k: meta.get(k) or (old[k] if old else None) for k in ("artist", "title", "album", "length",
                                                                    "artists", "isrc", "url", *FACTS)}  # fmt: skip
@@ -156,7 +154,7 @@ def _song(con: sqlite3.Connection, key: str, service: str, **meta: Any) -> bool:
         "artist = excluded.artist, title = excluded.title, album = excluded.album, length = excluded.length, "
         "artists = excluded.artists, isrc = excluded.isrc, url = excluded.url, released = excluded.released, "
         "track = excluded.track, tracks = excluded.tracks, disc = excluded.disc, "
-        "artist_alias = CASE WHEN excluded.artist = songs.artist THEN songs.artist_alias END",  # (renamed: asked again)
+        "artist_alias = CASE WHEN excluded.artist = songs.artist THEN songs.artist_alias END",  # renamed: asked again
         (key, service, cur["artist"], cur["title"], cur["album"] or "", float(cur["length"] or 0),
          cur["artists"], cur["isrc"], cur["url"], *(cur[k] for k in FACTS)),
     )  # fmt: skip
@@ -170,13 +168,11 @@ FACTS = ("released", "track", "tracks", "disc")  # spotify.release_facts
 
 
 def fetch_spotify(run: "Run") -> str:
-    """Read the followed Spotify lists that changed, each user's with their own login: what changed is
-    asked first (the snapshots of the playlists in their library and the state of their likes, a few
-    requests), so a run without changes costs next to nothing. A list two users follow is read once; one
-    whose follower is not connected is read with another follower's login, and a public playlist none of its
-    followers connected to Spotify with Echolot's own app (no login; likes need their owner's). Which songs
-    Spotify greys out, the daily availability check finds (every list's). While Spotify asks Echolot to wait
-    (too many requests: spotify.rest) no list is read, and none counts as unreadable."""
+    """Read the followed Spotify lists that changed, each user's with their own login. What changed is asked
+    first (the snapshots of the playlists in their library, the state of their likes), so a run without
+    changes costs a few requests. A list two users follow is read once, with another follower's login if
+    one fails; a public playlist no connected user follows with Echolot's own app. While Spotify asks
+    Echolot to wait (spotify.rest) no list is read, and none counts as unreadable."""
     con = run.connect()
     try:
         sync_table(con)
@@ -184,14 +180,14 @@ def fetch_spotify(run: "Run") -> str:
             return str(spotify.SpotifyResting(until))
         try:
             return _fetch_spotify(run, con)
-        except spotify.SpotifyResting as e:  # (from one of the lists: the others wait too)
+        except spotify.SpotifyResting as e:  # raised by one list: the others wait too
             return str(e)
     finally:
         con.close()
 
 
 def _fetch_spotify(run: "Run", con: sqlite3.Connection) -> str:
-    """The lists as fetch_spotify says (its connection open; Spotify not resting)."""
+    """fetch_spotify's work, with Spotify not resting."""
     done, read, failed, seen, tried = 0, 0, [], set(), set()
 
     def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, dict], likes: str | None) -> None:
@@ -235,7 +231,7 @@ def _fetch_spotify(run: "Run", con: sqlite3.Connection) -> str:
             log.info("spotify: English names: %s", e)
     public = [s for s in sources.followed(con) if s.service == "spotify" and s.key not in tried]
     public = [s for s in public if s.name != "Spotify Liked Songs" and spotify.playlist_id(s.url)]
-    if public:  # nobody connected follows them: Echolot's app reads public playlists without a login
+    if public:  # no connected follower: Echolot's app reads public playlists without a login
         try:
             app = spotify.Spotify(con, run.vault, None)
         except spotify.SpotifyError as e:
@@ -259,10 +255,10 @@ def _blanked(artist: str, artists: str | list | None) -> bool:
 
 
 def _aliases(con: sqlite3.Connection, sp: spotify.Spotify) -> int:
-    """Spotify songs whose artist is written in another script (祖堅 正慶): its English name, if Spotify has
-    one that differs (Masayoshi Soken), as songs.artist_alias, searched and matched as well ('' = asked, the
-    same). Asked once per artist (one of its songs), for all its songs. A song whose names Spotify blanked
-    ("."): the English names instead, if they are names (asked per song). Returns how many got a name."""
+    """The English name of a Spotify artist in another script (祖堅 正慶: Masayoshi Soken) as
+    songs.artist_alias, searched and matched too ('': asked, none). Asked once per artist, for all its
+    songs. A song whose names Spotify blanked (".") gets the English ones instead, asked per song. Returns
+    how many got a name."""
     rows = con.execute(
         "SELECT key, artist, artists FROM songs WHERE service = 'spotify' AND artist_alias IS NULL ORDER BY key"
     ).fetchall()
@@ -378,13 +374,8 @@ def _fetch_spotify_list(
 
 
 def youtube(run: "Run") -> str:
-    """Read the followed YouTube playlists (public ones, without an account). YouTube tells no change in
-    advance, so each list is read: its videos in order through yt-dlp (also those that no longer play),
-    their names through YouTube Music (a request per 100 songs). A video that no longer plays stays in its
-    list, as gone or blocked (the availability tracker); one taken out of the list is removed. A new song
-    gets Spotify's names where Spotify has it (_youtube_song); one never searched starts New songs."""
-    from echolot.jobs import acquire
-
+    """Read the followed YouTube playlists (public, no account). YouTube reports no changes, so every list
+    is read (_fetch_youtube_list); songs never searched start search_new."""
     con = run.connect()
     try:
         sync_table(con)
@@ -425,8 +416,9 @@ def youtube(run: "Run") -> str:
 def _fetch_youtube_list(
     run: "Run", con: sqlite3.Connection, ydl: ytdlp.YtDlp, sp: spotify.Spotify | None, s: Source
 ) -> bool:
-    """Read one list; True if its songs or their states changed. New songs get their names first, the
-    videos that no longer play their state (asked once: a known one stays as it is)."""
+    """Read one list: its videos in order through yt-dlp (also those that no longer play), their names
+    through YouTube Music. True if its songs or their states changed. A video that no longer plays stays in
+    the list, its state asked until it is known unplayable."""
     data = youtube_api.playlist(youtube_api.playlist_id(s.url) or "")
     order = ydl.video_ids(s.url, run.stop)
     if order is None:
@@ -478,7 +470,7 @@ def _fetch_youtube_list(
     return True
 
 
-LOOKUP = "2"  # the Spotify lookup of YouTube songs (_on_spotify); a new one looks up the songs it did not find again
+LOOKUP = "2"  # version of _on_spotify: a new one looks up again the songs it did not find
 
 
 def _rename_file(con: sqlite3.Connection, run: "Run", old: sqlite3.Row, meta: dict[str, Any]) -> None:
@@ -629,7 +621,7 @@ def soundcloud(run: "Run") -> str:
                 log.info("soundcloud states: %s (reading that account's lists hourly)", e)
         total = len(srcs)
         srcs = [s for s in srcs if _sc_changed(con, s, states, tokens[s.key] in refused)]
-        names = {s.key: _name(con, s) for s in srcs}  # (for the job's line, read while the database is open)
+        names = {s.key: _name(con, s) for s in srcs}  # read while the database is open
         any_token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
@@ -683,7 +675,7 @@ def soundcloud(run: "Run") -> str:
     new, known = _filed_before(run, ydl, any_token, new) if new else (new, 0)
     added = 0
     if new and not run.stop.is_set():
-        run.claim()  # new songs come first: a running YouTube & SoundCloud search gives way now
+        run.claim()  # a running fallback gives way now
         run.say(f"downloading {len(new)} new songs")
         for d in ydl.download(new, work, run.stop):
             filed = _file_sc(run, d, urls[d["id"]], work)
@@ -718,7 +710,7 @@ def soundcloud(run: "Run") -> str:
         con.close()
     shutil.rmtree(work, ignore_errors=True)
     run.after.add("library")
-    run.after.add("bandcamp")  # the new songs' Bandcamp offers (jobs/bandcamp: only songs never looked at)
+    run.after.add("bandcamp")  # offers of the songs never looked at
     unread = f", {len(srcs) - len(listed)} not read" if len(listed) < len(srcs) else ""
     known_part = f", {known} linked to the library's file of their page" if known else ""
     return f"{total} lists, {len(srcs)} changed{unread}; {added} new songs{known_part}"
@@ -835,12 +827,11 @@ def _page_key(url: str) -> str:
 def _filed_before(
     run: "Run", ydl: ytdlp.YtDlp, token: str | None, new: list[tuple[str, str]]
 ) -> tuple[list[tuple[str, str]], int]:
-    """New SoundCloud songs a library file already is: one whose source tag holds exactly the track's page
-    (Echolot wrote it when it filed that file as this song, after its checks; also into a copy from another
-    Echolot). Those are linked to the file, not downloaded; anything less certain (a name alone) is downloaded
-    and its audio checked (recordings.already). A track a set lists by its API address gets its page first
-    (with a login 50 per request, else one by one). Returns the songs left to download and how many were
-    linked. Tags are read once per file change (_file_pages)."""
+    """New SoundCloud songs a library file already is, by its source tag holding exactly the track's page
+    (Echolot wrote it when it filed the file as this song, or another Echolot did): linked, not downloaded.
+    Anything less certain is downloaded and checked by its audio (recordings.already). A track listed by its
+    API address gets its page first (with a login 50 per request, else one by one). Returns the songs left
+    to download and how many were linked."""
     con = run.connect()
     try:
         cat = catalog.Catalog.from_db(con)
@@ -923,7 +914,7 @@ def _file_sc(run: "Run", d: dict[str, str], url: str, work: Path) -> int:
             con.execute("UPDATE songs SET stem = ?, archived = 1, unavailable = NULL WHERE key = ?", (stem, key))
         if action == "duplicate":
             return 0
-        finish(run, con, dest, want, cover=work / f"{d['id']}.jpg")  # the tags from the song, the cover
+        finish(run, con, dest, want, cover=work / f"{d['id']}.jpg")
         return 1
     finally:
         con.close()

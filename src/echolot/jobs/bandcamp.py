@@ -1,11 +1,10 @@
-"""Bandcamp offers of the SoundCloud songs the library has no genuine lossless copy of: the Bandcamp track a
-song's SoundCloud page links to (its buy link, its description), with its price, stored in `bandcamp` (the Buy
-page lists them). A free download (no email asked) is fetched and filed like any download. The same pages' other
-free downloads go into `free_links` (services/free_links): a file on Dropbox is fetched and filed the same way, a
-gate (Hypeddit, ...) is listed to do by hand. Never on a schedule and not on the Jobs page: after New SoundCloud
-songs only the songs never looked at (their SoundCloud pages, and Bandcamp only for a link); by hand (Refresh on
-the Buy page) every one again, a stored offer's own page too (one found by other means than a link).
-Bandcamp's bot check (bandcamp.Challenged) ends the run: the rest stays as it was.
+"""Bandcamp offers of the SoundCloud songs without a genuine lossless copy: the Bandcamp track a song's
+SoundCloud page links to (buy link, description), with its price, stored in `bandcamp` for the Buy page. A
+free download (no email asked) is fetched and filed like any download. The pages' other free downloads go
+into `free_links`: a Dropbox file is fetched the same way, a gate (Hypeddit, ...) is listed to do by hand.
+After New SoundCloud songs only the songs never looked at (Bandcamp only for a link); by hand (Refresh on
+the Buy page) every one again, a stored offer's own page too. Bandcamp's bot check (bandcamp.Challenged)
+ends the run.
 """
 
 import dataclasses
@@ -33,7 +32,7 @@ SONGS = (
 )
 RETRY = ("", "download failed")  # results after which a free download is tried again
 REFUSED = "bandcamp_refused"  # meta: when Bandcamp last asked for its bot check or refused (ISO time)
-COOLDOWN = datetime.timedelta(hours=24)  # after that, the runs after New SoundCloud songs leave Bandcamp alone
+COOLDOWN = datetime.timedelta(hours=24)  # after REFUSED, runs not by hand leave Bandcamp alone this long
 
 
 def run(run: "Run") -> str:
@@ -65,7 +64,7 @@ def run(run: "Run") -> str:
     offers = free = filed = gates = 0
     try:
         for n, row in enumerate(rows, 1):
-            if run.stop.is_set() or run.give_way.is_set():  # paused or a more urgent job: goes on afterwards
+            if run.stop.is_set() or run.give_way.is_set():
                 run.left = 0 if run.stop.is_set() else len(rows) - n + 1
                 break
             want = acquire._want(row)

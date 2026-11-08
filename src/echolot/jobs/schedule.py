@@ -1,10 +1,9 @@
-"""When the jobs run. Per job either minutes between starts, fixed local times ("20:30",
-"sat,sun 15:00") or off; stored as the settings section 'schedule' (defaults below).
+"""When the jobs run: per job minutes between starts, fixed local times ("20:30", "sat,sun 15:00") or off,
+stored as the settings section 'schedule'.
 
-A job is due when its interval has passed since its last start, or when a fixed time has passed since
-it; a fixed-time run that could not start within LATE (Soulseek busy, Echolot down) is dropped. Jobs that
-share a resource wait for each other and do not lose their turn; a running one of a lower priority ends
-after its songs in progress when a more urgent one is due (which starts right away), and goes on after it.
+A job is due when its interval has passed since its last start, or a fixed time has passed since it; a
+fixed-time run that could not start within LATE (Soulseek busy, Echolot down) is dropped. Resources and
+priorities: worker.py.
 """
 
 import re
@@ -26,16 +25,14 @@ Rule = int | list[str] | None  # minutes, ["20:30", "sat,sun 15:00"], or off
 class JobInfo:
     name: str
     label: str
-    resource: str  # jobs sharing one run one at a time: soulseek, web (home IP), local
+    resource: str  # jobs sharing one run one at a time (web: the home IP)
     default: Rule
     minimum: int  # minutes between runs
     help: str  # one line, under its name
     details: str  # how it works, behind the info button
-    priority: int = 0  # a running job of a lower one ends after its songs in progress when one of a higher
-    # one of its resource is due, and goes on with the rest after it (worker.resume)
-    started_by: str = ""  # the job that starts it when there is work (no schedule of its own)
-    beside: bool = False  # starts beside a running job of a lower priority instead of making it give way;
-    # makes it give way only for the work that needs the resource (Run.claim: SoundCloud's downloads)
+    priority: int = 0  # a lower one gives way to a higher one of its resource (worker.py)
+    started_by: str = ""  # the job that starts it (no schedule of its own)
+    beside: bool = False  # starts beside a lower one; makes it give way only from Run.claim on
 
 
 JOBS = [
@@ -127,7 +124,7 @@ JOBS = [
             "high-bitrate MP3, AAC and Opus). Each file once, a few seconds at the lowest CPU priority; a file "
             "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (FLAC upgrade "
             "looks for a better one), one found clean as lossless. Off on the schedule."),
-    # not a task of the Jobs page and never on a schedule: after New SoundCloud songs, and Refresh on the Buy page
+    # not on the Jobs page, so never scheduled (rules)
     JobInfo("bandcamp", "Bandcamp offers", "web", None, 60,
             "Finds Bandcamp offers of your lossy SoundCloud songs.",
             "Reads the Bandcamp track a SoundCloud song links to (its buy link or description; Bandcamp's search "
@@ -136,7 +133,7 @@ JOBS = [
             "audio of your copy replaces it, anything else waits in Review). After New SoundCloud songs only the "
             "songs never looked at; Refresh on the Buy page all of them. Bandcamp is asked as Echolot, one page "
             "every 2 s; a bot check from Bandcamp ends the run.", started_by="New SoundCloud songs"),
-    # not on the Jobs page either: Check on the Discogs page, for one list
+    # not on the Jobs page either
     JobInfo("discogs", "Discogs check", "web", None, 60,
             "Finds the releases of a list Discogs lacks.",
             "Looks up each release of a list's library songs on Discogs (one search each, about one a second), "
@@ -145,7 +142,7 @@ JOBS = [
             "with Discogs on in the settings; nothing is submitted.", started_by="Check on the Discogs page"),
 ]  # fmt: skip
 BY_NAME = {j.name: j for j in JOBS}
-STEPS = {  # each job's short name inside its task, for the schedule and the live state
+STEPS = {  # each job's short name inside its task
     "sync": "Spotify",
     "search_new": "Soulseek search",
     "soundcloud": "SoundCloud",
@@ -163,9 +160,8 @@ STEPS = {  # each job's short name inside its task, for the schedule and the liv
 
 @dataclass(frozen=True)
 class Task:
-    """What the jobs page shows: one task, done by one or more jobs (its steps), with its buttons
-    (label, the jobs they start, hover text) and what it does in plain words (its info card, above the
-    steps' details). Maintenance tasks are listed below their heading."""
+    """A group of the jobs page: its jobs (steps), buttons (label, jobs started, hover text) and `about`,
+    its info card. Maintenance tasks are listed under their own heading."""
 
     name: str
     label: str
@@ -181,7 +177,7 @@ TASKS = [
         "new",
         "New songs",
         "Checks your lists; new songs come from Soulseek, YouTube or SoundCloud.",
-        ("sync", "soundcloud", "youtube", "search_new"),  # (the tiles in this order)
+        ("sync", "soundcloud", "youtube", "search_new"),  # tile order
         (("Check now", ("sync", "youtube", "soundcloud"), "Check the Spotify, YouTube and SoundCloud lists now"),),
         about="Every few minutes Echolot asks Spotify and SoundCloud whether your lists changed, and reads your YouTube playlists less often (YouTube reports no changes). A new song is linked when the library has it already; otherwise it is downloaded, from Soulseek as FLAC where it can, else from YouTube or SoundCloud. A download that might not be the song waits in Review.",
     ),
@@ -301,8 +297,7 @@ def _rule(value: object, job: JobInfo) -> Rule:
 
 
 def rules(con: sqlite3.Connection) -> dict[str, Rule]:
-    """The rule per job (the default for a job never set); a job of no task (Bandcamp offers) never runs on a
-    schedule, whatever is stored."""
+    """The rule per job (the default where none is stored); a job of no task is never scheduled."""
     stored = options.raw(con, SECTION)
     stored = stored if isinstance(stored, dict) else {}
     out = {j.name: _rule(stored[j.name], j) if j.name in stored else j.default for j in JOBS}
@@ -310,7 +305,7 @@ def rules(con: sqlite3.Connection) -> dict[str, Rule]:
 
 
 def scheduled(values: dict[str, Rule]) -> dict[str, Rule]:
-    """The rules of the jobs that can have a schedule (those of a task): what the settings and echolot.yml show."""
+    """The rules of the jobs of a task: what the settings and echolot.yml show."""
     return {name: rule for name, rule in values.items() if name in TASK_OF}
 
 

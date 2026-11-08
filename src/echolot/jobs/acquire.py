@@ -1,13 +1,12 @@
-"""Getting songs: Soulseek through the Sockseek daemon (sync, sweep, upgrade) and the search
-fallback on YouTube and SoundCloud. Missing Spotify songs are searched on Soulseek; SoundCloud songs come from
-SoundCloud itself (their artist names are too unreliable to file search results by), and a FLAC the upgrade
-finds for one is kept for review (Worth a look), never filed by itself.
+"""Getting songs: Soulseek through the daemon (search_new, sweep, upgrade) and the fallback search on
+YouTube and SoundCloud. SoundCloud songs come from SoundCloud itself (lists.soundcloud: their artist names
+are too unreliable to file search results by); a FLAC the upgrade finds for one waits in Review.
 
 One song, one attempt:
-  1. search (the terms get looser with every search that found nothing: LOOSEN)
+  1. search (looser after every search that found nothing: LOOSEN)
   2. judge every result by its path and length (rules.prejudge): clear mismatches are never downloaded;
-     results naming the title come first, then those that say nothing about it, each in Sockseek's order
-  3. download the best one; a transfer without progress for a while (queued at the peer) is given up
+     results naming the title come first, then those that say nothing about it, each in the daemon's order
+  3. download the best one; a transfer without progress (queued at the peer) is given up
   4. check the file (audio.prepare) and whether it is the song (filing.file_into, strict: tags and names)
   5. filed, or kept for review; else the next result (at most MAX_RESULTS)
 """
@@ -39,21 +38,22 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Songs Soulseek did not find are searched less strictly with every failure (by searches that found nothing):
-#   0-1: as requested; the artist must be in the Soulseek path (rules.prejudge)
+# Songs Soulseek did not find are searched looser after every search that found nothing:
+#   0-1: as listed; the artist must be in the Soulseek path (rules.prejudge)
 #   2-3: title without feat. credits, 'From "Film"' and plain suffixes, first artist only; desperate:
 #        a search without results is repeated with the title alone and the artist alone (any length)
-#   4+ : also without requiring the artist in the path (the tags are still checked after the download)
+#   4+ : the artist need not be in the path (the tags are still checked after the download)
 LOOSEN = [(4, {"desperate": True, "strict_artist": False}), (2, {"desperate": True})]
 MAX_RESULTS = 5  # downloads tried per song and attempt
-SEARCH_SECONDS = 300  # a search waits at most this long (queued behind the rate limit included)
-TRANSFER_SECONDS = 45 * 60  # a download may take at most this long
+SEARCH_SECONDS = 300  # including the wait behind the rate limit
+TRANSFER_SECONDS = 45 * 60  # a download's limit
 SLOW_AFTER = 120  # s a download moves before its speed tells whether it ends in TRANSFER_SECONDS
-POLL_SECONDS = 2  # how often a running download is looked at
-EDIT_REVIEW = "another edit, in review"  # a YouTube song's download that is probably a library song's other edit
+POLL_SECONDS = 2
+EDIT_REVIEW = "another edit, in review"  # a YouTube song's download, probably a library song's other edit
 FOUND = {"new", "upgrade", "duplicate", "linked", EDIT_REVIEW}  # linked: the library had it under other names
-SEARCHING: set[str] = set()  # the songs (or files, upgrades) searched now: a run started beside one giving way
-SEARCHING_LOCK = threading.Lock()  # (worker) skips them, so nothing is downloaded twice at once
+# songs (or files, upgrades) searched now, by any run: one started beside a run giving way skips them
+SEARCHING: set[str] = set()
+SEARCHING_LOCK = threading.Lock()
 
 
 def stage(tries: int) -> int:
@@ -85,8 +85,7 @@ def level(tries: int) -> tuple[bool, dict[str, bool]]:
     return False, {}
 
 
-# a song Soulseek did not find goes to the YouTube and SoundCloud search at once (fallback); one found nowhere
-# is searched again by the evening search: daily, weekly after WEEKLY_AFTER misses
+# the evening search (sweep) takes a song found nowhere daily, weekly after WEEKLY_AFTER misses
 DAILY, WEEKLY, WEEKLY_AFTER = 20 * 3600, int(6.5 * 86400), 7
 UPGRADE_WAIT = (12 * 3600, 3 * 86400)  # a lossy song's FLAC search: after 12 h, 1 d, 2 d, then every 3 d
 
@@ -220,8 +219,8 @@ class Fetcher:
                 return Outcome("failed", t.reason)
             track(self.run, want.key, "checking")
             got = self.local(t.path)
-            # Echolot's own copy (another inode): a late write of the daemon to its file reaches neither the
-            # check nor the library (it did: files damaged after they were filed)
+            # a copy of our own (another inode): a late write of the daemon to its file reaches neither the
+            # check nor the library (it damaged filed files)
             own = self.local_inbox / f".{name}" / got.name
             own.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(got, own)
@@ -262,9 +261,9 @@ class Fetcher:
             shutil.rmtree(self.local_inbox / f".{name}", ignore_errors=True)
 
     def watch(self, job: str, key: str = "") -> soulseek.Transfer:
-        """Wait for a download (of the song `key`: its progress noted, see track); give it up when it makes no
-        progress for stall_minutes (queued at the peer: Sockseek keeps such a download alive while the peer
-        serves others), or when at its speed it would not end within TRANSFER_SECONDS."""
+        """Wait for a download of the song `key`, noting its progress (track). Given up after stall_minutes
+        without progress (queued at the peer: Sockseek keeps such a download alive while the peer serves
+        others), or when at its speed it would not end within TRANSFER_SECONDS."""
         start = last_change = time.monotonic()
         last_bytes, moving = -1, None  # moving: (when, bytes) first seen with bytes arrived
         while True:
@@ -290,11 +289,8 @@ class Fetcher:
             self.run.stop.wait(POLL_SECONDS)
 
 
-STAGES = ("searching", "downloading", "checking", "other sources")  # a song's fetch (Run.fetching), in order
-
-
 def track(run: "Run", key: str, stage: str | None, done: int = 0, total: int = 0) -> None:
-    """Note how far a song's fetch is (None: over); downloading: its bytes done and total (0: unknown)."""
+    """Note a song's fetch stage in Run.fetching (None: over); downloading: bytes done and total (0: unknown)."""
     if stage is None:
         run.fetching.pop(key, None)
     else:
@@ -302,9 +298,8 @@ def track(run: "Run", key: str, stage: str | None, done: int = 0, total: int = 0
 
 
 def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None) -> None:
-    """A song just filed: its tags from the song (tagging: artists, title, album, source, download), an
-    empty album the title (a single), and the cover and artist picture from Spotify (or the given cover
-    file). Failures only cost the tags or the pictures."""
+    """A song just filed gets its tags (tagging.for_file; an empty album: the title, as a single), its cover
+    and the artist picture. Failures only cost the tags or the pictures."""
     rel = dest.relative_to(run.paths.tracks).as_posix()
     try:
         if tags := tagging.for_file(con, rel, dest, want.key):
@@ -316,8 +311,8 @@ def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: P
 
 
 def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:
-    """The song's cover, in place of one the uploader embedded (the given file: a SoundCloud download's
-    artwork; else covers.Covers), and the artist picture from Spotify."""
+    """The song's cover in place of the uploader's (`cover`: a SoundCloud download's artwork, else
+    covers.Covers), and the artist picture from Spotify."""
     from echolot.jobs import covers
 
     try:
@@ -340,17 +335,9 @@ def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover:
         artist_id = ((track.get("artists") or [{}])[0] or {}).get("id")
         picture = dest.parent / "artist.jpg"
         if artist_id and not picture.exists() and (url := sp.artist_image(artist_id)):
-            picture.write_bytes(_download(url))
+            picture.write_bytes(covers.download(url))
     except (spotify.SpotifyError, OSError) as e:
         log.info("pictures for %s: %s", dest.name, e)
-
-
-def _download(url: str) -> bytes:
-    import urllib.request
-
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
 
 
 # ---------------------------------------------------------------- the jobs
@@ -360,8 +347,8 @@ SEARCHED = "s.service IN ('spotify', 'youtube', 'discover')"  # the songs search
 
 
 def _missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Wanted Spotify, YouTube and Discover songs not in the library, greyed-out ones first (most at risk); one song
-    per recording (recordings.twins)."""
+    """Searched songs not in the library, greyed-out ones first (most at risk); one per recording
+    (recordings.twins)."""
     rows = con.execute(
         "SELECT s.*, coalesce(a.tries, 0) AS tries, coalesce(a.last_try, 0) AS last_try FROM wanted s "
         f"LEFT JOIN attempts a ON a.song_key = s.key WHERE {SEARCHED} AND s.file IS NULL "
@@ -372,7 +359,7 @@ def _missing(con: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _for(run: "Run", con: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
-    """The songs of the users a run by hand is for ("search my missing songs now"); all for everyone's."""
+    """The rows of the users a run by hand is for (Run.only)."""
     if run.only is None:
         return rows
     marks = ", ".join("?" * len(run.only))
@@ -385,13 +372,12 @@ def _for(run: "Run", con: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[s
 
 
 def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
-    """Search and download songs, several at a time; attempts are counted per song as it ends. A run that
-    goes on from one that gave way leaves out the songs that one did (Run.todo)."""
+    """Search and download songs, several at a time, each song's attempt counted as it ends."""
     songs = run.todo(songs)
     if not songs:
         return "nothing to search"
     fetcher = Fetcher(run, purpose)
-    state = fetcher.daemon.status()["state"]  # reachable (it logs in to Soulseek with the first search)
+    state = fetcher.daemon.status()["state"]  # raises if unreachable; it logs in with the first search
     if "Disconnected" in state:  # it tried and failed: the songs wait (the daemon is restarted after 15 min)
         raise soulseek.DaemonError("Soulseek not logged in: the songs wait for it")
     con = run.connect()
@@ -408,7 +394,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         busy = row["file"] or row["key"]
         with SEARCHING_LOCK:
             if busy in SEARCHING:
-                return  # the run giving way searches it
+                return  # another run searches it now
             SEARCHING.add(busy)
         try:
             search(row)
@@ -460,7 +446,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
     run.after.add("library")
     summary = f"{done} of {len(songs)} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
     if run.give_way.is_set() and not run.stop.is_set() and done < len(songs):
-        run.left = len(songs) - done  # searched after the job that is due (worker.resume)
+        run.left = len(songs) - done
         summary += f"; gave way, {run.left} left"
     return summary
 
@@ -500,10 +486,9 @@ SOULSEEK_POLL = 15  # seconds between looks meanwhile
 
 
 def _soulseek_back(run: "Run", daemon: soulseek.Daemon, waiting: threading.Lock) -> bool:
-    """Soulseek dropped the login (a server outage, the daemon restarted): wait until the daemon is logged
-    in again or can log in (a fresh one: state None, it logs in with the next search), at most
-    SOULSEEK_WAIT, while the run is not stopped and does not give way. One song's thread waits, the
-    others behind it. True if the run can go on."""
+    """Soulseek dropped the login (an outage, a daemon restart): wait at most SOULSEEK_WAIT, while the run
+    neither stops nor gives way, until the daemon is logged in or can log in (a fresh one: state None, it
+    logs in with the next search). One thread waits, the others queue on `waiting`. True: go on."""
     with waiting:
         end = time.monotonic() + SOULSEEK_WAIT
         while not (run.stop.is_set() or run.give_way.is_set()):
@@ -528,14 +513,14 @@ def _logged_in(daemon: soulseek.Daemon) -> bool:
 
 
 def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report: dict | None = None) -> None:
-    """Record a search: found songs leave the attempts, the others count one more try and keep what the
-    search saw (a search the daemon lost does not count)."""
+    """Record a search: a find leaves the table, a miss counts a try and keeps what the search saw; an
+    interrupted search counts nothing."""
     table = "attempts" if purpose == "search" else "upgrades"
     success = action in FOUND if purpose == "search" else action == "upgrade"
     with con:
         if success:
             con.execute(f"DELETE FROM {table} WHERE song_key = ?", (key,))
-        elif action not in ("interrupted",):
+        elif action != "interrupted":
             con.execute(
                 f"INSERT INTO {table} (song_key, tries, last_try) VALUES (?, 1, ?) ON CONFLICT (song_key) "
                 "DO UPDATE SET tries = tries + 1, last_try = excluded.last_try",
@@ -546,8 +531,8 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 
 def sync(run: "Run") -> str:
-    """Spotify lists: read the followed lists that changed (a few requests when none did). A new song (never
-    searched) starts New songs search (search_new), so Soulseek jobs only make way for real work."""
+    """The Spotify lists job (lists.fetch_spotify). Only songs never searched start search_new, so the
+    Soulseek jobs give way only for real work."""
     from echolot.jobs import lists
 
     message = lists.fetch_spotify(run)
@@ -562,14 +547,13 @@ def sync(run: "Run") -> str:
 
 
 def search_new(run: "Run") -> str:
-    """New songs search (started by Spotify and YouTube lists): the songs never searched, the library asked
-    first (the same recording under other names is linked), then Soulseek. One not found goes to the YouTube
-    and SoundCloud search right after (fallback); a later search is the evening search's."""
+    """The songs never searched: the library first (the same recording under other names is linked), then
+    Soulseek; a miss starts the fallback right after."""
     parts = []
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
-        if linked := recordings.link_isrc(con, run.paths):  # the library has them under other names
+        if linked := recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
         songs = [r for r in _missing(con) if not r["tries"]]
@@ -579,20 +563,19 @@ def search_new(run: "Run") -> str:
         return "; ".join(parts) or "no new songs"
     parts.append(_search(run, songs, "search"))
     con = run.connect()
-    try:  # a miss counted a try (a find left the attempts, an interrupted search counted nothing)
+    try:  # a miss counted a try (_count)
         keys = [r["key"] for r in songs]
         sql = f"SELECT 1 FROM attempts WHERE tries >= 1 AND song_key IN ({','.join('?' * len(keys))})"
         missed = con.execute(sql, keys).fetchone()
     finally:
         con.close()
     if missed:
-        run.after.add("fallback")  # not on Soulseek: YouTube, then SoundCloud, now
+        run.after.add("fallback")
     return "; ".join(parts)
 
 
 def sweep(run: "Run") -> str:
-    """Search the songs found nowhere yet again (at the hours most Soulseek users are online): each one
-    daily, weekly after WEEKLY_AFTER searches without a find; started by hand, every one now."""
+    """The songs found nowhere, again: each daily, weekly after WEEKLY_AFTER misses; by hand every one."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
@@ -613,13 +596,12 @@ def upgrade(run: "Run") -> str:
 
 
 def upgrade_all(run: "Run") -> str:
-    """The FLAC upgrade for every song not genuine lossless, whatever its wait (started by hand; it gives
-    way to every other Soulseek job and goes on after it)."""
+    """_upgrade for every lossy song, whatever its wait."""
     return _upgrade(run, everything=True)
 
 
 def _upgradable(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """The songs the FLAC upgrade searches (with their tries), the longest waiting first: see _upgrade."""
+    """The songs _upgrade searches, with their tries, the longest waiting first."""
     return con.execute(
         "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
         "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
@@ -629,12 +611,11 @@ def _upgradable(con: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def _upgrade(run: "Run", everything: bool) -> str:
-    """FLAC-only search for wanted songs whose library copy is not genuine lossless; each song waits 12 h,
-    1 d, 2 d, then every 3 d between searches; the longest waiting first, at most upgrade_batch per run (or
-    what a run that gave way left). A SoundCloud song's FLAC is kept for review (Fetcher.attempt), and the
-    song is not searched while one waits there; a SoundCloud song whose file a Spotify (or YouTube) song has
-    is upgraded as that one. Close matches are not upgraded (a FLAC found would be the song, not the version
-    taken), nor a song whose file is the artist's own release (origin.BEST: the best there is)."""
+    """FLAC-only search for wanted songs whose copy is not genuine lossless, each after UPGRADE_WAIT, the
+    longest waiting first, at most upgrade_batch per run (or what a run that gave way left). A SoundCloud
+    song's FLAC waits in Review (Fetcher.attempt), and the song is not searched while it does; one whose
+    file a Spotify or YouTube song has is upgraded as that one. Not upgraded: close matches (a FLAC found
+    would be the song, not the version taken) and the artist's own release (origin.BEST)."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
@@ -644,8 +625,7 @@ def _upgrade(run: "Run", everything: bool) -> str:
                 "DELETE FROM upgrades WHERE song_key NOT IN (SELECT s.key FROM wanted s JOIN files f "
                 "ON f.path = s.file WHERE f.quality != 'lossless')"
             )
-        rows = run.todo(rows)  # (without the songs a run that gave way did)
-        # what a run that gave way left, else every song (by hand) or the batch
+        rows = run.todo(rows)
         batch = run.budget or (len(rows) if everything else options.get(con, options.Soulseek).upgrade_batch)
         waits = review.waiting(con, run.paths.music)
     finally:
@@ -668,11 +648,8 @@ def _upgrade(run: "Run", everything: bool) -> str:
 
 
 def fallback(run: "Run") -> str:
-    """Songs Soulseek did not find (started by the sync right after its search), and SoundCloud songs
-    SoundCloud hands out to nobody: search YouTube, then SoundCloud, each song at most once a week, the
-    ones never tried first. The first result that passes the same checks as a Soulseek download is filed;
-    the rest are tried in order; a download the library has under other names (its audio) is linked instead.
-    The result is lossy: the FLAC upgrade looks for a FLAC from 12 h later."""
+    """Songs Soulseek did not find, and SoundCloud songs SoundCloud hands out to nobody: YouTube, then
+    SoundCloud (_fallback_song), each song at most once a week, the ones never tried first."""
     week = int(time.time()) + 1 if run.trigger == "manual" else int(time.time()) - 7 * 86400  # Run now: all
     con = run.connect()
     try:
@@ -686,7 +663,7 @@ def fallback(run: "Run") -> str:
         ).fetchall()
         twins = recordings.twins(songs)
         songs = [r for r in songs if r["key"] not in twins]
-        songs = run.todo(_for(run, con, songs))  # (by hand: without the songs a run that gave way did)
+        songs = run.todo(_for(run, con, songs))
         token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
@@ -695,7 +672,7 @@ def fallback(run: "Run") -> str:
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
     added = kept = linked = 0
     for n, row in enumerate(songs, 1):
-        if run.stop.is_set() or run.give_way.is_set():  # paused or a more urgent job: that song was the last
+        if run.stop.is_set() or run.give_way.is_set():
             run.left = 0 if run.stop.is_set() else len(songs) - n + 1
             break
         want = Want.of(row)
@@ -747,11 +724,12 @@ def _fallback_song(
     strict_probable: bool,
     listed: str | None = None,
 ) -> tuple[str, dict]:
-    """Search YouTube, then SoundCloud, and file the first result that passes the checks; a YouTube song's
-    own video (`listed`) comes first, as the song (it is, by its list) when it is as long, else as a result.
-    Failing that, the result closest in length that names exactly this song but is another length (an
-    official video often has its own edit) is downloaded and kept for review: only a listener can tell. One
-    at a time; one discarded in review is not kept again. Returns the action and what the search saw, per site."""
+    """Search YouTube, then SoundCloud, and file the first result that passes the checks. A YouTube song's
+    own video (`listed`) comes first, as the song (it is, by its list) when it is as long. Failing all, the
+    result closest in length that names exactly this song (an official video often has its own edit) is
+    kept for review: only a listener can tell; not while one waits there, nor once discarded. The result
+    is lossy: the FLAC upgrade looks for a FLAC 12 h later. Returns the action and, per site, what the
+    search saw."""
 
     def fetch(site: str, r: dict) -> tuple[str, str]:
         track(run, want.key, "downloading")
@@ -774,8 +752,8 @@ def _fallback_song(
         if want.key.startswith("youtube:") and (
             edit := recordings.another_edit(run.paths, prepared.path, want, cat, con=con)
         ):
-            e, share = edit  # a YouTube song named as a library song of another length, by its audio:
-            if share >= recordings.SAME_EDIT:  # that song, in another edit: linked, nothing filed twice
+            e, share = edit  # by its audio, a library song's other edit
+            if share >= recordings.SAME_EDIT:
                 prepared.path.unlink(missing_ok=True)
                 recordings.link(con, run.paths, want.key, want, e, f"another edit, audio {share:.2f}")
                 return "linked", ""

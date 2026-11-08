@@ -1,8 +1,7 @@
-"""The library's lossy check, by hand (downloads are judged as they arrive: audio.prepare): every library FLAC not
-checked yet through both lossy checks (audio.judge, lossprint at the lowest CPU priority), stored in lossy_checks;
-once per audio: a file changed by a retag (the same STREAMINFO MD5) is not checked again. The stored verdicts are
-applied (apply): lossy marks a file made from a lossy one (lossy_sourced), ok and doubtful unmark it.
-ECHOLOT_LOSSPRINT off: nothing.
+"""The library's lossy check, by hand (downloads are judged as they arrive: audio.prepare): every library
+FLAC not checked yet through both checks (audio.judge; lossprint at the lowest CPU priority), stored in
+lossy_checks. Once per audio: a retag (the same STREAMINFO MD5) is not checked again. apply turns the
+verdicts into marks (lossy_sourced): lossy marks, ok and doubtful unmark. ECHOLOT_LOSSPRINT off: nothing.
 """
 
 import datetime

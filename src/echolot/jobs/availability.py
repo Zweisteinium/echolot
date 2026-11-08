@@ -1,21 +1,16 @@
-"""The availability tracker: whether the songs of every user's lists still play at their source, checked
-once a day (check), and what happened to them and to the lists (the changes table), for everyone.
+"""The availability tracker: whether every list's songs still play at their source (check, daily), and what
+happened to them and to the lists (the changes table).
 
-Spotify, through the app's own access in one country's catalogue (options.Spotify.market): a song plays
-(available), plays as another release of the same recording (replaced: Spotify relinks it, or one with its
-ISRC plays that Spotify does not link), plays nowhere (taken_down: no country has it), not in that country
-(blocked), or exists no more (gone).
-SoundCloud, through any user's token: a song is gone when it was deleted or made private (SoundCloud does
-not tell which), blocked in this country (policy BLOCK), or a 30-second preview without Go+ (preview); a
-label release that can't be downloaded still plays (available). YouTube, as its lists are read
-(lists.youtube: each reading has every video): a video plays (available), not in this country (blocked),
-or no more (gone: deleted, private, taken down; YouTube's reason as the detail).
+Spotify, through the app's own access in one market (options.Spotify.market): a song plays (available),
+plays as another release of the recording (replaced: Spotify relinks it, or one with its ISRC plays that
+Spotify does not link), plays nowhere (taken_down), not in that market (blocked), or exists no more (gone).
+SoundCloud, through any user's token: gone (deleted or private: SoundCloud does not tell which), blocked
+here (policy BLOCK), or a 30-second preview without Go+ (preview); a label release that can't be
+downloaded still plays. YouTube, as its lists are read (lists.youtube): available, blocked or gone
+(YouTube's reason as the detail).
 
-A list's songs coming and going are recorded when the list is read (record_list): added, removed, or
-replaced (a song swapped for another release: the same ISRC, or the same artist, title and length; on
-SoundCloud a re-upload). Why a song was removed the next check tells: taken down, gone, or removed from
-the list (by its owner). A song first seen unavailable is recorded so, not as a change; a list that can't
-be read any more is a change (unreadable), and again when it can (readable). Spotify's greyed-out flag of
+A list's songs coming and going are recorded when it is read (record_list); why a removed song went, the
+next check tells (_why_removed). A song first seen unavailable is no change. Spotify's greyed-out flag of
 the searches (songs.unavailable) follows the check.
 """
 
@@ -55,12 +50,14 @@ def _now() -> str:
 
 
 def record_list(con: sqlite3.Connection, list_key: str, before: list[str], after: list[str], first: bool) -> None:
-    """A list's songs as last read and as now (no commit): the songs added and removed, a swapped pair as
-    one change. Nothing for a list's first reading (its songs were there before Echolot knew it)."""
+    """A list's songs as last read and as now (no commit): the songs added and removed; a pair swapped for
+    another release (rules.same_recording; on SoundCloud a re-upload) as one change. Nothing for a list's
+    first reading (its songs were there before Echolot knew it)."""
     if first:
         return
-    gone = [k for k in dict.fromkeys(before) if k not in set(after)]
-    new = [k for k in dict.fromkeys(after) if k not in set(before)]
+    before_set, after_set = set(before), set(after)
+    gone = [k for k in dict.fromkeys(before) if k not in after_set]
+    new = [k for k in dict.fromkeys(after) if k not in before_set]
     if not gone and not new:
         return
     marks = ", ".join("?" * len(gone + new))
@@ -78,13 +75,12 @@ def record_list(con: sqlite3.Connection, list_key: str, before: list[str], after
     con.executemany("INSERT INTO changes (ts, song_key, list_key, change, detail) VALUES (?, ?, ?, ?, ?)", rows)
 
 
-UNREADABLE_AFTER = datetime.timedelta(hours=1)  # a list failing this long is unreadable (not a hiccup)
+UNREADABLE_AFTER = datetime.timedelta(hours=1)
 
 
 def list_readable(con: sqlite3.Connection, list_key: str, readable: bool, why: str = "") -> None:
-    """A list that can't be read (gone, private) is a change once, when it has failed for an hour (a
-    service's hiccup, a rate limit is none: meta "failing:<list>" holds since when); again when it can
-    be read."""
+    """A list that can't be read (gone, private) is a change once it has failed for UNREADABLE_AFTER (a
+    hiccup or a rate limit is none; meta "failing:<list>" holds since when), and again when it can be read."""
     last = con.execute(
         "SELECT change FROM changes WHERE list_key = ? AND song_key = '' ORDER BY id DESC LIMIT 1", (list_key,)
     ).fetchone()
@@ -192,11 +188,11 @@ def _other_release(
     lost: dict[str, str | None],
     states: dict[str, tuple[str, str | None]],
 ) -> dict[str, tuple[str, str | None]]:
-    """Songs that do not play here as the release in their list: another release of the recording (its ISRC)
+    """Songs that do not play here as the release in their list: another release of the recording (by ISRC)
     that plays here, which Spotify does not relink them to (it links only some). One found before is checked
     again (looked for anew when it plays no more); one not found is looked for again after SEARCH_AGAIN,
-    SEARCHES per check. Returns the ones found (replaced) and stores when each was looked for; `states`: the
-    ones' states without it."""
+    SEARCHES per check. Returns the ones found (replaced) and stores when each was looked for; `states`:
+    their states without it."""
     if not lost:
         return {}
     known = {r["song_key"]: r for r in con.execute("SELECT song_key, state, detail, searched FROM availability")}
@@ -232,9 +228,9 @@ def _other_release(
 
 
 def _plays_as(con: sqlite3.Connection, run: "Run", states: dict[str, tuple[str, str | None]]) -> None:
-    """What each relinked song plays as (availability.plays): the release Spotify relinks it to, by its own names
-    as the player shows them (asked without a market: with one, Spotify gives the list's names), asked once per
-    release it is relinked to. The list's track keeps its names: the release may be renamed, or another recording."""
+    """What each relinked song plays as (availability.plays): the release Spotify relinks it to, by its own
+    names (asked without a market: with one, Spotify gives the list's names), once per release. The list's
+    track keeps its names: the release may be renamed, or another recording."""
     relinked = {k: d for k, (st, d) in states.items() if st == "replaced" and (d or "").startswith("spotify:")}
     stored = con.execute("SELECT song_key, plays FROM availability WHERE plays IS NOT NULL")
     known = {r[0]: json.loads(r[1]).get("key") for r in stored}
@@ -288,14 +284,14 @@ def _soundcloud(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[st
 
 
 def apply(con: sqlite3.Connection, states: dict[str, tuple[str, str | None]]) -> int:
-    """Store the states (a change where one differs from the last check; a song seen for the first time is
-    no change, and since when its state holds is unknown) and Spotify's greyed-out flag of the searches. Returns the number of changes."""
+    """Store the states and Spotify's greyed-out flag; returns the number of changes (a song seen the first
+    time is none, and since when its state holds is unknown)."""
     known = {r["song_key"]: r for r in con.execute("SELECT * FROM availability")}
     now, today, changes = _now(), datetime.date.today().isoformat(), 0
     with con:
         for key, (state, detail) in states.items():
             old = known.get(key)
-            if old is None:  # since when it is so: unknown
+            if old is None:
                 sql = "INSERT INTO availability (song_key, state, since, checked, detail) VALUES (?, ?, '', ?, ?)"
                 con.execute(sql, (key, state, now, detail))
             elif (old["state"], old["detail"]) != (state, detail):
