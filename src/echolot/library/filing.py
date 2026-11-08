@@ -1,20 +1,20 @@
-"""The only code that puts files into the library (<music>/tracks/<Artist>/<Artist> - <Title>.<ext>)
-or takes them out. Everything happens under one lock, against the files table, which every change here
-keeps current (catalog.scan picks up changes made by others):
-  - nothing in the library is ever overwritten: files are linked into place with an exclusive create
-  - a download that is the same song as a library file is discarded, unless it is a genuine lossless
-    copy of a lossy or fake one: then it takes over and the old file moves to inbox/replaced/<date>/
-  - a different song whose file name is taken (same title, other length) gets its length appended
-  - artist folders are matched case/accent-insensitively, so one artist keeps one folder
-  - search results must be the requested song (rules.identify); rejected near misses (right artist,
-    2/3 to 1.5 times the length) are kept in inbox/review/<date>/, other rejects are deleted
-  - replaced/ and review/ are emptied after 30 days (purge)
+"""The only code that puts files into the library (<music>/tracks/<Artist>/<Artist> - <Title>.<ext>) or
+takes them out, under one lock, keeping the files table current (catalog.scan picks up others' changes):
+  - nothing in the library is overwritten: files are linked into place with an exclusive create
+  - a download of a song the library has is discarded, unless it is genuine lossless and the copy lossy or
+    fake: then it takes over and the old file goes to inbox/replaced/<date>/
+  - another song whose file name is taken (same title, other length) gets its length appended
+  - artist folders match case- and accent-insensitively: one folder per artist
+  - search results must be the requested song (rules.identify); near misses (right artist, 2/3 to 1.5 times
+    the length) are kept in inbox/review/<date>/, other rejects deleted
+  - replaced/ and review/ are emptied after KEEP_DAYS (purge)
   - every change is an event (events table)
 """
 
 import datetime
 import filecmp
 import glob
+import json
 import os
 import shutil
 import sqlite3
@@ -28,7 +28,7 @@ from echolot.library.rules import artist_key, clean_name, first_artist, identify
 
 LOCK = threading.RLock()
 KEEP_DAYS = 30
-FAKE_RULE = "2026-09-01"  # the spectrum check's verdicts count from here: a change of it starts them afresh
+FAKE_RULE = "2026-09-01"  # fakes count from here (rejected_before): a new spectrum rule restarts them
 MUSIC = "/music/"  # how events name files outside the library (independent of the mount point)
 
 
@@ -48,8 +48,8 @@ class Paths:
         return self.music / "inbox" / name
 
     def create(self) -> None:
-        """The folders Echolot writes, made by Echolot (as its user: a folder Docker makes for a mount is
-        root's), and an empty .ndignore in inbox/: Navidrome skips the downloads and review files there."""
+        """The folders Echolot writes, made as its user (Docker makes a mount's folders as root), and an empty
+        inbox/.ndignore: Navidrome skips the inbox."""
         for folder in (self.tracks, self.playlists, *(self.inbox(n) for n in INBOXES)):
             folder.mkdir(parents=True, exist_ok=True)
         if not (ignore := self.music / "inbox" / ".ndignore").exists():
@@ -69,7 +69,7 @@ class Want:
     key: str = ""
     artists: list[str] = field(default_factory=list)
     isrc: str = ""  # the recording (Spotify), for the audio check
-    alias: str = ""  # the artist's English name (Spotify's, for one in another script): searched and matched too
+    alias: str = ""  # the artist's English name (Spotify's, for a name in another script)
 
     @property
     def aliases(self) -> list[str]:
@@ -79,8 +79,6 @@ class Want:
 
     @classmethod
     def of(cls, row: sqlite3.Row) -> "Want":
-        import json
-
         cols = row.keys()
         isrc = row["isrc"] if "isrc" in cols else ""
         alias = row["artist_alias"] if "artist_alias" in cols else ""
@@ -129,8 +127,8 @@ def _place(src: Path, dest: Path) -> None:
 
 
 def _free_name(folder: Path, name: str, ext: str, length: float, label: str = "") -> Path:
-    """First unused '<name>.<ext>' in folder; a taken name (by any extension) gets the label (another
-    version from SoundCloud: '(SoundCloud)'), else the length appended."""
+    """First unused '<name>.<ext>' in folder (taken by any extension): else with the label ('(SoundCloud)'),
+    else with the length appended."""
 
     def taken(n: str) -> bool:
         return any((folder / f"{n}.{e}").exists() for e in audio.AUDIO)
@@ -147,7 +145,7 @@ def _free_name(folder: Path, name: str, ext: str, length: float, label: str = ""
 
 
 def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source: str = "") -> None:
-    """Record a file just placed in the library (files, lossy_sourced with the lossy `source` if known)."""
+    """Record a file just placed in the library (files; lossy_sourced with `source` if fake)."""
     st = p.stat()
     dur, kbps = audio.probe(p)
     rel = p.relative_to(paths.tracks).as_posix()
@@ -165,8 +163,7 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source
 
 
 def place_back(con: sqlite3.Connection, paths: Paths, src: Path, dest: Path) -> None:
-    """A retired file (in replaced/) back at its library place, recorded as it was filed (a FLAC made from
-    a lossy file stays marked so: the event that filed it says)."""
+    """A retired file back at its library place, fake again if the event that filed it said so."""
     rel = dest.relative_to(paths.tracks).as_posix()
     sql = "SELECT fake FROM events WHERE path = ? AND action IN ('new', 'upgrade') ORDER BY id DESC"
     filed = con.execute(sql, (rel,)).fetchone()
@@ -191,8 +188,8 @@ def retire(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, reason: 
 
 
 def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: str, title: str, reason: str) -> Path:
-    """File a library file under what it really is (<Artist>/<Artist> - <Title>), e.g. a close match that
-    was filed under the wanted song's name. The tags follow the name."""
+    """File a library file under what it is (<Artist>/<Artist> - <Title>), e.g. a close match filed under
+    the wanted song's name; the tags follow."""
     src = paths.tracks / entry.path
     with LOCK:
         cat = catalog.Catalog.from_db(con)
@@ -207,7 +204,7 @@ def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: 
             with con:
                 con.execute("DELETE FROM files WHERE path = ?", (entry.path,))
                 con.execute("DELETE FROM lossy_sourced WHERE stem = ?", (entry.stem,))
-                # a SoundCloud song is its own download, found by the name: it keeps the file
+                # a SoundCloud song finds its own download by the stem
                 con.execute("UPDATE songs SET stem = ? WHERE stem = ?", (stem, entry.stem))
             _add_file(con, paths, dest, entry.fake, mark[0] if mark else "")
         audio.write_tags(dest, artist=artist, title=title)
@@ -216,8 +213,8 @@ def rename(con: sqlite3.Connection, paths: Paths, entry: catalog.Entry, artist: 
 
 
 def keep(paths: Paths, src: Path, artist: str, title: str, source: str) -> Path:
-    """Move a rejected download to inbox/review/<date>/ (kept KEEP_DAYS days, see the review page). The same
-    file kept for the song already is not kept twice: then it is deleted (the returned path is gone)."""
+    """Move a rejected download to inbox/review/<date>/ (KEEP_DAYS, the review page). A file identical to one
+    kept for the song is deleted instead (the returned path is gone)."""
     song = f"{clean_name(artist)} - {clean_name(title)} ["
     size = src.stat().st_size
     for other in paths.inbox("review").glob(f"*/{glob.escape(song)}*"):
@@ -239,7 +236,7 @@ def keep(paths: Paths, src: Path, artist: str, title: str, source: str) -> Path:
 
 
 def drop(src: Path) -> Path:
-    """Delete a rejected download that is no near miss (another artist, or a whole mix)."""
+    """Delete a rejected download that is no near miss."""
     src.unlink(missing_ok=True)
     return src
 
@@ -251,18 +248,15 @@ def in_review(paths: Paths, artist: str, title: str) -> bool:
 
 
 def rejected_before(con: sqlite3.Connection, key: str, fakes: bool = False) -> list[tuple[str, int, int]]:
-    """(name, seconds, peer bytes) of the downloads the checks rejected (or kept for a confirmation) for the
-    song in the last KEEP_DAYS days. The same file would be rejected again, so it is not downloaded again
-    (after that a changed rule gets its chance). Bad Soulseek files, for any song and whoever shares them,
-    told by name and exact size (peer bytes; 0 for the others, which go by name and length): a damaged FLAC
-    (audio.Damaged), and with `fakes` (the FLAC upgrade) the FLACs found made from lossy files (no
-    upgrade, for good)."""
+    """(name, seconds, peer bytes) of downloads rejected (or kept to confirm) for the song in the last
+    KEEP_DAYS: they would fail again (after that a changed rule gets its chance). Plus bad Soulseek files of
+    any song, told by name and exact size (peer bytes; 0 for the others, told by name and length): damaged
+    FLACs, and with `fakes` (the FLAC upgrade) fake FLACs, for good."""
     since = (datetime.datetime.now() - datetime.timedelta(days=KEEP_DAYS)).isoformat(timespec="seconds")
     which = "action IN ('wrong-song', 'mismatch', 'confirm')"
     sql = f"SELECT file_name, seconds FROM events WHERE song = ? AND ts >= ? AND {which}"
     out = [(n.strip(), s or 0, 0) for n, s in con.execute(sql, (norm_key(key), since)) if n]
-    # bad files, whatever song they came for: a damaged one for KEEP_DAYS, for good once it came damaged twice
-    # (once can be the transfer's fault, the peer's file fine); with `fakes` a fake for good (it stays one)
+    # damaged: for KEEP_DAYS, for good once it came damaged twice (once may be the transfer's fault)
     bad = "SELECT file_name, peer_bytes FROM events WHERE action = 'damaged' AND peer_bytes > 0 AND file_name > '' "
     bad += "GROUP BY file_name, peer_bytes HAVING count(*) >= 2 OR max(ts) >= ?"
     rows = con.execute(bad, (since,)).fetchall()
@@ -273,8 +267,8 @@ def rejected_before(con: sqlite3.Connection, key: str, fakes: bool = False) -> l
 
 
 def was_rejected(before: list[tuple[str, int, int]], name: str, seconds: float, size: int = 0) -> bool:
-    """A search result is a download rejected before: the same name and the same size (a fake), else, where
-    both are known, the same length (±2 s)."""
+    """A search result rejected before: same name and size (a bad file), else same name and, where both are
+    known, length within 2 s."""
     name = name.strip()
     return any(n == name and (b == size if b else not s or not seconds or abs(s - seconds) <= 2) for n, s, b in before)
 
@@ -302,8 +296,6 @@ def artist_dir(paths: Paths, cat: catalog.Catalog, artist: str) -> Path:
 
 
 def song_link(con: sqlite3.Connection, key: str) -> list[str] | None:
-    import json
-
     row = con.execute("SELECT link FROM songs WHERE key = ?", (key,)).fetchone() if key else None
     return json.loads(row[0]) if row and row[0] else None
 
@@ -332,21 +324,18 @@ def file_into(
     replace: bool = False,
     fake_source: str = "",
 ) -> tuple[str, Path | None]:
-    """Put a downloaded file into the library. Returns (action, library path); action is
-    'new', 'upgrade' (replaced a lossy or fake copy), 'duplicate' (discarded: the library has it),
-    'mismatch' (strict: the length is another version's) or 'wrong-song' (strict: tags and source names
-    are not the song). strict is for search results: the download must be the song (identify with
-    file_name/folders, where it came from). An exact match is filed; a probable one is filed marked for
-    review, or with probable=False (upgrades, SoundCloud uploader names) kept for review. `heard` is what
-    the audio says (identity.check): the release's audio makes a probable match exact, other audio keeps
-    even an exact one for review. A rejected download far off the length is deleted, not kept. `url` is
-    the page it was downloaded from (YouTube, SoundCloud), kept with the event. `confirm`: a genuine
-    lossless match is kept for review whatever the names say ('confirm'), a lossy or fake one deleted (a
-    SoundCloud song's FLAC: its names are an uploader's, so only you can tell). `same_audio` (what
-    identity.same_master found) with `replaces` (that library file): the download is the file's audio in
-    another codec, so the names only tell an exact match (filed) from a probable one (filed for review);
-    it takes over that file. `replace` (an upload by hand, judged by the user): the download takes over the
-    song's copy whatever their ranks. `fake_source`: what a fake FLAC was made from (lossy_sourced)."""
+    """Put a download into the library: (action, library path). Actions: 'new', 'upgrade' (replaced a lossy
+    or fake copy), 'duplicate' (discarded: the library has it), and with strict 'mismatch' (another version's
+    length), 'wrong-song' (tags and names are not the song) or 'confirm' (kept for review).
+    strict (search results): identify, with file_name and folders, must find the song. An exact match is
+    filed; a probable one filed for review, or with probable=False (upgrades, SoundCloud uploader names) kept
+    for review. A reject far off the length is deleted. `heard` (identity.check): the release's audio makes
+    a probable match exact, other audio keeps even an exact one for review. `confirm`: a genuine lossless
+    match is kept for review whatever the names (a SoundCloud song's FLAC: an uploader's names), a lossy or
+    fake one deleted. `same_audio` (identity.same_master) with `replaces` (that library file): the same audio
+    in another codec, so the names only tell exact (filed) from probable (filed for review); it takes over
+    that file. `replace` (an upload by hand): takes over the song's copy whatever the ranks. `url`: the page
+    it came from; `fake_source`: what a fake FLAC was made from."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
@@ -365,8 +354,8 @@ def file_into(
         if match == "exact" and tagging.conflict(tag_title, want.title):  # named the song, tagged as another
             match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
-            match = "exact"  # confirmed by the audio: no review needed
-        if same_audio:  # the audio of the file it replaces: other names make it a probable match, not another song
+            match = "exact"  # the audio confirms it
+        if same_audio:  # other names make it probable, not another song
             info["audio"] = same_audio
             if match != "exact":
                 match, why = "probable", f"the same audio as your copy; {why or 'the names differ'}"
@@ -390,7 +379,7 @@ def file_into(
         info["reason"] = why
         if confirm:
             if ext not in audio.LOSSLESS or fake:
-                event(con, paths, "duplicate", src, **info)  # (a fake is remembered: rejected_before)
+                event(con, paths, "duplicate", src, **info)  # remembered: rejected_before
                 src.unlink(missing_ok=True)
                 return "duplicate", None  # no better than the copy the song has
             kept = keep(paths, src, want.artist, want.title, source)
@@ -411,7 +400,7 @@ def file_into(
                 src.unlink(missing_ok=True)
                 event(con, paths, "duplicate", paths.tracks / best.path, **info)
                 return "duplicate", paths.tracks / best.path
-            # genuine lossless (or, replace, the user's choice) takes over: the existing name, the other copies retired
+            # it takes over the existing name; the losers are retired
             losers = list(same) if replace else [e for e in same if not e.genuine]
             best_path = paths.tracks / best.path
             dest = best_path.with_suffix("." + ext)
@@ -419,13 +408,13 @@ def file_into(
                 dest = _free_name(best_path.parent, best_path.stem, ext, length)
             why = "replaced by genuine lossless" if genuine and not replace else "replaced by hand"
             for e in losers:
-                if paths.tracks / e.path == dest and dest.exists():  # (gone by hand: nothing to keep)
+                if paths.tracks / e.path == dest and dest.exists():  # (gone by hand: nothing to retire)
                     retire(con, paths, e, why)
             _place(src, dest)
             for e in losers:
                 if paths.tracks / e.path != dest and (paths.tracks / e.path).exists():
                     retire(con, paths, e, why)
-            # (after: retiring "A - Song.mp3" unmarks "A - Song.*")
+            # after the retires: retiring "A - Song.mp3" clears the lossy_sourced mark of "A - Song"
             _add_file(con, paths, dest, fake, fake_source)
             event(con, paths, "upgrade", dest, **{"fake": int(fake), **info})
             return "upgrade", dest

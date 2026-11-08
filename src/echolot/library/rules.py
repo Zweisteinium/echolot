@@ -1,13 +1,12 @@
-"""Is this the same song? The matching rules, in one place: the library lookup (same song), the check
-of downloads (identify) and of search results before they are downloaded (prejudge), and the search
-terms. Pure functions, no I/O.
+"""Is this the same song? The matching rules in one place: the library lookup (same song), the check of
+downloads (identify) and of search results before download (prejudge), and the search terms. Pure functions.
 
-Same song = same artist (case, accents and punctuation ignored; the first of several artists also
-counts) + same title after removing noise that does not change the recording ("(Free DL)",
-"[HAK003]", "(Original Mix)", "(feat. X)", "- 2011 Remaster", punctuation) + length within
-max(10 s, 4 %) when both lengths are known. Version words (Remix, Edit, Extended, VIP, II, Pt. 2,
-Mashup, ...) stay part of the title, so "Glow" and "Glow - X Remix", or "Fire" and "Fire II", are
-different songs. A DJ-mix cut ("Song - Mixed", "Song (Mixed)") is the song itself, at any length.
+Same song = same artist (case, accents and punctuation ignored; the first of several artists counts too) +
+same title without noise that does not change the recording ("(Free DL)", "[HAK003]", "(Original Mix)",
+"(feat. X)", "- 2011 Remaster", punctuation) + length within max(10 s, 4 %) when both are known. Version
+words (Remix, Edit, Extended, VIP, II, Pt. 2, Mashup, ...) stay in the title: "Glow" and "Glow - X Remix",
+or "Fire" and "Fire II", are different songs. A DJ-mix cut ("Song - Mixed", "Song (Mixed)") is the song
+itself, at any length.
 """
 
 import re
@@ -25,14 +24,13 @@ _LETTERS = str.maketrans(
 
 
 def fold(s: str | None) -> str:
-    """Lower case without accents (ø -> o etc.); non-Latin scripts stay (an ASCII-only fold would
-    erase "СВЕТЛАНА")."""
+    """Lower case without accents (ø -> o); other scripts stay (an ASCII fold would erase "СВЕТЛАНА")."""
     s = unicodedata.normalize("NFKD", (s or "").translate(_LETTERS))
     return "".join(c for c in s if not unicodedata.combining(c)).casefold()
 
 
 def tidy_name(s: str | None) -> str:
-    """A name as written, for songs and tags (clean_name makes file names of it): one space between words."""
+    """A name as written, for songs and tags: NFC, single spaces (clean_name makes file names)."""
     return re.sub(r"\s+", " ", unicodedata.normalize("NFC", s or "")).strip()
 
 
@@ -44,10 +42,11 @@ def clean_name(s: str | None) -> str:
     return s or "Unknown"
 
 
+_ARTIST_SEP = re.compile(r"\s*[,;/]\s*|\s+(?:&|x|feat\.?|ft\.?|featuring|vs\.?)\s+", re.I)
+
+
 def first_artist(a: str | None) -> str:
-    return re.split(r"\s*[,;/]\s*|\s+(?:&|x|feat\.?|ft\.?|featuring|vs\.?)\s+", (a or "").strip(), flags=re.I)[
-        0
-    ].strip()
+    return _ARTIST_SEP.split((a or "").strip())[0].strip()
 
 
 def artist_key(a: str | None) -> str:
@@ -95,9 +94,9 @@ _MIX_CUT = re.compile(_MIX_CUT_RE, re.I)
 
 
 def mix_cut(title: str | None) -> bool:
-    """A cut out of a continuous DJ mix ("Song - Mixed", "Song (Mixed) - X Remix", from albums like
-    "Kontor Festival Sounds ... Mix"): 1-4 minutes with transitions, never released on its own. It is
-    the same song as the release, and its length says nothing, so length checks are skipped for it."""
+    """A cut from a continuous DJ mix ("Song - Mixed", "Song (Mixed) - X Remix"): 1-4 minutes with
+    transitions, never released alone. It is the release's song, and its length says nothing: no length
+    checks."""
     return bool(_MIX_CUT.search(title or ""))
 
 
@@ -141,8 +140,8 @@ def same_length(a: float | str | None, b: float | str | None) -> bool:
 
 
 def same_recording(a: Mapping | None, b: Mapping | None) -> bool:
-    """Two songs (artist, title, length, isrc) are one recording: the same ISRC, or the same artist and title,
-    as long."""
+    """Two songs (artist, title, length, isrc) are one recording: the same ISRC, else the same artist and
+    title within 2 s."""
     if a is None or b is None:
         return False
     if a["isrc"] and b["isrc"]:
@@ -163,9 +162,8 @@ _CJK_GAP = re.compile(rf"(?<=[{_CJK}]) (?=[{_CJK}])")
 
 
 def words(s: str | None) -> str:
-    """' w1 w2 ... ': whole-word form for 'contains' checks; apostrophes vanish ("N'to" = "NTO"), and so
-    does a space between Chinese or Japanese characters, which names are written with or without
-    ("祖堅 正慶" = "祖堅正慶")."""
+    """' w1 w2 ... ': whole-word form for 'contains' checks. Apostrophes go ("N'to" = "NTO"), as do spaces
+    between Chinese or Japanese characters (written with or without: "祖堅 正慶" = "祖堅正慶")."""
     s = re.sub(r"['’`´]", "", fold(s)).replace("&", " and ")
     return " " + _CJK_GAP.sub("", re.sub(r"[\W_]+", " ", s).strip()) + " "
 
@@ -207,17 +205,16 @@ def identify(
     tol: float = 3,
     aliases: Iterable[str] = (),
 ) -> tuple[str | None, str]:
-    """Is this download <artist> - <title>? (Search results can be another artist's song with the same
-    title.) Returns (match, reason), match one of
-      'exact'     the artist appears as whole words in the artist tags or the source file/folder names,
-                  and the title tag or file name (never a folder: that is the album), read without track
-                  number and artist prefix, gives exactly the requested title (noise rules of title_key)
-      'probable'  the artist as above, the same core title (the part before any bracket, ' - ', '|' or
-                  'feat.'), the same version words (remix, live, VIP, remake, ...), a named variant such
-                  as "(Hard Trance Mix)" only if the request names it too, and the length within `tol`;
-                  also a name crediting the song's own artist where the request names no version
-                  ("Title - HIGH TEKK REMIX" for High Tekk's "Title": as the artist released it, but only
-                  a listener can tell)
+    """Is this download <artist> - <title>? (A search result can be another artist's song of that title.)
+    (match, reason), match one of
+      'exact'     the artist as whole words in the artist tags or the file/folder names, and the title tag
+                  or file name (never a folder: the album), read without track number and artist prefix,
+                  gives the requested title (title_key's noise rules)
+      'probable'  the artist as above, the same core title (before any bracket, ' - ', '|' or 'feat.'), the
+                  same version words, a named variant ("(Hard Trance Mix)") only if the request names it,
+                  and the length within `tol`; also a name crediting the song's own artist where the
+                  request names no version ("Title - HIGH TEKK REMIX" for High Tekk's "Title": only a
+                  listener can tell)
       None        neither."""
     want = artist_words(artist, aliases)
     texts = [t for t in [*tag_artists, file_name, *folders] if t]
@@ -319,7 +316,7 @@ PLAIN_WORDS = {
 }  # fmt: skip
 _MARKERS = VERSION_WORDS | {"mix", "edit", "version"}  # a segment with one of these names a variant
 # a segment crediting only the song's own artist with one of these ("- HIGH TEKK REMIX" by High Tekk) is the
-# song as that artist released it, where the list leaves the word out (own_credit)
+# song as released, the list leaving the word out (own_credit)
 OWN_WORDS = {"remix", "remixed", "rmx", "bootleg", "rework", "flip", "remake"}
 _SEGMENT = re.compile(r"[\(\)\[\]\{\}|•]|\s+[-–—~]\s+|\s+//\s+|\s+(?=(?:feat|ft|featuring|prod)\.?\s)", re.I)
 
@@ -369,9 +366,8 @@ def _own(title: str, own: Iterable[str]) -> list[str]:
 
 
 def other_version(title: str, names: list[str], artist_words_: set[str], own: Iterable[str] = ()) -> str | None:
-    """The first of `names` with the requested core title that names another version: a version word
-    or a named variant the request does not have (a credit of the song's own artist, `own`, is none).
-    None if there is none."""
+    """The first of `names` with the requested core title that names another version: a version word or a
+    named variant the request lacks (a credit of the song's own artist, `own`, is none); None if none does."""
     head, _ = segments(title)
     core, want_all = title_key(head), set(_vwords(title))
     own = _own(title, own)
@@ -431,15 +427,13 @@ def prejudge(
     loosened: bool = False,
     aliases: Iterable[str] = (),
 ) -> tuple[str, int, str]:
-    """A search result, judged from its path and length before it is downloaded: (verdict, rank,
-    reason). Only what is certain from the name rejects: the artist missing (when the search requires
-    it), a file name naming another version, a length that makes it another song, or a download
-    marked wrong in review, or the requested title without the version it asks for ("Paradies" for
-    "Paradies - Abrissgebeat Remix"). With the artist in the path, a name that shows the title is
-    accepted (rank 0 exact, 1 probable) and one that says nothing about it is unknown (rank 2): its tags
-    decide after the download, if the path names the artist as a name of its own ("HK", not "HK Gruber")
-    and, in a loosened search (`loosened`), the length is known. Without the artist (a loosened search),
-    only a name showing the title is worth a download (unknown: the tags must name the artist)."""
+    """A search result judged by its path and length before download: (verdict, rank, reason). Only
+    certainties reject: the artist missing (when required), a file name naming another version, another
+    song's length, a download marked wrong in review, or the title without the version it asks for
+    ("Paradies" for "Paradies - Abrissgebeat Remix"). With the artist in the path, a name showing the title
+    is accepted (rank 0 exact, 1 probable); one saying nothing about it is unknown (rank 2: the tags decide)
+    if the path names the artist as a name of its own ("HK", not "HK Gruber") and, when `loosened`, the
+    length is known. Without the artist (loosened), only a name showing the title is worth a download."""
     parts = [p for p in re.split(r"[\\/]+", path) if p]
     name = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", parts[-1]) if parts else ""
     # the artist is often a few levels up: Music\\Artist\\Singles\\Song\\01. Song.flac
@@ -508,9 +502,9 @@ def search_title(title: str) -> str:
 
 
 def search_terms(artist: str, title: str, length: float = 0, loosen: bool = False) -> tuple[str, str, int]:
-    """(artist, title, length) to search for. loosen: first artist, search_title. A DJ-mix cut is
-    searched as the release at any length. "/" and "\\" stay: Sockseek matches them against paths like
-    "_" since fiso64/sockseek#211 ("AC/DC" finds AC_DC; turned into spaces they found far fewer)."""
+    """(artist, title, length) to search for; loosen: the first artist and search_title. A DJ-mix cut is
+    searched as the release at any length. "/" and "\\" stay: Sockseek matches them like "_" since
+    fiso64/sockseek#211 ("AC/DC" finds AC_DC; as spaces far fewer)."""
     cut = mix_cut(title)  # of the requested title: search_title drops a plain " - Mixed"
     if loosen:
         artist, title = first_artist(artist) or artist, search_title(title)

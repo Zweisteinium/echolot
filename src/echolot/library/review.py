@@ -1,10 +1,9 @@
-"""Review: songs filed on a probable match (rules.identify) or put up again (recheck), shown as
-'Please confirm', and rejected downloads kept in inbox/review/ for 30 days, shown as 'Worth a look'.
-Both get the same three answers; a decision is applied once it is UNDO_SECONDS old (until then Revert
-takes it back):
+"""Review: songs filed on a probable match (rules.identify) or put up again (recheck), as 'Please confirm',
+and rejected downloads kept in inbox/review/ (filing.keep), as 'Worth a look'. Both take the same three
+answers, applied once UNDO_SECONDS old (until then Revert takes it back):
   Perfect match (ok, accept)    it is the song: a kept download is filed and tagged as the song
   Close match (close)           another version, taken for the song: the file is (or gets) named what it
-                                really is, 'Artist - Title', and the song is linked to it (songs.close_match)
+                                is, 'Artist - Title', and the song linked to it (songs.close_match)
   No match (wrong, discard)     not the song: the file goes, that download is never taken for the song
                                 again, and a song that had it is searched again
 """
@@ -39,7 +38,7 @@ def decision_id(ts: str, path: str) -> str:
 
 
 def songs_of(con: sqlite3.Connection, uid: int) -> set[str]:
-    """The keys of a user's songs: on the lists they follow."""
+    """The keys of the songs on a user's followed lists."""
     sql = (
         "SELECT ls.song_key FROM list_songs ls JOIN sources src ON src.key = ls.list_key "
         "WHERE src.user_id = ? AND src.enabled"
@@ -57,7 +56,7 @@ def theirs(con: sqlite3.Connection, uid: int, event_id: int) -> bool:
 class Item:
     event: sqlite3.Row
     kind: str  # filed (a probable match in the library) or kept (a rejected download)
-    file: Path  # where Echolot sees the audio file
+    file: Path  # Echolot's path of the audio
     length: float  # of the wanted song, 0 = unknown
     decision: str | None  # made but not applied yet
     name: str | None = None  # close: what the file is ('Artist - Title')
@@ -74,8 +73,7 @@ class Item:
     @property
     def artists(self) -> str:
         """All the wanted song's artists (a remixer can be the only difference), else the event's one."""
-        names = [self.event["artist"], *json.loads(self.event["song_artists"] or "[]")]
-        return ", ".join(dict.fromkeys(n for n in names if n))
+        return ", ".join(dict.fromkeys(n for n in self.song_artists if n))
 
     @property
     def song_artists(self) -> list[str]:
@@ -83,10 +81,9 @@ class Item:
 
     @cached_property
     def download(self) -> tuple[str, str, bool]:
-        """(artist, title, another artist): what the download is by its tags; another artist when they name
-        none of the wanted song's artists (a video's artist tag is often its channel; its title then starts
-        with the artist: 'Artist - Title'). Without tags, or with the song's own ones (Echolot tagged a file accepted before), the name
-        it was downloaded as, without an artist."""
+        """(artist, title, another artist) of the download by its tags; another artist when they name none of
+        the song's artists (a video's artist tag is often its channel, its title then 'Artist - Title').
+        Without tags, or with the song's own (Echolot tagged an accepted file): the name it came as."""
         e = self.event
         artist, title = audio.read_credit(self.file)
         if not title or (artist, title) == (e["artist"], e["title"]):
@@ -102,9 +99,9 @@ class Item:
 
     @property
     def likelihood(self) -> tuple:
-        """Sort key, the likeliest to be the song first: the audio check (the release's audio, unclear or not
-        checked, other audio), the artist named, named as the song (only another length) before another title,
-        the length within 3 s, how far off, genuine lossless, bitrate."""
+        """Sort key, likeliest first: the audio check (the release's audio, unclear or unchecked, other audio),
+        the artist named, named as the song (only another length) before another title, the length within
+        3 s, how far off, genuine lossless, bitrate."""
         e, diff = self.event, abs(self.length_diff) if self.length_diff is not None else 10**6
         audio_ = e["audio"] or ""
         heard = 0 if "of the release" in audio_ or audio_.startswith("ISRC") else 2 if "differs" in audio_ else 1
@@ -163,7 +160,7 @@ def names_one(text: str, artists: list[str]) -> bool:
 
 
 def local_file(path: str, music_dir: Path) -> Path | None:
-    """Echolot's path of an event file: library-relative, or /music/inbox/review/<...>."""
+    """Echolot's path of an event file: library-relative, or under /music/inbox/review/; None outside them."""
     if path.startswith(KEPT):
         p, base = music_dir / path.removeprefix(MUSIC), music_dir / "inbox" / "review"
     elif not path.startswith("/"):
@@ -190,10 +187,9 @@ def upgrade(e: sqlite3.Row) -> bool:
 def items(
     con: sqlite3.Connection, music_dir: Path, uid: int | None = None, key: str | None = None
 ) -> dict[str, list[Item]]:
-    """What to look at: probable matches still in the library without an applied decision, and kept
-    rejected downloads of songs that are still missing, or genuine lossless ones of songs the library
-    has only lossy (accepting one replaces the lossy copy; a SoundCloud song's FLAC always waits here,
-    'confirm'). Newest first. `key`: that song's only."""
+    """What to look at: probable matches in the library without an applied decision, and kept downloads of
+    songs still missing, or genuine lossless ones of songs the library has lossy (accepting replaces the
+    copy; a SoundCloud song's FLAC always waits here: 'confirm'). Newest first; `key`: that song's only."""
     decisions = {r["id"]: r for r in con.execute("SELECT * FROM review_decisions")}
     one, args = (" AND e.song = ?", (KEPT + "%", rules.norm_key(key))) if key else ("", (KEPT + "%",))
     rows = con.execute(
@@ -224,9 +220,9 @@ def items(
 
 
 def waiting(con: sqlite3.Connection, music_dir: Path, key: str | None = None) -> set[str]:
-    """The songs with a kept download on the review page (`key`: whether that one has), by the page's own
-    rules (items): the Missing page's badge and the searches go by it, not by the files in inbox/review
-    (a rejected download of another artist, or far off in length, is kept there but not shown)."""
+    """The songs with a kept download on the review page (`key`: only that one), by the page's rules (items),
+    not by the files in inbox/review (a reject of another artist, or far off in length, is kept but not
+    shown). The Missing page's badge and the searches go by it."""
     return {rules.norm_key(i.event["song"]) for i in items(con, music_dir, key=key)["kept"] if i.event["song"]}
 
 
@@ -289,8 +285,8 @@ def partner(con: sqlite3.Connection, e: sqlite3.Row, music_dir: Path) -> Path | 
 
 
 def compare_open(con: sqlite3.Connection, music_dir: Path, limit: int = 4) -> int:
-    """Compare up to `limit` open review items with their partner file (identity.compare, about 1 s each)
-    and keep the result with the event; '' when there is nothing to compare. Returns how many."""
+    """Compare up to `limit` open items with their partner file (identity.compare, about 1 s each) and keep
+    the result with the event ('' when there is nothing to compare). Returns how many."""
     todo = [i for rows in items(con, music_dir).values() for i in rows if i.event["compared"] is None][:limit]
     for i in todo:
         other = partner(con, i.event, music_dir)
@@ -356,8 +352,8 @@ def decide(
 
 
 def _name_taken(con: sqlite3.Connection, music_dir: Path, artist: str, title: str, own: Path) -> str:
-    """The library file that has the name a close match would get ('' if none): filing would otherwise add
-    the length to the name, and the name is to be the one given."""
+    """The library file with the name a close match would get ('' if none): filing would append the length,
+    and the name is to be the one given."""
     paths = filing.Paths(music_dir)
     folder = filing.artist_dir(paths, catalog.Catalog.from_db(con), artist)
     stem = f"{folder.name} - {rules.clean_name(title)}"
@@ -386,8 +382,8 @@ OVERRIDE_DAYS = 30  # as long as replaced/ keeps a file (filing.KEEP_DAYS): an o
 
 
 def by_others(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """The decisions of users who are no admins in the last OVERRIDE_DAYS, newest first: for an admin to
-    look at (a song is often on several users' lists) and take back (override)."""
+    """Non-admins' decisions of the last OVERRIDE_DAYS, newest first: for an admin to look at (a song is often
+    on several users' lists) and take back (override)."""
     since = (datetime.datetime.now() - datetime.timedelta(days=OVERRIDE_DAYS)).isoformat(timespec="seconds")
     return con.execute(
         "SELECT r.*, u.name AS user, e.artist, e.title, e.song, e.path FROM review_decisions r "
@@ -398,9 +394,9 @@ def by_others(con: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def override(con: sqlite3.Connection, paths: filing.Paths, event_id: int, admin: str) -> str:
-    """An admin takes back a user's decision (applied or not): one not applied yet is simply dropped; a
-    taken download (Perfect or Close match) goes back to Please confirm; No match is lifted: a file
-    retired by it comes back from replaced/ while it is there, otherwise the song is searched again."""
+    """An admin takes back a user's decision: one not applied yet is dropped; a taken download (Perfect or
+    Close match) goes back to Please confirm; No match is lifted: the file it retired comes back from
+    replaced/ while it is there, else the song is searched again."""
     d = con.execute(
         "SELECT r.*, e.song, e.path, e.found, e.file_name FROM review_decisions r JOIN events e ON e.id = r.event_id "
         "WHERE r.event_id = ? AND r.overridden IS NULL",
@@ -484,7 +480,7 @@ def apply_due(run: "Run", con: sqlite3.Connection) -> list[str]:
 
 
 def _search_again(con: sqlite3.Connection, key: str, tries: int) -> None:
-    """The song is due for a search right away, searched loosened (as after 2 failed searches)."""
+    """The song is due for a search now, loosened (as after 2 failed searches)."""
     with con:
         con.execute(
             "INSERT INTO attempts (song_key, tries, last_try) VALUES (?, ?, 0) ON CONFLICT (song_key) "
@@ -494,8 +490,8 @@ def _search_again(con: sqlite3.Connection, key: str, tries: int) -> None:
 
 
 def _link(con: sqlite3.Connection, key: str, artist: str, title: str, close: bool, seconds: float = 0) -> None:
-    """The song is the library song <artist> - <title> whatever the song's length; close: another version
-    of it, linked with the version's length (its title can reduce to the song's, catalog.Catalog.song)."""
+    """The song is the library song <artist> - <title> whatever its length; close: another version, linked
+    with that version's length (its title can reduce to the song's: catalog.Catalog.song)."""
     with con:
         con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
         link = json.dumps([artist, title, round(seconds)] if close and seconds else [artist, title])
@@ -509,8 +505,8 @@ def search_again(con: sqlite3.Connection, key: str) -> None:
 
 
 def remove_close(con: sqlite3.Connection, paths: filing.Paths, key: str) -> str:
-    """Remove the close match a song is covered by: its file goes to inbox/replaced (30 days), and the song
-    itself is searched again. Not while another song has that file (ConfigError)."""
+    """Remove the close match a song is covered by: its file goes to inbox/replaced, and the song is searched
+    again. ConfigError while another song has that file."""
     song = con.execute("SELECT * FROM songs WHERE key = ? AND close_match AND file IS NOT NULL", (key,)).fetchone()
     if song is None:
         raise ConfigError("That song is not covered by a close match.")
@@ -588,8 +584,6 @@ def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, 
     """File a kept download as the song (Perfect match); one kept as another edit of a library song
     (recordings.EDIT_REASON) links the song to that file instead."""
     paths = run.paths
-    # the download is tagged with another artist who has this song in the library already: the same
-    # recording under two artist names (Spotify lists it twice). Link the song to that file.
     want = Want(d["artist"] or "", d["title"] or "", 0, key)
     song = con.execute("SELECT * FROM songs WHERE key = ?", (key,)).fetchone() if key else None
     if song:
@@ -604,6 +598,8 @@ def _accept_kept(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str, 
     own = rules.artist_words(want.artist)
     dur, _ = audio.probe(p)
     cat = catalog.Catalog.from_db(con)
+    # tagged with another artist whose song the library has: one recording under two names (Spotify lists it
+    # twice), so the song is linked to that file
     for other in tag_artists:
         if any(f" {w} " in rules.words(other) for w in own):
             continue
@@ -690,7 +686,7 @@ def _close_filed(run: "Run", con: sqlite3.Connection, d: sqlite3.Row, key: str) 
 
 
 # where a library file came from: the event that placed it, else (a review accept names no download) the
-# download accepted for the song, else the song's latest download
+# accepted download, else the song's latest
 PLACED = "SELECT * FROM events WHERE path = ? AND action IN ('new', 'upgrade') ORDER BY id DESC"
 ACCEPTED = (
     "SELECT e.* FROM review_decisions r JOIN events e ON e.id = r.event_id "
@@ -700,9 +696,9 @@ LATEST = "SELECT * FROM events WHERE song = ? AND found IS NOT NULL ORDER BY id 
 
 
 def recheck(con: sqlite3.Connection, paths: filing.Paths, key: str, reason: str) -> bool:
-    """Put a library song up for review again (Please confirm), e.g. one taken as the song that may be
-    another version. It names the download the file came from, so No match blocks that download.
-    False if the song has no library file or is up for review already."""
+    """Put a library song up for review again (Please confirm), e.g. one that may be another version. The
+    event names the download the file came from, so No match blocks it. False if the song has no file or is
+    up for review already."""
     song = con.execute("SELECT * FROM songs WHERE key = ? AND file IS NOT NULL", (key,)).fetchone()
     if song is None or any(i.event["path"] == song["file"] for g in items(con, paths.music).values() for i in g):
         return False

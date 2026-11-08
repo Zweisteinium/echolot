@@ -1,11 +1,10 @@
-"""A library file's tags come from the song it is, never from its uploader: the artists (ARTIST shows them,
-ARTISTS lists them, the album artist is the main one), the title, the album (Spotify's; otherwise the file
-keeps its own) and where it comes from: SOURCE, the songs' pages, and DOWNLOAD, "Soulseek" or the page it
-was downloaded from. A close match is what it was named in review. The comment and the cover stay.
+"""A library file's tags come from its song, never its uploader: ARTIST (the artists shown), ARTISTS (listed),
+the album artist (the main one), the title, the album (Spotify's; else the file keeps its own), SOURCE (the
+songs' pages) and DOWNLOAD ("Soulseek" or the page it came from). A close match gets the name given in
+review. The comment and the cover stay.
 
-They are written when a song is filed (acquire.finish) and once for the whole library (normalize), which
-backs the old tags up first, leaves a file alone whose tags name another song (it goes to review) and
-changes nothing on a second run."""
+Written when a song is filed (acquire.finish) and for the whole library (normalize: backs the old tags up,
+leaves a file alone whose tags name another song, changes nothing on a second run)."""
 
 import json
 import re
@@ -21,7 +20,7 @@ SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundClo
 SOURCES["soundcloud-search"] = "SoundCloud"
 SOURCES["mitschnitt"] = "Mitschnitt"  # recorded by the user's recorder (web/recorders)
 OLD_PAGE = re.compile(r"YouTube ([\w-]{11})")  # how an older pipeline noted a YouTube download
-# where yt-dlp puts the page it downloaded (the video's description, links and all, goes elsewhere)
+# where yt-dlp notes the page it downloaded (_page: only a value that is the link alone)
 PAGE_FIELDS = {"vorbis": ["purl", "comment", "description"], "mp4": ["\xa9cmt"], "id3": ["COMM", "TXXX:purl"]}
 LINK = re.compile(
     r"https?://(?:www\.|m\.|music\.)?(?:youtube\.com/watch\?v=[\w-]+|youtu\.be/[\w-]+|soundcloud\.com/[^\s\"']+)"
@@ -39,8 +38,8 @@ JUNK = [
     r"\s*[\(\[](?![^\)\]]*\b(?:remix|edit|mix|vip|version|rework|bootleg|flip|live|singles?|sessions?|studios?)\b)[^\)\]]*\b(?:spotify|deleting|deleted)\b[^\)\]]*[\)\]]",
 ]
 LAST_FILED = "SELECT source, url FROM events WHERE path = ? AND action IN ('new', 'upgrade', 'linked') ORDER BY id DESC"
-# what players read beside or before the fields written (Navidrome's aliases): other spellings of the album
-# artist, an album artist list, the artist as author and the uploader's sort names; they go when tags are written
+# fields players read beside or before ours (Navidrome's aliases): album artist spellings and lists, author, the
+# uploader's sort names; removed on write
 STALE = {
     "vorbis": [
         *("album artist", "album_artist", "albumartists", "author", "artistsort", "artistssort"),
@@ -50,9 +49,7 @@ STALE = {
     "mp4": ["soar", "soaa", "sonm", "soal", "----:com.apple.iTunes:ALBUMARTISTS"],
 }
 FORMATS = ("flac", "ogg", "opus", "mp3", "wav", "m4a")  # what the writer handles (others keep their tags)
-# a Spotify song's place on its release (songs.released, track, tracks, disc) and ISRC, as "isrc", "date",
-# "track" ("n/total") and "disc"; with them go the uploader's spellings of the same fields (another release's)
-FACT_FIELDS = ("isrc", "date", "track", "disc")
+# the uploader's spellings of the release facts (another release's): they go when the song has facts
 FACT_STALE = {
     "vorbis": ["year", "totaltracks", "tracktotal", "totaldiscs", "disctotal"],
     "id3": ["TYER", "TDAT"],
@@ -68,7 +65,7 @@ class Tags:
     album: str | None  # None: the file keeps its own
     sources: list[str] = field(default_factory=list)
     download: str = ""  # "" when unknown: the file keeps what it has
-    facts: dict[str, str] = field(default_factory=dict)  # the release's (FACT_FIELDS); empty: the file keeps its own
+    facts: dict[str, str] = field(default_factory=dict)  # isrc, date, track ("n/total"), disc; empty: the file's stay
 
     @property
     def artist(self) -> str:
@@ -86,7 +83,7 @@ def clean_title(title: str, artist: str) -> str:
     return t or title
 
 
-NAMED = ("spotify", "youtube", "discover", "soundcloud")  # whose names a file takes first (Spotify's, ...)
+NAMED = ("spotify", "youtube", "discover", "soundcloud")  # the services in the order a file takes their names
 
 
 def page(song: sqlite3.Row) -> str:
@@ -106,9 +103,8 @@ def names(s: sqlite3.Row) -> list[str]:
 
 
 def _lead(songs: list[sqlite3.Row], rel: str) -> sqlite3.Row:
-    """The song a file's names and cover come from: a close match first, then Spotify's song (then a
-    YouTube song) named as the file's folder, with the most artists, of the earliest release (the album
-    before its compilations and anniversary editions)."""
+    """The song a file's names and cover come from: a close match first, then by service (NAMED), named as the
+    file's folder, with the most artists, of the earliest release (the album before its compilations)."""
     folder = rules.artist_keys(rel.partition("/")[0])
 
     def order(s: sqlite3.Row) -> tuple:
@@ -126,9 +122,8 @@ def lead(con: sqlite3.Connection, rel: str, key: str = "") -> sqlite3.Row | None
 
 
 def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Tags | None:
-    """The tags of a library file (path relative to tracks/), from the songs it is (and the song `key` it
-    was just filed for); None for a file no song has. A close match is the name it was given; else
-    Spotify's song, else SoundCloud's."""
+    """A library file's tags (rel: relative to tracks/), from the songs it is and the song `key` it was just
+    filed for; None for a file no song has."""
     songs = _songs(con, rel, key)
     if not songs:
         return None
@@ -147,8 +142,8 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
 
 
 def facts(song: sqlite3.Row) -> dict[str, str]:
-    """The release facts a file of this song gets: a Spotify release's (also a YouTube song's that Spotify
-    has), never a close match's (another version) or a SoundCloud upload's."""
+    """The release facts a file of the song gets: a Spotify release's (also a YouTube song's Spotify has),
+    never a close match's (another version) or a SoundCloud upload's."""
     if song["service"] == "soundcloud" or song["close_match"] or not song["released"]:
         return {}
     track = f"{song['track']}/{song['tracks']}" if song["track"] and song["tracks"] else str(song["track"] or "")
@@ -248,7 +243,7 @@ def _getter(t: Any) -> Callable[[str], list[str]]:
 
 
 def _read_facts(t: Any) -> dict[str, str]:
-    """The file's release facts in FACT_FIELDS form ("track": "n/total"; only those it has)."""
+    """The file's release facts in Tags.facts form (only those it has)."""
     kind = _kind(t)
     if kind == "id3":
         text = {k: str(t[k].text[0]) if k in t and t[k].text else "" for k in ("TSRC", "TDRC", "TRCK", "TPOS")}
@@ -313,8 +308,8 @@ def differs(path: Path, tags: Tags) -> list[str]:
 
 
 def write(path: Path, tags: Tags) -> None:
-    """Write the tags; the comment, the cover and every other field stay (but the uploader's spellings of
-    the release facts, FACT_STALE, when the song has them)."""
+    """Write the tags; the comment, the cover and other fields stay (but STALE, and FACT_STALE when the song
+    has facts)."""
     m = _raw(path)
     if m is None:
         raise ValueError(f"not an audio file mutagen knows: {path.name}")
@@ -361,7 +356,7 @@ def write(path: Path, tags: Tags) -> None:
 
 
 def _write_facts(t: Any, kind: str, facts: dict[str, str]) -> None:
-    """The release facts (FACT_FIELDS form) into tags of `kind`; the uploader's other spellings go."""
+    """The release facts (Tags.facts form) into tags of `kind`; FACT_STALE goes."""
     for key in [k for k in t.keys() if k.lower() in {s.lower() for s in FACT_STALE[kind]}]:  # noqa: SIM118
         del t[key]
     n, _, total = facts.get("track", "").partition("/")
@@ -423,9 +418,9 @@ def supported(path: Path) -> bool:
 
 
 def normalize(con: sqlite3.Connection, tracks: Path, *, dry_run: bool, backup: Path | None, limit: int = 0) -> dict:
-    """Give every library file the tags of its song. A dry run only reports. Otherwise each file's old tags
-    are appended to `backup` before it is written. Files whose tags name another song are left alone and
-    reported as conflicts (with their song keys, for review); files no song has keep their tags."""
+    """Give every library file its song's tags; a dry run only reports. Each file's old tags go to `backup`
+    before it is written. Files whose tags name another song are left alone and reported as conflicts (with
+    their song keys, for review); files no song has keep their tags."""
     report: dict[str, Any] = {"files": 0, "unchanged": 0, "changed": 0, "fields": {}, "no song": 0}
     report |= {"not supported": 0, "conflicts": [], "errors": [], "examples": []}
     files = sorted(p for p in tracks.glob("*/*") if p.is_file() and not p.name.startswith("."))

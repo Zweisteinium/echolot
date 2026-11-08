@@ -1,11 +1,10 @@
-"""Files uploaded by hand: for missing songs, or better copies of songs in the library (the upload dialog on
-Missing, the Overview and the list pages). Uploaded files wait in inbox/upload/<batch>/, each checked once
-(audio.prepare: repaired, converted, spectrum-checked; its length, quality and tags kept next to it as
-<file>.json). Echolot finds each file's song among the user's songs, a missing one first; what it sees (length
-against the song's, quality, the audio against the release's) is shown for information. Imported, a file is
-that song whatever its names or length (as Perfect match in review): a missing song gets it, a song in the
-library takes it in place of its copy only when it is better (`better`); the download source is "by hand".
-The rest of the batch is deleted, as is a batch left alone for a day."""
+"""Files uploaded by hand: for missing songs, or better copies of library songs (the upload dialog on Missing,
+the Overview and the list pages). They wait in inbox/upload/<batch>/, each checked once (audio.prepare; its
+length, quality and tags kept beside it as <n>.json). Each file's song is found among the user's songs, a
+missing one first; how it fits (length, quality, the audio against the release's) is shown for information.
+Imported, a file is that song whatever its names or length (as Perfect match in review): a missing song gets
+it, a library song only a better copy (compare); the download source is "by hand". The rest of the batch is
+deleted, as is a batch left alone for KEEP_SECONDS."""
 
 import dataclasses
 import json
@@ -33,10 +32,9 @@ BATCH = re.compile(r"[0-9a-f]{16}")
 
 @dataclass
 class File:
-    """An uploaded file as checked: n (its place in the batch), name (as uploaded), path (after prepare),
-    seconds, kbps, tier (catalog.QUALITY), tags (artist, title; the Spotify track and ISRC a recorder or
-    tagger wrote), error (not usable audio), what the spectrum check saw (source, band) and its levels (peak,
-    rms: dBFS)."""
+    """An uploaded file as checked: n (its place in the batch), name (as uploaded), path (after prepare), tier
+    (catalog.QUALITY), tags (artist, title; the Spotify track and ISRC a recorder or tagger wrote), error (no
+    usable audio), what the spectrum check saw (source, band), levels (peak, rms: dBFS)."""
 
     n: int
     name: str
@@ -57,10 +55,10 @@ class File:
 
 @dataclass
 class Fit:
-    """What a file looks like as a song: its length off the song's (s), and its audio against the release's
-    preview and against your copy in the library (identity.against): the fingerprint's share of equal bits
-    (the recording: identity.SAME on; about 0.55 another song) and the waveform's correlation (the same master
-    and mix: identity.WAVE_SAME on); None: not known."""
+    """A file as a song: its length off the song's (s), and its audio against the release's preview and your
+    copy (identity.against): the fingerprint's share of equal bits (the recording from identity.SAME; another
+    song about 0.55) and the waveform's correlation (the same master and mix from identity.WAVE_SAME); None:
+    unknown."""
 
     diff: float | None
     fingerprint: float | None = None
@@ -76,7 +74,7 @@ def folder(paths: Paths, batch: str) -> Path:
 
 
 def start(paths: Paths) -> str:
-    """A new, empty batch (the dialog opened); files are added one by one (add)."""
+    """A new, empty batch (the dialog opened); files come one by one (add)."""
     purge(paths)
     batch = secrets.token_hex(8)
     folder(paths, batch).mkdir(parents=True)
@@ -87,8 +85,8 @@ _NUMBER = threading.Lock()  # files added at the same time get numbers of their 
 
 
 def add(paths: Paths, batch: str, name: str, fileobj: Any, keep_hires: bool = False) -> File:
-    """Save one uploaded file into the batch and check it (audio.prepare, its length, quality and tags);
-    its number in the batch is the next free one. ValueError when the batch is gone (cancelled)."""
+    """Save an uploaded file into the batch as its next number and check it (audio.prepare, length, quality,
+    tags). ValueError when the batch is gone (cancelled)."""
     d = folder(paths, batch)
     with _NUMBER:
         if not d.is_dir():
@@ -119,14 +117,6 @@ def add(paths: Paths, batch: str, name: str, fileobj: Any, keep_hires: bool = Fa
     return f
 
 
-def stage(paths: Paths, uploads: list[tuple[str, Any]]) -> str:
-    """Save the uploaded files (name, file object) as a new batch and check each one; returns the batch."""
-    batch = start(paths)
-    for name, fileobj in uploads:
-        add(paths, batch, name, fileobj)
-    return batch
-
-
 def tier(path: Path, kbps: int, fake: bool) -> str:
     """The quality tier of a file (catalog.QUALITY), as the library counts it."""
     return catalog.Entry(f"-/-{path.suffix}", 0, kbps, fake).quality
@@ -152,8 +142,7 @@ def _save(d: Path, f: File) -> None:
 
 def tagged(con: sqlite3.Connection, f: File, songs: dict[str, sqlite3.Row]) -> str | None:
     """The song a file's tags name exactly: its Spotify track (the song's own, or the release Spotify plays it
-    as: availability replaced), else its ISRC when one of the songs has it (a missing one first). None: no
-    such tag, or none of these songs."""
+    as: availability replaced), else its ISRC (a missing song first). None: no such tag or song."""
     if f.error:
         return None
     if f.spotify_id:
@@ -171,9 +160,9 @@ def tagged(con: sqlite3.Connection, f: File, songs: dict[str, sqlite3.Row]) -> s
 
 
 def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
-    """The song a file most likely is: by its tags and file name (rules.identify), then by its title and
-    artist anywhere in them; a missing song before one in the library, then the closest in length. None
-    when nothing names one. Only songs whose core title is in the file's names are compared."""
+    """The song a file most likely is: by its tags and file name (rules.identify), then by its title and artist
+    anywhere in them; missing songs first, then the closest in length. Only songs whose core title is in the
+    file's names count; None when nothing names one."""
     if f.error:
         return None
     stem = re.sub(r"^\d{2} ", "", Path(f.path).stem if f.path else f.name)
@@ -194,9 +183,8 @@ def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
 
 
 def _by_title(f: File, stem: str, songs: list[sqlite3.Row]) -> str | None:
-    """A file that names no artist (no tags, a name of the title alone): the one song whose whole title it
-    has, version words and all, and as long, within 2 s. Two songs of that title as long: none (the length
-    tells them apart, never a guess). The import checks its audio against the song's copy as any other."""
+    """A file that names no artist (no tags, a name of the title alone): the one song whose whole title it has,
+    version words and all, within 2 s. Two such songs: none (never a guess)."""
     if not f.seconds or f.artist or " - " in stem:  # (an artist named: guess's rules, another's title is not his)
         return None
     names = {k for k in (rules.title_key(f.title), rules.title_key(stem)) if k}
@@ -249,13 +237,12 @@ class Copy:
 
 
 def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
-    """Whether the file is a better copy than the song's in the library (None: the song has none of its own,
-    a close match is another version). Genuine
-    lossless beats a lossy or fake copy; otherwise its worth (a fake FLAC: its source's) must be a quarter
-    more than the copy's, and its sound reach as high (the library copy is measured by the same spectrum
-    check): a 256 kbps source made into a FLAC beats a 123 kbps Opus, a 128 kbps one does not. One QUIETER
-    than your copy is no better whatever its quality (recorded at a lower volume)."""
-    if needs(song):  # missing, or a close match (another recording): nothing to compare with
+    """Whether the file is a better copy than the song's (None: the song has none of its own; a close match is
+    another version). Genuine lossless beats lossy or fake; else its worth (a fake FLAC: its source's) must be
+    a quarter more than the copy's and its sound reach as high (the copy measured the same way): a 256 kbps
+    source made into a FLAC beats a 123 kbps Opus, a 128 kbps one does not. One QUIETER than the copy is no
+    better whatever its quality (recorded at a lower volume)."""
+    if needs(song):  # nothing to compare with
         return None
     have = copy_label(song)
     lib = paths.tracks / song["file"]
@@ -283,8 +270,8 @@ def compare(paths: Paths, f: File, song: sqlite3.Row) -> Copy | None:
 
 
 def importable(f: File, song: sqlite3.Row | None, copy: Copy | None, fit: Fit | None = None) -> bool:
-    """A file is imported for a missing song, or as a better copy of one in the library; not one that sounds like
-    another recording than the release's or your copy (unless imported anyway, by hand)."""
+    """Imported for a missing song, or as a better copy; not when it sounds like another recording than the
+    release's or your copy (unless imported anyway, by hand)."""
     return song is not None and not f.error and (copy is None or copy.better) and not sounds_different(fit)
 
 
@@ -302,9 +289,8 @@ def _other(fp: float | None, wave: float | None) -> bool:
 
 
 def different(fit: Fit | None, copy: bool = False) -> str:
-    """Why the file's audio is another recording: than the release's preview, or without one (`copy`: also with
-    one) than your copy ("another recording than your copy (fingerprint 0.58, waveform 0.04)"); '' when it is
-    not (or not known)."""
+    """Why the file's audio is another recording: than the release's preview, or than your copy (without a
+    preview; with `copy` also with one); '' when not, or unknown."""
     if fit is None:
         return ""
     if _other(fit.fingerprint, fit.waveform):
@@ -319,9 +305,9 @@ def sounds_different(fit: Fit | None) -> bool:
 
 
 def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None, tracks: Path) -> Fit | None:
-    """How the file fits the song: its length, and its audio against the release's preview (the audio only:
-    a tool that fetched the file by the song's ISRC tags it so whatever it found) and against your copy in
-    `tracks` (not a close match: another version)."""
+    """How the file fits the song: its length, and its audio against the release's preview (not its ISRC tag:
+    a tool that fetched it by the song's ISRC tags it so whatever it found) and against your copy in `tracks`
+    (not a close match: another version)."""
     if song is None or f.error or f.path is None:
         return None
     diff = round(f.seconds - song["length"]) if f.seconds and song["length"] else None
@@ -345,8 +331,8 @@ Score = tuple[str, str, str] | None  # (text, ok|warn|bad, what it says); None: 
 
 
 def checks(fit: Fit | None, song: sqlite3.Row | None) -> list[tuple[str, str, list[Score], str]]:
-    """The audio check for the dialog, a row per reference (the release's preview; your copy, when the song has
-    its own): (name, what it is, [fingerprint, waveform], why it has neither)."""
+    """The audio check for the dialog, a row per reference (the release's preview; your copy, if the song has
+    one): (name, what it is, [fingerprint, waveform], why it has neither)."""
     if fit is None or song is None:
         return []
     what = "The release's 30 s preview on Deezer, found by the song's ISRC"
@@ -443,12 +429,10 @@ def import_files(
     origins: dict[int, str] | None = None,
 ) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file
-    (one covered by a close match too: the version stays its own file, unless n is in `remove`), a song in
-    the library the file in place of its copy (better, or replaced anyway: filing.file_into replace); delete
-    the batch.
-    `source`: where the files come from, as History shows it (manual: by hand; mitschnitt: recorded).
-    `origins`: where each came from (origin.KINDS: noted for the file it becomes, its link in History).
-    Returns one line per file, with the song key when the song has the file now."""
+    (one covered by a close match too: the version stays, unless n is in `remove`), a library song the file in
+    place of its copy (filing.file_into replace); then delete the batch. `source`: as History shows it
+    (manual, mitschnitt); `origins`: where each came from (origin.KINDS). One line per file, with the song key
+    when the song has the file now."""
     from echolot.jobs.acquire import finish
 
     by_n = {f.n: f for f in files(paths, batch)}
@@ -496,8 +480,7 @@ def import_files(
 
 
 def _remove_close(con: sqlite3.Connection, paths: Paths, key: str, path: str) -> tuple[str, None]:
-    """The close match a song was covered by, removed with its upload (kept 30 days in inbox/replaced);
-    not while another song has that file."""
+    """The close match a song was covered by, retired with its upload; not while another song has that file."""
     if con.execute("SELECT 1 FROM songs WHERE file = ? AND key != ?", (path, key)).fetchone():
         return (f"{path}: kept, another song has it", None)
     entry = next((e for e in catalog.Catalog.from_db(con).entries if e.path == path), None)
@@ -508,7 +491,7 @@ def _remove_close(con: sqlite3.Connection, paths: Paths, key: str, path: str) ->
 
 
 def _link(con: sqlite3.Connection, key: str, want: Want, seconds: float = 0) -> None:
-    """The song is its library file <artist> - <title>, whatever the file's length (as review links it); with
+    """The song is its library file <artist> - <title> whatever its length (as review links it); with
     `seconds`, the one of that length (a close match's version can reduce to the same title)."""
     link = [want.artist, want.title, round(seconds)] if seconds else [want.artist, want.title]
     with con:

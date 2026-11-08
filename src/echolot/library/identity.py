@@ -1,10 +1,9 @@
-"""Is a download the recording the list asks for? Spotify gives every song's ISRC (the recording's id); Deezer
-finds the release by ISRC (97 % of the library) and offers a 30 s preview (93 %). The preview's Chromaprint
-fingerprint, slid along the download's, tells the recording from another: on 37 library songs 0.90 to 0.96 of
-the bits agreed with the song's own file, at most 0.66 (median 0.55) with other songs. Another edit of the same
-recording (a longer intro) agrees as well, so the length still decides the edit. A download tagged with the
-song's ISRC needs no fingerprint. Without an ISRC, a Deezer entry or a preview nothing is known, and the name
-rules decide alone."""
+"""Is a download the recording the list asks for? Spotify gives each song's ISRC (the recording's id); Deezer
+finds the release by ISRC (97 % of the library) with a 30 s preview (93 %). The preview's Chromaprint
+fingerprint, slid along the download's, tells the recording: on 37 library songs 0.90 to 0.96 of the bits
+agreed with the song's own file, at most 0.66 (median 0.55) with other songs. Another edit of the recording (a
+longer intro) agrees too, so the length still decides the edit. A download tagged with the song's ISRC needs no
+fingerprint. Without an ISRC, a Deezer entry or a preview, the name rules decide alone."""
 
 import json
 import logging
@@ -39,7 +38,7 @@ UNKNOWN = Evidence("")
 
 def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False) -> Evidence:
     """What the audio of `path` says about the recording `isrc`. any_length: a DJ-mix cut, whose transitions
-    may blur the audio: only a match counts."""
+    blur the audio: only a match counts."""
     if not isrc:
         return UNKNOWN
     if (tag := audio.read_isrc(path)) and tag.replace("-", "").upper() == isrc.upper():
@@ -78,8 +77,8 @@ def reference(con: sqlite3.Connection, isrc: str) -> np.ndarray | None:
 
 
 def fingerprint(source: Path | bytes) -> np.ndarray | None:
-    """Chromaprint of a file or of audio bytes (ffmpeg's muxer): one 32-bit value per 0.124 s; None if the
-    audio could not be read."""
+    """Chromaprint of a file or of audio bytes (ffmpeg's muxer): one 32-bit value per 0.124 s; None if
+    unreadable."""
     data = source if isinstance(source, bytes) else None
     cmd = ["ffmpeg", "-v", "error", "-i", "pipe:0" if data else str(source), *_TO_FINGERPRINT]
     try:
@@ -89,6 +88,7 @@ def fingerprint(source: Path | bytes) -> np.ndarray | None:
     return np.frombuffer(r.stdout, dtype="<u4") if r.returncode == 0 else None
 
 
+FRAME = 0.1238  # s per fingerprint value
 LEAD = 16  # fingerprint frames (2 s) a preview may begin before the file: a lead-in of silence the file lacks
 
 
@@ -98,9 +98,9 @@ def similarity(ref: np.ndarray, cand: np.ndarray) -> float:
 
 
 def _place(ref: np.ndarray, cand: np.ndarray) -> tuple[int, float]:
-    """Where `ref` fits `cand` best (the fingerprint frame of `cand` its start falls on; down to -LEAD when
-    `cand` starts after the release's silent lead-in, as a recording of Spotify's stream may) and the share of
-    equal bits there, of the frames both have. (0, 0.0) when `cand` is shorter than `ref`."""
+    """Where `ref` fits `cand` best (the frame of `cand` its start falls on; down to -LEAD when `cand` lacks the
+    release's silent lead-in, as a recording of Spotify's stream may) and the share of equal bits there, over
+    the frames both have. (0, 0.0) when `cand` is shorter than `ref`."""
     n = len(ref)
     if not n or len(cand) < n:
         return 0, 0.0
@@ -122,9 +122,9 @@ def _get(url: str, raw: bool = False) -> Any:
 
 
 def alike(a: Path, b: Path) -> float:
-    """How alike two recordings are: the least share of equal bits of three 25 s pieces of the shorter file
-    (at a quarter, a half and three quarters) at their best place in the longer one. From about 0.85 the
-    same recording (a remix that shares the chorus differs somewhere); 0.0 if one could not be read."""
+    """How alike two recordings are: the least share of equal bits of three 25 s pieces of the shorter file (at
+    1/4, 1/2, 3/4) at their best place in the longer one. From about 0.85 the same recording (a remix sharing
+    the chorus differs somewhere); 0.0 if one could not be read."""
     da, _ = audio.probe(a)
     db, _ = audio.probe(b)
     if not da or not db:
@@ -141,8 +141,7 @@ def alike(a: Path, b: Path) -> float:
 
 
 def _pieces(path: Path, seconds: float, length: float) -> list[bytes] | None:
-    """Three `length` s pieces of a file `seconds` long, at a quarter, a half and three quarters (mono WAV);
-    None if ffmpeg could not run."""
+    """Three `length` s pieces (mono WAV) of a file `seconds` long, at 1/4, 1/2, 3/4; None if ffmpeg failed."""
     out = []
     for at in (0.25, 0.5, 0.75):
         cmd = ["ffmpeg", "-v", "error", "-ss", str(max(0.0, seconds * at - length / 2)), "-t", str(length)]
@@ -157,9 +156,9 @@ def _pieces(path: Path, seconds: float, length: float) -> list[bytes] | None:
 
 
 def against(path: Path, copy: Path) -> tuple[float | None, float | None]:
-    """How alike a file is to another file of the song (the library's copy), on the release preview's scales
+    """How alike a file is to another file of the song (the library's copy), on the preview's scales
     (similarity, waveform): three 30 s pieces of the copy, each held against the file as a preview is; the
-    weakest of each. (None, None) if the copy or the file could not be read."""
+    weakest of each. (None, None) if either could not be read."""
     seconds, _ = audio.probe(copy)
     whole = fingerprint(path) if seconds else None
     pieces = _pieces(copy, seconds, 30) if whole is not None and len(whole) else None
@@ -174,9 +173,8 @@ def against(path: Path, copy: Path) -> tuple[float | None, float | None]:
     return min(shares), (min(known) if known else None)
 
 
-WAVE_SAME = (
-    0.9  # waveform from here on: the release's audio (measured: 0.94-1.0; other masters 0.71-0.82, other songs < 0.1)
-)
+# waveform from here on: the release's audio (measured: 0.94-1.0; other masters 0.71-0.82, other songs < 0.1)
+WAVE_SAME = 0.9
 SAME_MASTER = 0.98  # same_master from here on: the same audio in another codec (measured: 0.995 and more)
 _RATE = 11025  # Hz, mono: enough to tell a mix or master from another
 
@@ -214,18 +212,17 @@ def _lag(x: np.ndarray, y: np.ndarray, guess: int, span: int) -> int:
 
 
 def same_master(a: Path, b: Path) -> float:
-    """How alike two files' decoded audio is, sample by sample once aligned: the weakest correlation of
-    its 10 s windows. The same master in another codec keeps 0.995 and more; another master or mix of the
-    same recording (a remaster, a single version, a remix sharing the chorus) falls far below, though its
-    fingerprint agrees. 0.0 when the lengths differ by more than 2 s, one cannot be read or nothing but
-    silence could be compared."""
+    """How alike two files' decoded audio is, sample by sample once aligned: the weakest correlation of its 10 s
+    windows. The same master in another codec keeps 0.995 and more; another master or mix of the recording (a
+    remaster, a single version, a remix sharing the chorus) falls far below, though its fingerprint agrees.
+    0.0 when the lengths differ by more than 2 s, one cannot be read, or all is silence."""
     fa, fb = fingerprint(a), fingerprint(b)
     if fa is None or fb is None or not len(fa) or not len(fb):
         return 0.0
     x, y = _pcm(a), _pcm(b)
     if not len(x) or not len(y) or abs(len(x) - len(y)) > 2 * _RATE:
         return 0.0
-    k = _lag(x, y, round(_offset(fa, fb) * -0.1238 * _RATE), _RATE // 2)
+    k = _lag(x, y, round(_offset(fa, fb) * -FRAME * _RATE), _RATE // 2)
     x, y = (x, y[k:]) if k >= 0 else (x[-k:], y)
     n = min(len(x), len(y))
     x, y = x[:n], y[:n]
@@ -258,12 +255,11 @@ def _pcm_of(data: bytes) -> np.ndarray:
 
 
 def waveform(path: Path, clip: bytes) -> float | None:
-    """How alike a file's decoded audio is to the release's preview `clip`, sample by sample: the clip is
-    found in the file by its fingerprint, then each of its 5 s windows (without the clip's fades) at its
-    best place within 0.1 s of there (the MP3 preview starts some 25 ms early); the median correlation is
-    the score. The same master and mix keeps about 0.95 and more; another master, mix or version of the
-    recording falls below, though its fingerprint agrees; another song stays near 0. None when it cannot be
-    told (unreadable, too short, silent)."""
+    """How alike a file's decoded audio is to the release's preview `clip`, sample by sample: the clip is placed
+    by its fingerprint, then each of its 5 s windows at its best place within 0.1 s of there (the MP3 preview
+    starts some 25 ms early); the median correlation is the score. The same master and mix keeps about 0.95
+    and more; another master, mix or version falls below, though its fingerprint agrees; another song stays
+    near 0. None when it cannot be told (unreadable, too short, silent)."""
     fc, ff = fingerprint(clip), fingerprint(path)
     if fc is None or ff is None or len(fc) < 50 or len(ff) < len(fc):
         return None
@@ -273,11 +269,10 @@ def waveform(path: Path, clip: bytes) -> float | None:
         return None
     pad = 2 * _RATE  # room before the file's start (the clip may begin up to LEAD frames before it)
     x = np.concatenate([np.zeros(pad, dtype=x.dtype), x, np.zeros(pad, dtype=x.dtype)])
-    base, near, n = pad + round(at * 0.1238 * _RATE), _RATE // 10, 5 * _RATE
+    base, near, n = pad + round(at * FRAME * _RATE), _RATE // 10, 5 * _RATE
     scores = []
-    for i in range(
-        2 * _RATE, len(y) - n - 2 * _RATE + 1, n
-    ):  # the clip fades in and out: its first and last 2 s left out
+    # the clip fades in and out: its first and last 2 s are left out
+    for i in range(2 * _RATE, len(y) - n - 2 * _RATE + 1, n):
         u = y[i : i + n]
         room = x[base + i - _RATE : base + i + n + _RATE]  # a second either side for the window's place
         if u.std() < 1e-3 or len(room) < n + 2 * _RATE:
@@ -297,13 +292,13 @@ def _clock(seconds: float) -> str:
 
 
 def compare(a: Path, b: Path) -> str:
-    """What differs between a download `a` and another file of the song `b`, in a few words for review:
-    'same audio', 'same mix, differs at 0:00–0:35' (parts of the waveform agree: another export, a remix
-    of a part), 'same recording, another master' (the timing or the fingerprint agrees, the waveform
-    nowhere; with '0.8 % faster' when one plays faster), or 'another version'; then louder or quieter
-    (whole file, from 1 dB) and longer or shorter (from 2 s). Every 5 s piece of `a` is aligned on its own
-    within 3 s of the overall offset; a robust line through those offsets (Theil-Sen) is the timing: it
-    agrees when most pieces lie on it, its slope is the speed difference. '' if one cannot be read."""
+    """What differs between a download `a` and another file of the song `b`, in a few words for review: 'same
+    audio', 'same mix, differs at 0:00–0:35' (parts of the waveform agree: another export, a remix of a part),
+    'same recording, another master' (the timing or the fingerprint agrees, the waveform nowhere; '0.8 %
+    faster' when one plays faster), or 'another version'; then louder or quieter (from 1 dB) and longer or
+    shorter (from 2 s). Each 5 s piece of `a` is aligned within 3 s of the overall offset; a robust line
+    through those offsets (Theil-Sen) is the timing: it agrees when most pieces lie on it, its slope is the
+    speed difference. '' if one cannot be read."""
     fa, fb = fingerprint(a), fingerprint(b)
     if fa is None or fb is None or not len(fa) or not len(fb):
         return ""
@@ -311,7 +306,7 @@ def compare(a: Path, b: Path) -> str:
     if not len(x) or not len(y):
         return ""
     k = _offset(fa, fb)
-    guess, span, w = round(k * -0.1238 * _RATE), 3 * _RATE, 5 * _RATE
+    guess, span, w = round(k * -FRAME * _RATE), 3 * _RATE, 5 * _RATE
     pieces = []  # (start in s, offset in s, agreement)
     for i in range(0, len(x) - w, w):
         piece = x[i : i + w]

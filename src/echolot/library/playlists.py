@@ -186,9 +186,10 @@ def comments(con: sqlite3.Connection) -> dict[str, str]:
 
 
 def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path) -> str:
-    """Navidrome's playlists of the files Echolot writes: each given to its user (the folder's) with its
-    list's name (Navidrome keeps a file's first one) and comment (where the list comes from), and those of files Echolot removed deleted. Only those: a playlist is Echolot's when its path is exactly one of
-    its files; one made in Navidrome has no file and is never touched."""
+    """Navidrome's playlists of the files Echolot writes: each given to its user (the folder's) with its list's
+    name (Navidrome keeps a file's first one) and comment (where the list comes from); those of files Echolot
+    removed are deleted. A playlist is Echolot's only when its path is exactly one of its files; one made in
+    Navidrome has none and is never touched."""
     folders = user_folders(con)
     ids = dict(con.execute("SELECT id, navidrome_id FROM users WHERE navidrome_id IS NOT NULL").fetchall())
     owner_of = {name: ids[uid] for uid, name in folders.items() if uid in ids}
@@ -206,9 +207,8 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
         owner = owner_of.get(rel.split("/", 1)[0]) if "/" in rel else None
         for p in found[rel]:
             fields = {"ownerId": owner} if owner and p.get("ownerId") != owner else {}
-            if (note := notes.get(rel)) and p.get(
-                "comment"
-            ) != note:  # in place of Navidrome's "Auto-imported from '<file>'"
+            # in place of Navidrome's "Auto-imported from '<file>'"
+            if (note := notes.get(rel)) and p.get("comment") != note:
                 fields["comment"] = note
             if (title := titles.get(rel)) and p.get("name") != title:
                 fields["name"] = title

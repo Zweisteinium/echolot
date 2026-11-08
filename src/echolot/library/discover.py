@@ -1,8 +1,8 @@
-"""A song search over several catalogues at once (Deezer, Apple Music, SoundCloud): their hits merged into
-one list, best first. The same release from several sources is one result that names them all: an artist
-in common (a source may name only the main one of several) and the same title key (rules.title_key: noise like "(Original Mix)" goes,
-versions like "Remix" or "Extended" stay) at a length within LENGTH seconds. A result ranks by where each
-source placed it and by how many sources suggest it."""
+"""A song search over several catalogues at once (Deezer, Apple Music, SoundCloud), their hits merged into one
+list, best first. The same release from several sources is one result naming them all: an artist in common (a
+source may name only the main one) and the same title key (rules.title_key: "(Original Mix)" goes, "Remix" or
+"Extended" stays) within LENGTH seconds. A result ranks by each source's place for it and by how many sources
+suggest it."""
 
 import re
 from collections.abc import Iterable
@@ -103,8 +103,8 @@ def same(a: Hit, b: Hit) -> bool:
 
 
 def merge(hits: Iterable[Hit]) -> list[Result]:
-    """The hits as songs, best first. A hit joins the first result it is the same song as; the result's
-    names are its best-placed hit's (a catalogue's tidy names before an uploader's)."""
+    """The hits as songs, best first. A hit joins the first result it is the same song as; a result's names
+    are its best-placed hit's (a catalogue's tidy names before an uploader's)."""
     results: list[Result] = []
     songs = [h for h in hits if h.seconds <= LONGEST]
     for hit in sorted(songs, key=lambda h: (h.position, SOURCES.index(h.source) if h.source in SOURCES else 9)):

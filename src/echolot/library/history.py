@@ -1,10 +1,9 @@
 """Metrics over time, for dashboards (the JSON API, Prometheus /metrics, or Grafana reading the database).
 
-The refresh job stores a snapshot of every metric at most once per SNAPSHOT_SECONDS in the `snapshots`
-table: one row per (ts, metric, key), where key is the label value (a quality tier, a format, a list,
-...; '' for none) and ts the time in UTC ("2026-10-06T14:00:00Z": no hour twice when the clocks go back).
-Snapshots older than KEEP_HOURLY_DAYS are thinned to the last one of each (UTC) day: what the day ended
-with. Downloads are a time series already (the events table).
+The refresh job stores a snapshot of every metric at most once per SNAPSHOT_SECONDS in `snapshots`: one row
+per (ts, metric, key), key the label value (a tier, a format, a list, ...; '' for none), ts in UTC
+("2026-10-06T14:00:00Z": no hour twice when the clocks go back). Snapshots older than KEEP_HOURLY_DAYS are
+thinned to the last of each UTC day. Downloads are a time series already (events).
 """
 
 import sqlite3
@@ -139,8 +138,8 @@ def utc(when: datetime | str) -> str:
 
 
 def snapshot(con: sqlite3.Connection, now: datetime | None = None, force: bool = False) -> bool:
-    """Store a snapshot unless the last one is younger than SNAPSHOT_SECONDS (minus a minute of slack,
-    so a 5-min refresh does not drift to every 65 min). Returns True if one was stored."""
+    """Store a snapshot unless the last is younger than SNAPSHOT_SECONDS (less a minute, so a 5-min refresh
+    does not drift to every 65 min). True if one was stored."""
     now = (now or datetime.now()).astimezone(UTC)
     last = con.execute("SELECT max(ts) FROM snapshots").fetchone()[0]
     if not force and last and (now - datetime.fromisoformat(last)).total_seconds() < SNAPSHOT_SECONDS - 60:
@@ -236,7 +235,6 @@ def prometheus(con: sqlite3.Connection) -> str:
         "SELECT action, coalesce(source, ''), count(*) FROM events GROUP BY action, source ORDER BY 1, 2"
     ):
         lines.append(f'echolot_events_total{{action="{_escape(action)}",source="{_escape(source)}"}} {n}')
-    lines += []
     refreshed = con.execute("SELECT finished FROM jobs WHERE name = 'library'").fetchone()
     if refreshed and refreshed[0]:
         lines += [

@@ -1,19 +1,16 @@
-"""Downloaded audio before it is filed: checked, repaired and normalised (ffprobe, ffmpeg, mutagen), the
-spectrum check for "lossless" files made from lossy ones, tags and embedded covers.
+"""Downloads before they are filed: checked, repaired and normalised (ffprobe, ffmpeg, mutagen), the lossy
+checks, tags and embedded covers.
 
-prepare() is what every download goes through:
-  1. the codec must match the extension (an MP3 renamed to .flac, an unreadable file: rejected); a FLAC must
-     decode without an error and as long as its header says (damaged: Damaged)
-  2. a FLAC mutagen cannot read (junk before the header) is remuxed, else re-encoded (lossless)
-  3. WAV, AIFF and ALAC become FLAC (smaller, standard tags, a checksum of the audio): integer samples
-     sample for sample, checked (exact_flac), a float original as 32-bit integers
-  4. hi-res FLAC (> 48 kHz) becomes 44.1 or 48 kHz, 24 bit (inaudible, about half the size; keep_hires:
-     stays as it is, options.Files)
-  5. the spectrum check: a FLAC (or a lossless original kept) with an encoder's low-pass edge is marked fake
-     (made from lossy); an edge from 19 kHz up only with the encoder's traces below it (a mastering filter can
-     cut there too)
-  6. lossprint, the second lossy check (ECHOLOT_LOSSPRINT, on by default; off: the spectrum check alone): both
-     checks decide together (judge); each FLAC's checks are logged to lossy-checks.jsonl in the data folder
+prepare(), which every download goes through:
+  1. the codec must match the extension, else Rejected; a FLAC must decode without errors and as long as its
+     header says, else Damaged
+  2. a FLAC mutagen cannot read (junk before the header) is remuxed, else re-encoded
+  3. WAV, AIFF and ALAC become FLAC (exact_flac)
+  4. FLAC above 48 kHz becomes 44.1 or 48 kHz, 24 bit (inaudible, half the size), unless keep_hires
+  5. the spectrum check: a lossless file with an encoder's low-pass edge is fake (made from lossy); an edge
+     from TRACES_FROM up only with the encoder's traces below it (a mastering filter cuts there too)
+  6. lossprint (ECHOLOT_LOSSPRINT, default on) decides with the spectrum check (judge); each FLAC's checks
+     go to lossy-checks.jsonl in the data folder
 """
 
 import base64
@@ -41,15 +38,15 @@ CODECS = {  # extension -> codecs a file with it may hold
 
 
 class Rejected(Exception):
-    """The file is no usable audio (message: why)."""
+    """No usable audio (the message says why)."""
 
 
 class Damaged(Rejected):
-    """A FLAC whose audio is damaged: overwritten or missing bytes (it plays with noise or gaps, and seeking
-    lands in the wrong place) or cut off (its header still claims the whole song)."""
+    """A FLAC with overwritten or missing bytes (noise, gaps, wrong seeks) or cut off (its header still
+    claims the whole song)."""
 
 
-SHORT = 0.5  # s: a FLAC that decodes this much shorter than its header says is cut off (a last frame is less)
+SHORT = 0.5  # s: decoding this much shorter than the header says is cut off (a short last frame is less)
 
 
 def _run(args: list[str], timeout: float = 600) -> subprocess.CompletedProcess:
@@ -57,8 +54,7 @@ def _run(args: list[str], timeout: float = 600) -> subprocess.CompletedProcess:
 
 
 def stream(path: Path, field: str) -> str:
-    """One field of the first audio stream ('' if unknown). ffprobe can print "flac," with side data:
-    only the first value counts."""
+    """One field of the first audio stream ('' if unknown); only the first value (ffprobe may print "flac,")."""
     r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", f"stream={field}",
               "-of", "csv=p=0", str(path)], 60)  # fmt: skip
     line = r.stdout.decode(errors="replace").strip().splitlines()
@@ -66,7 +62,7 @@ def stream(path: Path, field: str) -> str:
 
 
 def probe(path: Path) -> tuple[float, int]:
-    """(duration in s, bitrate in kbps) from the file header; zeros if unreadable."""
+    """(duration s, bitrate kbps) from the header; zeros if unreadable."""
     from mutagen import File
 
     try:
@@ -81,8 +77,8 @@ def probe(path: Path) -> tuple[float, int]:
 
 
 def levels(path: Path) -> tuple[float | None, float | None]:
-    """(peak, RMS) of the whole file in dBFS (ffmpeg astats over all channels); None where unreadable or silent.
-    Releases peak near 0 dB; one recorded at a low volume is as much lower (at 25 %: -12 dB)."""
+    """(peak, RMS) of the whole file in dBFS, all channels; None where unreadable or silent. Releases peak
+    near 0 dB; one recorded at 25 % volume about -12 dB."""
     stats = "astats=measure_perchannel=none:measure_overall=Peak_level+RMS_level"
     try:
         r = _run(
@@ -110,8 +106,8 @@ def _flac_ok(path: Path) -> bool:
 
 
 def _stream_bytes(path: Path) -> tuple[int, int]:
-    """Where a FLAC's stream starts and ends in its file: after an ID3v2 tag some put before "fLaC", before an
-    ID3v1 or APE tag some append (a decoder reads those as broken frames)."""
+    """(start, end) of a FLAC's stream in its file: after a leading ID3v2 tag, before a trailing ID3v1 or APE
+    tag (a decoder reads those as broken frames)."""
     size = path.stat().st_size
     with open(path, "rb") as f:
         head = f.read(10)
@@ -120,20 +116,20 @@ def _stream_bytes(path: Path) -> tuple[int, int]:
     start = end = 0
     if len(head) == 10 and head[:3] == b"ID3":
         start = 10 + ((head[6] & 0x7F) << 21 | (head[7] & 0x7F) << 14 | (head[8] & 0x7F) << 7 | (head[9] & 0x7F))
-        start += 10 if head[5] & 0x10 else 0  # a footer
+        start += 10 if head[5] & 0x10 else 0  # ID3v2 footer
     if tail[-128:-125] == b"TAG":
         end = 128
-    ape = tail[-end - 32 : len(tail) - end]  # APEv2 footer: "APETAGEX", version, size of the items and footer
+    ape = tail[
+        -end - 32 : len(tail) - end
+    ]  # APEv2 footer: "APETAGEX", version, size (items + footer), count, flags (bit 31: a header too)
     if ape[:8] == b"APETAGEX":
         end += int.from_bytes(ape[12:16], "little") + (32 if int.from_bytes(ape[20:24], "little") >> 31 else 0)
     return start, size - end
 
 
 def damage(path: Path) -> str:
-    """Why a FLAC's audio is damaged, '' if it is not: decoded in full with every frame's checksum checked. A
-    frame that fails its checksum (overwritten bytes: noise), frames lost (a dropout; seeking lands in the
-    wrong place) or a song cut off (its header still claims all of it) is damaged; bytes after the last
-    frame (a decoder stops there) are not."""
+    """Why a FLAC's audio is damaged, '' if it is not. Decoded in full with frame checksums: a CRC error,
+    lost frames or a cut-off end is damage; bytes after the last frame are not."""
     from mutagen.flac import FLAC
 
     try:
@@ -142,13 +138,13 @@ def damage(path: Path) -> str:
         header = info.total_samples * info.channels
     except Exception:  # unreadable: prepare() repairs or rejects it
         start, end, header = 0, path.stat().st_size, 0
-    stream = f"subfile,,start,{start},end,{end},,:{path}"  # only the FLAC stream of the file
+    stream = f"subfile,,start,{start},end,{end},,:{path}"  # the FLAC stream without the tags around it
     checked = ["-nostats", "-loglevel", "level+info", "-err_detect", "crccheck+bitstream+buffer"]
-    counted = ["-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]  # (volumedetect counts the samples)
+    counted = ["-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]  # volumedetect counts the samples
     try:
         r = _run(["ffmpeg", *checked, "-i", stream, *counted])
     except (OSError, subprocess.TimeoutExpired):
-        return ""  # not told: the other checks decide
+        return ""  # unknown: the other checks decide
     said = r.stderr.decode(errors="replace")
     errors = [line.split("] ", 2)[-1] for line in said.splitlines() if "[error]" in line]
     counts = re.findall(r"n_samples: (\d+)", said)
@@ -162,7 +158,7 @@ def damage(path: Path) -> str:
 
 
 def _to_flac(src: Path, dest: Path, *extra: str) -> bool:
-    """Encode (or copy) the first audio stream of src into dest as FLAC, keeping the tags."""
+    """src's first audio stream encoded (or copied) into dest as FLAC, with the tags; False if that failed."""
     tmp = dest.with_name(dest.name + ".tmp")
     r = _run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-map", "0:a:0", *extra,
               "-map_metadata", "0", "-f", "flac", str(tmp)])  # fmt: skip
@@ -174,10 +170,9 @@ def _to_flac(src: Path, dest: Path, *extra: str) -> bool:
 
 
 def exact_flac(path: Path, codec: str) -> Path:
-    """A lossless original (WAV, AIFF, ALAC) as FLAC, the library's one lossless format. Integer samples stay
-    sample for sample (checked: the decoded audio must be the original's, else the original stays as it came);
-    above 24 bit as 32-bit FLAC (FLAC 1.4; ffmpeg would cut them to 24). A float original (pcm_f32/64) becomes
-    32-bit integers, FLAC holding no floats: all that goes is below about -180 dB, and anything over 0 dBFS."""
+    """A lossless original (WAV, AIFF, ALAC) as FLAC. Integer samples must decode identical, else the original
+    stays; above 24 bit as 32-bit FLAC (ffmpeg would cut to 24). Floats (pcm_f32/64) become 32-bit integers
+    (FLAC has none): only what is below about -180 dB or above 0 dBFS goes."""
     floating = codec.startswith("pcm_f")
     bits = max(
         (int(v) for f in ("bits_per_raw_sample", "bits_per_sample") if (v := stream(path, f)).isdigit()), default=0
@@ -195,8 +190,7 @@ def exact_flac(path: Path, codec: str) -> Path:
 
 
 def pcm_digest(path: Path) -> str:
-    """The MD5 of a file's decoded audio (all channels, as 32-bit integers: exact for up to 32-bit samples),
-    "" when it could not be decoded."""
+    """MD5 of the decoded audio as 32-bit integers (exact up to 32-bit samples); "" if undecodable."""
     cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s32le", "-c:a", "pcm_s32le", "-"]
     md5, size = hashlib.md5(), 0
     try:
@@ -220,8 +214,8 @@ class Prepared:
 
 
 def prepare(path: Path, keep_hires: bool = False) -> Prepared:
-    """Check and normalise a download (see the module doc); Rejected if it is no usable audio. The
-    file may be replaced by a converted one (the returned path)."""
+    """Check and normalise a download (module doc); Rejected if no usable audio. The returned path may be a
+    converted file."""
     ext = path.suffix.lower().lstrip(".")
     codec = stream(path, "codec_name")
     if not codec or not codec.startswith(CODECS.get(ext, ("-",))):
@@ -230,7 +224,7 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
     if ext == "flac" and (why := damage(path)):
         path.unlink(missing_ok=True)
         raise Damaged(why)
-    repaired = ext != "flac" or _flac_ok(path)  # else: remux, or re-encode (lossless)
+    repaired = ext != "flac" or _flac_ok(path)  # else remux, or re-encode
     if not (repaired or _to_flac(path, path, "-c", "copy") or _to_flac(path, path, "-c:a", "flac")):
         path.unlink(missing_ok=True)
         raise Rejected("unreadable FLAC")
@@ -240,14 +234,14 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
     if ext not in (*LOSSLESS, "aif"):
         return Prepared(path, False, None)
     rate = int(stream(path, "sample_rate") or 0)
-    if ext == "flac" and rate > 48000 and not keep_hires:  # (an original kept as it came stays as it came)
+    if ext == "flac" and rate > 48000 and not keep_hires:  # (an original exact_flac kept is left alone)
         target = "44100" if rate % 44100 == 0 else "48000"
         _to_flac(path, path, "-af", "aresample=resampler=soxr:precision=28", "-ar", target,
                  "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24",
                  "-compression_level", "5")  # fmt: skip
     result = spectrum(path)
     lp = lossprint(path) if lossprint_on() else None
-    if lp is None:  # (off, or not installed: the spectrum check alone)
+    if lp is None:  # off or not installed: the spectrum check alone
         return Prepared(path, result.get("verdict") == "lossy", result)
     label, source = judge(result, lp)
     if label == "lossy":
@@ -259,7 +253,7 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
 # ---------------------------------------------------------------- lossprint, the second lossy check
 
 LOSSPRINT_FAKE = 0.9  # P(transcode) from which lossprint alone makes a FLAC lossy (99.8% of 4,162 test transcodes)
-LOSSPRINT_DOUBT = 0.5  # from here up to LOSSPRINT_FAKE: doubtful (a label, no decision)
+LOSSPRINT_DOUBT = 0.5  # up to LOSSPRINT_FAKE: doubtful (a label, no decision)
 FAMILIES = {
     "mp3": "MP3",
     "ffmpeg_aac": "AAC",
@@ -274,15 +268,14 @@ _log_lock = threading.Lock()
 
 
 def lossprint_on() -> bool:
-    """ECHOLOT_LOSSPRINT: on (the default) or off (the spectrum check alone)."""
+    """ECHOLOT_LOSSPRINT: on (default) or off."""
     return os.environ.get("ECHOLOT_LOSSPRINT", "on").strip().lower() != "off"
 
 
 def lossprint(path: Path, background: bool = False) -> dict | None:
-    """lossprint's judgement of a FLAC: {"p": P(made from lossy), "encoder", "kbps"} (the encoder family and
-    bitrate it guesses), {"error": why} when it could not judge (more than 2 channels, under 2 s, unreadable),
-    None when it is not installed. A CNN on spectrograms of six excerpts; deterministic, about 3 s per file.
-    `background`: at the lowest CPU priority (the library's check, jobs/lossycheck)."""
+    """lossprint's judgement of a FLAC: {"p": P(made from lossy), "encoder", "kbps"} (its guesses), {"error":
+    why} when it cannot judge (over 2 channels, under 2 s, unreadable), None if not installed. A CNN on six
+    excerpts' spectrograms; deterministic, about 3 s per file. `background`: lowest CPU priority."""
     exe = shutil.which("lossprint")
     if not exe:
         return None
@@ -303,12 +296,11 @@ def lossprint(path: Path, background: bool = False) -> dict | None:
 
 
 def judge(spec: dict, lp: dict | None) -> tuple[str, str]:
-    """Both checks together: (lossy, doubtful or ok; the likely source of a lossy one). Lossy: the spectrum
-    check's verdict, whatever lossprint says (lossprint misses some old encoders whose low-pass shows), or
-    lossprint from LOSSPRINT_FAKE (it hears Opus, V0, AAC 256, MP3 320 behind a clipped master); doubtful: lossprint
-    from LOSSPRINT_DOUBT (a label, no decision). Without a judgement from lossprint: the spectrum check alone.
-    The source is lossprint's guess when it finds the file lossy too (its bitrate within a few kbps), else the
-    spectrum check's band ("~128 kbps")."""
+    """(lossy | doubtful | ok, the likely source of a lossy one). Lossy: the spectrum check's verdict whatever
+    lossprint says (it misses some old encoders whose low-pass shows), or lossprint from LOSSPRINT_FAKE (it
+    hears Opus, V0, AAC 256, MP3 320 behind a clipped master); doubtful: lossprint from LOSSPRINT_DOUBT. The
+    source: lossprint's guess, else the spectrum's band ("~128 kbps"); when both find it lossy, lossprint's
+    only if it names a bitrate."""
     p = lp.get("p") if lp else None
     heard = ""
     if p is not None and p >= LOSSPRINT_FAKE:
@@ -322,7 +314,7 @@ def judge(spec: dict, lp: dict | None) -> tuple[str, str]:
 
 
 def streaminfo_md5(path: Path) -> str:
-    """A FLAC's audio MD5 from its STREAMINFO header (a retag keeps it); "" when unreadable or not set."""
+    """A FLAC's audio MD5 from STREAMINFO (a retag keeps it); "" if unreadable or unset."""
     try:
         from mutagen.flac import FLAC
 
@@ -333,8 +325,8 @@ def streaminfo_md5(path: Path) -> str:
 
 
 def _log_checks(path: Path, spec: dict, lp: dict | None, label: str) -> None:
-    """One line per checked FLAC in lossy-checks.jsonl: both checks and their verdict (judge).
-    The STREAMINFO MD5 finds the file in the library later (its name changes when it is filed)."""
+    """One line per checked FLAC in lossy-checks.jsonl. The STREAMINFO MD5 finds the file later (filing
+    renames it)."""
     md5 = streaminfo_md5(path)
     now = datetime.datetime.now().isoformat(timespec="seconds")
     size = path.stat().st_size if path.exists() else 0
@@ -357,20 +349,18 @@ def _log_checks(path: Path, spec: dict, lp: dict | None, label: str) -> None:
 # ---------------------------------------------------------------- spectrum check
 
 DROP_DB = 30.0  # dB fall within ~1 kHz that counts as an encoder low-pass
-MAX_LOSSY_CUT = 20400  # edges above this are ordinary anti-alias filters of genuine masters
-TRACES_FROM = 19000  # an edge from here up may be a mastering filter: lossy only with the encoder's traces
-FLICKER = 0.03  # traces: share of bins below the edge switching between hole and content from frame to frame
+MAX_LOSSY_CUT = 20400  # Hz: edges above are anti-alias filters of genuine masters
+TRACES_FROM = 19000  # Hz: an edge from here up may be a mastering filter: lossy only with the encoder's traces
+FLICKER = 0.03  # traces: share of bins below the edge flipping between hole and content per frame
 
 
 def spectrum(path: Path) -> dict:
-    """Is this "lossless" file made from MP3/AAC? Lossy encoders cut the spectrum with a steep
-    low-pass (MP3 128k ~16 kHz, 192k ~19 kHz, V0/256k ~19.5-20 kHz); real CD audio rolls off gradually
-    up to ~22 kHz. Three 15 s excerpts are averaged into a power spectrum and the steepest drop between
-    12 kHz and Nyquist is located. An edge from TRACES_FROM up also needs the encoder's traces below it
-    (_flicker): a steep mastering or resampling filter cuts there as well, and on genuine files tested with
-    such filters (19.5 and 20 kHz) the flicker stayed under 0.027, while MP3 320/V0 transcodes were mostly
-    far above. verdict: lossy (with the likely source), ok, or unknown (too short or quiet). MP3 320k
-    without an edge, and AAC near 20 kHz, can't be told apart this way; they are nearly transparent."""
+    """Is this "lossless" file made from MP3/AAC? Lossy encoders cut with a steep low-pass (MP3 128k ~16 kHz,
+    192k ~19 kHz, V0/256k ~19.5-20 kHz); CD audio rolls off gradually up to ~22 kHz. Three 15 s excerpts give
+    a power spectrum; the steepest drop from 12 kHz to Nyquist is the edge. From TRACES_FROM up it also needs
+    the encoder's traces (_flicker): genuine files through steep 19.5 and 20 kHz filters stayed under 0.027,
+    MP3 320/V0 transcodes mostly far above. verdict: lossy (with the likely source), ok, or unknown (too short
+    or quiet). MP3 320 without an edge and AAC near 20 kHz go unseen; they are nearly transparent."""
     import numpy as np
 
     r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
@@ -420,10 +410,10 @@ def spectrum(path: Path) -> dict:
 
 
 def _flicker(pieces: list, sr: int, cut: int) -> float | None:
-    """An encoder's traces below its edge: it gives the bits of the highest bands to some frames (~23 ms)
-    and none to others, so there a bin switches between content and a hole (25 dB under the band) from one
-    frame to the next; a tone or noise through a filter stays as it is. The share of such switches in the
-    2.2 kHz below the edge, over loud frames whose band is well above 16-bit rounding; None when too few."""
+    """An encoder's traces below its edge: it gives the top bands' bits to some frames (~23 ms) and none to
+    others, so a bin there flips between content and a hole (25 dB under the band); filtered audio does not.
+    The share of flips in the 2.2 kHz below the edge, over loud frames well above 16-bit rounding; None when
+    too few."""
     import numpy as np
 
     nfft = 1024
@@ -467,7 +457,7 @@ def read_tags(path: Path) -> tuple[list[str], str]:
 
 
 def read_credit(path: Path) -> tuple[str, str]:
-    """(artist tag, title tag) as the file names them, for showing it ('' where missing)."""
+    """(artist, title) tags for showing ('' where missing)."""
     from mutagen import File
 
     try:
@@ -493,7 +483,7 @@ SPOTIFY_ID = re.compile(r"[0-9A-Za-z]{22}")
 
 
 def read_spotify_id(path: Path) -> str:
-    """The SPOTIFY_TRACK_ID tag (a recorder such as Mitschnitt writes it: the track it recorded; '' if none)."""
+    """The SPOTIFY_TRACK_ID tag a recorder such as Mitschnitt writes ('' if none or malformed)."""
     from mutagen import File
 
     try:
@@ -553,7 +543,7 @@ def has_picture(path: Path) -> bool:
             return bool(a.tags and a.tags.get("covr"))
         if isinstance(a, OggOpus | OggVorbis):
             return bool(a.get("metadata_block_picture"))
-        if isinstance(a, WAVE):  # (its ID3 sits in a chunk of the RIFF file, not in front of it)
+        if isinstance(a, WAVE):  # its ID3 is a RIFF chunk, not in front of the file
             return bool(a.tags and a.tags.getall("APIC"))
         try:
             return any(k.startswith("APIC") for k in ID3(path))
@@ -589,8 +579,7 @@ def picture(path: Path) -> bytes | None:
 
 
 def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
-    """Embed a JPEG as the front cover unless the file has a picture already (replace: instead of the
-    pictures it has)."""
+    """Embed a JPEG as front cover unless the file has a picture (replace: in place of its pictures)."""
     from mutagen import File
     from mutagen.flac import FLAC, Picture
     from mutagen.id3 import APIC, ID3, ID3NoHeaderError
@@ -617,7 +606,7 @@ def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
         elif isinstance(a, OggOpus | OggVorbis):
             a["metadata_block_picture"] = [base64.b64encode(pic.write()).decode()]
             a.save()
-        elif isinstance(a, WAVE):  # (an ID3 in front of a RIFF file would break it)
+        elif isinstance(a, WAVE):  # an ID3 in front of a RIFF file would break it
             if a.tags is None:
                 a.add_tags()
             a.tags.delall("APIC")
