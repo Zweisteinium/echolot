@@ -10,8 +10,7 @@ from echolot.config import Settings
 
 
 def _user(args: argparse.Namespace, settings: Settings) -> int:
-    """The users (Navidrome's accounts that logged in), and their rights: the way back in when no admin is
-    left, since there is no password here to reset."""
+    """Users and rights: the way back in when no admin is left (there is no password to reset)."""
     from echolot import db
     from echolot.settings import auth
 
@@ -41,8 +40,8 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _tags(args: argparse.Namespace, settings: Settings) -> int:
-    """`tags normalize`: only with the jobs paused and none running (they write the same files). The old
-    tags go to <data>/tag-backups/normalize-<time>.jsonl, the report next to it; a conflict goes to review."""
+    """`tags normalize`, with the jobs paused and idle (they write the same files). Old tags go to
+    <data>/tag-backups/normalize-<time>.jsonl, the report beside it; conflicts go to review."""
     import datetime
     import json
 
@@ -137,8 +136,8 @@ def _secret(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _jobs(args: argparse.Namespace, settings: Settings) -> int:
-    """`jobs pause [--wait]`, `jobs resume`, `jobs status` (first line: paused: yes|no, for scripts). A pause
-    reaches the running jobs within the worker's tick; --wait returns once none runs (1 after --timeout)."""
+    """status prints `paused: yes|no` first (for scripts). A pause reaches running jobs within the worker's
+    tick; --wait returns once none runs (1 after --timeout)."""
     import time
 
     from echolot import db

@@ -1,11 +1,9 @@
-"""echolot.yml: Echolot's whole configuration as one YAML file, for backups, moving to another
-install and editing in bulk. It holds each user's lists (by user name), the schedule and the settings
-sections; never secrets, nor the users themselves (they come from Navidrome).
+"""echolot.yml: the whole configuration as one YAML file (backups, moving, bulk edits): each user's lists (by
+user name), the schedule and the settings sections; no secrets, no users (they come from Navidrome).
 
-An import is checked completely before anything changes, then applied in one transaction. Parts left
-out keep their current values: a missing `schedule` job or settings field stays as it is; a user under
-`sources` gets exactly the lists given there, users left out keep theirs. A file of format 1 (one set of
-lists, from before users had lists) gives its lists to the oldest admin.
+An import is checked completely, then applied in one transaction. What it leaves out stays: a missing schedule
+job or settings field keeps its value; a user under `sources` gets exactly the lists given, others keep theirs.
+Format 1 (one set of lists, from before users had lists) gives its lists to the oldest admin.
 """
 
 import difflib

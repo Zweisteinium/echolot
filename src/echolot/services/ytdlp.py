@@ -1,6 +1,5 @@
-"""yt-dlp for SoundCloud (the lists and their downloads) and for the search fallback (YouTube and
-SoundCloud search), from the home IP (YouTube refuses VPN exits). The SoundCloud token reaches yt-dlp
-through a private netrc file, never the command line (ps would show it).
+"""yt-dlp for SoundCloud lists and downloads and the search fallback (YouTube, SoundCloud), from the home IP
+(YouTube refuses VPN exits). The SoundCloud token goes in a private netrc file, never on the command line (ps).
 """
 
 import contextlib
@@ -19,15 +18,15 @@ from echolot.library.rules import tidy_name, title_key
 
 log = logging.getLogger(__name__)
 
-NETRC_DAYS = 2  # days after which a netrc file goes (its token expired: SoundCloud's last a day)
+NETRC_DAYS = 2  # a netrc file older than this goes (its token lasted a day)
 # originals first (kept lossless), then the best streams
 SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 
 
 class YtDlp:
     def __init__(self, private: Path, sc_token: str | None = None) -> None:
-        """private: a directory only Echolot reads (its data directory), for the netrc file (one per token:
-        clients of several accounts run side by side)."""
+        """private: a directory only Echolot reads, for the netrc file (one per token: accounts run side by
+        side)."""
         self.netrc: Path | None = None
         if sc_token:
             private.mkdir(parents=True, exist_ok=True)
@@ -60,9 +59,8 @@ class YtDlp:
     # ------------------------------------------------------------ SoundCloud lists
 
     def listing(self, url: str, stop: threading.Event) -> tuple[list[tuple[str, str]] | None, dict[str, Any]]:
-        """Ordered (id, url) of the tracks of a SoundCloud list, and the list's info; None if listing
-        failed. Liked sets are left out (likes mean liked songs; add a set as its own list). SoundCloud
-        answers 429 or an empty page after bursts: back off and retry."""
+        """(id, url) of a SoundCloud list's tracks in order, and its info; None if listing failed. Liked sets
+        are left out (follow a set as its own list). SoundCloud answers bursts with 429 or an empty page."""
         for attempt in range(6):
             r = self.run(["--flat-playlist", "-J", url], stop, 600)
             if r.returncode == 0:
@@ -95,9 +93,8 @@ class YtDlp:
         return [str(e["id"]) for e in entries if e and e.get("id")]
 
     def download(self, tracks: list[tuple[str, str]], folder: Path, stop: threading.Event) -> list[dict[str, str]]:
-        """Download SoundCloud tracks ((id, url)) into folder: [{id, uploader, artist, title, duration,
-        path}] of the finished ones, each with its thumbnail as <id>.jpg. Tracks that got a 429 are tried
-        again after a pause."""
+        """Download (id, url) tracks into folder: [{id, uploader, artist, title, duration, path}] of the
+        finished ones, thumbnails as <id>.jpg. After a 429 the rest is tried again after a pause."""
         folder.mkdir(parents=True, exist_ok=True)
         done_file, batch = folder / "done.tsv", folder / "batch.txt"
         done: dict[str, dict[str, str]] = {}
@@ -154,8 +151,8 @@ class YtDlp:
         return out
 
     def fetch(self, url: str, dest: Path, stop: threading.Event) -> tuple[Path | None, str]:
-        """Download a found video's or track's best audio as dest.<ext>: (path, '') or (None, why). YouTube
-        now and then refuses a stream (HTTP 403): asked once more, it hands out a new one."""
+        """Best audio of a found video or track as dest.<ext>: (path, '') or (None, why). A YouTube 403 is
+        asked once more (it hands out a new stream)."""
         got, why = self._fetch(url, dest, stop)
         if got is None and "403" in why and not stop.is_set():
             got, why = self._fetch(url, dest, stop)

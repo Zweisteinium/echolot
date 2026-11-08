@@ -1,9 +1,8 @@
-"""Navidrome, the music server. Its accounts are Echolot's users: the password is checked by Navidrome's
-own login (POST /auth/login, as its web page does); Echolot keeps neither the password nor the token
-Navidrome answers with. The service account (an admin of Navidrome, its password in the vault) reads
-Navidrome's user list and songs and sets the owners of the playlists Echolot writes (native API, /api).
-Hearts are a user's own: Echolot gives them as that user, named in USER_HEADER, which Navidrome takes from
-Echolot's address alone (ND_EXTAUTH_TRUSTEDSOURCES; Echolot never passes on a request's headers)."""
+"""Navidrome. Its accounts are Echolot's users: Navidrome's own login (POST /auth/login) checks the password;
+Echolot keeps neither it nor Navidrome's token. The service account (a Navidrome admin, password in the vault)
+uses the native API (/api): users, songs, playlist owners. Hearts are given as the user named in USER_HEADER,
+which Navidrome trusts from Echolot's address alone (ND_EXTAUTH_TRUSTEDSOURCES; Echolot never forwards a
+request's headers)."""
 
 import json
 import os

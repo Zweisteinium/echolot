@@ -1,5 +1,4 @@
-"""How Echolot is deployed, from ECHOLOT_* environment variables (everything else is configured in the
-web interface and stored in the database)."""
+"""The deployment, from ECHOLOT_* environment variables; everything else is configured in the web interface."""
 
 import os
 from dataclasses import dataclass
@@ -12,13 +11,11 @@ class Settings:
     library_dir: Path | None  # <music>/tracks; <music>/inbox and <music>/playlists beside it
     host: str
     port: int
-    # where the Sockseek daemon's login file is written (daemon.conf)
-    daemon_dir: Path | None = None
-    worker: bool = True  # run the jobs (a development copy runs none: ECHOLOT_WORKER=off)
+    daemon_dir: Path | None = None  # the Sockseek daemon's login file (daemon.conf) goes here
+    worker: bool = True  # ECHOLOT_WORKER=off: no jobs (a development copy)
 
     def __post_init__(self) -> None:
-        # the jobs file into <music>/tracks next to <music>/inbox and <music>/playlists: another name would
-        # make the pages read one folder and the jobs write another
+        # inbox/ and playlists/ are taken from beside tracks/: another name would split pages and jobs
         if self.library_dir is not None and self.library_dir.name != "tracks":
             raise ValueError(f"ECHOLOT_LIBRARY_DIR must be <music>/tracks, not {self.library_dir}")
 

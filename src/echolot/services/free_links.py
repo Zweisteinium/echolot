@@ -1,7 +1,6 @@
-"""Free downloads outside Bandcamp that a song's SoundCloud page links to (its buy link, its description): a
-gate (Hypeddit, ToneDen, ...), which hands out the file for a follow, a repost or an email, things only the
-listener can give, so it is listed to do by hand; or a file on Dropbox, which Echolot fetches itself: curl, as
-Echolot, https only, from dropbox.com and the host it sends the file from."""
+"""Free downloads outside Bandcamp linked from a song's SoundCloud page (buy link, description): a gate
+(Hypeddit, ToneDen, ...) wants a follow, repost or email, so it is listed for the user; a Dropbox file Echolot
+fetches itself (curl as Echolot, https only)."""
 
 import re
 import subprocess
@@ -9,7 +8,8 @@ import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
-from echolot.services.bandcamp import USER_AGENT
+from echolot.services.bandcamp import USER_AGENT as USER_AGENT  # (re-exported)
+from echolot.services.bandcamp import curl
 
 GATES = {
     "hypeddit.com": "Hypeddit",
@@ -68,15 +68,11 @@ def fetch(link: Link, folder: Path) -> Path:
     name = urllib.parse.unquote(Path(parts.path).name)
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / re.sub(r"[^\w\-. ()&',!]+", "_", name)[-150:]
-    cmd = ["curl", "-sS", "-L", "--proto", "=https", "--proto-redir", "=https", "--max-time", "900"]
-    cmd += ["--max-filesize", str(MAX_BYTES), "-A", USER_AGENT, "-w", "%{stderr}%{http_code}", "-o", str(dest)]
     try:
-        r = subprocess.run([*cmd, "--", url], capture_output=True, timeout=910)
+        returncode, code, err, _ = curl(url, 900, dest, MAX_BYTES)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise LinkError(f"Dropbox: {e}") from e
-    err = r.stderr.decode(errors="replace").strip()
-    code = int(err[-3:]) if err[-3:].isdigit() else 0
-    if r.returncode or code != 200 or not dest.is_file():
+    if returncode or code != 200 or not dest.is_file():
         dest.unlink(missing_ok=True)
-        raise LinkError(f"Dropbox: {err[:-3].strip()[:200] or 'HTTP ' + str(code)}")
+        raise LinkError(f"Dropbox: {err[:200] or 'HTTP ' + str(code)}")
     return dest

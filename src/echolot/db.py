@@ -1,5 +1,4 @@
-"""SQLite database in the data directory. The schema is below; its version is PRAGMA user_version.
-A change to it gets a numbered migration step then (version 13 onwards)."""
+"""SQLite database: the schema (its version: PRAGMA user_version) and the migration steps (13 onwards)."""
 
 import sqlite3
 from pathlib import Path
@@ -360,7 +359,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
 
-# version -> the statements from the version before; each step runs in one transaction with its user_version
+# version -> statements from the version before; each step is one transaction with its user_version
 MIGRATIONS = {
     13: [
         "ALTER TABLE songs ADD COLUMN close_match INTEGER NOT NULL DEFAULT 0",
@@ -373,7 +372,7 @@ MIGRATIONS = {
         "ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'",
         "ALTER TABLE users ADD COLUMN admin INTEGER NOT NULL DEFAULT 1",
     ],
-    18: [  # Navidrome accounts only: the local ones go with their sessions and tokens
+    18: [  # Navidrome accounts only: local ones go, with sessions and tokens
         "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE source = 'local')",
         "DELETE FROM api_tokens WHERE user_id IN (SELECT id FROM users WHERE source = 'local')",
         "DELETE FROM users WHERE source = 'local'",
@@ -387,7 +386,7 @@ MIGRATIONS = {
         "ALTER TABLE users DROP COLUMN source",
         "ALTER TABLE review_decisions ADD COLUMN user_id INTEGER",
     ],
-    19: [  # lists per user: the existing ones belong to nobody until sources.adopt gives them to the oldest admin
+    19: [  # lists per user; existing ones are nobody's until sources.adopt
         "ALTER TABLE users ADD COLUMN soundcloud_user TEXT NOT NULL DEFAULT ''",
         "CREATE TABLE sources_19 (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), key TEXT NOT NULL, "
         "service TEXT NOT NULL, likes INTEGER NOT NULL DEFAULT 0, url TEXT NOT NULL, title TEXT, "
@@ -398,8 +397,7 @@ MIGRATIONS = {
         "DROP TABLE sources",
         "ALTER TABLE sources_19 RENAME TO sources",
     ],
-    20: [  # an admin's override of a user's decision; each user's song history (until now everything
-        # was one user's: the oldest owner's history is the library's song history so far)
+    20: [  # admin overrides; per-user song history (so far all the oldest owner's)
         "ALTER TABLE review_decisions ADD COLUMN overridden TEXT",
         "INSERT OR IGNORE INTO snapshots (ts, metric, key, value) SELECT ts, 'user_' || metric, "
         "(SELECT min(user_id) FROM sources) || ':' || key, value FROM snapshots WHERE metric IN "
@@ -409,7 +407,7 @@ MIGRATIONS = {
         "('songs_wanted', 'songs_in_library', 'songs_missing') AND (SELECT min(user_id) FROM sources) IS NOT NULL "
         "GROUP BY ts, metric",
     ],
-    21: [  # the availability tracker (replaces the "- removed" playlists)
+    21: [  # availability tracker
         "CREATE TABLE availability (song_key TEXT PRIMARY KEY, state TEXT NOT NULL, since TEXT NOT NULL, "
         "checked TEXT NOT NULL, detail TEXT)",
         "CREATE TABLE changes (id INTEGER PRIMARY KEY, ts TEXT NOT NULL, song_key TEXT NOT NULL DEFAULT '', "
@@ -417,7 +415,7 @@ MIGRATIONS = {
         "CREATE INDEX changes_ts ON changes(ts)",
         "CREATE INDEX changes_song ON changes(song_key)",
     ],
-    22: [  # the release facts of Spotify songs (tags); a state seen at the first check has no known date
+    22: [  # Spotify release facts; a state seen at the first check has no date
         "ALTER TABLE songs ADD COLUMN released TEXT",
         "ALTER TABLE songs ADD COLUMN track INTEGER",
         "ALTER TABLE songs ADD COLUMN tracks INTEGER",
@@ -426,27 +424,27 @@ MIGRATIONS = {
         "WHERE c.song_key = availability.song_key AND c.change = availability.state)",
     ],
     23: ["ALTER TABLE lists ADD COLUMN creator TEXT"],  # who made a list, for its playlist's comment
-    24: [  # the songs of a file found without reading all songs (it grows with the library)
+    24: [  # songs of a file
         "CREATE INDEX IF NOT EXISTS songs_file ON songs(file)",
         "CREATE INDEX IF NOT EXISTS songs_stem ON songs(stem)",
     ],
-    25: [  # snapshot times in UTC, not local time (SQLite converts with the server's time zone)
+    25: [  # snapshot times to UTC (converted with the server's time zone)
         "UPDATE snapshots SET ts = strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'utc') "
         "WHERE ts NOT LIKE '%Z' AND strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'utc') IS NOT NULL"
     ],
-    26: [  # uploading by hand is a permission of its own: who could (with review) still can
+    26: [  # upload split from review: who had review keeps it
         "UPDATE users SET permissions = CASE WHEN ',' || permissions || ',' LIKE '%,run,%' "
         "THEN 'review,run,upload' ELSE 'review,upload' END WHERE ',' || permissions || ',' LIKE '%,review,%'"
     ],
     27: ["ALTER TABLE songs ADD COLUMN artist_alias TEXT"],  # Spotify's English name of a non-Latin artist
-    28: [  # Discover in the players: the songs their searches showed, and the likes
+    28: [  # Discover songs and likes (web/subsonic)
         "CREATE TABLE IF NOT EXISTS discover_songs (id TEXT PRIMARY KEY, data TEXT NOT NULL, seen TEXT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS discover_likes (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE "
         "CASCADE, song_id TEXT NOT NULL REFERENCES discover_songs(id) ON DELETE CASCADE, liked TEXT NOT NULL, "
         "PRIMARY KEY (user_id, song_id))",
     ],
     29: ["ALTER TABLE availability ADD COLUMN searched TEXT"],
-    30: [  # recording with the users' own recorder apps (library/recording)
+    30: [  # recorder apps (library/recording)
         "CREATE TABLE IF NOT EXISTS recorders (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) "
         "ON DELETE CASCADE, name TEXT NOT NULL, token TEXT NOT NULL UNIQUE, app TEXT NOT NULL DEFAULT '', "
         "created TEXT NOT NULL, last_seen TEXT, state TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '', "
@@ -464,7 +462,7 @@ MIGRATIONS = {
         "finished TEXT)",
         "CREATE INDEX IF NOT EXISTS recording_items_session ON recording_items(recording_id, state)",
     ],
-    31: [  # what Spotify has nothing better of, for good (library/recording.block); the earlier answers saying so
+    31: [  # spotify_best (library/recording), from earlier results
         "ALTER TABLE recording_items ADD COLUMN uri TEXT",
         "CREATE TABLE IF NOT EXISTS spotify_best (song_key TEXT PRIMARY KEY, uri TEXT NOT NULL, reason TEXT NOT NULL, "
         "detail TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)",
@@ -474,12 +472,12 @@ MIGRATIONS = {
         "coalesce(i.detail, ''), coalesce(i.finished, '') FROM recording_items i "
         "LEFT JOIN availability a ON a.song_key = i.song_key WHERE i.result IN ('lossy_only', 'not_better') ORDER BY i.id",
     ],
-    32: [  # a Soulseek download's peer, its path there and the bytes that arrived (filing.event: for later stats)
+    32: [  # Soulseek peer, its path and the bytes that arrived
         "ALTER TABLE events ADD COLUMN peer TEXT",
         "ALTER TABLE events ADD COLUMN peer_path TEXT",
         "ALTER TABLE events ADD COLUMN arrived INTEGER",
     ],
-    33: [  # lossprint beside the spectrum check: a lossy master (no fake), the library's checks
+    33: [  # lossy_checks
         "ALTER TABLE lossy_sourced ADD COLUMN master INTEGER NOT NULL DEFAULT 0",
         "CREATE TABLE IF NOT EXISTS lossy_checks (path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL, "
         "md5 TEXT NOT NULL, spectrum TEXT, lossprint TEXT, verdict TEXT NOT NULL, checked TEXT NOT NULL)",
@@ -489,13 +487,12 @@ MIGRATIONS = {
         "DEFAULT '', title TEXT NOT NULL DEFAULT '', seconds REAL NOT NULL DEFAULT 0, price REAL, currency TEXT NOT "
         "NULL DEFAULT '', free INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL DEFAULT '', checked TEXT NOT NULL)"
     ],
-    35: [  # a removed file's fake mark on its event (filing.retire), from the Lossy check's verdicts before
+    35: [  # fake mark of retired FLACs, from the lossy checks
         "UPDATE events SET fake = 1 WHERE action = 'retired' AND fake IS NULL AND ext = 'flac' AND EXISTS (SELECT 1 "
         "FROM lossy_checks c WHERE c.verdict = 'lossy' AND c.size = events.bytes AND instr(events.reason, "
         "'(was ' || c.path || ')') > 0)"
     ],
-    36: [  # what a relinked song plays as (availability._plays_as); a recording of one was checked by the list's
-        # names, not the relink's: its "played as another song" no longer skips it (recording.SKIP_DAYS)
+    36: [  # availability.plays; recordings of relinked songs judged by the wrong names are retried
         "ALTER TABLE availability ADD COLUMN plays TEXT",
         "UPDATE recording_items SET finished = NULL WHERE result = 'wrong_song' AND uri IS NOT NULL "
         "AND uri != 'spotify:track:' || substr(song_key, 9)",
@@ -505,8 +502,7 @@ MIGRATIONS = {
         "list_key TEXT NOT NULL, song_key TEXT NOT NULL, file TEXT NOT NULL, ours INTEGER NOT NULL, "
         "PRIMARY KEY (user_id, list_key, song_key))"
     ],
-    38: [  # when each song came into its list (jobs/lists._store): the day Echolot first saw it there, the
-        # Wished list's likes; the likes lists and the Spotify lists are read again for their sources' times
+    38: [  # list_songs.added from first_seen and Wished likes; likes and Spotify lists re-read for their times
         "ALTER TABLE list_songs ADD COLUMN added TEXT",
         "UPDATE list_songs SET added = (SELECT h.first_seen || 'T00:00:00Z' FROM list_history h WHERE h.list_key = "
         "list_songs.list_key AND h.song_key = list_songs.song_key) WHERE list_key NOT LIKE 'spotify:likes:%' "
@@ -516,26 +512,26 @@ MIGRATIONS = {
         "substr(l.song_id, 4) = list_songs.song_key), added) WHERE list_key LIKE 'discover:wished:%'",
         "UPDATE lists SET snapshot = NULL WHERE service = 'spotify'",
     ],
-    39: [  # what Discogs lists of the library's releases (jobs/discogs)
+    39: [  # jobs/discogs
         "CREATE TABLE IF NOT EXISTS discogs (album TEXT PRIMARY KEY, artist TEXT NOT NULL, title TEXT NOT NULL, "
         "state TEXT NOT NULL, found TEXT, store TEXT, genre TEXT NOT NULL DEFAULT '', checked TEXT NOT NULL)"
     ],
-    40: [  # the growth graph no longer starts with hours rebuilt from the events: only what was counted stays
+    40: [  # drop snapshots rebuilt from events: only counted ones stay
         "DELETE FROM snapshots WHERE ts < (SELECT value FROM meta WHERE key = 'history_rebuilt')",
         "DELETE FROM meta WHERE key = 'history_rebuilt'",
     ],
-    41: [  # the track pages in each file's source tags, kept until it changes: read again only then (jobs/lists)
+    41: [  # files.pages: source tags' track pages, kept until the file changes
         "ALTER TABLE files ADD COLUMN pages TEXT"
     ],
-    42: [  # free downloads outside Bandcamp linked from SoundCloud songs (jobs/bandcamp, services/free_links)
+    42: [  # free downloads outside Bandcamp (services/free_links)
         "CREATE TABLE IF NOT EXISTS free_links (song_key TEXT PRIMARY KEY, url TEXT NOT NULL, site TEXT NOT NULL "
         "DEFAULT '', label TEXT NOT NULL DEFAULT '', fetch INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL "
         "DEFAULT '', checked TEXT NOT NULL)"
     ],
-    43: [  # the tier the pages count a file in (catalog.TIERS); filled by the next match_songs (library upkeep)
+    43: [  # files.tier (catalog.TIERS), filled by the next match_songs
         "ALTER TABLE files ADD COLUMN tier TEXT"
     ],
-    44: [  # where a file uploaded by hand came from (library/origin): noted from now on, by the upload dialog
+    44: [  # origins of hand uploads (library/origin), from now on
         "CREATE TABLE IF NOT EXISTS origins (song_key TEXT PRIMARY KEY, file TEXT NOT NULL, kind TEXT NOT NULL, "
         "site TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)"
     ],
@@ -543,10 +539,9 @@ MIGRATIONS = {
 
 
 def play_url(songs: str = "s") -> str:
-    """SQL: where a song of the table aliased `songs` is played: its url (SoundCloud's track page), or the
-    track of the release Spotify plays it as here (availability: replaced). Its own link would open its own
-    release, and Spotify's desktop app starts that album at the song's place counting only what plays: a
-    greyed-out track before it starts the next song instead."""
+    """SQL: the link that plays a song (table alias `songs`): its url, else the track Spotify relinked it to
+    (availability replaced). Its own link misplays: Spotify's desktop app counts only playable tracks, so a
+    greyed-out one before it starts the next song."""
     return (
         f"coalesce({songs}.url, (SELECT 'https://open.spotify.com/track/' || substr(detail, 9) FROM availability "
         f"WHERE song_key = {songs}.key AND state = 'replaced' AND detail LIKE 'spotify:%'))"

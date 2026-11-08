@@ -6,7 +6,7 @@
      result): both versions must accept it
   B  other songs of the same artist: must never be exact
   C  every logged download with its found name (events): the verdict of both versions
-Differences are listed; run it before deploying a change to src/echolot/rules.py.
+Differences are listed; run it before deploying a change to src/echolot/library/rules.py.
 """
 
 import collections

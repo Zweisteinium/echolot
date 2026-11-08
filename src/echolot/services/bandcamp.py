@@ -1,9 +1,7 @@
-"""Bandcamp: a track's offer (its price, whether it is a free download) from its page, and a free track's FLAC.
-Only pages a song links to are read (a link on its SoundCloud page): Bandcamp's robots.txt keeps bots off
-its search. Pages are read with curl, as Echolot (USER_AGENT), a pause between requests; Bandcamp shows
-Python's own client a bot check (Challenged, as is a refusal: HTTP 403, 429), and Echolot does not get around
-one: it stops. Only https addresses on bandcamp.com and its file host bcbits.com are asked. Bandcamp streams MP3
-128 kbps; a download is lossless (FLAC), for a price or free."""
+"""Bandcamp: a track's offer (price, free download) from its page, and a free track's FLAC. Only pages a song's
+SoundCloud page links to are read (robots.txt keeps bots off the search), with curl as Echolot (USER_AGENT),
+PAUSE apart: Python's own client gets a bot check. A bot check or a refusal (403, 429) is Challenged: Echolot
+stops, it does not get around one. Only https URLs on bandcamp.com and bcbits.com (its file host) are asked."""
 
 import html
 import json
@@ -62,31 +60,38 @@ def _safe(url: str) -> str:
     return url
 
 
+def curl(url: str, timeout: int, dest: Path | None = None, max_bytes: int = 0) -> tuple[int, int, str, bytes]:
+    """curl as Echolot, https only (redirects too): (exit code, HTTP status, error text, body); OSError or
+    subprocess.TimeoutExpired when it does not run."""
+    cmd = ["curl", "-sS", "-L", "--proto", "=https", "--proto-redir", "=https", "--max-time", str(timeout)]
+    cmd += ["--max-filesize", str(max_bytes)] if max_bytes else []
+    cmd += ["-A", USER_AGENT, "-w", "%{stderr}%{http_code}", *(["-o", str(dest)] if dest else []), "--", url]
+    r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+    err = r.stderr.decode(errors="replace").strip()
+    code = int(err[-3:]) if err[-3:].isdigit() else 0
+    return r.returncode, code, err[:-3].strip(), r.stdout
+
+
 def _get(url: str, dest: Path | None = None, timeout: int = 60) -> bytes:
-    """One request through curl (https only, redirects too), after the pause; the body (or into `dest`). Gone
-    for 404/410, Challenged for 403/429, BandcampError for anything else that is not a 2xx answer."""
+    """One curl request after the pause: the body, or into `dest`. Gone: 404/410; Challenged: 403/429;
+    BandcampError: any other non-2xx."""
     _safe(url)
     with _LOCK:
         wait = _LAST[0] + PAUSE - time.monotonic()
         if wait > 0:
             time.sleep(wait)
         _LAST[0] = time.monotonic()
-    out = ["-o", str(dest)] if dest else []
-    cmd = ["curl", "-sS", "-L", "--proto", "=https", "--proto-redir", "=https", "--max-time", str(timeout)]
-    cmd += ["-A", USER_AGENT, "-w", "%{stderr}%{http_code}", *out, "--", url]
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout + 10)
+        returncode, code, err, body = curl(url, timeout, dest)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise BandcampError(f"Bandcamp: {e}") from e
-    err = r.stderr.decode(errors="replace").strip()
-    code = int(err[-3:]) if err[-3:].isdigit() else 0
     if code in (404, 410):
         raise Gone(f"Bandcamp: HTTP {code}")
     if code in (403, 429):
         raise Challenged(f"Bandcamp refused (HTTP {code})")
-    if r.returncode or not 200 <= code < 300:
-        raise BandcampError(f"Bandcamp: {err[:-3].strip()[:200] or 'HTTP ' + str(code)}")
-    return b"" if dest else r.stdout
+    if returncode or not 200 <= code < 300:
+        raise BandcampError(f"Bandcamp: {err[:200] or 'HTTP ' + str(code)}")
+    return b"" if dest else body
 
 
 def _page(url: str) -> str:

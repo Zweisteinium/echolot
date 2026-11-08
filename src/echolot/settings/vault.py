@@ -1,9 +1,7 @@
-"""Secrets (credentials for Spotify, SoundCloud, ...) in the database, encrypted with Fernet.
+"""Credentials in the database, encrypted with Fernet; never logged or shown.
 
-The key comes from ECHOLOT_SECRET_KEY, else from the file ECHOLOT_SECRET_KEY_FILE, else from
-<data dir>/secret.key, which is created on first use. With the key in the environment, a copy of the
-database alone reveals no secret. Values are never logged or shown; the UI only tells whether a secret
-is set and when it changed.
+Key: ECHOLOT_SECRET_KEY, else the file ECHOLOT_SECRET_KEY_FILE, else <data dir>/secret.key (created on first
+use). With the key in the environment, a copy of the database alone reveals no secret.
 """
 
 import os
@@ -13,7 +11,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
-# the secrets Echolot knows, with what they are for (used from PLAN.md phase 3 on)
+# name -> what it is for (listing)
 KNOWN = {
     "spotify.client_secret": "Spotify app: client secret",
     "spotify.refresh_token": "Spotify: refresh token of the connected account",
@@ -33,7 +31,7 @@ class Vault:
             self._fernet = Fernet(key)
         except ValueError as err:
             raise VaultError(f"The secret key from {source} is not a Fernet key (32 bytes, URL-safe base64).") from err
-        self.source = source  # where the key came from, for the settings page
+        self.source = source  # where the key came from (shown)
 
     @classmethod
     def from_env(cls, data_dir: Path, env: dict[str, str] | None = None) -> "Vault":
@@ -69,7 +67,7 @@ class Vault:
             ) from err
 
     def has(self, con: sqlite3.Connection, name: str) -> bool:
-        """Whether the secret is stored (without decrypting it)."""
+        """Without decrypting it."""
         return con.execute("SELECT 1 FROM secrets WHERE name = ?", (name,)).fetchone() is not None
 
     def delete(self, con: sqlite3.Connection, name: str) -> bool:
