@@ -190,7 +190,18 @@ def guess(f: File, songs: list[sqlite3.Row]) -> str | None:
         if score:
             cand = (score, needs(s), -abs((f.seconds or 0) - (s["length"] or 0)), s["key"])
             best = max(best, cand) if best else cand
-    return best[3] if best else None
+    return best[3] if best else _by_title(f, stem, songs)
+
+
+def _by_title(f: File, stem: str, songs: list[sqlite3.Row]) -> str | None:
+    """A file that names no artist (no tags, a name of the title alone): the one song whose whole title it
+    has, version words and all, and as long, within 2 s. Two songs of that title as long: none (the length
+    tells them apart, never a guess). The import checks its audio against the song's copy as any other."""
+    if not f.seconds or f.artist or " - " in stem:  # (an artist named: guess's rules, another's title is not his)
+        return None
+    names = {k for k in (rules.title_key(f.title), rules.title_key(stem)) if k}
+    fits = [s for s in songs if rules.title_key(s["title"]) in names and abs(f.seconds - (s["length"] or 0)) <= 2]
+    return fits[0]["key"] if len(fits) == 1 else None
 
 
 def needs(song: sqlite3.Row) -> bool:

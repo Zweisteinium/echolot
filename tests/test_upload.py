@@ -132,6 +132,36 @@ def test_guess_by_title_and_length() -> None:
     assert upload.guess(other, songs) is None  # another artist's song of that title
 
 
+def test_a_file_naming_no_artist_is_found_by_its_whole_title_and_length() -> None:
+    """No tags and a name of the title alone: the one song with that whole title (version words and all) as
+    long, within 2 s; two of that title and length, or a file that names another artist: none."""
+    songs = [
+        {"key": "f", "artist": "Ferrand", "title": "C'est Beau La Bourgeoisie (Edit)", "length": 252.3, "file": "x"},
+        {
+            "key": "d",
+            "artist": "Discobitch",
+            "title": "C'est beau la bourgeoisie - Radio Edit",
+            "length": 211,
+            "file": "y",
+        },
+    ]
+    songs = [s | {"close_match": 0} for s in songs]
+    wav = upload.File(
+        1, "C'est Beau La Bourgeoisie (Edit).wav", path="/x/01 C'est Beau La Bourgeoisie (Edit).flac", seconds=252.3
+    )
+    assert upload.guess(wav, songs) == "f"
+    assert (
+        upload.guess(upload.File(2, "C'est Beau La Bourgeoisie.wav", seconds=252.3), songs) is None
+    )  # not the whole title
+    assert (
+        upload.guess(upload.File(3, "C'est Beau La Bourgeoisie (Edit).wav", seconds=230), songs) is None
+    )  # not as long
+    twin = [*songs, songs[0] | {"key": "g", "artist": "Someone"}]
+    assert upload.guess(wav, twin) is None  # two of that title and length: the length can't tell them apart
+    named = upload.File(4, "Other - C'est Beau La Bourgeoisie (Edit).wav", seconds=252.3)
+    assert upload.guess(named, songs) is None  # another artist named: not his song
+
+
 def test_labels() -> None:
     song = {"key": "a", "artist": "Hurts", "title": "2 More", "length": 211, "file": None, "close_match": 0, "isrc": ""}
     f = upload.File(1, "x.flac", seconds=212, tier="lossless")
