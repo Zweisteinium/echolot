@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 42
+VERSION = 43
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -13,7 +13,8 @@ CREATE TABLE files (                -- audio files in the library
     duration REAL NOT NULL,         -- seconds, 0 = unknown
     kbps INTEGER NOT NULL,
     quality TEXT,                   -- see catalog.QUALITY
-    pages TEXT                      -- JSON: the track pages in its source tags (jobs/lists); NULL: not read since it changed
+    pages TEXT,                     -- JSON: the track pages in its source tags (jobs/lists); NULL: not read since it changed
+    tier TEXT                       -- the tier the pages count it in (catalog.TIERS: a fake FLAC in its source's)
 );
 CREATE TABLE lossy_sourced (        -- FLACs the lossy checks found to be made from lossy files (audio.judge)
     stem TEXT PRIMARY KEY,          -- files.path without extension
@@ -522,6 +523,9 @@ MIGRATIONS = {
         "CREATE TABLE IF NOT EXISTS free_links (song_key TEXT PRIMARY KEY, url TEXT NOT NULL, site TEXT NOT NULL "
         "DEFAULT '', label TEXT NOT NULL DEFAULT '', fetch INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL "
         "DEFAULT '', checked TEXT NOT NULL)"
+    ],
+    43: [  # the tier the pages count a file in (catalog.TIERS); filled by the next match_songs (library upkeep)
+        "ALTER TABLE files ADD COLUMN tier TEXT"
     ],
 }
 

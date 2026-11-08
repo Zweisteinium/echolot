@@ -19,28 +19,32 @@
     <div class="growth-panels loading graphs-wait" id="graphs" data-graphs data-range=""><p class="muted growth-empty" data-graphs-note>Loading the graphs…</p></div>{# (_graphs.html, loaded right after the page by the script below) #}
     <div class="quality-side" data-rings>
       <div class="side-head">
-        <div class="side-label">{{ 'Quality of your songs' if o.scoped else 'Quality' }}</div>
+        <div class="side-label">Quality</div>
         <div class="segmented small-seg" role="radiogroup" aria-label="The ring shows">
-          <label title="The library's files by quality, and the songs missing"><input type="radio" name="ring" value="quality" checked> Now</label>
+          <label title="The files in the music folder by quality"><input type="radio" name="ring" value="files" checked> Files</label>
+          <label title="The songs on the lists by the quality of their copy, and the songs missing"><input type="radio" name="ring" value="songs"> Songs</label>
           <label title="The songs on the lists by how near they are to the best quality there is"><input type="radio" name="ring" value="best"> Best possible</label>
         </div>
       </div>
       <div class="rings">
-      <div class="quality-split" data-ring="quality">
-        {{ donut_chart(rings.quality, share(o.lossless, rings.quality.total), 'FLAC') }}
+      {% for view, ring, counts, flac, fakes in (('files', rings.files, o.tiers, o.lossless, o.file_fakes), ('songs', rings.songs, o.song_tiers, o.song_tiers[0][2], o.song_fakes)) %}
+      <div class="quality-split" data-ring="{{ view }}"{% if view != 'files' %} hidden{% endif %}>
+        {{ donut_chart(ring, share(flac, ring.total), 'FLAC') }}
         <table class="legend-table">
           <tbody>
-          {% for k, label, n in o.tiers %}
-          <tr class="q-{{ k }}{{ ' dim' if not n }}">
+          {% for k, label, n in counts %}
+          <tr class="q-{{ k }}{{ ' dim' if not n }}" title="{{ tier_hints[k] }}">
             <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
             <td>{{ label }}</td>
             <td class="num">{{ n|num }}</td>
-            <td class="num muted">{{ share(n, rings.quality.total) }}</td>
+            <td class="num muted">{{ share(n, ring.total) }}</td>
           </tr>
           {% endfor %}
           </tbody>
         </table>
+        <p class="muted small ring-note">{% if view == 'files' %}The {{ ring.total|num }} files {{ 'your songs have' if o.scoped else 'in the music folder' }}{% else %}The {{ ring.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists{% endif %}{% if fakes %}; {{ fakes|num }} of the lossy ones are FLACs made from lossy files, counted by their source{% endif %}.</p>
       </div>
+      {% endfor %}
       {% set obtainable = rings.best.total - best[-1][2] %}
       <div class="quality-split" data-ring="best" hidden>
         {{ donut_chart(rings.best, share(best[0][2], obtainable), 'at their best') }}
@@ -56,7 +60,7 @@
           {% endfor %}
           </tbody>
         </table>
-        <p class="muted small ring-note">Of the {{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists; the shares leave out those not to be had, as the lists' Best column does.</p>
+        <p class="muted small ring-note">The {{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists; the shares leave out those not to be had, as the lists' Best column does.</p>
       </div>
       </div>
     </div>
@@ -93,7 +97,7 @@
 <script>
   // the graph shows songs, size or quality, over a chip's stretch of time or one dragged across it (both
   // remembered in this browser, a dragged one until the page is left); the value under the pointer; the
-  // ring shows the quality now or how near the songs are to their best
+  // ring shows the files' quality, the songs' quality or how near the songs are to their best
   (() => {
     const card = document.querySelector("[data-stats]");
     if (!card) return;
@@ -118,7 +122,7 @@
     };
     const saved = store(SHOW);
     if (saved) show(saved);
-    if (store(RING) === "best") ring("best");
+    if (["songs", "best"].includes(store(RING))) ring(store(RING));  // (else Files, the first)
     const range = store(RANGE);  // the graphs come after the page, for the stretch last chosen here
     const first = () => load({ range: ["7d", "30d", "90d", "all"].includes(range) ? range : "all" });
     if (window.htmx) first(); else document.addEventListener("DOMContentLoaded", first, { once: true });  // (htmx loads deferred)

@@ -25,10 +25,10 @@
   --bad: #c9302d;
 
   --q-lossless: #006129;     /* FLAC */
-  --q-fake: #3b7b1f;         /* FLAC made from lossy (striped) */
-  --q-lossy-high: #759000;   /* >= 256 kbps */
-  --q-lossy-mid: #c39900;    /* 160-250 kbps */
-  --q-lossy-low: #f99f55;    /* < 160 kbps */
+  --q-fake: #3b7b1f;         /* fake FLAC (made from lossy): its badge, striped */
+  --q-lossy-high: #759000;   /* lossy, high (catalog.LIMITS) */
+  --q-lossy-mid: #c39900;    /* lossy, medium */
+  --q-lossy-low: #f99f55;    /* lossy, low */
   --q-missing: #c9302d;
 
   --radius: 12px;
@@ -478,10 +478,11 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .q-lossy-mid { --q: var(--q-lossy-mid); }
 .q-lossy-low { --q: var(--q-lossy-low); }
 .q-missing { --q: var(--q-missing); }
-/* the swatch carries the tier; text stays in ink. Fake FLACs are striped: a FLAC that is not one */
+/* the swatch carries the tier; text stays in ink. A fake FLAC's badge is striped: a FLAC that is not one (the
+   rings, graphs and bars count it in the tier of its source) */
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--q, var(--track));
   flex: none; }
-.q-fake .swatch, .qbar .q-fake {
+.q-fake .swatch {
   background: repeating-linear-gradient(135deg, var(--q-fake) 0 2px, color-mix(in srgb, var(--q-fake) 35%, var(--surface)) 2px 4px);
 }
 .chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 550;
@@ -505,9 +506,6 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .donut .ring { fill: none; stroke: var(--track); }
 .donut .slice { fill: none; stroke: var(--q); transition: stroke-width 0.1s; }
 .donut .slice:hover { stroke-width: 32px; }
-.donut .slice.q-fake { stroke: url(#stripes); }
-.donut .stripe { fill: var(--q-fake); }
-.donut .stripe-bg { fill: color-mix(in srgb, var(--q-fake) 35%, var(--surface)); }
 .donut-figure { font-size: 28px; font-weight: 650; fill: var(--text); }
 .donut-caption { font-size: 12px; fill: var(--muted); }
 .legend-table { border-collapse: collapse; flex: 1; min-width: 260px; max-width: 640px; }
@@ -591,8 +589,6 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .stacked .band.q-lossless { fill: color-mix(in srgb, var(--q) 20%, var(--surface)); }
 .stacked .edge { fill: none; stroke: var(--q); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .stacked .edge.q-lossless { stroke-width: 2.5; }
-.stacked .stripe { fill: color-mix(in srgb, var(--q-fake) 70%, var(--surface)); }
-.stacked .stripe-bg { fill: color-mix(in srgb, var(--q-fake) 30%, var(--surface)); }
 .stacked .grid { stroke: color-mix(in srgb, var(--surface) 55%, transparent); }
 .stacked .end, .stacked .end::after, .stacked .mark { background: var(--q-lossless); }
 @media (prefers-color-scheme: dark) {

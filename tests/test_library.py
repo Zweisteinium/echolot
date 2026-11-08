@@ -112,3 +112,69 @@ def test_scan_uses_known_durations(con, settings: Settings) -> None:
     catalog.scan(con, settings.library_dir, known)
     row = con.execute("SELECT duration, kbps FROM files WHERE path LIKE 'Uploader/%'").fetchone()
     assert tuple(row) == (400.0, 256)
+
+
+def test_lossy_tiers_by_format() -> None:
+    """A lossy tier by how the format sounds at its bitrate (catalog.LIMITS): YouTube's Opus at 130 kbps is
+    high, an MP3 at 128 low, SoundCloud's AAC at 160 medium."""
+    assert [catalog.lossy_tier("opus", k) for k in (130, 96, 64)] == ["lossy-high", "lossy-mid", "lossy-low"]
+    assert [catalog.lossy_tier("mp3", k) for k in (320, 245, 192, 128)] == ["lossy-high"] * 2 + [
+        "lossy-mid",
+        "lossy-low",
+    ]
+    assert [catalog.lossy_tier("aac", k) for k in (256, 160, 96)] == ["lossy-high", "lossy-mid", "lossy-low"]
+    assert catalog.Entry("A/A - T.opus", 0, 130, False).quality == "lossy-high"
+    assert catalog.Entry("A/A - T.webm", 0, 130, False).quality == "lossy-high"  # (Opus too)
+
+
+def test_a_fake_flac_counts_in_its_sources_tier() -> None:
+    """A fake FLAC's own quality stays 'fake' (upgrades, review, recording decide by it); the pages count it
+    in the tier of the lossy file it was made from, as the checks estimate it."""
+    estimates = {
+        "~256 kbps / V0": "lossy-high",
+        "~160-192 kbps": "lossy-mid",
+        "~128 kbps": "lossy-low",
+        "MP3 ~311 kbps": "lossy-high",
+        "Opus ~131 kbps": "lossy-high",
+        "AAC ~170 kbps": "lossy-mid",
+    }
+    assert {s: catalog.source_tier(s) for s in estimates} == estimates
+    assert catalog.source_tier("") is None
+    fake = catalog.Entry("A/A - T.flac", 0, 900, True, "Opus ~131 kbps")
+    assert (fake.quality, fake.tier) == ("fake", "lossy-high")
+    assert catalog.Entry("A/A - T.flac", 0, 900, True).tier == "lossy-mid"  # (no estimate: medium)
+    opus = catalog.Entry("A/A - T.opus", 0, 126, True)  # a lossy file under a fake FLAC's name is what it is
+    assert (opus.fake, opus.quality, opus.tier) == (False, "lossy-high", "lossy-high")
+
+
+def test_a_fake_without_its_own_estimate_takes_the_lossy_checks(con) -> None:
+    """A fake whose source was not noted when it was filed takes the Lossy check's: lossprint's format and
+    bitrate where it is sure, else the spectrum's."""
+    with con:
+        con.execute("UPDATE lossy_sourced SET source = '' WHERE stem = 'Artist B/Artist B - Second Song'")
+        con.execute(
+            "INSERT INTO lossy_checks (path, size, mtime, md5, spectrum, lossprint, verdict, checked) VALUES "
+            "('Artist B/Artist B - Second Song.flac', 10, 0, '', '{\"source\": \"~128 kbps\"}', "
+            '\'{"p": 0.99, "encoder": "opus", "kbps": 131.2}\', \'lossy\', \'\')'
+        )
+    catalog.match_songs(con)
+    assert tuple(con.execute("SELECT quality, tier FROM files WHERE path LIKE 'Artist B/%'").fetchone()) == (
+        "fake",
+        "lossy-high",
+    )
+    with con:
+        con.execute('UPDATE lossy_checks SET lossprint = \'{"p": 0.2, "encoder": "opus", "kbps": 131}\'')
+    catalog.match_songs(con)
+    assert con.execute("SELECT tier FROM files WHERE path LIKE 'Artist B/%'").fetchone()[0] == "lossy-low"  # spectrum's
+
+
+def test_the_rings_count_files_and_songs(con) -> None:
+    """Files: the music folder's files by tier, no missing (they are songs); Songs: the songs on the lists by
+    their copy's tier and the missing; both note the fake FLACs counted in their source's tier."""
+    o = stats.overview(con)
+    assert [k for k, _, _ in o["tiers"]] == ["lossless", "lossy-high", "lossy-mid", "lossy-low"]
+    assert sum(n for _, _, n in o["tiers"]) == o["files"] and o["file_fakes"] == 1
+    assert dict((k, n) for k, _, n in o["song_tiers"])["missing"] == o["wanted"] - o["have"]
+    assert sum(n for _, _, n in o["song_tiers"]) == o["wanted"] and o["song_fakes"] >= 1
+    labels = [label for _, label, _ in stats.best_tiers(con)]
+    assert labels == ["At their best", "Can get better", "Missing · searched", "Missing · not to be had"]

@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from echolot.library import filing, history, recording
+from echolot.library import catalog, filing, history, recording
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, discogs, stats
 from echolot.web.common import DB, back, page
@@ -31,8 +31,9 @@ def overview(request: Request, con: DB) -> HTMLResponse:
     connected = vault.has(con, spotify.refresh_name(request.state.user.id)) or vault.has(
         con, soundcloud.token_name(request.state.user.id)
     )
-    rings = {  # the library's files by quality and the songs missing; the songs by how near their best they are
-        "quality": charts.donut(o["tiers"], size=160, width=22),
+    rings = {  # the library's files by quality; the songs by quality (and missing); by how near their best they are
+        "files": charts.donut(o["tiers"], size=160, width=22),
+        "songs": charts.donut(o["song_tiers"], size=160, width=22),
         "best": charts.donut(best := stats.best_tiers(con, uid), size=160, width=22),
     }
     return page(
@@ -43,6 +44,7 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         rings=rings,
         best=best,
         best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
+        tier_hints=stats.TIER_HINTS,
         connected=connected,
         tabs=library_tabs(con, uid),
     )
@@ -108,8 +110,8 @@ def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[st
 
 def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, start: str, stop: str) -> dict[str, Any]:
     """The songs in the library over time, as files (a recording several list entries share counts once:
-    the user's, or everyone's), the library's size (everyone's) and the files' quality with the songs missing
-    (as the ring shows them), for the stretch shown; each ends with the value of now."""
+    the user's, or everyone's), the library's size (everyone's) and the files' quality (as the ring's Files
+    shows them), for the stretch shown; each ends with the value of now."""
     now = history.utc(datetime.now())
     files = _files(con, uid, o)
     songs = [*files, (now, o["files"])]
@@ -125,24 +127,31 @@ def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, star
                 size,
                 lambda v: "0" if not v else f"{v / 1e9:g} GB" if v >= 1e9 else f"{v / 1e6:g} MB",
             ),
-            "quality": charts.stacked(_crop(quality, start, stop), [(k, label) for k, label in stats.TIERS]),
+            "quality": charts.stacked(_crop(quality, start, stop), catalog.TIERS),
         },
         "window": {"range": chosen, "ranges": RANGES, "zoomed": _span(start, stop) if not chosen else ""},
     }
 
 
 def _quality(con: sqlite3.Connection, uid: int | None, files: dict[str, float]) -> list[tuple[str, dict[str, float]]]:
-    """The library files per quality tier over time with the songs missing (everyone's); a user's: their songs
-    per tier, taken in the proportion of their files then (as the songs graph counts them)."""
+    """The library files per quality tier over time (everyone's), as the ring's Files counts them; a user's:
+    their songs per tier, taken in the proportion of their files then (as the songs graph counts them)."""
     if uid is None:
-        missing = dict(history.totals(con, "songs_missing"))
-        return [(ts, {**n, "missing": missing.get(ts, 0)}) for ts, n in history.keyed(con, "library_files_by_quality")]
-    missing = dict(history.totals(con, "user_songs_missing", str(uid)))
+        return [(ts, _tiers(n)) for ts, n in history.keyed(con, "library_files_by_quality")]
     out = []
     for ts, n in history.keyed(con, "user_songs_by_quality", f"{uid}:"):
         scale = files[ts] / sum(n.values()) if files.get(ts) and sum(n.values()) else 1
-        out.append((ts, {**{k: v * scale for k, v in n.items()}, "missing": missing.get(ts, 0)}))
+        out.append((ts, {k: v * scale for k, v in _tiers(n).items()}))
     return out
+
+
+def _tiers(n: dict[str, float]) -> dict[str, float]:
+    """A snapshot's counts on catalog.TIERS: until 2026-11-08 fake FLACs were a tier of their own; counted
+    as high (where most of them are by their source: 160 of 223 then)."""
+    n = dict(n)
+    if fake := n.pop("fake", 0):
+        n["lossy-high"] = n.get("lossy-high", 0) + fake
+    return n
 
 
 def _files(con: sqlite3.Connection, uid: int | None, o: dict) -> list[tuple[str, float]]:

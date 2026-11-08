@@ -33,10 +33,10 @@ BELOW = {  # a session's choice -> the tiers it records (a fake FLAC is worse th
     "lossy-mid": ("missing", "lossy-low"),
     "missing": ("missing",),
 }
-BELOW_LABELS = {
-    "lossless": "Not lossless",
-    "lossy-high": "Below 256 kbps",
-    "lossy-mid": "Below 160 kbps",
+BELOW_LABELS = {  # (the lossy tiers by format: catalog.LIMITS)
+    "lossless": "All but FLAC",
+    "lossy-high": "Missing, lossy medium and low",
+    "lossy-mid": "Missing and lossy low",
     "missing": "Missing only",
 }
 CODE_MINUTES = 10  # an approved connection's code works this long, once

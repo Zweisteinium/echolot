@@ -151,11 +151,11 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source
     st = p.stat()
     dur, kbps = audio.probe(p)
     rel = p.relative_to(paths.tracks).as_posix()
-    entry = catalog.Entry(rel, dur, kbps, fake)
+    entry = catalog.Entry(rel, dur, kbps, fake, source)
     with con:
         con.execute(
-            "INSERT OR REPLACE INTO files (path, size, mtime, duration, kbps, quality) VALUES (?, ?, ?, ?, ?, ?)",
-            (rel, st.st_size, int(st.st_mtime), dur, kbps, entry.quality),
+            "INSERT OR REPLACE INTO files (path, size, mtime, duration, kbps, quality, tier) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (rel, st.st_size, int(st.st_mtime), dur, kbps, entry.quality, entry.tier),
         )
         if fake:
             con.execute(

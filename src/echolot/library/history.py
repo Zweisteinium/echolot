@@ -12,7 +12,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 
-from echolot.library.catalog import QUALITY
+from echolot.library.catalog import TIERS
 
 SNAPSHOT_SECONDS = 3600
 KEEP_HOURLY_DAYS = 30
@@ -22,7 +22,8 @@ REASONS = ("not_found", "unavailable", "waiting")  # why a song is missing
 METRICS: dict[str, tuple[str | None, str]] = {
     "library_files": (None, "Audio files in the library"),
     "library_bytes": (None, "Size of the library in bytes"),
-    "library_files_by_quality": ("quality", "Library files per quality tier"),
+    "library_files_by_quality": ("quality", "Library files per quality tier (a fake FLAC in its source's)"),
+    "library_files_fake": (None, "Library FLACs made from lossy files (counted in their source's tier)"),
     "library_files_by_format": ("format", "Library files per file format"),
     "library_bytes_by_format": ("format", "Library bytes per file format"),
     "songs_wanted": ("service", "Songs in the followed lists"),
@@ -58,19 +59,20 @@ def _tries(n: int) -> str:
 def collect(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
     """(metric, key, value) for the current state."""
     rows: list[tuple[str, str, float]] = []
-    files = con.execute("SELECT path, size, quality FROM files").fetchall()
+    files = con.execute("SELECT path, size, coalesce(tier, quality), quality FROM files").fetchall()
     rows += [("library_files", "", len(files)), ("library_bytes", "", sum(f[1] for f in files))]
     tiers = Counter(f[2] or "unknown" for f in files)
-    rows += [("library_files_by_quality", q, tiers.get(q, 0)) for q, _ in QUALITY]
+    rows += [("library_files_by_quality", q, tiers.get(q, 0)) for q, _ in TIERS]
+    rows += [("library_files_fake", "", sum(f[3] == "fake" for f in files))]
     formats, fbytes = Counter(), Counter()
-    for path, size, _ in files:
+    for path, size, *_ in files:
         formats[_format(path)] += 1
         fbytes[_format(path)] += size
     rows += [("library_files_by_format", k, v) for k, v in sorted(formats.items())]
     rows += [("library_bytes_by_format", k, v) for k, v in sorted(fbytes.items())]
 
     songs = con.execute(
-        "SELECT s.service, s.file, s.unavailable, f.quality, a.tries FROM wanted s "
+        "SELECT s.service, s.file, s.unavailable, coalesce(f.tier, f.quality), a.tries FROM wanted s "
         "LEFT JOIN files f ON f.path = s.file LEFT JOIN attempts a ON a.song_key = s.key"
     ).fetchall()
     wanted, have, reasons, tries, quality, fmt = (Counter() for _ in range(6))
@@ -92,7 +94,7 @@ def collect(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
         ]
     rows += [("songs_missing_by_reason", r, reasons[r]) for r in REASONS]
     rows += [("songs_not_found_by_tries", t, tries[t]) for t in ("1", "2-3", "4+")]
-    rows += [("songs_by_quality", q, quality.get(q, 0)) for q, _ in QUALITY]
+    rows += [("songs_by_quality", q, quality.get(q, 0)) for q, _ in TIERS]
     rows += [("songs_by_format", k, v) for k, v in sorted(fmt.items())]
 
     rows += _per_user(con)
@@ -114,7 +116,7 @@ def _per_user(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
     users = [r[0] for r in con.execute("SELECT DISTINCT user_id FROM sources WHERE user_id IS NOT NULL ORDER BY 1")]
     for uid in users:
         songs = con.execute(
-            "SELECT s.file, s.unavailable, f.quality, a.tries FROM songs s LEFT JOIN files f ON f.path = s.file "
+            "SELECT s.file, s.unavailable, coalesce(f.tier, f.quality), a.tries FROM songs s LEFT JOIN files f ON f.path = s.file "
             "LEFT JOIN attempts a ON a.song_key = s.key WHERE s.key IN (SELECT ls.song_key FROM list_songs ls "
             "JOIN sources src ON src.key = ls.list_key WHERE src.user_id = ? AND src.enabled)",
             (uid,),
@@ -125,7 +127,7 @@ def _per_user(con: sqlite3.Connection) -> list[tuple[str, str, float]]:
         rows += [("user_songs_wanted", f"{uid}", len(songs)), ("user_songs_in_library", f"{uid}", len(have))]
         rows += [("user_library_files", f"{uid}", len({r[0] for r in have}))]
         rows += [("user_songs_missing", f"{uid}", len(songs) - len(have))]
-        rows += [("user_songs_by_quality", f"{uid}:{q}", quality.get(q, 0)) for q, _ in QUALITY]
+        rows += [("user_songs_by_quality", f"{uid}:{q}", quality.get(q, 0)) for q, _ in TIERS]
         rows += [("user_songs_missing_by_reason", f"{uid}:{r}", reasons[r]) for r in REASONS]
     return rows
 

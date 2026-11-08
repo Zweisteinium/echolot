@@ -11,10 +11,25 @@ from echolot.jobs import acquire
 from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
 from echolot.library import catalog, recording, recordings, review
-from echolot.library.catalog import QUALITY
 from echolot.library.filing import Paths
 
-TIERS = [*QUALITY, ("missing", "Missing")]  # the quality scale of songs, best first
+TIERS = [*catalog.TIERS, ("missing", "Missing")]  # the quality scale of songs, best first (a fake FLAC in its source's)
+_TIER = "coalesce(f.tier, f.quality)"
+
+
+def _limits(i: int) -> str:
+    """A lossy tier's least bitrates per format (catalog.LIMITS: 0 high, 1 medium)."""
+    lim = catalog.LIMITS
+    return f"MP3 {lim['mp3'][i]}, AAC and Vorbis {lim['aac'][i]}, Opus {lim['opus'][i]} kbps and up"
+
+
+TIER_HINTS = {  # what each tier holds, for the hover of the rings' legends
+    "lossless": "Genuine FLAC: lossless, not made from a lossy file",
+    "lossy-high": f"{_limits(0)}: as good as the original for nearly everyone",
+    "lossy-mid": f"{_limits(1)}, below high: good, though not quite the original",
+    "lossy-low": "Below medium: audibly lossy",
+    "missing": "Not in the library yet",
+}  # (the tier, filled by the library upkeep: right after an update the quality)
 # the songs of a user: on the lists they follow
 MINE = (
     "SELECT ls.song_key FROM list_songs ls JOIN sources src ON src.key = ls.list_key "
@@ -42,8 +57,9 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     library = con.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
     files_of = "1" if uid is None else f"path IN (SELECT s.file FROM songs s WHERE {mine})"
     files, size = con.execute(f"SELECT count(*), coalesce(sum(size), 0) FROM files WHERE {files_of}", args).fetchone()
-    tiers_sql = f"SELECT quality, count(*) FROM files WHERE {files_of} GROUP BY quality"
-    by_tier = dict(con.execute(tiers_sql, args).fetchall())
+    tiers_sql = f"SELECT {_TIER}, count(*), sum(f.quality = 'fake') FROM files f WHERE {files_of} GROUP BY 1"
+    tiered = con.execute(tiers_sql, args).fetchall()
+    by_tier, file_fakes = {r[0]: r[1] for r in tiered}, sum(r[2] or 0 for r in tiered)
     counts = "count(*), count(file), count(DISTINCT file), coalesce(sum(file IS NOT NULL AND close_match), 0)"
     wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted s WHERE {mine}", args).fetchone()
     since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
@@ -56,7 +72,8 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         args,
     ).fetchone()[0]
     songs = con.execute(
-        f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS} FROM wanted s "
+        f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS}, coalesce(sum(f.quality = 'fake'), 0) AS fakes "
+        "FROM wanted s "
         f"LEFT JOIN files f ON f.path = s.file WHERE {mine}",
         args,
     ).fetchone()
@@ -75,14 +92,13 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "library_files": library[0],  # the whole library, whoever's songs are shown
         "library_size": library[1],
         "services": services,  # distinct songs (and missing ones) per service
-        "song_tiers": tier_counts(songs),
+        "song_tiers": tier_counts(songs),  # the songs (with the missing): the quality ring's Songs
+        "song_fakes": songs["fakes"],  # of them: fake FLACs, counted in their source's tier
         "files": files,
         "in_lists": in_lists,  # files the wanted songs have (a file can be several songs of the lists)
         "size": size,
-        "tiers": [
-            *[(key, label, by_tier.get(key, 0)) for key, label in QUALITY],
-            ("missing", "Missing", wanted - have),
-        ],
+        "tiers": [(key, label, by_tier.get(key, 0)) for key, label in catalog.TIERS],  # the files: the ring's Files
+        "file_fakes": file_fakes,  # of them: fake FLACs, counted in their source's tier
         "lossless": by_tier.get("lossless", 0),
         "wanted": wanted,
         "have": have,
@@ -95,12 +111,12 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     }
 
 
-_TIER_SUMS = ", ".join(f"coalesce(sum(f.quality = '{k}'), 0) AS \"{k}\"" for k, _ in QUALITY)
+_TIER_SUMS = ", ".join(f"coalesce(sum({_TIER} = '{k}'), 0) AS \"{k}\"" for k, _ in catalog.TIERS)
 
 
 def tier_counts(row: Row | dict) -> list[tuple[str, str, int]]:
     """(tier, label, songs) for a row with a column per quality tier, 'songs' and 'have'."""
-    counts = [(k, label, row[k] or 0) for k, label in QUALITY]
+    counts = [(k, label, row[k] or 0) for k, label in catalog.TIERS]
     return [*counts, ("missing", "Missing", (row["songs"] or 0) - (row["have"] or 0))]
 
 
@@ -108,7 +124,7 @@ def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
     """tier_counts of a list of songs (list_songs rows)."""
     n: dict[str, int] = {}
     for r in songs:
-        key = (r["quality"] or "lossy-low") if r["file"] else "missing"
+        key = (r["tier"] or r["quality"] or "lossy-low") if r["file"] else "missing"
         n[key] = n.get(key, 0) + 1
     return [(k, label, n.get(k, 0)) for k, label in TIERS]
 
@@ -134,13 +150,9 @@ BEST_TIERS = [  # how near the songs are to the best quality there is (best_tier
         "At their best",
         "genuine lossless, or the best copy there is: Spotify has nothing better, or no longer plays it",
     ),
-    (
-        "better",
-        "Can get better",
-        "lossy or a FLAC made from lossy, a close match, or Spotify played another song lately",
-    ),
-    ("missing", "Missing", "not in the library yet"),
-    ("gone", "Not to be had", "missing, and no source hands it out: greyed out, taken down, DRM"),
+    ("better", "Can get better", "lossy (a fake FLAC too), a close match, or Spotify played another song lately"),
+    ("missing", "Missing · searched", "not in the library yet, and searched for"),
+    ("gone", "Missing · not to be had", "not in the library, and no source hands it out: greyed out, taken down, DRM"),
 ]
 
 
@@ -228,7 +240,7 @@ def list_songs(con: Connection, key: str) -> list[Row]:
     return con.execute(
         "SELECT ls.position, s.key, s.service, s.artist, s.title, s.length, s.unavailable, "
         f"{db.play_url()} AS url, s.isrc, "
-        "s.file, s.close_match, f.quality, f.kbps, a.state FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
+        "s.file, s.close_match, f.quality, f.tier, f.kbps, a.state FROM list_songs ls JOIN songs s ON s.key = ls.song_key "
         "LEFT JOIN files f ON f.path = s.file LEFT JOIN availability a ON a.song_key = s.key "
         "WHERE ls.list_key = ? ORDER BY ls.position",
         (key,),

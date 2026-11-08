@@ -129,9 +129,7 @@ def stage(paths: Paths, uploads: list[tuple[str, Any]]) -> str:
 
 def tier(path: Path, kbps: int, fake: bool) -> str:
     """The quality tier of a file (catalog.QUALITY), as the library counts it."""
-    if path.suffix.lower().lstrip(".") in audio.LOSSLESS:
-        return "fake" if fake else "lossless"
-    return "lossy-high" if kbps >= 250 else "lossy-mid" if kbps >= 150 else "lossy-low"
+    return catalog.Entry(f"-/-{path.suffix}", 0, kbps, fake).quality
 
 
 def files(paths: Paths, batch: str) -> list[File]:

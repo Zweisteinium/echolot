@@ -10,17 +10,40 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.library.audio import AUDIO, LOSSLESS, probe
+from echolot.library.audio import AUDIO, LOSSLESS, LOSSPRINT_FAKE, probe
 from echolot.library.rules import artist_keys, mix_cut, same_feat, same_length, title_key
 
-# quality tiers, best first: (key, label)
+# a file's quality (files.quality), best first: (key, label); a fake FLAC (one made from a lossy file) is a tier
+# of its own here, for what decides by it (upgrades, review, recording)
 QUALITY = [
-    ("lossless", "Lossless"),
-    ("fake", "FLAC made from lossy"),
-    ("lossy-high", "Lossy ≥ 256 kbps"),
-    ("lossy-mid", "Lossy 160–250 kbps"),
-    ("lossy-low", "Lossy < 160 kbps"),
+    ("lossless", "FLAC"),
+    ("fake", "Fake FLAC"),
+    ("lossy-high", "Lossy, high"),
+    ("lossy-mid", "Lossy, medium"),
+    ("lossy-low", "Lossy, low"),
 ]
+# the tiers the pages count by (files.tier, Entry.tier): a fake FLAC in the tier of the lossy file it was made from
+TIERS = [t for t in QUALITY if t[0] != "fake"]
+# a lossy format's least bitrate (measured, kbps) for high and for medium, where it sounds about as good: high is
+# indistinguishable from the original for nearly everyone (MP3 V0/320, AAC and Vorbis 192, Opus 128), medium
+# good (MP3 V2/192, AAC 128-160, Opus 96); a little below the nominal rates, which files measure a bit under
+LIMITS = {"mp3": (240, 160), "aac": (190, 120), "vorbis": (190, 120), "opus": (120, 80)}
+CODECS = {"mp3": "mp3", "m4a": "aac", "aac": "aac", "ogg": "vorbis", "opus": "opus", "webm": "opus"}
+_SOURCE = re.compile(r"(?:(mp3|aac|opus|vorbis)\s*)?~(\d+)(?:-\d+)?\s*kbps", re.I)
+
+
+def lossy_tier(codec: str, kbps: float) -> str:
+    """The tier of lossy audio of a format (CODECS' values; another counts as MP3) at a bitrate."""
+    high, mid = LIMITS.get(codec, LIMITS["mp3"])
+    return "lossy-high" if kbps >= high else "lossy-mid" if kbps >= mid else "lossy-low"
+
+
+def source_tier(source: str | None) -> str | None:
+    """The tier of the lossy file a fake FLAC was made from, by the checks' estimate ("MP3 ~311 kbps",
+    "Opus ~131 kbps", "~256 kbps / V0": the spectrum's, measured as MP3; a range counts by its lower end)."""
+    m = _SOURCE.search(source or "")
+    return lossy_tier((m[1] or "mp3").lower(), int(m[2])) if m else None
+
 
 # "(3m43s)": what filing appends to a second file with the same name (another version of the title)
 LENGTH_SUFFIX = re.compile(r"\s\(\d+m\d{2}s\)(?:\s\(\d+\))?$")
@@ -39,7 +62,8 @@ class Entry:
     path: str  # relative to the library root
     duration: float
     kbps: int
-    fake: bool
+    fake: bool  # made from a lossy file (lossy_sourced): only a lossless format can be
+    source: str = ""  # a fake's source, as the checks estimate it (source_tier)
     ext: str = field(init=False)
     stem: str = field(init=False)
     title: str = field(init=False)
@@ -50,6 +74,7 @@ class Entry:
         folder, _, name = self.path.rpartition("/")
         base, _, ext = name.rpartition(".")
         self.ext = ext.lower()
+        self.fake = self.fake and self.ext in LOSSLESS  # (a lossy file under a fake FLAC's name is what it is)
         self.stem = f"{folder}/{base}"
         self.title = title_part(base, folder)
         self.akeys = artist_keys(folder)
@@ -65,7 +90,12 @@ class Entry:
             return "lossless"
         if self.fake:
             return "fake"
-        return "lossy-high" if self.kbps >= 250 else "lossy-mid" if self.kbps >= 150 else "lossy-low"
+        return lossy_tier(CODECS.get(self.ext, "mp3"), self.kbps)
+
+    @property
+    def tier(self) -> str:
+        """The tier the pages count it in: a fake FLAC's is that of its source (medium when not known)."""
+        return (source_tier(self.source) or "lossy-mid") if self.fake else self.quality
 
     def rank(self) -> tuple[int, int, int]:
         return (int(self.genuine), 0 if self.fake else self.kbps, -AUDIO.index(self.ext))
@@ -89,9 +119,13 @@ class Catalog:
 
     @classmethod
     def from_db(cls, con: sqlite3.Connection) -> "Catalog":
-        fakes = {r[0] for r in con.execute("SELECT stem FROM lossy_sourced")}
+        fakes = dict(con.execute("SELECT stem, source FROM lossy_sourced").fetchall())
         rows = con.execute("SELECT path, duration, kbps FROM files ORDER BY path")
-        entries = [Entry(p, d, k, p.rpartition(".")[0] in fakes) for p, d, k in rows]
+        checked = _estimates(con)
+        entries = [
+            Entry(p, d, k, (stem := p.rpartition(".")[0]) in fakes, fakes.get(stem) or checked.get(p, ""))
+            for p, d, k in rows
+        ]
         return cls([e for e in entries if e.ext in AUDIO])
 
     def song(
@@ -126,6 +160,24 @@ class Catalog:
             if same_length(e.duration, length) and same_feat(e.title, title)
         }
         return sorted(hits.values(), key=Entry.rank, reverse=True)
+
+
+def _estimates(con: sqlite3.Connection) -> dict[str, str]:
+    """The Lossy check's estimate of the source of the files it found lossy, for a fake whose own is not
+    noted: lossprint's format and bitrate where it is sure (as audio.judge trusts it), else the spectrum's."""
+    out = {}
+    for path, lossprint, spectrum in con.execute(
+        "SELECT path, lossprint, spectrum FROM lossy_checks WHERE verdict != 'ok'"
+    ).fetchall():
+        try:
+            lp, sp = json.loads(lossprint or "null") or {}, json.loads(spectrum or "null") or {}
+        except ValueError:
+            continue
+        if (lp.get("p") or 0) >= LOSSPRINT_FAKE and lp.get("kbps"):
+            out[path] = f"{lp.get('encoder') or ''} ~{round(lp['kbps'])} kbps"
+        elif sp.get("source"):
+            out[path] = sp["source"]
+    return out
 
 
 Known = dict[str, tuple[int, int, float, int]]  # path -> (size, mtime, duration, kbps)
@@ -184,7 +236,9 @@ def match_songs(con: sqlite3.Connection) -> str:
         best = hits[0] if hits else cat.by_stem.get(stem or "")  # SoundCloud: its own download
         found.append((best.path if best else None, key))
     with con:
-        con.executemany("UPDATE files SET quality = ? WHERE path = ?", [(e.quality, e.path) for e in cat.entries])
+        con.executemany(
+            "UPDATE files SET quality = ?, tier = ? WHERE path = ?", [(e.quality, e.tier, e.path) for e in cat.entries]
+        )
         con.executemany("UPDATE songs SET file = ? WHERE key = ?", found)
     have = sum(1 for path, _ in found if path)
     return f"{have} of {len(songs)} songs in the library"

@@ -1,11 +1,6 @@
-{# part-to-whole ring (charts.donut) with a figure in the middle; fake FLACs striped #}
+{# part-to-whole ring (charts.donut) with a figure in the middle #}
 {% macro donut_chart(d, figure, caption) -%}
 <svg class="donut" viewBox="0 0 {{ d.size }} {{ d.size }}" width="{{ d.size }}" height="{{ d.size }}" role="img" aria-label="{{ caption }}">
-  <defs>
-    <pattern id="stripes" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <rect width="4" height="4" class="stripe-bg"></rect><rect width="2" height="4" class="stripe"></rect>
-    </pattern>
-  </defs>
   <g transform="rotate(-90 {{ d.size / 2 }} {{ d.size / 2 }})">
     <circle class="ring" cx="{{ d.size / 2 }}" cy="{{ d.size / 2 }}" r="{{ d.radius }}" stroke-width="{{ d.width }}"></circle>
     {% for s in d.slices %}
@@ -55,12 +50,7 @@
     {% for t in g.values %}<span class="y" style="top: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}
     <div class="canvas">
     <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      <defs>
-        <pattern id="{{ name }}-stripes" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-          <rect width="6" height="6" class="stripe-bg"></rect><rect width="3" height="6" class="stripe"></rect>
-        </pattern>
-      </defs>
-      {% for b in g.bands %}<path class="band q-{{ b.key }}" d="{{ b.area }}"{% if b.key == 'fake' %} fill="url(#{{ name }}-stripes)"{% endif %}></path>{% endfor %}
+      {% for b in g.bands %}<path class="band q-{{ b.key }}" d="{{ b.area }}"></path>{% endfor %}
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
       {% for b in g.bands[:-1] %}<path class="edge q-{{ b.key }}" d="{{ b.edge }}"></path>{% endfor %}
     </svg>

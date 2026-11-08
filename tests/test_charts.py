@@ -97,6 +97,10 @@ def test_stacked_shares() -> None:
     assert len(hover) == 3 and hover[0][3][2] == ["missing", "Missing", 2, 2.0]
     assert round(g.end[1], 1) == round(100 * (1 - (87.4 - 70) / 30), 1)  # the lossless band's top
     assert charts.stacked(points[:1], tiers) is None
+    hover_now = json.loads(
+        charts.stacked([points[0], ("2026-11-08T12:00:00Z", {"lossless": 7130, "lossy-low": 856})], tiers).points
+    )[-1][3][0]
+    assert hover_now[3] == 89.2  # 89.28: rounded down, as the headline and the ring (not 89.3)
 
 
 def test_growth_axis_is_cut_to_a_stretch_of_a_large_library() -> None:

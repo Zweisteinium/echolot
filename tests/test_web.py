@@ -119,6 +119,8 @@ def test_best_ring(client: TestClient, settings: Settings) -> None:
     assert sum(tiers.values()) == wanted and tiers["best"] + tiers["better"] == have
     html = client.get("/library").text
     assert 'data-ring="best" hidden' in html and 'value="best"' in html and "At their best" in html
+    assert 'data-ring="files">' in html and 'data-ring="songs" hidden' in html  # Files first, Songs and Best behind
+    assert "1 of the lossy ones are FLACs made from lossy files" in html and "Missing · not to be had" in html
 
 
 def test_missing(client: TestClient) -> None:

@@ -29,7 +29,7 @@
   {% set g = growth[key] %}
   <div class="growth-panel" data-panel="{{ key }}"{% if key != show %} hidden{% endif %}>
     {% if g and key == 'quality' %}
-    {{ stack_chart(g, 'graph-' ~ key, 'Share of ' ~ what ~ ' in genuine lossless since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
+    {{ stack_chart(g, 'graph-' ~ key, 'Share of ' ~ what ~ ' in genuine FLAC since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
     {% elif g %}
     {{ growth_chart(g, 'graph-' ~ key, 'Growth of ' ~ what ~ ' since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
     {% elif window.range == 'all' and not window.zoomed %}

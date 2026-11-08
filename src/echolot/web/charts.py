@@ -276,10 +276,7 @@ def stacked(points: list[tuple[str, dict[str, float]]], tiers: list[tuple[str, s
             round(100 * t.x(i) / W, 2),
             round(100 * y(shares[i][0]) / H, 2),
             t.label(i),
-            [
-                [key, label, round(points[i][1].get(key, 0)), round(shares[i][k], 1)]
-                for k, (key, label) in enumerate(tiers)
-            ],
+            [[key, label, round(points[i][1].get(key, 0)), down(shares[i][k])] for k, (key, label) in enumerate(tiers)],
         ]
         for i in t.keep
     ]

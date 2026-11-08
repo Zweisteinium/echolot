@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from echolot import db
 from echolot.config import Settings
 from echolot.library import history
-from echolot.library.catalog import QUALITY
+from echolot.library.catalog import TIERS
 from echolot.web import create_app
 
 
@@ -55,7 +55,7 @@ def test_keyed(con) -> None:
     """A metric's keys at each snapshot; a user's, without their prefix."""
     history.snapshot(con, datetime.now() + timedelta(hours=1))
     rows = history.keyed(con, "library_files_by_quality")
-    assert len(rows) == 2 and rows[0][1].keys() == {k for k, _ in QUALITY}
+    assert len(rows) == 2 and rows[0][1].keys() == {k for k, _ in TIERS}  # (a fake FLAC counts in its source's)
     mine = history.keyed(con, "user_songs_by_quality", "1:")
     assert len(mine) == 2 and "lossless" in mine[0][1]
     assert not history.keyed(con, "user_songs_by_quality", "99:")
