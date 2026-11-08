@@ -66,7 +66,8 @@ def test_upload_check_and_import(settings: Settings, login: Callable[..., TestCl
     html = post_files(client, files)
     batch = batch_of(html)
     assert '<input type="hidden" name="song_1" value="spotify:s3">' in html  # detected by its name
-    assert "Artist C – Gone Song" in html and "<select" not in html
+    assert "Artist C – Gone Song" in html and '<select name="song' not in html  # (its song: no choice)
+    assert '<option value="elsewhere" selected>Elsewhere</option>' in html  # from: no link of the song says more
     assert "Not audio" in html and 'name="song_2"' not in html and html.count('class="upload-row"') == 2
     assert re.search(r"\d:\d\d shorter|\d+ s shorter", html)  # what is off: its length
     assert "q-lossless" in html  # its quality
@@ -407,3 +408,73 @@ def test_against_your_copy_by_its_audio(tmp_path: Path) -> None:
     fp, wave = identity.against(tmp_path / "b.flac", copy)
     assert fp <= identity.OTHER and wave < upload.WAVE_OTHER
     assert identity.against(tmp_path / "a.flac", tmp_path / "gone.m4a") == (None, None)
+
+
+def test_the_artists_own_release_is_the_best_there_is(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """A file uploaded from the song's free download (the From field, filled in from its link): noted with
+    the link (History, the DOWNLOAD tag); even lossy it is the best there is: at its best, off the Buy list,
+    not in the FLAC upgrade, marked in the list with Try again, which lifts all of it."""
+    from echolot import db
+    from echolot.jobs import acquire
+    from echolot.library import origin
+    from echolot.web import stats
+
+    gate = "https://hypeddit.com/up/trancetune"
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "INSERT INTO free_links (song_key, url, site, checked) VALUES ('soundcloud:1001', ?, 'Hypeddit', '')",
+            (gate,),
+        )
+        con.execute("UPDATE files SET quality = 'lossy-high', tier = 'lossy-high' WHERE path LIKE 'Uploader/%'")
+    con.close()
+    client = login(create_app(settings))
+    files = [("files", ("Uploader - Trance Tune.mp3", (AUDIO / "silence.flac").read_bytes(), "audio/mpeg"))]
+    html = post_files(client, files, {"song": "soundcloud:1001"})
+    assert '<option value="free" selected>Hypeddit: the artist&#39;s free download</option>' in html
+    con = db.connect(settings.db_path)
+    try:
+        assert "soundcloud:1001" in {r["key"] for r in stats.buy(con)}  # (before: its free download on the Buy list)
+        assert "soundcloud:1001" in {r["key"] for r in acquire._upgradable(con)}  # (and in the FLAC upgrade)
+        file = con.execute("SELECT file FROM songs WHERE key = 'soundcloud:1001'").fetchone()[0]
+        origin.note(con, "soundcloud:1001", file, "free")  # (as the import does for the file it became)
+        assert "soundcloud:1001" not in {r["key"] for r in stats.buy(con)}
+        best = dict((k, n) for k, _, n in stats.best_tiers(con))
+        assert best["best"] >= 1 and "soundcloud:1001" in {r[0] for r in con.execute(origin.BEST)}
+        assert "soundcloud:1001" not in {r["key"] for r in acquire._upgradable(con)}  # not searched for more
+        assert "The artist&#39;s own release (Hypeddit" in client.get("/lists/soundcloud:someone/likes").text
+        assert client.post("/songs/soundcloud%3A1001/origin-again").status_code == 200
+        assert not con.execute("SELECT 1 FROM origins").fetchone()
+        assert "soundcloud:1001" in {r["key"] for r in stats.buy(con)}  # back on the Buy list, searched again
+        assert "soundcloud:1001" in {r["key"] for r in acquire._upgradable(con)}
+        origin.note(con, "soundcloud:1001", "Uploader/other.flac", "free")  # another file than the song's
+        assert not con.execute(origin.BEST).fetchall()
+    finally:
+        con.close()
+
+
+def test_an_import_notes_where_the_file_came_from(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """The From field reaches the import: the origin is noted for the file the song has now, and History
+    (and so the file's DOWNLOAD tag) gets the link."""
+    from echolot import db
+
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "INSERT INTO free_links (song_key, url, site, checked) VALUES ('spotify:s3', 'https://hypeddit.com/c/gone', 'Hypeddit', '')"
+        )
+    con.close()
+    client = login(create_app(settings))
+    files = [("files", ("Artist C - Gone Song.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac"))]
+    batch = batch_of(post_files(client, files))
+    client.post(f"/missing/upload/{batch}/import", data={"song_1": "spotify:s3", "from_1": "free"})
+    con = db.connect(settings.db_path)
+    try:
+        row = con.execute(
+            "SELECT o.kind, o.site, o.file = s.file FROM origins o JOIN songs s ON s.key = o.song_key"
+        ).fetchone()
+        assert tuple(row) == ("free", "Hypeddit", 1)
+        e = con.execute("SELECT url FROM events WHERE song = 'spotify:s3' ORDER BY id DESC").fetchone()
+        assert e[0] == "https://hypeddit.com/c/gone"
+    finally:
+        con.close()

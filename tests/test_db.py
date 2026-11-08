@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V42 = "ALTER TABLE files DROP COLUMN tier; "  # schema 42
+V43 = "DROP TABLE origins; "  # schema 43
+V42 = V43 + "ALTER TABLE files DROP COLUMN tier; "  # schema 42
 V41 = V42 + "DROP TABLE free_links; "  # schema 41
 V40 = V41 + "ALTER TABLE files DROP COLUMN pages; "  # schema 40
 V37 = V40 + "ALTER TABLE list_songs DROP COLUMN added; "  # schema 37
@@ -58,6 +59,7 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     assert {"url", "compared", "peer_bytes", "peer", "peer_path", "arrived"} <= columns(con, "events")
     assert "master" in columns(con, "lossy_sourced") and "verdict" in columns(con, "lossy_checks")
     assert {"pages", "tier"} <= columns(con, "files") and "site" in columns(con, "free_links")
+    assert "kind" in columns(con, "origins")
     assert {"songs_file", "songs_stem"} <= {r[1] for r in con.execute("PRAGMA index_list(songs)")}
     plan = " ".join(
         str(r[-1]) for r in con.execute("EXPLAIN QUERY PLAN SELECT * FROM songs WHERE file = ? OR stem = ?", ("a", "b"))

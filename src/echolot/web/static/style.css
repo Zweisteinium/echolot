@@ -805,6 +805,9 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .checks .none { grid-column: span 2; color: var(--muted); font-style: italic; }
 .upload-table .force { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; cursor: pointer; color: var(--muted); }
 .upload-table .force:has(input:checked) { color: var(--warn); font-weight: 600; }
+/* where the file came from (library/origin): pre-filled from the song's links */
+.upload-table .upload-from { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; color: var(--muted); }
+.upload-table .upload-from select { max-width: 100%; min-width: 0; padding: 0.1rem 0.35rem; font-size: 0.8rem; }
 @media (max-width: 640px) {  /* narrow: a file per block, its file, song and check above each other, × beside */
   .upload-table thead { display: none; }
   .upload-table, .upload-table tbody { display: block; }

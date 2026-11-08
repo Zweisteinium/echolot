@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 43
+VERSION = 44
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -43,6 +43,14 @@ CREATE TABLE bandcamp (             -- a song's track on Bandcamp, linked from i
     free INTEGER NOT NULL DEFAULT 0,  -- a free download (no email asked): downloaded by the job
     result TEXT NOT NULL DEFAULT '',  -- what the free download came to (filed, not the song, ...)
     checked TEXT NOT NULL
+);
+CREATE TABLE origins (              -- where a file uploaded by hand came from (library/origin)
+    song_key TEXT PRIMARY KEY,
+    file TEXT NOT NULL,             -- the file it came with (another file of the song ends the note)
+    kind TEXT NOT NULL,             -- free (the artist's free download), bought, elsewhere
+    site TEXT NOT NULL DEFAULT '',  -- Hypeddit, Bandcamp, ...
+    url TEXT NOT NULL DEFAULT '',
+    since TEXT NOT NULL
 );
 CREATE TABLE free_links (           -- a song's free download outside Bandcamp, linked from its SoundCloud page
     song_key TEXT PRIMARY KEY,
@@ -526,6 +534,15 @@ MIGRATIONS = {
     ],
     43: [  # the tier the pages count a file in (catalog.TIERS); filled by the next match_songs (library upkeep)
         "ALTER TABLE files ADD COLUMN tier TEXT"
+    ],
+    44: [  # where a file uploaded by hand came from (library/origin); the uploads so far of songs with a free
+        # download link and that file still: from that link, as the upload dialog now suggests
+        "CREATE TABLE IF NOT EXISTS origins (song_key TEXT PRIMARY KEY, file TEXT NOT NULL, kind TEXT NOT NULL, "
+        "site TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)",
+        "INSERT OR REPLACE INTO origins (song_key, file, kind, site, url, since) SELECT e.song, e.path, 'free', "
+        "fl.site, fl.url, e.ts FROM events e JOIN free_links fl ON fl.song_key = e.song AND fl.url > '' "
+        "JOIN songs s ON s.key = e.song AND s.file = e.path WHERE e.source = 'manual' "
+        "AND e.action IN ('new', 'upgrade') ORDER BY e.id",
     ],
 }
 

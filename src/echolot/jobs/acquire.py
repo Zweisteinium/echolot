@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, identity, recordings, review, rules, tagging
+from echolot.library import audio, catalog, filing, identity, origin, recordings, review, rules, tagging
 from echolot.library.filing import Want
 from echolot.services import slskd, soulseek, spotify, ytdlp
 from echolot.services import soundcloud as sc_api
@@ -618,22 +618,27 @@ def upgrade_all(run: "Run") -> str:
     return _upgrade(run, everything=True)
 
 
+def _upgradable(con: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The songs the FLAC upgrade searches (with their tries), the longest waiting first: see _upgrade."""
+    return con.execute(
+        "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
+        "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
+        f"WHERE f.quality != 'lossless' AND NOT s.close_match AND s.key NOT IN ({origin.BEST}) AND ({SEARCHED} OR NOT EXISTS "
+        "(SELECT 1 FROM wanted o WHERE o.service != 'soundcloud' AND o.file = s.file)) ORDER BY last_try"
+    ).fetchall()
+
+
 def _upgrade(run: "Run", everything: bool) -> str:
     """FLAC-only search for wanted songs whose library copy is not genuine lossless; each song waits 12 h,
     1 d, 2 d, then every 3 d between searches; the longest waiting first, at most upgrade_batch per run (or
     what a run that gave way left). A SoundCloud song's FLAC is kept for review (Fetcher.attempt), and the
     song is not searched while one waits there; a SoundCloud song whose file a Spotify (or YouTube) song has
     is upgraded as that one. Close matches are not upgraded (a FLAC found would be the song, not the version
-    taken)."""
+    taken), nor a song whose file is the artist's own release (origin.BEST: the best there is)."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)
-        rows = con.execute(
-            "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
-            "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
-            f"WHERE f.quality != 'lossless' AND NOT s.close_match AND ({SEARCHED} OR NOT EXISTS "
-            "(SELECT 1 FROM wanted o WHERE o.service != 'soundcloud' AND o.file = s.file)) ORDER BY last_try"
-        ).fetchall()
+        rows = _upgradable(con)
         with con:  # songs that are lossless now or left every list
             con.execute(
                 "DELETE FROM upgrades WHERE song_key NOT IN (SELECT s.key FROM wanted s JOIN files f "

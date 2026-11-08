@@ -10,7 +10,7 @@ from echolot import db
 from echolot.jobs import acquire
 from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
-from echolot.library import catalog, recording, recordings, review
+from echolot.library import catalog, origin, recording, recordings, review
 from echolot.library.filing import Paths
 
 TIERS = [*catalog.TIERS, ("missing", "Missing")]  # the quality scale of songs, best first (a fake FLAC in its source's)
@@ -134,10 +134,12 @@ def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
 _OWN = "(s.file IS NOT NULL AND NOT s.close_match)"
 _GONE = f"(s.unavailable IS NOT NULL OR av.state IN {UNPLAYABLE})"
 _HELD = f"s.key IN ({recording.HELD})"
-# a song at the best quality there is (as the lists mark it: recording.marks): genuine lossless, a copy Spotify has
-# nothing better of, or one of a song Spotify no longer plays
+_ORIGINAL = f"s.key IN ({origin.BEST})"  # its file the artist's own release (library/origin)
+# a song at the best quality there is (as the lists mark it: recording.marks, origin.marks): genuine lossless, a copy
+# Spotify has nothing better of, one of a song Spotify no longer plays, or the artist's own release
 _BEST = (
-    f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR (s.key LIKE 'spotify:%' AND {_GONE}))), 0) AS best"
+    f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR {_ORIGINAL} "
+    f"OR (s.key LIKE 'spotify:%' AND {_GONE}))), 0) AS best"
 )
 # a missing song no source hands out (greyed out, DRM, taken down, another recording on Spotify): it can't be had,
 # so it doesn't count for best
@@ -148,7 +150,8 @@ BEST_TIERS = [  # how near the songs are to the best quality there is (best_tier
     (
         "best",
         "At their best",
-        "genuine lossless, or the best copy there is: Spotify has nothing better, or no longer plays it",
+        "genuine lossless, or the best copy there is: the artist's own release, Spotify has nothing better, or "
+        "no longer plays it",
     ),
     ("better", "Can get better", "lossy (a fake FLAC too), a close match, or Spotify played another song lately"),
     ("missing", "Missing · searched", "not in the library yet, and searched for"),
@@ -221,7 +224,8 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
         " WHERE ls.song_key = s.key) AS in_lists "
         "FROM wanted s LEFT JOIN files f ON f.path = s.file "
         "LEFT JOIN bandcamp b ON b.song_key = s.key AND b.url > '' AND (b.price IS NOT NULL OR b.free) "
-        "LEFT JOIN free_links fl ON fl.song_key = s.key AND fl.url > '' "
+        "LEFT JOIN free_links fl ON fl.song_key = s.key AND fl.url > '' AND NOT EXISTS (SELECT 1 FROM origins o "
+        f"WHERE o.song_key = s.key AND o.kind = 'free') AND NOT {_ORIGINAL} "  # (the gate gave what it has)
         "WHERE (b.song_key IS NOT NULL OR fl.song_key IS NOT NULL) AND (s.file IS NULL OR f.quality != 'lossless') "
         f"AND {mine} ORDER BY (coalesce(b.free, 0) OR fl.song_key IS NOT NULL) DESC, b.price IS NULL, b.price, "
         "s.artist COLLATE NOCASE",

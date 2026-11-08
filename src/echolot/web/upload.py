@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from echolot.library import filing, upload
+from echolot.library import filing, origin, upload
 from echolot.settings import options
 from echolot.web import stats
 from echolot.web.common import DB, page
@@ -74,6 +74,7 @@ def upload_file(
     fit = upload.fit(con, f, match, paths.tracks)
     go = upload.importable(f, match, copy, fit)
     different = upload.sounds_different(fit)
+    likely, froms = origin.choices(con, match["key"]) if match else ("", [])
     return page(
         request,
         "_upload_row.html",
@@ -83,6 +84,8 @@ def upload_file(
         checks=upload.checks(fit, match),
         go=go,
         different=different,
+        likely=likely,
+        froms=froms,
     )
 
 
@@ -93,6 +96,9 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
     songs = _songs(request, con)
     _batch(request, batch)
     chosen, remove = {}, {int(n[7:]) for n in form if n.startswith("remove_") and n[7:].isdigit()}
+    froms = {
+        int(n[5:]): str(v) for n, v in form.items() if n.startswith("from_") and n[5:].isdigit() and v in origin.KINDS
+    }
     for name, value in form.multi_items():
         if name.startswith("song_") and name[5:].isdigit() and isinstance(value, str) and value:
             if value not in songs:
@@ -102,9 +108,18 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
         upload.cancel(_paths(request), batch)
         return page(request, "_upload.html", step="done", results=[], imported=[], none=True)
     vault = request.app.state.vault  # (filing reads and writes files and asks Spotify for the cover)
-    results = await run_in_threadpool(upload.import_files, con, _paths(request), vault, batch, chosen, remove)
+    results = await run_in_threadpool(
+        upload.import_files, con, _paths(request), vault, batch, chosen, remove, origins=froms
+    )
     imported = [key for _, key in results if key]  # (the page takes these songs off Missing)
     return page(request, "_upload.html", step="done", results=[line for line, _ in results], imported=imported)
+
+
+@router.post("/songs/{key:path}/origin-again", response_class=HTMLResponse)
+def song_origin_again(request: Request, con: DB, key: str) -> HTMLResponse:
+    """Search a song whose file is the artist's own release for a better copy again (its mark goes)."""
+    origin.forget(con, key)
+    return HTMLResponse("")
 
 
 @router.post("/missing/upload/{batch}/cancel")

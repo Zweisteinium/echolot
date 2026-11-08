@@ -530,6 +530,7 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("ALTER TABLE files DROP COLUMN pages")  # (schema 41's)
         con.execute("ALTER TABLE files DROP COLUMN tier")  # (schema 43's)
         con.execute("DROP TABLE free_links")  # (schema 42's)
+        con.execute("DROP TABLE origins")  # (schema 44's)
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)

@@ -67,6 +67,8 @@
 {% macro song_mark(key, m, can) -%}
 {%- if m and m.kind == 'best' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to try recording it again." aria-label="{{ m.why }}; try again"
   hx-post="/songs/{{ key|urlencode }}/spotify-again" hx-swap="outerHTML" hx-confirm="Offer this song for recording again?">{{ icon('info', 13) }}</button>
+{%- elif m and m.kind == 'original' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to search for a better copy again." aria-label="{{ m.why }}; search again"
+  hx-post="/songs/{{ key|urlencode }}/origin-again" hx-swap="outerHTML" hx-confirm="Search for a better copy of this song again?">{{ icon('info', 13) }}</button>
 {%- elif m %}&#8288;<span class="spotify-best" title="{{ m.why }}" aria-label="{{ m.why }}">{{ icon('clock' if m.kind == 'lately' else 'info', 13) }}</span>
 {%- endif %}
 {%- endmacro %}

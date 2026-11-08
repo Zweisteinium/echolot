@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from echolot.library import audio, catalog, filing, identity, rules
+from echolot.library import audio, catalog, filing, identity, origin, rules
 from echolot.library.filing import Paths, Want
 
 if TYPE_CHECKING:
@@ -440,12 +440,14 @@ def import_files(
     chosen: dict[int, str],
     remove: set[int] = frozenset(),
     source: str = "manual",
+    origins: dict[int, str] | None = None,
 ) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file
     (one covered by a close match too: the version stays its own file, unless n is in `remove`), a song in
     the library the file in place of its copy (better, or replaced anyway: filing.file_into replace); delete
     the batch.
     `source`: where the files come from, as History shows it (manual: by hand; mitschnitt: recorded).
+    `origins`: where each came from (origin.KINDS: noted for the file it becomes, its link in History).
     Returns one line per file, with the song key when the song has the file now."""
     from echolot.jobs.acquire import finish
 
@@ -460,16 +462,20 @@ def import_files(
         want, fake, have = Want.of(song), f.tier == "fake", None if close else song["file"]
         if not have:
             _link(con, key, want, f.seconds if close else 0)  # this file whatever its length
+        kind = (origins or {}).get(n, "")
         info = {
             "match": "by hand",
             "fake": fake,
             "fake_source": f.source,
             "replaces": have or "",
             "replace": bool(have),
+            "url": origin.link(con, key, kind)[1],
         }
         action, dest = filing.file_into(con, paths, f.path, want, source, **info)  # a better copy takes over
         if dest and action in ("new", "upgrade"):
             finish(_Run(paths, vault), con, dest, want)
+            if kind:
+                origin.note(con, key, dest.relative_to(paths.tracks).as_posix(), kind)
         if not have and action in ("new", "upgrade", "duplicate"):
             _link(con, key, want, f.seconds if close else 0)
         elif have and dest and action == "upgrade":  # linked to its new copy, whatever that copy's length

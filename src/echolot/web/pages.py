@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from echolot.library import catalog, filing, history, recording
+from echolot.library import catalog, filing, history, origin, recording
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, discogs, stats
 from echolot.web.common import DB, back, page
@@ -207,6 +207,7 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     same = stats.same_as(songs)  # (the quality bar counts such a song once)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
     marks = recording.marks(con, request.state.user.id, songs) if lst["service"] == "spotify" else {}
+    marks |= {k: recording.Mark("original", why) for k, why in origin.marks(con, [s["key"] for s in songs]).items()}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}  # (Bandcamp sells these)
     links = stats.links(con) if lst["service"] == "soundcloud" else {}  # (free downloads elsewhere)
     return page(
