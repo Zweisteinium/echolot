@@ -449,6 +449,15 @@ def test_the_artists_own_release_is_the_best_there_is(settings: Settings, login:
         assert "soundcloud:1001" in {r["key"] for r in acquire._upgradable(con)}
         origin.note(con, "soundcloud:1001", "Uploader/other.flac", "free")  # another file than the song's
         assert not con.execute(origin.BEST).fetchall()
+        with con:
+            con.execute(
+                "INSERT INTO bandcamp (song_key, url, artist, title, price, currency, checked) VALUES "
+                "('soundcloud:1001', 'https://up.bandcamp.com/track/tune', 'Up', 'Tune', 1.5, 'EUR', '')"
+            )
+        origin.note(con, "soundcloud:1001", file, "free")
+        assert not con.execute(origin.BEST).fetchall()  # Bandcamp sells it (lossless): better than the free MP3
+        origin.note(con, "soundcloud:1001", file, "bought")
+        assert con.execute(origin.BEST).fetchall()  # bought there: that offer's own file
     finally:
         con.close()
 

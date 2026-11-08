@@ -535,14 +535,9 @@ MIGRATIONS = {
     43: [  # the tier the pages count a file in (catalog.TIERS); filled by the next match_songs (library upkeep)
         "ALTER TABLE files ADD COLUMN tier TEXT"
     ],
-    44: [  # where a file uploaded by hand came from (library/origin); the uploads so far of songs with a free
-        # download link and that file still: from that link, as the upload dialog now suggests
+    44: [  # where a file uploaded by hand came from (library/origin): noted from now on, by the upload dialog
         "CREATE TABLE IF NOT EXISTS origins (song_key TEXT PRIMARY KEY, file TEXT NOT NULL, kind TEXT NOT NULL, "
-        "site TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)",
-        "INSERT OR REPLACE INTO origins (song_key, file, kind, site, url, since) SELECT e.song, e.path, 'free', "
-        "fl.site, fl.url, e.ts FROM events e JOIN free_links fl ON fl.song_key = e.song AND fl.url > '' "
-        "JOIN songs s ON s.key = e.song AND s.file = e.path WHERE e.source = 'manual' "
-        "AND e.action IN ('new', 'upgrade') ORDER BY e.id",
+        "site TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', since TEXT NOT NULL)"
     ],
 }
 

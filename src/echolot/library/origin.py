@@ -11,10 +11,11 @@ from dataclasses import dataclass
 
 KINDS = ("free", "bought", "elsewhere")
 _OFFER = "SELECT 1 FROM bandcamp b WHERE b.song_key = o.song_key AND b.url > '' AND (b.price IS NOT NULL OR b.free)"
-# SQL: the keys of the songs whose file is the artist's own release, which no Bandcamp offer betters
+# SQL: the keys of the songs whose file is the artist's own release, which no Bandcamp offer betters (one bought
+# there is that offer's file)
 BEST = (
     "SELECT o.song_key FROM origins o JOIN songs os ON os.key = o.song_key AND os.file = o.file "
-    f"WHERE o.kind IN ('free', 'bought') AND NOT EXISTS ({_OFFER})"
+    f"WHERE o.kind IN ('free', 'bought') AND (o.site = 'Bandcamp' OR NOT EXISTS ({_OFFER}))"
 )
 
 
