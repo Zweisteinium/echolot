@@ -23,22 +23,28 @@ cannot find yet, it tells you, and why.
 - **Syncs your lists.** Spotify playlists and likes, SoundCloud likes and sets, YouTube playlists, yours
   or anyone's public ones.
 - **Downloads the songs.** From Soulseek, FLAC first, with YouTube and SoundCloud as the fallback. Lossy
-  copies get upgraded to a genuine FLAC later, and fakes (FLACs made from MP3s) are spotted.
+  copies get upgraded to a genuine FLAC later, and fakes (FLACs made from MP3s) are spotted by two checks.
 - **Verifies every file.** Correctness comes first: artist, title, version and length have to match, and
   the audio is compared with the official release. Anything unsure waits on the Review page, with a player.
 - **Keeps it tidy.** One file per song, however many lists hold it, tagged as the song in your list.
   Nothing is overwritten; a replaced file waits 30 days before it goes.
 - **Explains the gaps.** For every missing song: what was searched, what came back, why it didn't fit.
   A file you have yourself can be uploaded and is checked the same way.
-- **Statistics.** Growth over time, quality per list (with how much of it is the best quality there is),
-  and what changed on Spotify and SoundCloud (songs taken down, greyed out, re-uploaded).
-- **Bandcamp.** A SoundCloud song you have lossy whose page links to Bandcamp: a free download comes in as
-  FLAC by itself, anything for sale is listed on the Buy page with its price and a link.
+- **Statistics.** Growth over time; quality by file, by song and by how near each song is to the best
+  there is (lossy files ranked by how their format sounds: Opus at 128 kbps counts high, MP3 at 128 low);
+  what changed on Spotify and SoundCloud (songs taken down, greyed out, re-uploaded).
+- **Where to buy.** A SoundCloud song you have lossy whose page links to Bandcamp or a free download
+  (Hypeddit, ToneDen, DropLoud and the like): a free Bandcamp download or a file on Dropbox comes in by
+  itself, the rest is listed on the Buy page with its price or link. Upload what you got there and say
+  where it came from: the artist's own release counts as the best there is, even as an MP3.
 - **Search.** Find a single song in Deezer, Apple Music and SoundCloud at once, hear a preview, and get
   it: it lands in your playlist "Echolot · Wished". Paste a playlist link to follow it.
-- **Recording.** With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your Windows PC, press
-  Record on a Spotify list: Mitschnitt plays the songs Echolot lacks in lossless, records each bit-exact and
-  puts it straight into your library. Connect it under Account; a device is only ever its owner's.
+- **Recording.** With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your PC (Windows or Linux),
+  press Record on a Spotify list, or on the Library page for all of them: Mitschnitt plays the songs
+  Echolot is missing or only has lossy, records each from Spotify bit for bit, checks it and uploads it, and
+  Echolot checks it again before filing it. Connect it under Account; a device is only ever its owner's.
+- **Discogs.** Off by default: which releases of your library songs Discogs lacks as a download, each with
+  a suggestion to submit, taken from the release on Beatport.
 - **Multi-user.** Everyone logs in with their Navidrome account and follows their own lists.
 - **Hearts.** The songs you like on Spotify and SoundCloud, and the ones you hearted in a player before
   Echolot had them, have their heart in Navidrome too, in your account, given in the order you liked them
@@ -200,14 +206,17 @@ http you paste one address back (the Playlists page shows where).
 3. **Fallback.** What Soulseek doesn't have is searched right away on YouTube (the official audio first),
    then on SoundCloud. Songs found nowhere are tried again every evening, with looser terms after a few
    misses, weekly after a week.
-4. **Check.** Each download is repaired and normalised (WAV, AIFF and ALAC become FLAC, hi-res becomes
-   44.1/48 kHz 24 bit), checked for being made from a lossy file (a spectrum check and
+4. **Check.** Each download is repaired and normalised (WAV, AIFF and ALAC become FLAC with the very same
+   samples, which is checked; hi-res becomes 44.1/48 kHz 24 bit unless Server settings keeps it as it is),
+   checked for being made from a lossy file (a spectrum check and
    [lossprint](https://github.com/maxdjohnson/lossprint)) and identified by name and by sound.
 5. **File.** Into `tracks/<Artist>/`. A genuine FLAC replaces a lossy or fake copy.
-6. **Upgrade.** Lossy songs are searched again, FLAC only, the longest waiting first. A new SoundCloud
-   song's Bandcamp link (on its SoundCloud page) is read once: a free download is fetched as FLAC, a price
-   goes on the Buy page (Refresh there reads them all again). Echolot reads only the pages songs link to
-   (Bandcamp's search is closed to bots), asks as itself and stops at a bot check.
+6. **Upgrade.** Lossy songs are searched again, FLAC only, the longest waiting first; not the ones whose
+   file is the artist's own release. A new SoundCloud song's links (on its SoundCloud page) are read once:
+   a free Bandcamp download or a Dropbox file is fetched, a price or a download gate (Hypeddit and the
+   like, which wants a follow or an email) goes on the Buy page; Refresh there reads them all again.
+   Echolot reads only the pages songs link to (Bandcamp's search is closed to bots), asks as itself and
+   stops at a bot check.
 7. **Playlists.** One `.m3u` per list, in list order, with its cover, in `playlists/<user>/`.
 
 <details>
@@ -263,7 +272,7 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 
 ## Running it
 
-- **Jobs** run on their own schedule (Server settings); **Library** starts, stops and pauses them.
+- **Jobs** run on their own schedule (Server settings); **History → Jobs** starts, stops and pauses them.
 - **History** lists everything filed and rejected; `docker compose logs echolot` has the details.
 - **Users** are Navidrome's accounts; Navidrome admins are admins here too, and **Users** gives others
   more rights. Locked out: `docker compose exec echolot echolot user admin <name>`.
@@ -293,7 +302,8 @@ docker compose up -d
 | Availability check | 05:30 | whether your songs still play on Spotify and SoundCloud |
 | Library upkeep | every 5 min | rescans the files, applies review decisions, writes the playlists |
 | FLAC upgrade for all songs, Covers, Lossy check | off | start them by hand |
-| Bandcamp offers | after New SoundCloud songs | a new song's Bandcamp offer; Refresh on the Buy page reads all again |
+| Bandcamp offers | after New SoundCloud songs | a new song's Bandcamp offer and free downloads; Refresh on the Buy page reads all again |
+| Discogs check | off | Check on the Discogs page: a list's releases on Discogs and Beatport |
 </details>
 
 ## API and metrics
@@ -327,8 +337,8 @@ The audio tests need ffmpeg, like the image. `echolot serve` listens on http://1
 |---|---|
 | `cli.py`, `config.py`, `db.py` | the command line, the environment, the database |
 | `settings/` | settings, stored secrets, logins and tokens, the followed lists, `echolot.yml` |
-| `services/` | Spotify, SoundCloud, YouTube, Bandcamp, Navidrome, the Soulseek clients (Sockseek, slskd), yt-dlp |
-| `library/` | the matching rules, the audio check, tags, the catalog, filing, review, uploads, playlists, statistics |
+| `services/` | Spotify, SoundCloud, YouTube, Bandcamp and free downloads, Discogs, Beatport, Navidrome, the Soulseek clients (Sockseek, slskd), yt-dlp |
+| `library/` | the matching rules, the audio check, tags, the catalog, filing, review, uploads, recording, playlists, statistics |
 | `jobs/` | the worker and its schedule, finding songs, reading lists |
 | `web/` | the pages and the API |
 
