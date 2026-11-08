@@ -715,3 +715,54 @@ def test_levels_of_a_file_recorded_at_a_quarter(tmp_path: Path) -> None:
     assert full[0] is not None and quarter[0] is not None and full[1] is not None and quarter[1] is not None
     assert abs((full[0] - quarter[0]) - 12.0) < 0.3 and abs((full[1] - quarter[1]) - 12.0) < 0.3
     assert audio.levels(tmp_path / "missing.flac") == (None, None)
+
+
+def _wav(path: Path, bits: int, floating: bool = False, rate: int = 44100, frames: int = 44100) -> Path:
+    """A stereo WAV of noise: integer samples of `bits`, or 32-bit float."""
+    import random
+    import struct
+
+    rng, data = random.Random(bits), bytearray()
+    for _ in range(frames * 2):
+        v = rng.uniform(-0.7, 0.7)
+        if floating:
+            data += struct.pack("<f", v)
+        else:
+            data += int(v * (2 ** (bits - 1) - 1)).to_bytes(bits // 8, "little", signed=True)
+    width = 4 if floating else bits // 8
+    fmt = struct.pack(
+        "<IHHIIHH", 16, 3 if floating else 1, 2, rate, rate * 2 * width, 2 * width, 32 if floating else bits
+    )
+    path.write_bytes(
+        b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + fmt + b"data" + struct.pack("<I", len(data)) + data
+    )
+    return path
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_a_wav_becomes_flac_sample_for_sample(tmp_path: Path) -> None:
+    """A WAV becomes FLAC with the same samples (16, 24 and 32 bit: 32 as 32-bit FLAC, which ffmpeg would cut
+    to 24), the WAV goes; a float WAV becomes 32-bit FLAC too (FLAC holds no floats)."""
+    for bits in (16, 24, 32):
+        wav = _wav(tmp_path / f"song{bits}.wav", bits)
+        before = audio.pcm_digest(wav)
+        got = audio.exact_flac(wav, audio.stream(wav, "codec_name"))
+        assert got.suffix == ".flac" and not wav.exists() and audio.pcm_digest(got) == before
+        assert audio.stream(got, "bits_per_raw_sample") == str(bits)
+    wav = _wav(tmp_path / "float.wav", 32, floating=True)
+    got = audio.exact_flac(wav, audio.stream(wav, "codec_name"))
+    assert got.suffix == ".flac" and not wav.exists() and audio.stream(got, "bits_per_raw_sample") == "32"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_an_original_whose_flac_differs_stays(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Should a FLAC's samples ever differ from its original's, the original stays as it came; its cover is
+    written inside the WAV (an ID3 in front of a RIFF file would break it)."""
+    wav = _wav(tmp_path / "song.wav", 24)
+    digests = iter(["original", "other"])
+    monkeypatch.setattr(audio, "pcm_digest", lambda p: next(digests))
+    assert audio.exact_flac(wav, "pcm_s24le") == wav and wav.exists() and not wav.with_suffix(".flac").exists()
+    monkeypatch.undo()
+    before = audio.pcm_digest(wav)
+    assert not audio.has_picture(wav) and audio.embed_cover(wav, b"\xff\xd8\xff\xe0jpeg") and audio.has_picture(wav)
+    assert wav.read_bytes()[:4] == b"RIFF" and audio.pcm_digest(wav) == before

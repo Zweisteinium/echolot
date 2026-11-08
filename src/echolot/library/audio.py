@@ -5,17 +5,20 @@ prepare() is what every download goes through:
   1. the codec must match the extension (an MP3 renamed to .flac, an unreadable file: rejected); a FLAC must
      decode without an error and as long as its header says (damaged: Damaged)
   2. a FLAC mutagen cannot read (junk before the header) is remuxed, else re-encoded (lossless)
-  3. WAV, AIFF and ALAC become FLAC (lossless, smaller, standard tags)
+  3. WAV, AIFF and ALAC become FLAC (smaller, standard tags, a checksum of the audio): integer samples
+     sample for sample, checked (exact_flac), a float original as 32-bit integers
   4. hi-res FLAC (> 48 kHz) becomes 44.1 or 48 kHz, 24 bit (inaudible, about half the size; keep_hires:
      stays as it is, options.Files)
-  5. the spectrum check: a FLAC with an encoder's low-pass edge is marked fake (made from lossy); an edge
-     from 19 kHz up only with the encoder's traces below it (a mastering filter can cut there too)
+  5. the spectrum check: a FLAC (or a lossless original kept) with an encoder's low-pass edge is marked fake
+     (made from lossy); an edge from 19 kHz up only with the encoder's traces below it (a mastering filter can
+     cut there too)
   6. lossprint, the second lossy check (ECHOLOT_LOSSPRINT, on by default; off: the spectrum check alone): both
      checks decide together (judge); each FLAC's checks are logged to lossy-checks.jsonl in the data folder
 """
 
 import base64
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -170,6 +173,44 @@ def _to_flac(src: Path, dest: Path, *extra: str) -> bool:
     return False
 
 
+def exact_flac(path: Path, codec: str) -> Path:
+    """A lossless original (WAV, AIFF, ALAC) as FLAC, the library's one lossless format. Integer samples stay
+    sample for sample (checked: the decoded audio must be the original's, else the original stays as it came);
+    above 24 bit as 32-bit FLAC (FLAC 1.4; ffmpeg would cut them to 24). A float original (pcm_f32/64) becomes
+    32-bit integers, FLAC holding no floats: all that goes is below about -180 dB, and anything over 0 dBFS."""
+    floating = codec.startswith("pcm_f")
+    bits = max(
+        (int(v) for f in ("bits_per_raw_sample", "bits_per_sample") if (v := stream(path, f)).isdigit()), default=0
+    )
+    wide = ["-strict", "experimental", "-sample_fmt", "s32", "-bits_per_raw_sample", "32"]
+    flac = path.with_suffix(".flac")
+    if not _to_flac(path, flac, "-c:a", "flac", *(wide if floating or bits > 24 else []), "-compression_level", "5"):
+        return path
+    if not floating and (not (original := pcm_digest(path)) or pcm_digest(flac) != original):
+        log.warning("%s: its FLAC is not sample for sample the same: the original stays", path.name)
+        flac.unlink(missing_ok=True)
+        return path
+    path.unlink(missing_ok=True)
+    return flac
+
+
+def pcm_digest(path: Path) -> str:
+    """The MD5 of a file's decoded audio (all channels, as 32-bit integers: exact for up to 32-bit samples),
+    "" when it could not be decoded."""
+    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0", "-f", "s32le", "-c:a", "pcm_s32le", "-"]
+    md5, size = hashlib.md5(), 0
+    try:
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as p:
+            assert p.stdout is not None
+            while chunk := p.stdout.read(1 << 20):
+                md5.update(chunk)
+                size += len(chunk)
+            ok = p.wait(timeout=600) == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return md5.hexdigest() if ok and size else ""
+
+
 @dataclass
 class Prepared:
     path: Path
@@ -194,14 +235,12 @@ def prepare(path: Path, keep_hires: bool = False) -> Prepared:
         path.unlink(missing_ok=True)
         raise Rejected("unreadable FLAC")
     if ext in ("wav", "aiff", "aif") or (ext == "m4a" and codec == "alac"):
-        flac = path.with_suffix(".flac")
-        if _to_flac(path, flac, "-c:a", "flac", "-compression_level", "5"):
-            path.unlink(missing_ok=True)
-            path, ext = flac, "flac"
-    if ext != "flac":
+        path = exact_flac(path, codec)
+        ext = path.suffix.lower().lstrip(".")
+    if ext not in (*LOSSLESS, "aif"):
         return Prepared(path, False, None)
     rate = int(stream(path, "sample_rate") or 0)
-    if rate > 48000 and not keep_hires:
+    if ext == "flac" and rate > 48000 and not keep_hires:  # (an original kept as it came stays as it came)
         target = "44100" if rate % 44100 == 0 else "48000"
         _to_flac(path, path, "-af", "aresample=resampler=soxr:precision=28", "-ar", target,
                  "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24",
@@ -502,6 +541,7 @@ def has_picture(path: Path) -> bool:
     from mutagen.mp4 import MP4
     from mutagen.oggopus import OggOpus
     from mutagen.oggvorbis import OggVorbis
+    from mutagen.wave import WAVE
 
     try:
         a = File(path)
@@ -513,6 +553,8 @@ def has_picture(path: Path) -> bool:
             return bool(a.tags and a.tags.get("covr"))
         if isinstance(a, OggOpus | OggVorbis):
             return bool(a.get("metadata_block_picture"))
+        if isinstance(a, WAVE):  # (its ID3 sits in a chunk of the RIFF file, not in front of it)
+            return bool(a.tags and a.tags.getall("APIC"))
         try:
             return any(k.startswith("APIC") for k in ID3(path))
         except ID3NoHeaderError:
@@ -555,6 +597,7 @@ def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
     from mutagen.mp4 import MP4, MP4Cover
     from mutagen.oggopus import OggOpus
     from mutagen.oggvorbis import OggVorbis
+    from mutagen.wave import WAVE
 
     if not jpg or (not replace and has_picture(path)):
         return False
@@ -573,6 +616,12 @@ def embed_cover(path: Path, jpg: bytes, replace: bool = False) -> bool:
             a.save()
         elif isinstance(a, OggOpus | OggVorbis):
             a["metadata_block_picture"] = [base64.b64encode(pic.write()).decode()]
+            a.save()
+        elif isinstance(a, WAVE):  # (an ID3 in front of a RIFF file would break it)
+            if a.tags is None:
+                a.add_tags()
+            a.tags.delall("APIC")
+            a.tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=jpg))
             a.save()
         else:
             try:
