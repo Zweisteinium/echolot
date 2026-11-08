@@ -196,12 +196,12 @@ def _fetch_spotify(run: "Run", con: sqlite3.Connection) -> str:
 
     def read_list(sp: spotify.Spotify, s: sources.Source, known: dict[str, dict], likes: str | None) -> None:
         nonlocal done, read
-        run.say(f"reading {s.title or s.url}")
+        run.say(f"synchronizing: {_name(con, s)}")
         tried.add(s.key)
         try:
             if _fetch_spotify_list(con, sp, s, known, likes):
                 read += 1
-                run.note(f"Spotify: {s.title or s.url} changed, read again")
+                run.note(f"Spotify: {_name(con, s)} changed, read again")
             done += 1
             seen.add(s.key)
             availability.list_readable(con, s.key, True)
@@ -400,11 +400,11 @@ def youtube(run: "Run") -> str:
         for n, s in enumerate(srcs):
             if run.stop.is_set():
                 break
-            run.say(f"reading {s.title or s.url}", n, len(srcs))
+            run.say(f"synchronizing: {_name(con, s)}", n, len(srcs))
             try:
                 if _fetch_youtube_list(run, con, ydl, sp, s):
                     changed += 1
-                    run.note(f"YouTube: {s.title or s.url} changed, read again")
+                    run.note(f"YouTube: {_name(con, s)} changed, read again")
                 done += 1
                 availability.list_readable(con, s.key, True)
             except youtube_api.YouTubeError as e:
@@ -629,6 +629,7 @@ def soundcloud(run: "Run") -> str:
                 log.info("soundcloud states: %s (reading that account's lists hourly)", e)
         total = len(srcs)
         srcs = [s for s in srcs if _sc_changed(con, s, states, tokens[s.key] in refused)]
+        names = {s.key: _name(con, s) for s in srcs}  # (for the job's line, read while the database is open)
         any_token = sc_api.any_token(con, run.vault)
     finally:
         con.close()
@@ -647,7 +648,7 @@ def soundcloud(run: "Run") -> str:
     listed: dict[str, list[tuple[str, str]]] = {}
     liked: dict[str, dict[str, str]] = {}  # per likes list: when each track was liked
     for s in srcs:
-        run.say(f"reading {s.title or s.url}")
+        run.say(f"synchronizing: {names[s.key]}")
         tracks, info = ydl_of(tokens[s.key] or any_token).listing(s.url, run.stop)
         if tracks is None:
             if not run.stop.is_set():
@@ -655,7 +656,7 @@ def soundcloud(run: "Run") -> str:
             continue  # keep the last listing
         _readable(run, s.key, True)
         listed[s.key] = tracks
-        run.note(f"SoundCloud: {s.title or s.url} read, {len(tracks)} songs")
+        run.note(f"SoundCloud: {names[s.key]} read, {len(tracks)} songs")
         con = run.connect()
         try:
             if (token := tokens[s.key] or any_token) and _undated(con, s, tracks):
@@ -739,6 +740,13 @@ def _undated(con: sqlite3.Connection, s: Source, tracks: list[tuple[str, str]]) 
         r[0] for r in con.execute("SELECT song_key FROM list_songs WHERE list_key = ? AND added IS NOT NULL", (s.key,))
     }
     return any(f"soundcloud:{tid}" not in timed for tid, _ in tracks)
+
+
+def _name(con: sqlite3.Connection, s: Source) -> str:
+    """A list's name for the job's line: its own, else the one its source last gave (a Spotify list's sources
+    carry none), else its address."""
+    row = con.execute("SELECT title FROM lists WHERE key = ?", (s.key,)).fetchone()
+    return s.title or (row["title"] if row and row["title"] else "") or s.url
 
 
 def _sc_token(con: sqlite3.Connection, vault: "Vault", key: str) -> str | None:

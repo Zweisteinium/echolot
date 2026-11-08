@@ -527,7 +527,7 @@ def test_library_job(client: TestClient, settings: Settings) -> None:
     assert (playlists / "owner" / "Spotify Liked Songs.m3u").exists() and (playlists / "My own.m3u").exists()
 
 
-def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: Settings) -> None:
+def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: Settings, login) -> None:
     """A card per task, a tile per step; a running job shows its line in counts (outcomes as icons, text cut
     with the whole on hover), its progress bar, Stop and its live log; a task's button starts its jobs, Stop
     stops them."""
@@ -553,6 +553,10 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
         and " Stop</button>" in html
         and 'Live log <span class="muted">1</span>' in html
     )
+    run.fetching = {"spotify:s1": {"stage": "searching"}, "spotify:nope": {"stage": "searching"}}  # (one unknown)
+    searched = client.get("/jobs").text
+    assert '<li title="Artist A – First Song">' in searched and searched.count("<li title=") == 1  # the song searched
+    assert '<li title="Artist A' not in login(client.app, "guest", admin=False).get("/jobs").text  # admins only
     assert client.post("/jobs/stop", data={"names": "upgrade"}).status_code in (200, 303) and run.stop.is_set()
     del wk.runs["upgrade"]
     run.say("SoundCloud: listing Likes")  # starts with its step's name, which its tile says: not said twice

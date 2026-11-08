@@ -26,6 +26,7 @@
   {% if s.stopping %}<span class="fact-text warn-text">stopping: the songs in progress end first</span>
   {% elif run.give_way.is_set() %}<span class="fact-text warn-text">{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress</span>{% endif %}
   {% if user.admin %}{{ show(run.progress or 'starting …', steps[s.job.name]) }}{# a song's name may be another user's #}
+  {% if s.songs %}<ul class="step-songs" aria-label="Searched now">{% for x in s.songs %}<li title="{{ x.name }}">{{ icon('search', 12) }}<span>{{ x.name }}</span></li>{% endfor %}</ul>{% endif %}
   {% elif run.total %}<div class="job-facts"><span class="fact"><b>{{ run.done|num }}</b><i>/{{ run.total|num }}</i></span></div>
   {% else %}<span class="fact-text">running</span>{% endif %}
   {% if run.total %}<div class="task-bar" role="progressbar" aria-label="{{ steps[s.job.name] or s.job.label }}" aria-valuemin="0" aria-valuemax="{{ run.total }}" aria-valuenow="{{ run.done }}"><span style="width: {{ (100 * run.done / run.total)|round(1) }}%"></span></div>{% endif %}

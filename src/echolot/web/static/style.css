@@ -294,6 +294,10 @@ a.pill { text-decoration: none; }
 .outcome.warn .icon { color: var(--warn); }
 .outcome.bad .icon { color: var(--bad); }
 .step .task-bar { margin: 0.1rem 0; }
+.step-songs { list-style: none; margin: 0.1rem 0 0; padding: 0; display: grid; gap: 0.05rem; font-size: 0.8rem; line-height: 1.45; }
+.step-songs li { display: flex; align-items: center; gap: 0.35rem; min-width: 0; color: var(--text); }
+.step-songs .icon { flex: none; color: var(--muted); }
+.step-songs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-foot { display: flex; justify-content: space-between; gap: 0.1rem 0.6rem; margin-top: auto; padding-top: 0.3rem;
   border-top: 1px solid var(--border); color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
 .step-foot .icon { vertical-align: -2px; }

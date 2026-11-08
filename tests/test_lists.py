@@ -10,6 +10,7 @@ from typing import ClassVar
 
 import pytest
 
+from echolot import db
 from echolot.config import Settings
 from echolot.jobs import lists
 from echolot.jobs.schedule import BY_NAME
@@ -693,3 +694,22 @@ def test_playlist_comments() -> None:
     assert playlists.comment(row("discover:wished:1", "discover", "/discover"), missing=3) == (
         "Songs you hearted before Echolot had them · fetched by Echolot · 3 songs missing"
     )
+
+
+def test_a_lists_name_on_the_jobs_line(settings) -> None:
+    """The line of a list read names it by the list's title (a Spotify source has none of its own)."""
+    from echolot.jobs.lists import _name
+    from echolot.settings.sources import Source
+
+    con = db.connect(settings.db_path)
+    try:
+        with con:
+            con.execute("UPDATE lists SET title = 'Techno Bunker' WHERE key = 'spotify:playlist:AAA111'")
+        s = Source("spotify:playlist:AAA111", "x", "spotify", "https://open.spotify.com/playlist/AAA111", None, True)
+        assert _name(con, s) == "Techno Bunker"
+        assert (
+            _name(con, Source("spotify:playlist:none", "x", "spotify", "https://x/none", None, True))
+            == "https://x/none"
+        )
+    finally:
+        con.close()

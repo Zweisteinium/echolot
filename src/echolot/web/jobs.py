@@ -33,12 +33,26 @@ def status(request: Request, con: sqlite3.Connection) -> dict:
         waiting = busy.get(j.resource) if not run and (starting or (nxt and nxt <= now)) else None
         next_start = nxt.isoformat(timespec="seconds") if nxt else None
         state = {"next": next_start, "waiting": waiting, "starting": starting, "stopping": stopping}
-        rows.append({"job": j, "rule": rules[j.name], "last": r, "run": run} | state)
+        songs = _songs(con, run) if run and j.resource == "soulseek" else []
+        rows.append({"job": j, "rule": rules[j.name], "last": r, "run": run, "songs": songs} | state)
     changing = any(r["starting"] or r["stopping"] for r in rows)  # the table asks again every second then
     paused = options.get(con, options.Jobs).paused
     tasks = _tasks(rows, request.app.state.worker.finished())
     state = {"jobs": rows, "tasks": tasks, "steps": schedule.STEPS, "paused": paused}
     return state | {"running": bool(runs), "changing": changing}
+
+
+def _songs(con: sqlite3.Connection, run) -> list[dict]:
+    """The songs a Soulseek run works on now (acquire.track: searched, else downloaded): name and stage."""
+    fetching = dict(run.fetching)  # (the run's threads change it)
+    if not fetching:
+        return []
+    marks = ",".join("?" * len(fetching))
+    names = {
+        r["key"]: f"{r['artist']} – {r['title']}"
+        for r in con.execute(f"SELECT key, artist, title FROM songs WHERE key IN ({marks})", list(fetching))
+    }
+    return [{"name": names[k], "stage": f.get("stage") or ""} for k, f in sorted(fetching.items()) if k in names]
 
 
 def _tasks(rows: list[dict], finished: dict) -> list[dict]:
