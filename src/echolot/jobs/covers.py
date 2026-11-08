@@ -1,9 +1,8 @@
-"""Covers from your lists: a library file carries its song's cover (Spotify's album, the SoundCloud song's
+"""Covers from your lists: a library file carries its song's cover (Spotify's album, the SoundCloud
 artwork; a YouTube song's from its recording's Spotify album), not the one its uploader embedded (a
-compilation, a remaster). New files get it when they are filed (acquire.pictures); `run` gives it to the
-files already there: the old picture is kept in <data>/cover-backups/<file>.jpg first, and the files done
-are noted in done.txt, so a run that stopped (paused, a deploy) goes on where it was. A file changed in
-the last 10 minutes waits for the next run.
+compilation, a remaster). New files get it when filed (acquire.pictures); `run` gives it to the files
+already there, keeping the old picture in <data>/cover-backups/<file>.jpg and noting the files done in
+done.txt, so a stopped run goes on where it was. A file changed in the last 10 minutes waits.
 """
 
 import json
@@ -76,7 +75,7 @@ class Covers:
 
 
 def run(run: "Run") -> str:
-    """Give every library file its song's cover (see the module); the old one is backed up first."""
+    """Give every library file its song's cover (see the module)."""
     backups = run.data / "cover-backups"
     backups.mkdir(parents=True, exist_ok=True)
     journal = backups / "done.txt"
