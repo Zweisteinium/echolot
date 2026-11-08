@@ -190,19 +190,29 @@ def offers(con: Connection) -> dict[str, Row]:
     return {r["song_key"]: r for r in con.execute(sql)}
 
 
+def links(con: Connection) -> dict[str, Row]:
+    """Song key -> its free download outside Bandcamp (jobs/bandcamp, services/free_links): url, site, label."""
+    return {r["song_key"]: r for r in con.execute("SELECT * FROM free_links WHERE url > ''")}
+
+
 def buy(con: Connection, uid: int | None = None) -> list[Row]:
     """The Buy page: a user's (or everyone's) songs without a genuine lossless copy that Bandcamp sells, or
-    gives away where the free download did not come into the library (it waits in Review, or failed); their
-    copy's quality and lists. The cheapest first."""
+    gives away where the free download did not come into the library (it waits in Review, or failed), or that
+    their SoundCloud page links to a free download of elsewhere (services/free_links); their copy's quality and
+    lists. The free ones first, then the cheapest."""
     mine, args = _mine(uid)
     return con.execute(
         "SELECT s.key, s.artist, s.title, s.length, s.file, f.quality, f.kbps, b.url AS offer, b.artist AS offer_artist, "
-        "b.title AS offer_title, b.price, b.currency, b.free, b.result, b.checked, "
+        "b.title AS offer_title, b.price, b.currency, b.free, b.result, b.checked, fl.url AS link, fl.site AS "
+        "link_site, fl.label AS link_label, fl.fetch AS link_fetch, fl.result AS link_result, "
         "(SELECT group_concat(l.title, ' · ') FROM list_songs ls JOIN lists l ON l.key = ls.list_key "
         " WHERE ls.song_key = s.key) AS in_lists "
-        "FROM bandcamp b JOIN wanted s ON s.key = b.song_key LEFT JOIN files f ON f.path = s.file "
-        "WHERE b.url > '' AND (b.price IS NOT NULL OR b.free) AND (s.file IS NULL OR f.quality != 'lossless') "
-        f"AND {mine} ORDER BY b.free DESC, b.price, s.artist COLLATE NOCASE",
+        "FROM wanted s LEFT JOIN files f ON f.path = s.file "
+        "LEFT JOIN bandcamp b ON b.song_key = s.key AND b.url > '' AND (b.price IS NOT NULL OR b.free) "
+        "LEFT JOIN free_links fl ON fl.song_key = s.key AND fl.url > '' "
+        "WHERE (b.song_key IS NOT NULL OR fl.song_key IS NOT NULL) AND (s.file IS NULL OR f.quality != 'lossless') "
+        f"AND {mine} ORDER BY (coalesce(b.free, 0) OR fl.song_key IS NOT NULL) DESC, b.price IS NULL, b.price, "
+        "s.artist COLLATE NOCASE",
         args,
     ).fetchall()
 

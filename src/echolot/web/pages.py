@@ -199,8 +199,18 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
     marks = recording.marks(con, request.state.user.id, songs) if lst["service"] == "spotify" else {}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}  # (Bandcamp sells these)
+    links = stats.links(con) if lst["service"] == "soundcloud" else {}  # (free downloads elsewhere)
     return page(
-        request, "list.html", nav="library", lst=lst, songs=songs, same=same, tiers=tiers, marks=marks, offers=offers
+        request,
+        "list.html",
+        nav="library",
+        lst=lst,
+        songs=songs,
+        same=same,
+        tiers=tiers,
+        marks=marks,
+        offers=offers,
+        links=links,
     )
 
 

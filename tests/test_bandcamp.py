@@ -181,11 +181,12 @@ class Curl:
     """subprocess.run for curl: the HTTP status and body per address (a file for -o)."""
 
     def __init__(self, answers: dict[str, tuple[int, bytes]]) -> None:
-        self.answers, self.asked = answers, []
+        self.answers, self.asked, self.cmd = answers, [], []
 
     def __call__(self, cmd: list[str], **kw) -> object:
         url = cmd[-1]
         self.asked.append(url)
+        self.cmd = cmd
         code, body = self.answers.get(url, (404, b""))
         if "-o" in cmd:
             Path(cmd[cmd.index("-o") + 1]).write_bytes(body)
@@ -299,3 +300,133 @@ def test_no_schedule_for_bandcamp(settings) -> None:
         assert schedule.rules(con)["bandcamp"] is None and "bandcamp" not in schedule.scheduled(schedule.rules(con))
     finally:
         con.close()
+
+
+def test_free_links_from_a_soundcloud_page() -> None:
+    from echolot.services import free_links
+
+    text = (
+        "Free DL: http://www.dropbox.com/scl/fi/abc/Artist-Tune-Master.wav?rlkey=k&dl=0. Folder "
+        "https://www.dropbox.com/scl/fo/xyz/stems?rlkey=j, insta https://instagram.com/artist, "
+        "gate (https://toneden.io/artist/post/tune)"
+    )
+    found = free_links.links("https://hypeddit.com/artist/tune", "FREE DL", text)
+    assert [(link.site, link.fetch, link.label) for link in found] == [
+        ("Dropbox", True, ""),  # a file Echolot fetches first
+        ("Hypeddit", False, "FREE DL"),  # the buy button's name
+        ("Dropbox", False, ""),  # a folder: by hand
+        ("ToneDen", False, ""),
+    ]
+    assert found[0].url == "https://www.dropbox.com/scl/fi/abc/Artist-Tune-Master.wav?rlkey=k&dl=0"
+    assert free_links.links(None, None, "https://soundcloud.com/x https://open.spotify.com/y") == []
+
+
+def test_a_dropbox_file_is_fetched_as_a_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from echolot.services import free_links
+
+    link = free_links.links(None, None, "https://www.dropbox.com/scl/fi/abc/Artist%20-%20Tune.wav?rlkey=k&dl=0")[0]
+    curl = Curl({"https://www.dropbox.com/scl/fi/abc/Artist%20-%20Tune.wav?rlkey=k&dl=1": (200, b"RIFF")})
+    monkeypatch.setattr(free_links.subprocess, "run", curl)
+    got = free_links.fetch(link, tmp_path / "dl")
+    assert got.name == "Artist - Tune.wav" and got.read_bytes() == b"RIFF"
+    assert "--proto-redir" in curl.cmd and free_links.USER_AGENT in curl.cmd  # https only, as Echolot
+    curl.answers.clear()  # (gone: 404)
+    with pytest.raises(free_links.LinkError):
+        free_links.fetch(link, tmp_path / "dl2")
+    assert not (tmp_path / "dl2" / "Artist - Tune.wav").exists()
+    gate = free_links.links("https://hypeddit.com/a/b", None, None)[0]
+    with pytest.raises(free_links.LinkError):
+        free_links.fetch(gate, tmp_path / "dl3")  # a gate is not fetched
+
+
+def free(settings: Settings) -> dict[str, sqlite3.Row]:
+    con = db.connect(settings.db_path)
+    try:
+        return {r["song_key"]: r for r in con.execute("SELECT * FROM free_links")}
+    finally:
+        con.close()
+
+
+def test_a_linked_dropbox_file_is_filed(run, settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    from echolot.services import free_links
+
+    url = "https://www.dropbox.com/scl/fi/abc/Trance-Tune.wav?rlkey=k"
+    tracks = [{"id": 1001, "purchase_url": url, "purchase_title": "Free DL"}]
+    monkeypatch.setattr(sc_api, "tracks", lambda token, ids: [t for t in tracks if str(t["id"]) in ids])
+    monkeypatch.setattr(bandcamp, "offer", lambda *a, **k: pytest.fail("no Bandcamp link: Bandcamp is not asked"))
+
+    def fetch(link: free_links.Link, folder: Path) -> Path:
+        folder.mkdir(parents=True, exist_ok=True)
+        return Path(shutil.copy(FIXTURES / "silence.flac", folder / "Trance-Tune.flac"))
+
+    monkeypatch.setattr(free_links, "fetch", fetch)
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+    monkeypatch.setattr(audio, "probe", lambda p: (400.0, 900))
+    copy = "Uploader/Uploader - Trance Tune.m4a"
+    monkeypatch.setattr(acquire, "_same_audio", lambda *a: (copy, "the same audio as your copy (0.999)"))
+    monkeypatch.setattr(acquire, "finish", lambda *a, **k: None)
+    r = run("after")
+    assert job.run(r).endswith("1 filed") and "library" in r.after
+    row = free(settings)["soundcloud:1001"]
+    assert (row["site"], row["fetch"], row["result"]) == ("Dropbox", 1, "upgrade")
+    con = db.connect(settings.db_path)
+    try:
+        e = con.execute(
+            "SELECT action, source, url FROM events WHERE song = 'soundcloud:1001' ORDER BY id DESC"
+        ).fetchone()
+        assert tuple(e) == ("upgrade", "dropbox", url)
+    finally:
+        con.close()
+
+
+def test_a_gate_is_listed_to_get_by_hand(run, settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
+    tracks = [{"id": 1001, "purchase_url": "https://hypeddit.com/up/trancetune", "purchase_title": "Free DL"}]
+    monkeypatch.setattr(sc_api, "tracks", lambda token, ids: [t for t in tracks if str(t["id"]) in ids])
+    monkeypatch.setattr(bandcamp, "offer", lambda *a, **k: pytest.fail("no Bandcamp link: Bandcamp is not asked"))
+    assert "1 free downloads to get by hand" in job.run(run("after"))
+    assert (free(settings)["soundcloud:1001"]["site"], free(settings)["soundcloud:1002"]["url"]) == ("Hypeddit", "")
+    client = login(create_app(settings))
+    buy = client.get("/buy").text
+    assert "Trance Tune" in buy and 'href="https://hypeddit.com/up/trancetune"' in buy and "Free · Hypeddit" in buy
+    assert "Free · Hypeddit" in client.get("/lists/soundcloud:someone/likes").text
+    assert '<a href="/buy">Buy <span class="tab-count">1</span></a>' in client.get("/library").text
+
+
+def test_songs_looked_at_before_get_their_free_links_without_bandcamp(run, settings, monkeypatch) -> None:
+    """After the update every song's free links are read once (one SoundCloud request per 50), but Bandcamp is
+    asked only for songs never looked at, as before."""
+    monkeypatch.setattr(bandcamp, "offer", lambda url, title="", seconds=0: None)
+    job.run(run("after"))
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("DELETE FROM free_links")  # (as after the update)
+    con.close()
+    monkeypatch.setattr(bandcamp, "offer", lambda *a, **k: pytest.fail("looked at before: Bandcamp is not asked"))
+    assert "2 songs looked at" in job.run(run("after")) and set(free(settings)) == {
+        "soundcloud:1001",
+        "soundcloud:1002",
+    }
+
+
+def test_refresh_keeps_an_offer_found_without_a_link(run, settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    found = "https://guessed.bandcamp.com/track/locked"
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "INSERT INTO bandcamp (song_key, url, artist, title, price, currency, checked) VALUES "
+            "('soundcloud:1002', ?, 'Label', 'Locked', 1.5, 'EUR', '2026-11-07T20:00:00')",
+            (found,),
+        )
+    con.close()
+    asked = []
+
+    def offer(url: str, title: str = "", seconds: float = 0) -> bandcamp.Offer:
+        asked.append(url)
+        return bandcamp.Offer(url, "Label", "Locked", 250, 2.0, "EUR", False)
+
+    monkeypatch.setattr(bandcamp, "offer", offer)
+    job.run(run("manual"))
+    assert found in asked and (
+        offers(settings)["soundcloud:1002"]["url"],
+        offers(settings)["soundcloud:1002"]["price"],
+    ) == (found, 2.0)

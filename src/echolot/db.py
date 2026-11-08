@@ -4,7 +4,7 @@ A change to it gets a numbered migration step then (version 13 onwards)."""
 import sqlite3
 from pathlib import Path
 
-VERSION = 41
+VERSION = 42
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -41,6 +41,15 @@ CREATE TABLE bandcamp (             -- a song's track on Bandcamp, linked from i
     currency TEXT NOT NULL DEFAULT '',
     free INTEGER NOT NULL DEFAULT 0,  -- a free download (no email asked): downloaded by the job
     result TEXT NOT NULL DEFAULT '',  -- what the free download came to (filed, not the song, ...)
+    checked TEXT NOT NULL
+);
+CREATE TABLE free_links (           -- a song's free download outside Bandcamp, linked from its SoundCloud page
+    song_key TEXT PRIMARY KEY,
+    url TEXT NOT NULL,              -- '': none (looked at again only by hand)
+    site TEXT NOT NULL DEFAULT '',  -- Hypeddit, Dropbox, ... (services/free_links)
+    label TEXT NOT NULL DEFAULT '', -- the uploader's name for it on the buy button
+    fetch INTEGER NOT NULL DEFAULT 0, -- a file Echolot downloads (else a gate, by hand)
+    result TEXT NOT NULL DEFAULT '',  -- what the download came to (filed, not the song, ...)
     checked TEXT NOT NULL
 );
 CREATE TABLE discogs (              -- a release of library songs and what Discogs lists of it (jobs/discogs)
@@ -508,6 +517,11 @@ MIGRATIONS = {
     ],
     41: [  # the track pages in each file's source tags, kept until it changes: read again only then (jobs/lists)
         "ALTER TABLE files ADD COLUMN pages TEXT"
+    ],
+    42: [  # free downloads outside Bandcamp linked from SoundCloud songs (jobs/bandcamp, services/free_links)
+        "CREATE TABLE IF NOT EXISTS free_links (song_key TEXT PRIMARY KEY, url TEXT NOT NULL, site TEXT NOT NULL "
+        "DEFAULT '', label TEXT NOT NULL DEFAULT '', fetch INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL "
+        "DEFAULT '', checked TEXT NOT NULL)"
     ],
 }
 
