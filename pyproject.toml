@@ -1,6 +1,6 @@
 [project]
 name = "echolot"
-version = "0.14.1"
+version = "0.14.2"
 description = "Self-hosted music library sync: playlists and likes in, only the right songs in the best available quality out."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -10,15 +10,15 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "cryptography>=50.0.1",
-    "fastapi>=0.141.1",
+    "cryptography>=50.0.2",
+    "fastapi>=0.162.2",
     "jinja2>=3.1.6",
     "mutagen>=1.48.1",
-    "numpy>=2.5.3",
-    "python-multipart>=0.0.32",
+    "numpy>=2.5.4",
+    "python-multipart>=0.0.33",
     "pyyaml>=6.0.3",
     "uvicorn>=0.54.0",
-    "yt-dlp[curl-cffi,default]>=2026.8.19",
+    "yt-dlp[curl-cffi,default]>=2026.10.26",
     "ytmusicapi>=1.12.3",
 ]
 
@@ -26,15 +26,18 @@ dependencies = [
 echolot = "echolot.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.9.21,<0.10.0"]
+requires = ["uv_build>=0.13.7,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.13.1",
-    "pytest>=9.1.1",
-    "ruff>=0.16.9",
+    "httpx2>=2.16.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
 ]
+
+[tool.uv]
+required-version = ">=0.13.7"  # the uv of the lockfile: setup-uv in CI reads it, the Dockerfile copies the same minor
 
 [tool.ruff]
 line-length = 120
@@ -49,6 +52,9 @@ ignore = [
     "RUF001",  # non-ASCII characters in strings are intended (music titles, typography)
     "RUF002",  # ... and in docstrings (they quote such strings)
 ]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false  # (as the formatter's skip-magic-trailing-comma)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

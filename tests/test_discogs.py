@@ -166,7 +166,9 @@ def test_a_check_looks_at_a_lists_releases_once(library: Settings, monkeypatch: 
 
 
 def test_off_by_default_and_a_refused_token_stops(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert not options.get(db.connect(settings.db_path), options.Discogs).enabled
+    con = db.connect(settings.db_path)
+    assert not options.get(con, options.Discogs).enabled
+    con.close()
     assert job.run(make_run(settings)) == "Discogs is off"
 
 
