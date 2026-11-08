@@ -1,10 +1,6 @@
-"""Soulseek through the Sockseek daemon (`sockseek daemon`, in the VPN's network namespace), over its HTTP
-job API, which v3 and v4 share: search jobs, their ranked results, downloads of chosen files, cancel.
-Polling only. Unknown fields are ignored; a job that is gone (the daemon restarted) raises Lost, so the
-caller retries later without counting a try.
-
-Echolot owns the search settings (SEARCH below: Sockseek's filters and preferences) and sends them with
-every job.
+"""Soulseek through the Sockseek daemon's HTTP job API (v3 and v4; the daemon runs in the VPN's network
+namespace), polled. A job gone after a daemon restart raises Lost: the caller retries without counting a try.
+Echolot sends its search settings (SEARCH) with every job.
 """
 
 import contextlib
@@ -18,8 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Sockseek's filters (necessary) and ranking preferences. The artist is no filter: Sockseek's wants the whole
-# name as it is in the path ("Riko & Para" is not "Para_x_Riko"); rules.prejudge checks it (aliases, any order)
+# Sockseek's filters (necessary) and preferences. The artist is no filter: Sockseek's wants the whole name as
+# in the path ("Riko & Para" is not "Para_x_Riko"); rules.prejudge checks it (aliases, any order)
 SEARCH: dict[str, Any] = {  # lists are patches of Sockseek's own: {"replace": [...]}
     "necessaryCond": {"strictArtist": False, "lengthTolerance": 3},
     "preferredCond": {"formats": {"replace": ["flac"]}, "minBitrate": 200, "maxBitrate": 2500,
@@ -32,9 +28,8 @@ _peers_lock = threading.Lock()
 
 
 def peer(user: str) -> int:
-    """Downloads from the peer done minus failed (failures older than PEER_MEMORY forgotten). Sockseek's own
-    fails-to-ignore never applies: it counts only successes. One that failed is tried last, one that failed
-    twice not at all (slskd.results, Daemon.results)."""
+    """Downloads from the peer done minus failed (a negative count is forgotten after PEER_MEMORY): below 0
+    it is tried last, at -2 not at all. Sockseek's own fails-to-ignore never applies (it counts successes)."""
     with _peers_lock:
         n, at = _peers.get(user, (0, 0.0))
     return 0 if n < 0 and time.monotonic() - at > PEER_MEMORY else n

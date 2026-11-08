@@ -1,11 +1,8 @@
-"""The lists each user follows (sources table): Spotify playlists and likes, SoundCloud sets and likes,
-public YouTube playlists.
-Every change is checked with the same rules the configuration file import uses (check), per user. Each
-list has a stable key and name (derive): its state and playlist file are named after it, so they never
-change. A list two users follow is one list (fetched once: lists table) followed twice, each with their
-own options; a user's Spotify likes are their own list (spotify:likes:<user id>), SoundCloud likes are a
-SoundCloud account's (soundcloud:<name>/likes). Lists from before users had lists belong to nobody until
-adopt gives them to the oldest admin.
+"""The lists each user follows (sources table): Spotify playlists and likes, SoundCloud sets and likes, public
+YouTube playlists. Every change passes the config import's checks (check). Each list has a stable key and name
+(derive) that its state and playlist file are named after. A list two users follow is fetched once (lists
+table), with per-user options; Spotify likes are per user (spotify:likes:<user id>), SoundCloud likes per
+SoundCloud account (soundcloud:<name>/likes). Lists from before users had lists are nobody's until adopt.
 """
 
 import dataclasses
@@ -19,7 +16,8 @@ from typing import Any
 
 import yaml
 
-from echolot.services.youtube import ACCOUNT_LISTS
+from echolot.services import spotify as spotify_api
+from echolot.services import youtube
 from echolot.settings import options
 
 SERVICES = ("spotify", "soundcloud", "youtube")
@@ -74,8 +72,7 @@ def derive(config: dict[str, Any], user_id: int | None = None) -> list[Source]:
             )
         )
     for e in _entries(spotify.get("playlists")):
-        m = re.search(r"playlist[/:]([A-Za-z0-9]+)", e["url"])
-        pid = m.group(1) if m else slug(e["url"])
+        pid = spotify_api.playlist_id(e["url"]) or slug(e["url"])
         out.append(
             Source(
                 f"spotify:playlist:{pid}",
@@ -112,7 +109,7 @@ def derive(config: dict[str, Any], user_id: int | None = None) -> list[Source]:
             )
         )
     for e in _entries((config.get("youtube") or {}).get("playlists")):
-        pid = (urllib.parse.parse_qs(urllib.parse.urlparse(e["url"]).query).get("list") or [slug(e["url"])])[0]
+        pid = youtube.playlist_id(e["url"]) or slug(e["url"])
         url, shown = f"https://www.youtube.com/playlist?list={pid}", e.get("playlist", True) is not False
         out.append(Source(f"youtube:playlist:{pid}", f"youtube-{pid}", "youtube", url, e.get("title"), shown))
     return [dataclasses.replace(x, user_id=user_id) for x in out]
@@ -148,8 +145,8 @@ def parse_url(url: str) -> tuple[str, str]:
         pid = (urllib.parse.parse_qs(parsed.query).get("list") or [""])[0]
         if not re.fullmatch(r"[A-Za-z0-9_-]{2,64}", pid):
             raise ConfigError("YouTube: use a playlist link (…/playlist?list=…, or a video link with &list=).")
-        if pid in ACCOUNT_LISTS:
-            raise ConfigError(f"YouTube: {ACCOUNT_LISTS[pid]} can only be read with your account (not supported).")
+        if account_list := youtube.ACCOUNT_LISTS.get(pid):
+            raise ConfigError(f"YouTube: {account_list} can only be read with your account (not supported).")
         if pid.startswith("RD"):
             raise ConfigError("YouTube: a Mix is made anew for each listener; follow a playlist instead.")
         return "youtube", f"https://www.youtube.com/playlist?list={pid}"
@@ -464,10 +461,9 @@ def set_likes(con: sqlite3.Connection, user_id: int, service: str, enabled: bool
 
 
 def adopt(con: sqlite3.Connection) -> str | None:
-    """Give the lists nobody owns (from before users had lists) to the oldest admin, with what was the
-    one account's: the Spotify likes become theirs (key spotify:likes -> spotify:likes:<id>, in every table
-    that has list keys), and so do the Spotify and SoundCloud logins and the SoundCloud user. One
-    transaction; nothing to do (no orphans, no admin yet) changes nothing. Returns what it did."""
+    """Give the lists nobody owns to the oldest admin, with the single account's Spotify likes (spotify:likes
+    -> spotify:likes:<id> in every table), logins and SoundCloud user. One transaction; returns what it did,
+    None for nothing to do (no orphans, or no admin yet)."""
     owner = con.execute(
         "SELECT id, name FROM users WHERE (admin OR navidrome_admin) AND NOT disabled ORDER BY id LIMIT 1"
     ).fetchone()

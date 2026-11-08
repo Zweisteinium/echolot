@@ -1,8 +1,7 @@
-"""Spotify Web API: the connected account's lists, covers, and the login (authorization code flow).
+"""Spotify Web API: the users' lists, the catalogue, the login (authorization code flow).
 
-A developer app of the user's own (developer.spotify.com, development mode: up to 5 users, the owner
-needs Premium) gives the client id (settings section spotify) and secret (vault); the connected account's
-refresh token is in the vault too. Spotify's own editorial playlists can't be read through the API.
+Needs the user's own developer app (development mode: up to 5 users, the owner needs Premium): client id in the
+settings, secret and refresh tokens in the vault. Spotify's editorial playlists can't be read through the API.
 """
 
 import base64
@@ -31,7 +30,6 @@ SECRET, REFRESH = "spotify.client_secret", "spotify.refresh_token"  # REFRESH:<u
 
 
 def refresh_name(user_id: int) -> str:
-    """The vault name of a user's Spotify login."""
     return f"{REFRESH}:{user_id}"
 
 
@@ -48,8 +46,8 @@ _me: dict[str, tuple[float, dict[str, Any]]] = {}  # refresh token hash -> (when
 
 
 def resting_until(con: sqlite3.Connection) -> float:
-    """Until when Spotify asked Echolot to wait (unix time; past: it may ask). Kept in the database, so a
-    restart or a deploy keeps waiting too: asking before then makes Spotify wait longer."""
+    """Unix time until which Spotify asked to be left alone. Stored, so a restart keeps waiting too: asking
+    earlier makes the wait longer."""
     from echolot import db
 
     try:
@@ -60,7 +58,7 @@ def resting_until(con: sqlite3.Connection) -> float:
 
 
 def rest(con: sqlite3.Connection, seconds: float) -> float:
-    """Spotify said to wait `seconds` (Retry-After): nothing is asked before then."""
+    """Retry-After: no requests for `seconds`."""
     from echolot import db
 
     until = time.time() + seconds
@@ -83,8 +81,8 @@ def _space() -> None:
 
 
 def release_facts(t: dict[str, Any]) -> dict[str, Any]:
-    """A track's place on its release, for the tags: released (its date as precise as Spotify knows it),
-    track (number), tracks (on the release), disc; None where unknown."""
+    """Tag facts of a track's release: released (as precise as Spotify knows), track, tracks, disc; None if
+    unknown."""
     album = t.get("album") or {}
     facts = {"released": album.get("release_date"), "track": t.get("track_number")}
     facts |= {"tracks": album.get("total_tracks"), "disc": t.get("disc_number")}
@@ -96,7 +94,7 @@ class SpotifyError(RuntimeError):
 
 
 class SpotifyResting(SpotifyError):
-    """Spotify asked Echolot to wait (too many requests): no request is made until then."""
+    """Spotify asked to wait (429): no requests until `until`."""
 
     def __init__(self, until: float) -> None:
         self.until = until
@@ -170,13 +168,13 @@ def exchange(con: sqlite3.Connection, vault: Vault, code: str, redirect_uri: str
 
 
 def _song_of(it: dict[str, Any]) -> dict[str, Any] | None:
-    """A list entry as a song (items) with when it was added; None for a local file or a podcast episode."""
+    """A list entry as a song with `added`; None for a local file or an episode."""
     song = song_of_track(it.get("item") or it.get("track"))
     return song and {**song, "added": it.get("added_at")}
 
 
 def song_of_track(t: dict[str, Any] | None) -> dict[str, Any] | None:
-    """A track as a song; None for a local file or a podcast episode."""
+    """None for a local file or an episode."""
     if not t or t.get("type") not in (None, "track") or t.get("is_local") or not t.get("id"):
         return None
     artists = [a.get("name", "") for a in t.get("artists") or []]
@@ -193,8 +191,7 @@ def song_of_track(t: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 class Spotify:
-    """Spotify's Web API as a user (their login: their lists and likes), or as the app itself (no user:
-    the catalogue only, e.g. covers and artist pictures; Spotify's client credentials)."""
+    """As a user (their lists and likes), or with no user as the app (client credentials: catalogue only)."""
 
     def __init__(self, con: sqlite3.Connection, vault: Vault, user_id: int | None = None) -> None:
         self.con, self.vault = con, vault
@@ -232,8 +229,7 @@ class Spotify:
         return d["access_token"]
 
     def get(self, url: str, lang: str = "") -> dict[str, Any]:
-        """`lang`: the names in that language where Spotify has them (Accept-Language; without it, the
-        artist's own: 祖堅 正慶, in English Masayoshi Soken)."""
+        """`lang`: Accept-Language for the names (without: the artist's own, 祖堅 正慶 for Masayoshi Soken)."""
         url = url if url.startswith("http") else API + url
         for attempt in range(6):
             if (until := resting_until(self.con)) > time.time():
@@ -273,7 +269,7 @@ class Spotify:
     # ------------------------------------------------------------ account and lists
 
     def me(self) -> dict[str, Any]:
-        """The account's own details: id, display_name, ... (asked once per ME_SECONDS)."""
+        """/me, cached for ME_SECONDS."""
         key = str(hash(self.creds.refresh_token))
         if (cached := _me.get(key)) and time.monotonic() - cached[0] < ME_SECONDS:
             return cached[1]
@@ -282,9 +278,9 @@ class Spotify:
         return d
 
     def playlists(self) -> list[dict[str, Any]]:
-        """The account's playlists (own and followed): id, name, owner, own, collaborative, readable, songs,
-        image, url. Spotify's rules let development-mode apps read only own and collaborative playlists; where
-        it enforces that, the listing lacks the songs' count (readable False)."""
+        """Own and followed playlists: id, name, owner, own, collaborative, readable, songs, image, url.
+        Development-mode apps may read only own and collaborative ones; where Spotify enforces that, the
+        listing lacks the count (readable False)."""
         me = self.me().get("id")
         out = []
         for p in self.pages("/me/playlists?limit=50"):
@@ -307,7 +303,7 @@ class Spotify:
                 "snapshot": d.get("snapshot_id") or "", "owner": (d.get("owner") or {}).get("display_name")}  # fmt: skip
 
     def snapshots(self) -> dict[str, dict[str, str]]:
-        """Snapshot and name of every playlist in the account's library (own and followed): one request per 50."""
+        """Snapshot and name of every own and followed playlist (a request per 50)."""
         pages = self.pages("/me/playlists?limit=50")
         return {
             p["id"]: {"snapshot": p.get("snapshot_id") or "", "name": p.get("name") or ""}
@@ -316,7 +312,7 @@ class Spotify:
         }
 
     def likes_state(self) -> str:
-        """'<count>:<newest added>:<its id>': changes with every like added or removed (one request)."""
+        """'<count>:<newest added>:<its id>': changes with every like or unlike (one request)."""
         d = self.get("/me/tracks?limit=1")
         it = (d.get("items") or [{}])[0] or {}
         return f"{d.get('total') or 0}:{it.get('added_at') or ''}:{(it.get('track') or {}).get('id') or ''}"
@@ -325,16 +321,13 @@ class Spotify:
         return int(self.get("/me/tracks?limit=1").get("total") or 0)
 
     def items(self, pid: str | None) -> list[dict[str, Any]]:
-        """Songs of a playlist (None: Liked Songs) in list order: id, artist (first), artists, title,
-        album, length (s), isrc, the release_facts and when it was added (added). Local files and podcast
-        episodes are left out."""
+        """Songs of a playlist (None: Liked Songs) in order, as _song_of; no local files or episodes."""
         url = "/me/tracks?limit=50" if pid is None else f"/playlists/{pid}/items?limit=50"
         return [song for it in self.pages(url) if (song := _song_of(it))]
 
     def liked_since(self, known: set[str], count: int) -> list[dict[str, Any]] | None:
-        """The Liked Songs added since a reading that had `count` songs (`known`: their ids), newest first,
-        read page by page only up to the first known one; None when more changed than that (songs unliked,
-        others liked again): then they are all read (items)."""
+        """Liked Songs added since a reading of `count` songs (`known`: their ids), newest first, read only up
+        to the first known one; None when more than additions changed (then read all: items)."""
         new: list[dict[str, Any]] = []
         url: str | None = "/me/tracks?limit=50"
         while url:
@@ -343,7 +336,7 @@ class Spotify:
                 song = _song_of(it)
                 if song is None:
                     return None
-                if song["id"] in known:  # the last reading goes on from here, if only songs were added
+                if song["id"] in known:  # the rest is the last reading, if only additions
                     return new if d.get("total") == count + len(new) else None
                 new.append(song)
             url = d.get("next")

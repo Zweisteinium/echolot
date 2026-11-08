@@ -1,7 +1,6 @@
-"""Beatport: a release's details (label, catalogue number, UPC, tracks) from its public pages, the release
-search and the release page, which carry them as JSON (__NEXT_DATA__). Its robots.txt lets anyone read them;
-Echolot asks as itself (USER_AGENT), a pause between requests, and stops at a refusal (HTTP 403, 429) or a
-page without its data (Refused): it does not get around a bot check."""
+"""Beatport release details (label, catalogue number, UPC, tracks) from the search and release pages' JSON
+(__NEXT_DATA__; robots.txt allows them), asked as Echolot, PAUSE apart. A refusal (403, 429) or a page without
+its data is Refused: Echolot does not get around a bot check."""
 
 import json
 import re

@@ -1,14 +1,11 @@
 """Users, browser sessions and API tokens.
 
-The users are Navidrome's accounts: Navidrome checks the password at each login (web/access), Echolot keeps
-no password, only the account and what it may do here. An admin may do everything, for everyone, except
-make someone an admin or no admin any more: only a Navidrome admin (always an admin here) can. Everyone else
-manages their own accounts and lists, and may be given PERMISSIONS for their own songs. Navidrome's user list (sync_users)
-renews who is a Navidrome admin and disables accounts gone from Navidrome.
+Users are Navidrome's accounts: Navidrome checks the password at each login (web/access), Echolot keeps none.
+An admin may do everything except grant or revoke admin: only a Navidrome admin (always an admin here) can.
+Others manage their own accounts and lists and may get PERMISSIONS for their own songs.
 
-A session is a random cookie value; the database keeps its SHA-256 only, with a CSRF token that every form
-and htmx request of the session sends back. API tokens (Authorization: Bearer <token>) are for scripts;
-they are stored as SHA-256 as well and shown once.
+Session cookies and API tokens (Authorization: Bearer, shown once) are stored as SHA-256 only. Every form and
+htmx request sends the session's CSRF token back.
 """
 
 import hashlib
@@ -21,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 COOKIE = "echolot_session"
-PERMISSIONS = {  # what an admin may give a user who is no admin, always for the user's own songs and lists
+PERMISSIONS = {  # grantable to non-admins, for their own songs and lists
     "review": "Review: decide the downloads of their songs",
     "upload": "Upload: add files they got elsewhere for their songs",
     "run": "Run Jobs: check their lists and search their missing songs now",
@@ -49,9 +46,9 @@ def _sha(value: str) -> str:
 class User:
     id: int
     name: str
-    admin: bool = False  # everything, for everyone (an Echolot admin, or a Navidrome admin)
+    admin: bool = False  # Echolot or Navidrome admin
     permissions: frozenset[str] = field(default_factory=frozenset)
-    view: str = "mine"  # an admin's pages: their own lists, or everyone's
+    view: str = "mine"  # an admin's pages: mine or everyone
     navidrome_admin: bool = False  # also gives and takes admin rights
 
     def can(self, permission: str) -> bool:
@@ -81,13 +78,12 @@ def users(con: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def logged_in(con: sqlite3.Connection, name: str, navidrome_id: str, navidrome_admin: bool) -> User:
-    """The Navidrome account that just logged in: added (an admin only if Navidrome's), or renewed (its
-    name as Navidrome spells it now, its Navidrome admin flag); one that was gone from Navidrome is back."""
+    """Add or renew the account that just logged in (name, Navidrome admin flag); a disabled one is back."""
     known = con.execute(
         "SELECT id FROM users WHERE navidrome_id = ? OR (navidrome_id IS NULL AND name = ?)", (navidrome_id, name)
     ).fetchone()
     with con:
-        # the name of an account gone from Navidrome, now another Navidrome account's: the old one gets out of the way
+        # a disabled account holding this name gives it up
         con.execute(
             "UPDATE users SET name = name || ' (gone ' || id || ')' WHERE name = ? AND disabled AND id != ?",
             (name, known["id"] if known else -1),
@@ -134,9 +130,9 @@ def end_sessions(con: sqlite3.Connection, user_id: int) -> int:
 
 
 def sync_users(con: sqlite3.Connection, accounts: list[dict]) -> list[str]:
-    """Navidrome's user list (id, userName, isAdmin): who is a Navidrome admin now, names that changed;
-    an account gone from Navidrome is disabled, its sessions and API tokens end (its lists stay). An
-    empty list changes nothing (Navidrome always has an admin). Returns what changed, for the log."""
+    """Follow Navidrome's user list (id, userName, isAdmin): admin flags, names; an account gone from it is
+    disabled and loses its sessions and tokens (its lists stay). An empty list changes nothing. Returns the
+    changes, for the log."""
     if not accounts:
         return []
     by_id = {a["id"]: a for a in accounts if a.get("id")}
@@ -144,7 +140,7 @@ def sync_users(con: sqlite3.Connection, accounts: list[dict]) -> list[str]:
     changes = []
     with con:
         for u in con.execute("SELECT * FROM users").fetchall():
-            # a user from before Navidrome's ids were kept (migrated): found by name, its id kept from now on
+            # migrated users without a Navidrome id: matched by name once
             a = by_id.get(u["navidrome_id"]) if u["navidrome_id"] else by_name.get(u["name"].casefold())
             if a is not None and not u["navidrome_id"]:
                 con.execute("UPDATE users SET navidrome_id = ? WHERE id = ?", (a["id"], u["id"]))
@@ -159,7 +155,7 @@ def sync_users(con: sqlite3.Connection, accounts: list[dict]) -> list[str]:
             if (admin, name, 0) == (u["navidrome_admin"], u["name"], u["disabled"]):
                 continue
             taken = con.execute("SELECT 1 FROM users WHERE name = ? AND id != ?", (name, u["id"])).fetchone()
-            if taken:  # renamed in Navidrome to the name of another user here: keep the old name for now
+            if taken:  # the new name is another user's here: keep the old one
                 name = u["name"]
             sql = "UPDATE users SET navidrome_admin = ?, name = ?, disabled = 0 WHERE id = ?"
             con.execute(sql, (admin, name, u["id"]))

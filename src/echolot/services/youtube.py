@@ -1,9 +1,7 @@
-"""Public YouTube and YouTube Music playlists, read without an account through YouTube Music's web API
-(ytmusicapi): per song its video, the title and artists as YouTube Music names the song (not the video's
-title with its "(Official Video)"), album, length and kind: the release's own audio ("Provided to
-YouTube", atv), an official video (omv, often longer than the release) or an upload (ugc: its title and
-channel as uploaded). YouTube Music leaves out the videos that no longer play (deleted, private, blocked
-here); yt-dlp's listing still has them (lists.youtube), and state tells why one does not play."""
+"""Public YouTube (Music) playlists without an account, through YouTube Music's web API (ytmusicapi): per song
+the video, title and artists as YouTube Music names the song (not the video's title), album, length and kind:
+atv (the release's audio), omv (an official video, often longer) or ugc (an upload, names as uploaded).
+YouTube Music leaves out videos that no longer play; yt-dlp's listing has them (lists.youtube), state says why."""
 
 import urllib.parse
 from typing import Any

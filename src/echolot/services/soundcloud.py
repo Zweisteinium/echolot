@@ -1,7 +1,6 @@
-"""SoundCloud's web API with the account's OAuth token (SoundCloud gives out no app keys): who the token
-belongs to, the sets in its library (own and liked) for the Sources page, the song search (Discover) and
-a track's stream for a player (web/subsonic). Downloads go through yt-dlp. The browser's login token lasts a
-day: Echolot renews it with the login's refresh token as the browser does (token_of).
+"""SoundCloud's web API with a user's browser OAuth token (SoundCloud gives out no app keys): the account,
+its library's sets, search, streams. Downloads go through yt-dlp. The token lasts a day; token_of renews it
+with the login's refresh token, as the browser does.
 """
 
 import base64
@@ -33,24 +32,21 @@ _failed: dict[int, float] = {}  # user id -> when a renewal last failed
 
 
 def token_name(user_id: int) -> str:
-    """The vault name of a user's SoundCloud token."""
     return f"{TOKEN}:{user_id}"
 
 
 def refresh_name(user_id: int) -> str:
-    """The vault name of a user's SoundCloud refresh token."""
     return f"{REFRESH}:{user_id}"
 
 
 def token_of(con: sqlite3.Connection, vault: "Vault", user_id: int) -> str | None:
-    """The user's token, renewed first when it expires within RENEW_BEFORE and their refresh token is
-    stored (the new pair is stored at once: the old refresh token works no more). Not renewed: the stored
-    one, which SoundCloud then refuses as expired."""
+    """The user's token, renewed first when it expires within RENEW_BEFORE (the new pair is stored at once:
+    the old refresh token is used up); else the stored one."""
     token = vault.get(con, token_name(user_id))
     if not (token and _due(token)) or time.time() < _failed.get(user_id, 0) + RETRY_AFTER:
         return token
     with _renewing:
-        token = vault.get(con, token_name(user_id)) or token  # (renewed meanwhile by another thread?)
+        token = vault.get(con, token_name(user_id)) or token  # (another thread may have renewed it)
         if not _due(token) or not (refresh := vault.get(con, refresh_name(user_id))):
             return token
         try:
@@ -81,8 +77,7 @@ def _due(token: str) -> bool:
 
 
 def any_token(con: sqlite3.Connection, vault: "Vault") -> str | None:
-    """A connected user's token, the oldest user's first: for what is no one's in particular (a song's
-    artwork, a download; SoundCloud hands them to any account)."""
+    """The oldest connected user's token, for what any account may fetch (artwork, downloads)."""
     users = [r[0] for r in con.execute("SELECT id FROM users WHERE NOT disabled ORDER BY id")]
     return next((t for uid in users if (t := token_of(con, vault, uid))), None)
 
@@ -106,8 +101,7 @@ def _claims(token: str) -> dict[str, Any]:
 
 
 def expires(token: str) -> datetime.datetime | None:
-    """When the token stops working, if it says: the browser's login tokens are JWTs that last a day (the
-    browser renews its own); older ones (2-…) say nothing."""
+    """When the token expires: login tokens are JWTs that last a day; older ones (2-…) don't say."""
     try:
         return datetime.datetime.fromtimestamp(int(_claims(token)["exp"]), datetime.UTC)
     except (KeyError, TypeError, ValueError):
@@ -115,9 +109,8 @@ def expires(token: str) -> datetime.datetime | None:
 
 
 def renew(token: str, refresh: str) -> tuple[str, str]:
-    """A new token and refresh token for a login's refresh token, asked of SoundCloud's login server as its
-    website asks (for the web app the token names, no app secret). The token lasts a day; the refresh token
-    works once (Refused after): only the new one renews next."""
+    """A new (token, refresh token), asked of the login server as SoundCloud's website does (the token's
+    client id, no secret). A refresh token works once: Refused after."""
     client = _claims(token).get("client_id")
     if not client:
         raise SoundCloudError("The refresh token needs the token beside it (the one that starts with eyJ).")
@@ -194,9 +187,8 @@ def tracks(token: str, ids: list[str]) -> list[dict[str, Any]]:
 
 
 def stream(token: str, page: str) -> str:
-    """The address of a track's stream to listen to now (HLS or one file; ffmpeg reads both), the best of
-    STREAMS it has; SoundCloudError if it has none (only encrypted ones). A track SoundCloud lets this
-    account hear only in part gives its snippet."""
+    """The URL of a track's best stream of STREAMS (HLS or a file: ffmpeg reads both); SoundCloudError if it
+    has only encrypted ones. A track this account may only preview gives the snippet."""
     t = _get(token, f"/resolve?url={urllib.parse.quote(page, safe='')}")
     codings = [c for c in (t.get("media") or {}).get("transcodings") or [] if c.get("url")]
     rank = {kind: n for n, kind in enumerate(STREAMS)}
@@ -217,8 +209,8 @@ def _kind(coding: dict[str, Any]) -> str:
 
 
 def states(token: str) -> dict[str, str]:
-    """Per list page, what changes when the list changes (three requests): the account's likes
-    ('<count>:<newest like>:<its track>') and every set in its library ('<songs>:<last change>')."""
+    """Per list page, a value that changes with the list (three requests): the likes
+    ('<count>:<newest like>:<its track>') and every library set ('<songs>:<last change>')."""
     me = _get(token, "/me")
     newest = (_get(token, f"/users/{me['id']}/track_likes?limit=1").get("collection") or [{}])[0] or {}
     track = (newest.get("track") or {}).get("id") or ""
@@ -232,7 +224,7 @@ def states(token: str) -> dict[str, str]:
 
 
 def liked(token: str, page: str) -> dict[str, str]:
-    """When the account of a likes page liked each of its tracks (track id -> time), a request per 200 likes."""
+    """Track id -> when the likes page's account liked it (a request per 200)."""
     user = _get(token, f"/resolve?url={urllib.parse.quote(page.rstrip('/').removesuffix('/likes'), safe='')}")
     out: dict[str, str] = {}
     path = f"/users/{user['id']}/track_likes?limit=200"
@@ -246,8 +238,7 @@ def liked(token: str, page: str) -> dict[str, str]:
 
 
 def search(token: str, query: str, limit: int = 20) -> list["Hit"]:
-    """Tracks for a query, as SoundCloud's own search lists them: discover.Hit, best first, the names split
-    as the SoundCloud job does ("Artist - Title [Free DL]" uploaded by a label: Artist, Title)."""
+    """SoundCloud's search results as discover.Hit, best first, names split as for downloads (artist_title)."""
     from echolot.library.discover import Hit
     from echolot.library.tagging import clean_title
     from echolot.services.ytdlp import artist_title

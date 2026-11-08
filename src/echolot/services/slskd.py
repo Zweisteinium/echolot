@@ -1,14 +1,10 @@
-"""Soulseek through slskd (a full Soulseek client: it shares, keeps private messages), over its HTTP API (v0,
-slskd 0.26): searches and their responses, downloads in batches with a folder of their own, cancel. The same
-calls as soulseek.Daemon (status, search, wait, results, download, transfer, cancel), so the songs job uses
-either backend.
+"""Soulseek through slskd's HTTP API (v0, slskd 0.26), with the calls of soulseek.Daemon: the songs job uses
+either backend. slskd takes an API key or its web login.
 
-What Sockseek does for its daemon, Echolot does here: the search text (without feat. credits; the desperate
-search repeats a search without results with the title alone and the artist alone), the filters and the
-ranking of soulseek.SEARCH, Soulseek's search limit, giving a download up that makes no progress
-(maxStaleTime), and peers whose downloads failed: ranked last after one failure, left out after two (Sockseek's
-fails-to-downrank 1, fails-to-ignore 2; for soulseek.PEER_MEMORY). slskd logs in with an API key or with its web login
-(user and password).
+Echolot does here what Sockseek does for its daemon: the search text (no feat. credits; the desperate search
+retries with the title alone, then the artist alone), soulseek.SEARCH's filters and ranking, Soulseek's search
+limit, giving up stalled downloads (maxStaleTime), and failed peers: ranked last after one failure, left out
+after two (Sockseek's fails-to-downrank 1, fails-to-ignore 2).
 """
 
 import contextlib
@@ -32,8 +28,8 @@ OTHER_USER = "slskd saved it as another user: run slskd as Echolot's user (user:
 SECRET = "slskd.secret"  # the vault's name of slskd's password (with a user) or API key (without)
 MOVE_WAIT = 60  # s a reported download may take to appear in its folder
 SEARCH_LIMIT = (34, 220)  # Soulseek allows about 34 searches per 220 s: kept by every client of this process
-# ms after the last response a search counts as complete: slskd's searchTimeout goes to Soulseek.NET as is
-# (milliseconds, though slskd's API notes call it seconds); 15 s is slskd's default
+# searchTimeout: ms after the last response a search ends (slskd's API notes say seconds, but it reaches
+# Soulseek.NET as is); slskd's default
 SEARCH_IDLE_MS = 15_000
 FAST = 1_000_000  # bytes/s from which a peer counts as fast (the ranking: fast before slow)
 BUSY_TRIES = 10  # slskd answers 429 while it handles another search or enqueue: tried again this often
@@ -199,9 +195,8 @@ class Slskd:
                 stop.wait(every)
 
     def results(self, job_id: str) -> list[Candidate]:
-        """The files the job's searches found that pass soulseek.SEARCH's necessary conditions, best first by
-        its preferred ones, then free slot, speed and queue; a peer whose download failed last, one that failed
-        twice not at all."""
+        """Found files that pass SEARCH's necessary conditions, best first (_rank); peers that failed twice are
+        left out."""
         j = self._jobs.get(job_id)
         if j is None:
             raise Lost(f"search {job_id}: unknown")
@@ -313,8 +308,8 @@ class Slskd:
             self._forget(job, t)
 
     def rescan_shares(self) -> bool:
-        """Have slskd scan its shares again (it scans them only at its start); False while a scan runs. A
-        pending scan (scanPending: its share directories changed) is what this starts, so it does not stop it."""
+        """Rescan slskd's shares (it scans only at its start); False while a scan runs. A pending scan
+        (scanPending) is what this starts: no reason to wait."""
         state = (self._call("GET", "/application") or {}).get("shares") or {}
         if state.get("scanning"):
             return False

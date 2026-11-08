@@ -1,8 +1,6 @@
-"""Echolot's settings, stored in the database by section (table settings, one JSON value each).
-
-Every section is a pydantic model with defaults: a section never saved reads as its defaults, and a
-value that no longer validates (an older version wrote it) falls back to them field by field.
-The schedule is a section too (jobs/schedule.py); the lists are in the sources table.
+"""Settings by section (table settings, one JSON value each), each a pydantic model with defaults: an unsaved
+section reads as its defaults, a stored value that no longer validates falls back field by field. The schedule
+is a section too (jobs/schedule); the lists are in the sources table.
 """
 
 import json
