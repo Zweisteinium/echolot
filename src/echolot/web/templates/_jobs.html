@@ -1,9 +1,9 @@
-{# the jobs (History · Jobs): a card per task (schedule.TASKS), all alike: on the left its name, state, next start
-   and buttons; on the right a tile per step (job): what it did last or does now in counts (format.facts: a
-   song's outcome as an icon and its number), its schedule and when it ran. What the task is for and its steps
-   behind ⓘ, its log behind Log; maintenance below its own heading. htmx reloads it every few seconds while
-   something runs and morphs it in (scrolling and a selection stay); open infos and logs stay open (base.html,
-   data-info) -#}
+{# the jobs (History · Jobs): a card per task (schedule.TASKS), all alike: its name, state, next start and
+   buttons in one line on top, below its steps (jobs) in columns: what each did last or does now in counts
+   (format.facts: a song's outcome as an icon and its number), the songs a Soulseek run searches now, its schedule
+   and when it ran. What the task is for and its steps behind ⓘ, its log behind Log; maintenance below its own
+   heading. htmx reloads it every few seconds while something runs and morphs it in (scrolling and a selection
+   stay); open infos and logs stay open (base.html, data-info) -#}
 {% from "_icons.html" import icon -%}
 {% set STEP_ICONS = {'sync': 'spotify', 'soundcloud': 'soundcloud', 'youtube': 'youtube', 'search_new': 'soulseek', 'sweep': 'soulseek'} -%}
 {% macro show(line, step='') -%}{# a job's line as counts, outcomes and text #}

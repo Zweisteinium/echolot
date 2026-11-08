@@ -243,16 +243,19 @@ a.pill { text-decoration: none; }
 @keyframes dot-ping { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3); opacity: 0; } }
 .dot.wait { background: var(--warn); opacity: 1; }
 .dot.err { background: var(--bad); opacity: 1; }
-/* jobs (History · Jobs): a card per task, all alike: on the left its name, state, next start and buttons, on
-   the right a tile per step (job) with its counts, schedule and last run; what it is for behind ⓘ, its log
-   behind Log. The tiles share the card's width evenly (auto-fit), and wrap when it gets narrow */
-.job-list { display: grid; gap: 0.7rem; margin-top: 0.5rem; }
+/* jobs (History · Jobs): one level of cards, on the page's own background (no card around them): a card per
+   task, all alike: its name, state, next start and buttons in one line on top, below a line its steps (jobs) in
+   columns parted by a thin line, each with its counts, the songs a Soulseek run searches now, its schedule and
+   last run; what it is for behind ⓘ, its log behind Log. The columns share the card's width evenly (auto-fit),
+   and wrap when it gets narrow */
+.jobs-page { min-width: 0; padding: 0 0.1rem; }
+.job-list { display: grid; gap: 0.9rem; margin-top: 0.5rem; }
 .job-list[hidden] { display: none; }
-.job { display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: 0.75rem 1.25rem; min-width: 0; padding: 0.9rem 1rem;
-  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.job { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem; min-width: 0; padding: 0.95rem 1.15rem 1rem;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
 .job.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
 .job.bad { border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
-.job-side { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.job-side { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem 0.9rem; min-width: 0; }
 .job-top { display: flex; align-items: center; gap: 0.4rem; }
 .job-top h3 { margin: 0; font-size: 0.98rem; font-weight: 650; }
 .job-status { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; }
@@ -263,20 +266,23 @@ a.pill { text-decoration: none; }
 .job-state.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
 .job-state.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .job-state.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.job-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; padding-top: 0.2rem; }
+.job-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-left: auto; }
 .job-actions form { margin: 0; }
 .job-actions button { padding: 0.25rem 0.7rem; font-size: 0.84rem; }
 .job-actions button .icon { vertical-align: -2px; }
 .job-log-toggle { font-size: 0.82rem; }
 .job-actions .link-button { padding: 0.25rem 0.2rem; }
-.job-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: 0.5rem; align-content: stretch; }
-.step { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; padding: 0.55rem 0.7rem 0.5rem;
-  border: 1px solid transparent; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--track) 55%, var(--surface)); }
-.step.live { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: color-mix(in srgb, var(--ok) 5%, var(--surface)); }
+/* the line between two columns stands in the gap before each; a row's first has its line left of the card's
+   edge, cut off there (overflow), however the columns wrap */
+.job-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: 0.9rem 2rem; align-content: stretch;
+  overflow: hidden; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.step { position: relative; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.step::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1rem; border-left: 1px solid var(--border); }
+.step.live .step-name { color: var(--ok); }
 /* a task of one step: its tile the whole width, its counts side by side */
 .job-tiles > .step:only-child .job-facts { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 1.6rem; }
 .job-tiles > .step:only-child .job-facts > .fact:first-child { font-size: inherit; }
-.step.bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--border)); }
+.step.bad .step-name { color: var(--bad); }
 .step-name { display: flex; align-items: center; gap: 0.35rem; min-width: 0; color: var(--muted); font-size: 0.76rem; font-weight: 650; }
 .step-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .job-facts { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; font-size: 0.83rem; line-height: 1.45; }
@@ -298,8 +304,8 @@ a.pill { text-decoration: none; }
 .step-songs li { display: flex; align-items: center; gap: 0.35rem; min-width: 0; color: var(--text); }
 .step-songs .icon { flex: none; color: var(--muted); }
 .step-songs span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step-foot { display: flex; justify-content: space-between; gap: 0.1rem 0.6rem; margin-top: auto; padding-top: 0.3rem;
-  border-top: 1px solid var(--border); color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
+.step-foot { display: flex; justify-content: space-between; gap: 0.1rem 0.6rem; margin-top: auto; padding-top: 0.45rem;
+  color: var(--muted); font-size: 0.74rem; line-height: 1.4; }
 .step-foot .icon { vertical-align: -2px; }
 .step-rule { min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }  /* one line, whole on hover */
 .step-foot > span:last-child:not(.step-rule) { flex: none; }
@@ -1218,8 +1224,10 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   .subnav a { white-space: nowrap; padding: 0.3rem 0.6rem; font-size: 0.85rem; }
   .subnav .tab-count { margin-left: 0.2rem; padding: 0 0.3rem; font-size: 0.7rem; }
   .status-row { gap: 0.3rem; }
-  .job { grid-template-columns: minmax(0, 1fr); padding: 0.8rem; }
+  .job { padding: 0.8rem; }
   .job-tiles { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+  .job-tiles { column-gap: 1.4rem; }
+  .step::before { left: -0.7rem; }
   .step-foot { flex-wrap: wrap; }
   .step-rule { flex-basis: 100%; }
   .job-tiles > .step:only-child .step-rule { flex-basis: 0; }  /* the whole width: one line still */
