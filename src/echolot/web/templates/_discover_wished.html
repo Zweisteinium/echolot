@@ -1,5 +1,5 @@
 {% from "_icons.html" import icon %}{% from "_discover_macros.html" import play_button %}
-{# the user's wished songs and how far each is (discover._wished); asks again every 2 s while one is on its way #}
+{# the user's wished songs (discover._wished); polled every 2 s while one is on its way #}
 <section class="card discover discover-wished" id="wished" hx-get="/discover/wished" hx-swap="outerHTML"
          hx-trigger="wished from:body{% if active %}, every 2s[document.visibilityState === 'visible']{% endif %}"{% if not wished %} hidden{% endif %}>
   <h2>Wished <span class="count">{{ wished|length }}</span></h2>

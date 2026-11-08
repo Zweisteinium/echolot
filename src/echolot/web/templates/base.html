@@ -18,7 +18,7 @@
     {% if user %}
     {% from "_icons.html" import icon %}
     {% set library = nav in ('library', 'missing', 'buy', 'discogs') %}{% set history = nav in ('activity', 'changes', 'jobs') %}
-    {# the pages; on a phone a tab bar at the bottom, each with its icon #}
+    {# on phones a tab bar at the bottom #}
     <nav aria-label="Pages" class="pages">
       <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>{{ icon('search', 22) }}<span>Search</span></a>
       <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>{{ icon('playlist', 22) }}<span>Playlists</span></a>
@@ -55,9 +55,7 @@
   </main>
   {% endblock %}
   <script>
-    // info buttons (data-info="id") show or hide a text. The jobs table is reloaded every few seconds and morphed
-    // into the page (hx-swap="morph": only what changed is touched, so scrolling, a selection and the log's
-    // scroll position stay); the open ones are remembered and kept open, also when they appear anew
+    // info buttons (data-info="id") toggle a text; open ones stay open across morph swaps (the jobs poll)
     const openInfo = new Set();
     const showInfo = (id, open) => {
       const text = document.getElementById(id);
@@ -93,9 +91,8 @@
       b.textContent = done ? "Copied" : "Select and copy";
       setTimeout(() => (b.textContent = "Copy"), 2000);
     });
-    // song links with data-app="spotify:track:…" try the desktop app first. A page cannot ask whether an app is
-    // installed, so if no app takes the focus within 2 s the web link opens instead. Phones and middle or
-    // modifier clicks keep the plain https link (phones hand it to an installed app themselves).
+    // links with data-app="spotify:track:…" try the desktop app; if no app takes the focus within 2 s the web
+    // link opens. Phones and middle or modifier clicks keep the plain link.
     document.addEventListener("click", (ev) => {
       const a = ev.target.closest("a[data-app]");
       if (!a || ev.button || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
@@ -105,7 +102,7 @@
       const away = () => (left = true);
       window.addEventListener("blur", away, { once: true });
       document.addEventListener("visibilitychange", away, { once: true });
-      if (navigator.userAgent.includes("Firefox")) {  // shows an error page for a scheme without an app
+      if (navigator.userAgent.includes("Firefox")) {  // it shows an error page for a scheme without an app
         const frame = Object.assign(document.createElement("iframe"), { hidden: true, src: a.dataset.app });
         document.body.append(frame);
         setTimeout(() => frame.remove(), 5000);
@@ -121,8 +118,7 @@
         else location.href = a.href;  // popup blocked
       }, 2000);
     });
-    // Review: one player for the page. ▶ on a download plays it (again: pauses); its bar shows where it
-    // is and jumps on a click. Rows are found by their event id, so it survives a card swapped by htmx.
+    // Review: one player per page; rows are found by their event id, so it survives htmx card swaps
     const player = new Audio();
     let playing = null;  // the event id of the download in the player
     const rowOf = (id) => document.querySelector(`.download[data-event="${id}"]`);
@@ -145,7 +141,7 @@
       player.src = row.querySelector("[data-play]").dataset.play;
     };
     for (const e of ["play", "pause", "timeupdate", "loadedmetadata", "ended"]) player.addEventListener(e, paint);
-    // its volume: one slider on the page, a mute button beside it, both remembered in this browser
+    // volume and mute, remembered in this browser
     const volume = document.querySelector("[data-volume]");
     if (volume) {
       const mute = document.querySelector("[data-mute]");
@@ -184,7 +180,7 @@
         if (player.readyState >= 1) jump(); else player.addEventListener("loadedmetadata", jump, { once: true });
         return;
       }
-      // Close match: the line to name what the file is opens first; its button files it
+      // Close match: open or cancel the line to name the file
       const open = ev.target.closest("[data-close-line]");
       const cancel = ev.target.closest("[data-close-cancel]");
       const line = open ? document.getElementById(open.dataset.closeLine) : cancel?.closest(".close-line");
@@ -192,7 +188,7 @@
       line.hidden = !open;
       if (open) line.querySelector("input").focus();
     });
-    // Sources: show one kind of list (yours, collaborative, by others), remembered per service
+    // Playlists: the kind filter, remembered per service
     const showKind = (filter, value) => {
       const input = filter.querySelector(`input[value="${value}"]`);
       const cards = filter.nextElementSibling;
@@ -214,7 +210,7 @@
         if (value) showKind(filter, value);
       }
     });
-    // remember which collapsible sections are closed (per browser; the page works without it)
+    // remember which collapsible sections are closed
     for (const d of document.querySelectorAll("details[data-remember]")) {
       const key = "echolot:" + d.dataset.remember;
       try { const was = localStorage.getItem(key); if (was) d.open = was === "open"; } catch (e) {}

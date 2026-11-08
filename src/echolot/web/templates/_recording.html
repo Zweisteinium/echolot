@@ -1,12 +1,11 @@
-{# a recording session (web/recorders._panel): its device, progress and buttons; asks again every 5 s while it
-   runs or is paused; once it ended, what it brought, until closed (the X) #}
+{# a recording session's panel (recorders._panel); polled every 5 s while running or paused #}
 {% from "_icons.html" import icon %}
 {% if session %}
 {% set live = session.state in ('running', 'paused') %}
 {% set q = '?list=' ~ list_key|urlencode %}
 {% set name = device.name if device else 'the device' %}
 {% set marks = {'running': ('record', 'Recording'), 'paused': ('pause', 'Paused'), 'done': ('check', 'Done'), 'stopped': ('stop', 'Stopped')} %}
-{# (only a running or paused one asks again: without hx-trigger, htmx would ask on every click inside it, the X too) #}
+{# hx-trigger only while live: without it htmx would request on every click inside, the X too #}
 <section class="card recording {{ session.state }}" id="recording"{% if live %} hx-get="/recordings/panel{{ q }}" hx-swap="outerHTML" hx-trigger="every 5s[document.visibilityState === 'visible']"{% endif %}>
   <div class="recording-head">
     <span class="recording-mark" title="{{ marks[session.state][1] }}">{{ icon(marks[session.state][0], 16) }}</span>

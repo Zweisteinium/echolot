@@ -1,6 +1,5 @@
-{# the Library page's line of the jobs (web/jobs.jobs_now), one short line that never wraps: the task running
-   and how far (163/200), else when the next starts; polled while one runs. What it does in words only in the
-   hover text, and only to admins (a song's name may be another user's) #}
+{# the Library page's jobs pill, one line; polled faster while a task runs. Progress text only for
+   admins: it may name another user's song #}
 {% set active = tasks|selectattr('running')|list %}
 {% set run = active[0].running[0].run if active else none %}
 <a class="pill job-pill{{ ' on' if active }}" href="/jobs" hx-get="/jobs/now" hx-trigger="every {{ '4s' if active else '60s' }}" hx-swap="outerHTML" title="{{ run.progress if run and user.admin and run.progress else 'The jobs: what runs, when, and what each one does' }}">

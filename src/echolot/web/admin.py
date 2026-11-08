@@ -1,4 +1,4 @@
-"""Settings page (schedule, access, Navidrome, configuration file) and /api/config; admins only."""
+"""Server settings page and /api/config (admins only)."""
 
 import os
 import sqlite3
@@ -36,7 +36,7 @@ def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
         navidrome_env=os.environ.get("ECHOLOT_NAVIDROME_URL", ""),
         navidrome_ok=_service_state(request, con),
         vault_source=request.app.state.vault.source,
-        s=accounts.status(request, con),  # the Soulseek card (_soulseek.html)
+        s=accounts.status(request, con),  # for _soulseek.html
         has_daemon_dir=request.app.state.settings.daemon_dir is not None,
     )
 
@@ -70,7 +70,7 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
 
 
 def _service_state(request: Request, con: sqlite3.Connection) -> str:
-    """'' when the service account works, else what is wrong (for the settings page)."""
+    """'' when the Navidrome service account works, else what is wrong."""
     svc = navidrome.service(con, request.app.state.vault)
     if svc is None:
         return "Not set up: Echolot can't read Navidrome's users or set playlist owners."
@@ -91,8 +91,8 @@ def settings_access(
     service_user: Annotated[str, Form()] = "",
     service_password: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
-    """Login length, /metrics, Navidrome's address and service account (an empty password keeps the
-    stored one). A Navidrome address that does not answer is not taken: nobody could log in."""
+    """Login length, /metrics, Navidrome's address and service account (empty password: keep). An address
+    that does not answer is refused: nobody could log in."""
     url = navidrome_url.strip().rstrip("/")
     if not url and not os.environ.get("ECHOLOT_NAVIDROME_URL"):
         return back("/settings", error="Not saved: without Navidrome's address nobody could log in.")
@@ -118,8 +118,7 @@ def settings_access(
 def settings_discogs(
     request: Request, con: DB, enabled: Annotated[bool, Form()] = False, token: Annotated[str, Form()] = ""
 ) -> RedirectResponse:
-    """Discogs on or off, and its token (empty: keep the stored one). A new token is asked about once (whose
-    it is); Discogs on needs one."""
+    """Discogs on/off and its token (empty: keep). A new token is checked once (whose it is); on needs one."""
     vault, token = request.app.state.vault, token.strip()
     user = options.get(con, options.Discogs).user
     if token:

@@ -1,5 +1,4 @@
-"""The overview's charts, server-rendered SVG: the quality ring and the library's growth (a few lines of
-JavaScript only show the value under the pointer)."""
+"""The Library page's charts as server-rendered SVG: the quality rings and the graphs over time."""
 
 import itertools
 import json
@@ -29,10 +28,9 @@ class Donut:
 
 
 def donut(counts: list[tuple[str, str, int]], size: int = 184, width: int = 26) -> Donut:
-    """Part-to-whole ring of (key, label, count), clockwise from 12 o'clock. A 2px surface gap separates
-    slices, taken from the ring before it is shared out, so each slice's length is its share of the rest;
-    only a slice shorter than 2.5px is drawn that long (the others give it the room), so a tiny share stays
-    visible and a larger count never draws shorter than a smaller one."""
+    """Part-to-whole ring of (key, label, count), clockwise from 12 o'clock. 2px gaps between slices come off
+    the ring first, so lengths stay proportional; a slice under 2.5px is drawn 2.5px (the others shrink),
+    so a tiny share stays visible and a larger count never draws shorter."""
     radius = (size - width) / 2
     total = sum(n for _, _, n in counts)
     circumference = 2 * math.pi * radius
@@ -52,9 +50,9 @@ def donut(counts: list[tuple[str, str, int]], size: int = 184, width: int = 26) 
     return Donut(size, radius, width, total, slices)
 
 
-W, H = 1000, 300  # a graph's drawing box; it stretches to its frame (labels are HTML)
+W, H = 1000, 300  # a graph's viewBox; it stretches to its frame (labels are HTML)
 GAP = timedelta(hours=36)  # longer without a snapshot (Echolot off): the line breaks
-MOST = 240  # points drawn at most: the last of each stretch of time
+MOST = 240  # points drawn at most: the last of each slot
 
 
 @dataclass
@@ -65,33 +63,31 @@ class Tick:
 
 @dataclass
 class Graph:
-    """What every graph has: its axes, the last point, the values for the pointer and the headline."""
-
     values: list[Tick]
     dates: list[Tick]
-    start: str  # the first and last point's time (UTC): the stretch shown, for zooming into a part of it
+    start: str  # first and last point (UTC): the stretch shown, for zooming
     stop: str
     end: tuple[float, float]  # the last point, percent from the left and the top
     points: str  # JSON [[left %, top %, when, value, ...], ...] for the pointer
     now: str  # the last value, formatted
     since: str  # the first point's date
-    total: str  # the change since the first point, formatted with its sign
+    total: str  # the signed change since the first point
     week: str  # ... in the last 7 days ("" when less is shown)
 
 
 @dataclass
 class Growth(Graph):
     line: str  # SVG path in the W x H box
-    area: str  # under each stretch of the line (not under a gap)
-    gaps: str  # dotted across the gaps (Echolot was off), from the point before to the one after
+    area: str  # under each stretch of the line, not under a gap
+    gaps: str  # dotted lines across the gaps
 
 
 @dataclass
 class Band:
     key: str
     label: str
-    area: str  # SVG path: the band between the tiers below it and its own top
-    edge: str  # its top, as a line
+    area: str  # SVG path between the tiers below and its own top
+    edge: str  # its top as a line
 
 
 @dataclass
@@ -101,10 +97,10 @@ class Stack(Graph):
 
 def _nice(top: float) -> tuple[float, float]:
     """(axis maximum, step): the lowest maximum of 3 to 5 steps of 1, 2, 2.5 or 5 x 10^n reaching `top`
-    (more steps when two reach as low)."""
+    (more steps on a tie)."""
     best = None
     for n in (5, 4, 3):
-        raw = max(top, 3) / n  # (whole steps for counts)
+        raw = max(top, 3) / n  # whole steps for counts
         unit = 10 ** math.floor(math.log10(raw))
         step = next(m * unit for m in (1, 2, 2.5, 5, 10) if m * unit >= raw)
         if best is None or n * step < best[0]:
@@ -113,9 +109,8 @@ def _nice(top: float) -> tuple[float, float]:
 
 
 def _span(low: float, high: float) -> tuple[float, float, float]:
-    """(axis minimum, maximum, step) for values from `low` to `high`: from 0 (_nice) while they reach down to
-    within their own spread of it; else cut to them, between round steps a little beyond both (a flat line:
-    a narrow band around it), so that a change of a few songs or GB shows however large the library is."""
+    """(axis minimum, maximum, step) for values from `low` to `high`: from 0 while low is within the spread
+    of 0; else cut to round steps just beyond both, so a change of a few songs shows in a large library."""
     if low <= high - low:
         top, step = _nice(high * 1.08)
         return 0, top, step
@@ -134,8 +129,7 @@ def _signed(change: float, value: Callable[[float], str]) -> str:
 
 
 class _Time:
-    """The time axis of points (UTC ts, oldest first): at most MOST of them kept, their x in the box, the
-    stretches without a gap, the date ticks."""
+    """The time axis of points (UTC ts, oldest first): the MOST kept, their x, the runs without a gap, ticks."""
 
     def __init__(self, stamps: list[str]) -> None:
         self.stamps = stamps
@@ -182,11 +176,9 @@ class _Time:
 def growth(
     points: list[tuple[str, float]], value: Callable[[float], str], axis: Callable[[float], str]
 ) -> Growth | None:
-    """A metric over time ((UTC ts, value), oldest first) as a line over an area, on an axis from 0 or cut to
-    the values shown (_span: a zoomed stretch of a large library); `value` formats a value, `axis` an axis
-    label. A count of 0 before the first that is not is none: taken before the library
-    was first read. Where GAP passed without a point, the line and its area break, and a dotted line bridges
-    it. None for fewer than two points."""
+    """A metric over time ((UTC ts, value), oldest first) as a line over an area (axis: _span). `value`
+    formats a value, `axis` an axis label. Leading zeros are dropped (taken before the library was first
+    read). None for fewer than two points."""
     while len(points) > 1 and points[0][1] == 0 and points[1][1] != 0:
         points = points[1:]
     if len(points) < 2:
@@ -237,9 +229,8 @@ def _points(change: float) -> str:
 
 def stacked(points: list[tuple[str, dict[str, float]]], tiers: list[tuple[str, str]]) -> Stack | None:
     """Shares over time ((UTC ts, {tier: count}), oldest first) as stacked bands, the first tier at the bottom
-    (the headline: its share). The axis starts at a round share below the first tier's lowest, so the thin
-    bands at the top can be read (the axis says where); a gap (GAP) leaves the bands open. None for fewer
-    than two points."""
+    and in the headline. The axis starts at a round share below the first tier's lowest, so the thin bands
+    on top stay readable. None for fewer than two points."""
     points = [(ts, n) for ts, n in points if sum(n.values())]
     if len(points) < 2:
         return None
@@ -252,7 +243,7 @@ def stacked(points: list[tuple[str, dict[str, float]]], tiers: list[tuple[str, s
     def y(share: float) -> float:
         return H - H * max(share - floor, 0) / (100 - floor)
 
-    tops = [list(itertools.accumulate(row)) for row in shares]  # each tier's top: the shares up to it
+    tops = [list(itertools.accumulate(row)) for row in shares]
 
     def top(i: int, k: int) -> float:
         return tops[i][k] if k >= 0 else floor
@@ -268,7 +259,7 @@ def stacked(points: list[tuple[str, dict[str, float]]], tiers: list[tuple[str, s
         bands.append(Band(key, label, area, edge))
     first, last, ago = shares[0][0], shares[-1][0], t.week_ago()
 
-    def down(share: float) -> float:  # (as the ring's share: rounded down, 100.0 only when all are)
+    def down(share: float) -> float:  # rounded down like format.share
         return math.floor(share * 10 + 1e-9) / 10
 
     rows = [

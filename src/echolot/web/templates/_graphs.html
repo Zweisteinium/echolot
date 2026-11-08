@@ -1,5 +1,4 @@
-{# the Library page's graphs (pages._graphs): songs, size or quality over the stretch of time shown (a chip of
-   window.ranges, or one dragged across a graph); /library/graphs sends it again for another stretch #}
+{# the Library page's graphs (pages._graphs); /library/graphs sends it anew for another stretch #}
 {% from "_chart.html" import growth_chart, stack_chart %}
 {% set panels = (('songs', 'Songs', 'your songs in the library' if o.scoped else 'songs in the library'), ('size', 'Size', 'the size of the library'), ('quality', 'Quality', 'the quality of ' ~ ('your songs' if o.scoped else 'the songs'))) %}
 {% set show = request.query_params.get('show') if request.query_params.get('show') in ('songs', 'size', 'quality') else 'songs' %}

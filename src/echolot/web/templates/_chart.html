@@ -14,9 +14,8 @@
 {%- endmacro %}
 
 
-{# a graph over time (charts.growth): a line over an area, stretched to its frame; labels, the last point and
-   the pointer's value are HTML on top (they keep their shape); a gap is dotted. Dragging across it chooses a
-   stretch to zoom into (data-start, data-stop: the stretch it shows) #}
+{# a graph over time (charts.growth). Labels, the end point and the pointer are HTML on top, so they keep
+   their shape; data-start/stop: the stretch shown, for drag-to-zoom #}
 {% macro growth_chart(g, name, caption) -%}
 <figure class="growth" data-growth data-points="{{ g.points }}" data-start="{{ g.start }}" data-stop="{{ g.stop }}">
   <div class="plot">
@@ -42,8 +41,7 @@
 {%- endmacro %}
 
 
-{# shares over time (charts.stacked): a band per quality tier in the ring's colours, the best at the bottom;
-   the axis starts where its labels say. The pointer shows every tier then #}
+{# stacked shares over time (charts.stacked), the best tier at the bottom #}
 {% macro stack_chart(g, name, caption) -%}
 <figure class="growth stacked" data-growth data-stack data-points="{{ g.points }}" data-start="{{ g.start }}" data-stop="{{ g.stop }}">
   <div class="plot">

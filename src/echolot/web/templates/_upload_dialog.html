@@ -1,27 +1,24 @@
-{# the upload dialog (web/upload.py), on the pages that open it: a button or a song's icon with
-   hx-get="/missing/upload[?song=<key>]" hx-target="#upload-body" #}
+{# the upload dialog: opened by hx-get="/missing/upload[?song=<key>]" hx-target="#upload-body" #}
 {% from "_icons.html" import sprite %}
 {{ sprite(['upload']) }}
 <dialog id="upload" class="modal" aria-label="Upload files"><div id="upload-body"></div></dialog>
 <script>
-  // a file is uploaded and checked the moment it is picked or dropped, two at a time, each on its own; it
-  // shows as a quiet placeholder row, as tall as its result, which fills in as soon as the file is checked;
-  // one bar shows the whole batch, and once every file is done Import, for all of them, unlocks (failed ones
-  // count as done; × leaves a file out, also one still uploading); imported songs leave Missing (another page
-  // shows anew when the dialog closes); closing the dialog (Esc, Cancel) deletes the batch
+  // files upload two at a time as they are picked or dropped, each into a placeholder row its result replaces;
+  // Import unlocks once all are done (failed ones count as done). Imported songs leave Missing (other pages
+  // reload when the dialog closes); closing the dialog (Esc, Cancel) deletes the batch
   (() => {
     const dialog = document.getElementById("upload");
     const body = document.getElementById("upload-body");
     const csrf = () => JSON.parse(document.body.getAttribute("hx-headers") || "{}")["X-CSRF-Token"] || "";
     const AT_ONCE = 2;
-    let reload = false;  // songs imported on a page that does not take them off by itself
+    let reload = false;  // imported on a page that does not take them off by itself
     let queue = [], active = [], jobs = [];  // jobs: every file still in the dialog, in order
     const box = () => body.querySelector("[data-batch]");
-    const refresh = () => {  // the bar; once every file is done: Import (for something to import)
+    const refresh = () => {  // the bar and the Import button
       const go = body.querySelector("[data-import]");
       if (!go) return;
       const all = body.querySelector("[data-force-all]"), forces = [...body.querySelectorAll("[data-force]")];
-      if (all) {  // Replace all: every file that is no better replaces its copy too (also those added later)
+      if (all) {  // Replace all also covers files added later
         all.hidden = !forces.length;
         if (all.querySelector("input").checked) for (const force of forces) force.checked = true;
         for (const force of forces) force.closest("tr").querySelector("input[name^='song_']").disabled = !force.checked;
@@ -32,7 +29,7 @@
       bar.hidden = !pending;
       if (pending) {
         const share = open.reduce((n, j) => n + (j.done ? 1 : 0.5 * (j.sent || 0) + (j.checking ? 0.25 : 0)), 0) / open.length;
-        const pct = Math.min(99, Math.round(100 * share));  // (100 % is when the results are in)
+        const pct = Math.min(99, Math.round(100 * share));  // 100 % only once the results are in
         bar.querySelector(".bar > span").style.width = `${pct}%`;
         bar.querySelector("[data-progress-pct]").textContent = `${pct} %`;
         bar.setAttribute("aria-valuenow", pct);
@@ -64,13 +61,13 @@
       const b = box();
       if (!b) return;
       active.push(job);
-      job.row.classList.add("working");  // its row pings while it is uploaded and checked
+      job.row.classList.add("working");
       const xhr = (job.xhr = new XMLHttpRequest());
       xhr.open("POST", `/missing/upload/${b.dataset.batch}/file`);
       xhr.setRequestHeader("X-CSRF-Token", csrf());
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) { job.sent = e.loaded / e.total; refresh(); } };
       xhr.upload.onload = () => { job.sent = 1; job.checking = true; refresh(); };
-      xhr.onload = () => {  // its result takes the placeholder's place
+      xhr.onload = () => {
         const t = document.createElement("tbody");
         t.innerHTML = xhr.status === 200 ? xhr.responseText
           : '<tr class="upload-row"><td class="upload-file"><div class="name"></div></td><td colspan="2"><span class="pill bad-pill">upload failed</span></td><td class="row-action"><button type="button" class="icon-button" data-drop-row>×</button></td></tr>';
@@ -108,19 +105,19 @@
       if (!done) return;
       const keys = JSON.parse(done.dataset.imported);
       const count = document.getElementById("missing-count");
-      if (!count) { reload = keys.length > 0; return; }  // another page: shown anew when the dialog closes
+      if (!count) { reload = keys.length > 0; return; }  // not the Missing page
       for (const key of keys) {
         document.querySelectorAll(`tr[data-song="${CSS.escape(key)}"]`).forEach((tr) => tr.remove());
       }
       count.textContent = document.querySelectorAll("table.missing tbody tr[data-song]").length.toLocaleString("en");
     });
-    document.addEventListener("htmx:beforeRequest", (e) => {  // Import: locked while it files them
+    document.addEventListener("htmx:beforeRequest", (e) => {  // lock the dialog while importing
       if (!body.contains(e.detail.elt) || !e.detail.elt.matches("[hx-post$='/import']")) return;
       body.querySelectorAll("button, input").forEach((el) => { if (el.type !== "hidden") el.disabled = true; });
       const note = body.querySelector(".busy");
       if (note) note.hidden = false;
     });
-    document.addEventListener("htmx:responseError", (e) => {  // the import failed: say so, the dialog stays usable
+    document.addEventListener("htmx:responseError", (e) => {  // import failed: say so, unlock
       if (!body.contains(e.detail.elt)) return;
       const note = body.querySelector(".busy");
       if (note) { note.hidden = false; note.className = "bad-text small"; note.textContent = `Import failed (${e.detail.xhr.status}): see the log; nothing was lost.`; }
@@ -129,7 +126,7 @@
     });
     body.addEventListener("change", (e) => {
       const input = e.target.closest("[data-files]");
-      if (input) { addFiles([...input.files]); input.value = ""; return; }  // (the same file can be added again)
+      if (input) { addFiles([...input.files]); input.value = ""; return; }  // so the same file can be added again
       const all = e.target.closest("[data-force-all] input");
       if (all) {
         for (const force of body.querySelectorAll("[data-force]")) force.checked = all.checked;
@@ -138,7 +135,7 @@
       }
       const force = e.target.closest("[data-force]");
       if (!force) return;
-      if (!force.checked) body.querySelector("[data-force-all] input").checked = false;  // (one left out: not all)
+      if (!force.checked) body.querySelector("[data-force-all] input").checked = false;
       force.closest("tr").querySelector("input[name^='song_']").disabled = !force.checked;
       refresh();
     });
@@ -157,7 +154,7 @@
       if (e.target.closest("[data-close]")) dialog.close();
     });
     dialog.addEventListener("close", () => {
-      queue = [];  // first: an aborted one starts no other
+      queue = [];  // first, so an aborted upload starts no other
       for (const job of [...active]) job.xhr.abort();
       const open = box();
       if (open) fetch(`/missing/upload/${open.dataset.batch}/cancel`, { method: "POST", headers: { "X-CSRF-Token": csrf() } });

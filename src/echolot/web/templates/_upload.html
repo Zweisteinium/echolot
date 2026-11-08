@@ -1,5 +1,4 @@
-{# the upload dialog (web/upload.py): add files, each uploaded and checked at once (its row: _upload_row.html),
-   then one Import for all; done #}
+{# the upload dialog's body: pick (rows: _upload_row.html), then done #}
 <div class="upload"{% if step == 'pick' %} data-batch="{{ batch }}" data-song="{{ song.key if song else '' }}"{% endif %}>
 {% if step == 'pick' %}
   <h2>Upload {{ 'a file for ' ~ song.artist ~ ' – ' ~ song.title if song else 'files' }}</h2>

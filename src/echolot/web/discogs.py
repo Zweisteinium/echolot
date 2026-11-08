@@ -1,6 +1,5 @@
-"""The Discogs page: the releases of a user's library songs Discogs lacks (jobs/discogs), filtered by list, genre
-and whether a download store has them; a release's suggestion of what to submit, field by field as Discogs'
-form asks; Check (admins) looks at a list's releases. Only while Discogs is on (settings section discogs)."""
+"""Discogs page (only while on): releases of the user's library songs Discogs lacks (jobs/discogs), and per
+release what to enter in Discogs' form. Check (admins) looks at a list's releases."""
 
 import json
 import re
@@ -19,15 +18,15 @@ from echolot.web import stats
 from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
-SHOW = {  # the page's choice of rows: label, which states, only with a store release
+SHOW = {  # -> (label, states shown, only with a store release)
     "todo": ("To add", ("digital", "missing"), False),
     "store": ("To add, on Beatport", ("digital", "missing"), True),
     "all": ("All looked at", ("listed", "digital", "missing"), False),
 }
 ADD = "https://www.discogs.com/release/add"
 SELF = re.compile(r"\b(?:distrokid|cd ?baby|tunecore|amuse|ditto music|routenote|unitedmasters|spinnup)\b", re.I)
-GENRES_OF = {"Trap": ["Hip Hop"], "Phonk": ["Hip Hop"], "Dance-pop": ["Electronic", "Pop"]}  # (else Electronic)
-# Discogs styles (checked against its search on 2026-10-29) a library genre or Beatport's can be
+GENRES_OF = {"Trap": ["Hip Hop"], "Phonk": ["Hip Hop"], "Dance-pop": ["Electronic", "Pop"]}  # else Electronic
+# Discogs styles a library or Beatport genre can map to (checked against Discogs' search)
 STYLE_NAMES = """
 Acid, Acid House, Ambient, Bassline, Breakbeat, Dance-pop, Deep House, Donk, Downtempo, Drum n Bass,
 Dubstep, EBM, Electro, Electro House, Euro House, Eurobeat, Eurodance, Freetekno, Gabber, Goa Trance,
@@ -48,7 +47,7 @@ def _rows(con: sqlite3.Connection, uid: int | None) -> tuple[dict[str, job.Album
 
 
 def to_add(con: sqlite3.Connection, uid: int | None) -> int | None:
-    """How many releases of the user's library songs Discogs lacks (the page's default rows); None while off."""
+    """The page's default row count; None while Discogs is off."""
     if not _on(con):
         return None
     albums, rows = _rows(con, uid)
@@ -63,7 +62,7 @@ def _store(row: sqlite3.Row) -> dict[str, Any] | None:
 def discogs_page(
     request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "", genre: str = "", show: str = "todo"
 ) -> HTMLResponse:
-    from echolot.web.pages import library_tabs  # (pages imports this module)
+    from echolot.web.pages import library_tabs  # pages imports this module
 
     uid = stats.scope(request.state.user)
     if not _on(con):
@@ -107,7 +106,7 @@ def discogs_page(
 def discogs_check(
     request: Request, con: DB, list_key: Annotated[str, Form(alias="list")], again: Annotated[bool, Form()] = False
 ) -> RedirectResponse:
-    """Look at a list's releases on Discogs (admins: it asks Discogs and Beatport for each)."""
+    """Admins only: it asks Discogs and Beatport for each release."""
     where = f"/discogs?list={urllib.parse.quote(list_key)}"
     if not _on(con):
         return back("/discogs", error="Discogs is off.")
@@ -122,7 +121,6 @@ def discogs_check(
 
 @router.get("/discogs/release", response_class=HTMLResponse)
 def discogs_release(request: Request, con: DB, album: str) -> HTMLResponse:
-    """A release's suggestion, for the dialog."""
     if not _on(con):
         raise HTTPException(404, "Discogs is off")
     albums, rows = _rows(con, stats.scope(request.state.user))
@@ -138,8 +136,8 @@ def _length(seconds: int) -> str:
 
 
 def styles(*genres: str) -> list[str]:
-    """The Discogs styles among genres (the library's, Beatport's "Hard Dance / Hardcore / Neo Rave" in parts; one
-    in brackets is dropped: "Trance (Main Floor)"), at most two. A bucket of several (Beatport's) is too vague."""
+    """At most two Discogs styles among the genres. A bracket is dropped ("Trance (Main Floor)"); a bucket of
+    several (Beatport's "Hard Dance / Hardcore") is too vague."""
     out: list[str] = []
     for genre in genres:
         parts = [p.strip() for p in re.sub(r"\s*\(.*\)$", "", genre or "").split(" / ")]
@@ -150,8 +148,8 @@ def styles(*genres: str) -> list[str]:
 
 
 def suggestion(a: job.Album, row: Any) -> dict[str, Any]:
-    """What to enter in Discogs' form, in its order, only what is sure: from the Beatport release, else what
-    Spotify and the library know (then the tracks are only the library's songs of it)."""
+    """What to enter in Discogs' form, in its order, only what is sure: from the Beatport release, else from
+    Spotify and the library."""
     store = _store(row) or {}
     artists = store.get("artists") or a.artists[:1]
     name = store.get("name") or a.title
@@ -163,7 +161,7 @@ def suggestion(a: job.Album, row: Any) -> dict[str, Any]:
         length = _length(t.get("seconds") or 0)
         tracks.append({"position": str(n), "artists": own, "title": title, "length": length, "credits": credits})
     label, catno = store.get("label") or "", store.get("catno") or ""
-    if SELF.search(label):  # (a distributor for artists: Discogs calls that self-released)
+    if SELF.search(label):  # an artists' distributor: Discogs calls that self-released
         label, catno = f"Not On Label ({artists[0]} Self-released)", "none"
     elif label and (not catno or catno == store.get("upc")):
         catno = "none"

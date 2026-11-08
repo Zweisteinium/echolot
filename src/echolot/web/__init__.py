@@ -1,5 +1,4 @@
-"""The web interface and HTTP API: create_app puts the pages (one router per module) together with the
-login check, the templates and the background worker."""
+"""The web UI and HTTP API: create_app wires the routers, the login check, the templates and the worker."""
 
 import logging
 from collections.abc import AsyncIterator
@@ -70,9 +69,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings.library_dir is not None:
         try:
             filing.Paths(settings.library_dir.parent).create()
-        except OSError as e:  # (a read-only test copy)
+        except OSError as e:  # a read-only test copy
             log.warning("folders not created: %s", e)
-    try:  # lists from before users had lists: the oldest admin's (sources.adopt)
+    try:  # lists from before users had lists go to the oldest admin
         if adopted := adopt(con):
             log.info("adopted: %s", adopted)
     finally:
@@ -93,8 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings, app.state.worker = settings, worker
     app.state.vault, app.state.throttle = secrets, auth.Throttle()
     app.middleware("http")(access.authenticate)
-    # pages and fragments compressed (a long list's 2 MB as some 220 KB); Starlette leaves audio, pictures,
-    # event streams and ranges (206) alone. Added last: it wraps everything, the login's answers too
+    # added last so it wraps everything; Starlette skips audio, images, streams and ranges
     app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
     app.mount("/static", Assets(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
@@ -109,7 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> Response:
-        """A browser gets a page with the message (not allowed, out-of-date form), scripts the JSON."""
+        """Browsers get an error page, scripts JSON."""
         if "text/html" in request.headers.get("accept", "") and exc.status_code in (400, 403, 404, 409):
             return page(request, "error.html", exc.status_code, message=exc.detail)
         return await http_exception_handler(request, exc)

@@ -1,9 +1,8 @@
-"""Recording with the users' recorder apps (library/recording): connecting a device (the approval page and
-the code it trades for its token), the Record dialog and a session's progress on the pages, and the API the
-device works through (/api/recorder/..., with its own token; /api/recorder/export with the user's login).
+"""Recorder apps (Mitschnitt, library/recording): connecting a device, the Record dialog and session panel,
+and the device API under /api/recorder (device token; /export takes the user's login instead).
 
-A device asks for work (poll, a long poll), records each song it is handed and uploads it into exactly that
-song (file: the upload dialog's checks, then filed if it is better), or says why it could not (result).
+A device long-polls for work, records each song it is handed and uploads it into exactly that song (the
+upload dialog's checks, filed if better), or reports why it could not (result).
 """
 
 import asyncio
@@ -24,8 +23,8 @@ from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
 api = APIRouter(prefix="/api/recorder", tags=["recorder"])
-REDIRECT = "mitschnitt://"  # where the approval page sends the code: the app's own link scheme
-POLL_STEP = 1.0  # seconds between looks for work during a long poll
+REDIRECT = "mitschnitt://"  # the app's link scheme; the approval page sends the code there
+POLL_STEP = 1.0  # s between looks for work during a long poll
 MAX_WAIT = 30
 
 
@@ -36,7 +35,7 @@ MAX_WAIT = 30
 def connect_page(
     request: Request, name: str = "", app: str = "", challenge: str = "", state: str = "", redirect: str = ""
 ) -> HTMLResponse:
-    """The device asks to be connected to the logged-in user: they approve or cancel."""
+    """The approval page for a device's connection request."""
     if not redirect.startswith(REDIRECT) or not challenge:
         raise HTTPException(400, "This link does not come from Mitschnitt: start connecting in the app.")
     ask = {"name": recording._name(name), "app": app[:80], "challenge": challenge, "state": state, "redirect": redirect}
@@ -54,8 +53,7 @@ def connect_answer(
     app: Annotated[str, Form()] = "",
     decision: Annotated[str, Form()] = "",
 ) -> HTMLResponse:
-    """Approved: a code for the app, handed over by its link (and shown, for when the link does not open
-    it); cancelled: the link says so."""
+    """Approved: a code for the app, sent by its link and shown (in case the link does not open it)."""
     if not redirect.startswith(REDIRECT):
         raise HTTPException(400, "This link does not come from Mitschnitt.")
     if decision != "connect":
@@ -97,11 +95,10 @@ def device_disconnect(request: Request, con: DB, recorder_id: int) -> RedirectRe
 
 @router.get("/recordings/new", response_class=HTMLResponse)
 def record_dialog(request: Request, con: DB) -> HTMLResponse:
-    """The Record dialog: what (each choice with its songs and time), on which of the user's devices, how long
-    at most. For one Spotify list, or all of the user's (no list)."""
+    """The Record dialog for one Spotify list (?list=) or all of the user's."""
     user = request.state.user
     key = request.query_params.get("list") or None
-    lst = stats.get_list(con, key, stats.scope(user)) if key else None  # (the lists its page shows the user)
+    lst = stats.get_list(con, key, stats.scope(user)) if key else None
     if key and (lst is None or lst["service"] != "spotify"):
         raise HTTPException(404, "Not one of your Spotify lists.")
     tracks, left_out = recording.survey(con, user.id, key)
@@ -140,14 +137,14 @@ def record_start(
 
 @router.post("/songs/{key:path}/spotify-again", response_class=HTMLResponse)
 def song_spotify_again(request: Request, con: DB, key: str) -> HTMLResponse:
-    """Offer a song Spotify had nothing better of for recording again (its mark on the pages goes)."""
+    """Offer a song Spotify had nothing better of for recording again."""
     recording.unblock(con, key)
     return HTMLResponse("")
 
 
 @router.get("/recordings/panel", response_class=HTMLResponse)
 def record_panel(request: Request, con: DB) -> HTMLResponse:
-    """A session's progress (one that runs or is paused, or ended lately), for a list page (?list=) or Stats."""
+    """The latest session's panel, for a list page (?list=) or the Library page."""
     return _panel(request, con, request.query_params.get("list"))
 
 
@@ -164,7 +161,7 @@ def record_control(request: Request, con: DB, session_id: int, action: str) -> H
 
 
 def _panel(request: Request, con: sqlite3.Connection, list_key: str | None) -> HTMLResponse:
-    """`list_key`: a list page's ('' on Stats: any of the user's sessions)."""
+    """`list_key`: a list page's; empty: any of the user's sessions."""
     s = recording.latest(con, request.state.user.id, list_key or None)
     session = recording.summary(con, s["id"]) if s else None
     device = None
@@ -172,14 +169,6 @@ def _panel(request: Request, con: sqlite3.Connection, list_key: str | None) -> H
         device = next((d for d in recording.devices(con, request.state.user.id) if d["id"] == s["recorder_id"]), None)
     clock = recording.clock(device) if device else None
     return page(request, "_recording.html", session=session, device=device, clock=clock, list_key=list_key or "")
-
-
-def panel_context(con: sqlite3.Connection, user: auth.User, list_key: str | None) -> dict[str, Any]:
-    """What a page needs to show the panel and the Record button: whether the user may record, has devices."""
-    if not user.can("upload"):
-        return {"can_record": False}
-    s = recording.latest(con, user.id, list_key)
-    return {"can_record": True, "recording_active": bool(s), "recorders": bool(recording.devices(con, user.id))}
 
 
 def _base(request: Request) -> str:
@@ -195,7 +184,7 @@ def _token(request: Request) -> str:
 
 
 def device_of(request: Request, con: DB) -> sqlite3.Row:
-    """The device of the request's token (401 without one; 403 when its user may no longer upload)."""
+    """The request's device (401 without a valid token; 403 when its user may no longer upload)."""
     row = recording.by_token(con, _token(request))
     if row is None:
         raise HTTPException(401, "Unknown or revoked recorder token: connect the device again.")
@@ -234,11 +223,11 @@ def api_connect(con: DB, body: Connect) -> dict[str, Any]:
 
 class Poll(BaseModel):
     state: str = "idle"
-    detail: str = ""  # recording: where it is ("Feel It 1:12 / 3:45")
+    detail: str = ""  # while recording: "Feel It 1:12 / 3:45"
     spotify: str = ""
     app: str = ""
-    item: int | None = None  # recording: the item (the session knows it)
-    fresh: bool = False  # the first poll after the device (re)started: what it was recording is released
+    item: int | None = None
+    fresh: bool = False  # first poll after a (re)start: what it was recording is released
 
 
 @api.post("/poll")
@@ -247,7 +236,7 @@ async def api_poll(request: Request, device: Device, body: Poll, wait: float = 2
     once, or within `wait` seconds), else none."""
     path, rid = request.app.state.settings.db_path, device["id"]
     wait = min(max(wait, 0), MAX_WAIT)
-    if body.fresh:  # (once, before the long poll)
+    if body.fresh:
         con = db.connect(path)
         try:
             recording.fresh(con, rid)
@@ -315,9 +304,8 @@ def api_file(
 def _check_and_file(
     request: Request, con: sqlite3.Connection, item: sqlite3.Row, file: UploadFile, paths: filing.Paths
 ) -> tuple[str, str, str, str]:
-    """(result, detail, the recording's tier and lossy source: "MP3 ~288 kbps", upload.File) of a recording: rejected (not audio, another recording than the
-    release's, or than your copy when Spotify plays the song as a release that may be another: recording.unsure),
-    not_better (the library's copy is as good: upload.compare), or filed."""
+    """(result, detail, tier, lossy source): rejected (not audio, or another recording than the release's or,
+    when Spotify plays another release, than the library's copy: recording.unsure), not_better, or filed."""
     song = next(iter(stats.upload_songs(con, item["user_id"], item["song_key"])), None)
     if song is None:
         return "rejected", "the song is no longer in your lists", "", ""
@@ -330,7 +318,7 @@ def _check_and_file(
         tier = f.tier
         fit = upload.fit(con, f, song, paths.tracks)
         plays = recording.unsure(con, item["song_key"], item["uri"] or "")
-        if why := upload.different(fit, copy=bool(plays)):  # not offered again (Try again lifts it)
+        if why := upload.different(fit, copy=bool(plays)):  # blocked until Try again
             detail = f"{recording.DIFFERENT}: {why}" + (f" (Spotify plays it as {plays})" if plays else "")
             recording.block(con, item["song_key"], item["uri"], "other", detail)
             return "rejected", detail, tier, f.source
@@ -341,7 +329,7 @@ def _check_and_file(
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
             return "rejected", line, tier, f.source
-        # (filing found a better copy after all: "the library has a better copy", import_files' line)
+        # filing may still find the library's copy better (import_files' line says so)
         return ("not_better" if "has a better copy" in line else "filed"), line, tier, f.source
     finally:
         upload.cancel(paths, batch)

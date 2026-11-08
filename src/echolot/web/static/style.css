@@ -9,7 +9,7 @@
 /* ------------------------------------------------------------------ tokens */
 :root {
   --bg: #f4f6f9;
-  --bg-top: #e6eef8;         /* the page's light from above: the depth gradient */
+  --bg-top: #e6eef8;         /* top of the page's depth gradient */
   --surface: #ffffff;
   --text: #1a2230;
   --muted: #5f6b7a;
@@ -17,7 +17,7 @@
   --track: #edf1f6;
   --accent: #1f6bcf;
   --brand: linear-gradient(90deg, #174ea6, #1f6bcf 55%, #2ba3b4);  /* the wordmark, the header's hairline */
-  --chart-a: #174ea6; --chart-b: #1f6bcf; --chart-c: #2ba3b4;  /* the growth graph: the brand's colours */
+  --chart-a: #174ea6; --chart-b: #1f6bcf; --chart-c: #2ba3b4;  /* the graph line: the brand's colours */
   --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 6px 18px -10px rgb(16 24 40 / 0.12);
   --accent-text: #ffffff;
   --ok: #1a7f37;
@@ -67,7 +67,7 @@
 
 /* ------------------------------------------------------------------ base */
 * { box-sizing: border-box; }
-html { scrollbar-gutter: stable; }  /* a page with a scrollbar does not shift the header against one without */
+html { scrollbar-gutter: stable; }  /* no header shift between pages with and without a scrollbar */
 
 body {
   margin: 0;
@@ -91,7 +91,7 @@ h1 .count, h2 .count { color: var(--muted); font-weight: 400; margin-left: 0.25r
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 .nowrap { white-space: nowrap; }
-.show-narrow { display: none; }  /* narrow screens: in place of the columns hidden there (hide-narrow) */
+.show-narrow { display: none; }  /* stands in for .hide-narrow columns on narrow screens */
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bad-text { color: var(--bad); }
 .ok-text { color: var(--ok); }
@@ -123,13 +123,13 @@ header::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; h
 header nav { display: flex; gap: 0.25rem; flex: 1; flex-wrap: wrap; }
 header nav a, .tabs a { color: var(--muted); padding: 0.3rem 0.65rem; border-radius: var(--radius-sm);
   transition: color 0.15s, background 0.15s; display: inline-grid; justify-items: center; }
-/* each link as wide as its bold self (data-label): the current one turning bold moves nothing beside it */
+/* each link reserves its bold width (data-label), so turning bold shifts nothing */
 header nav a[data-label]::after, .tabs a[data-label]::after { content: attr(data-label); font-weight: 600;
   height: 0; overflow: hidden; visibility: hidden; user-select: none; pointer-events: none; }
 header nav a:hover, .tabs a:hover { color: var(--text); background: var(--track); text-decoration: none; }
 header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-weight: 600;
   background: color-mix(in srgb, var(--accent) 11%, transparent); }
-/* Playlists: a service's account, next to its lists */
+/* Playlists: a service's account */
 .connection { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
 .connection > summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--muted); list-style-position: inside; }
 .connection > summary:hover { color: var(--text); }
@@ -139,7 +139,7 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
   background: color-mix(in srgb, var(--track) 45%, transparent); }
 .connect h3 { margin: 0; font-size: 1rem; }
 
-/* the user menu: account, the admin's pages, log out */
+/* the user menu */
 .user-menu { position: relative; }
 .user-menu summary { list-style: none; display: flex; align-items: center; gap: 0.4rem; cursor: pointer; margin: 0; padding: 0.15rem 0.5rem 0.15rem 0.15rem;
   border-radius: 999px; color: var(--muted); font-size: 0.85rem; line-height: 1; }
@@ -157,9 +157,9 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
 .user-menu .menu a:hover, .user-menu .menu button:hover { background: var(--track); }
 .user-menu .menu a[aria-current] { color: var(--accent); font-weight: 600; }
 .user-menu .menu form { margin: 0; border-top: 1px solid var(--border); padding-top: 0.3rem; margin-top: 0.3rem; }
-.user-menu .menu .version { display: none; padding: 0.45rem 0.65rem 0.15rem; }  /* small screens: the header's */
+.user-menu .menu .version { display: none; padding: 0.45rem 0.65rem 0.15rem; }  /* small screens: moved here */
 
-/* the pages of one menu entry (Inbox, History), above the page */
+/* sub-pages of a menu entry (Library, History) */
 .subnav { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 0.85rem; background: var(--track); border-radius: var(--radius-sm); }
 .subnav a { padding: 0.3rem 0.85rem; border-radius: 6px; color: var(--muted); font-size: 0.9rem; font-weight: 550; text-decoration: none; }
 .subnav a:hover { color: var(--text); }
@@ -171,7 +171,7 @@ header nav a[aria-current], .tabs a[aria-current] { color: var(--accent); font-w
 .page-top .subnav { margin: 0; }
 .page-top > *, .status-row > * { min-width: 0; max-width: 100%; }
 .status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-/* a service's or the jobs' state: an icon and the account, a problem in words and coloured */
+/* a service's or the jobs' state chip */
 .status { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.12rem 0.6rem; border-radius: 999px;
   font-size: 0.78rem; font-weight: 550; white-space: nowrap; color: var(--muted); background: var(--surface);
   border: 1px solid var(--border); }
@@ -197,8 +197,6 @@ header .view-switch button[aria-pressed="true"] { background: var(--surface); co
 .tabs { display: flex; gap: 0.25rem; }
 
 main { max-width: var(--page); margin: 1.5rem auto 3rem; padding: 0 1.5rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap); }
-.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr)); gap: var(--gap);
-  align-items: start; }
 .narrow { max-width: 24rem; margin: 3rem auto 0; width: 100%; }
 .narrow input[type=text], .narrow input[type=password] { width: 100%; }
 .stack { display: grid; gap: 0.75rem; }
@@ -216,8 +214,8 @@ main { max-width: var(--page); margin: 1.5rem auto 3rem; padding: 0 1.5rem; disp
 }
 .card { overflow-x: auto; }
 .card > p:last-child { margin-bottom: 0; }
-/* explanations: broken where it reads naturally (no single word left over) */
-p.lead, .card > p.muted, .card > p.small, .rail > p, .task-title p, .section-head + p { text-wrap: pretty; }
+/* explanations: no single word left on the last line */
+p.lead, .card > p.muted, .card > p.small, .rail > p, .section-head + p { text-wrap: pretty; }
 h1, h2, h3 { text-wrap: balance; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
   margin-bottom: 0.5rem; }
@@ -231,23 +229,17 @@ h1, h2, h3 { text-wrap: balance; }
 .pill.warn-pill { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 a.pill { text-decoration: none; }
 
-.service { display: inline-block; font-size: 0.72rem; font-weight: 550; color: var(--muted); padding: 0 0.4rem;
-  border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
 
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5;
   margin-right: 0.45rem; vertical-align: 1px; }
 .dot.on, .dot.ok { background: var(--ok); opacity: 1; }
-.dot.on { position: relative; }  /* a running job pings, as the logo's sonar */
+.dot.on { position: relative; }  /* a running job pings like the logo's sonar */
 .dot.on::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--ok);
   animation: dot-ping 1.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
 @keyframes dot-ping { from { transform: scale(1); opacity: 0.7; } to { transform: scale(3); opacity: 0; } }
 .dot.wait { background: var(--warn); opacity: 1; }
 .dot.err { background: var(--bad); opacity: 1; }
-/* jobs (History · Jobs): one level of cards, on the page's own background (no card around them): a card per
-   task, all alike: its name, state, next start and buttons in one line on top, below a line its steps (jobs) in
-   columns parted by a thin line, each with its counts, the songs a Soulseek run searches now, its schedule and
-   last run; what it is for behind ⓘ, its log behind Log. The columns share the card's width evenly (auto-fit),
-   and wrap when it gets narrow */
+/* jobs (History · Jobs): a card per task on the page background; its steps in auto-fit columns that wrap */
 .jobs-page { min-width: 0; padding: 0 0.1rem; }
 .job-list { display: grid; gap: 0.9rem; margin-top: 0.5rem; }
 .job-list[hidden] { display: none; }
@@ -272,14 +264,13 @@ a.pill { text-decoration: none; }
 .job-actions button .icon { vertical-align: -2px; }
 .job-log-toggle { font-size: 0.82rem; }
 .job-actions .link-button { padding: 0.25rem 0.2rem; }
-/* the line between two columns stands in the gap before each; a row's first has its line left of the card's
-   edge, cut off there (overflow), however the columns wrap */
+/* each column's divider sits in the gap before it; a row's first one falls outside the card and is clipped */
 .job-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: 0.9rem 2rem; align-content: stretch;
   overflow: hidden; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .step { position: relative; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .step::before { content: ""; position: absolute; top: 0; bottom: 0; left: -1rem; border-left: 1px solid var(--border); }
 .step.live .step-name { color: var(--ok); }
-/* a task of one step: its tile the whole width, its counts side by side */
+/* a one-step task: its tile full width, counts side by side */
 .job-tiles > .step:only-child .job-facts { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 1.6rem; }
 .job-tiles > .step:only-child .job-facts > .fact:first-child { font-size: inherit; }
 .step.bad .step-name { color: var(--bad); }
@@ -289,7 +280,7 @@ a.pill { text-decoration: none; }
 .fact { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .fact b { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 .fact i { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
-.job-facts > .fact:first-child { font-size: 0.95rem; }  /* the tile's headline: its first count */
+.job-facts > .fact:first-child { font-size: 0.95rem; }  /* the tile's headline */
 .fact.zero { opacity: 0.6; }
 .fact.zero b { color: var(--muted); }
 .fact-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.82rem; }
@@ -419,7 +410,7 @@ a.button { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0
   padding: 0.36rem 0.85rem; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
 a.button:hover { border-color: var(--muted); text-decoration: none; }
 a.button .icon { color: var(--muted); }
-/* a card's actions: buttons of one kind and height, side by side */
+/* a card's action buttons */
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
 .actions > button, .actions > form > button { display: inline-flex; align-items: center; gap: 0.35rem; }
 .actions > form { margin: 0; }
@@ -435,7 +426,7 @@ input[type="file"]::file-selector-button { font: inherit; font-weight: 550; colo
 input[type="file"]::file-selector-button:hover { border-color: var(--muted); }
 .copy-row { display: flex; gap: 0.5rem; margin: 0.35rem 0; max-width: 34rem; }
 .copy-row input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: 0.85rem; }
-.connect code, .account-body code { overflow-wrap: anywhere; }
+.connect code { overflow-wrap: anywhere; }
 .connect, .connect > *, .connect li { min-width: 0; }
 
 /* segmented control from radio buttons */
@@ -459,7 +450,7 @@ table.rows { width: 100%; border-collapse: collapse; }
 .rows tbody tr:hover td, .rows > tr:hover td { background: color-mix(in srgb, var(--track) 55%, transparent); }
 .rows tr.missing td { background: color-mix(in srgb, var(--q-missing) 7%, transparent); }
 .rows tr.missing:hover td { background: color-mix(in srgb, var(--q-missing) 11%, transparent); }
-.rows tr.same td { opacity: 0.55; }  /* a list's second entry of a recording it has (another release) */
+.rows tr.same td { opacity: 0.55; }  /* a recording's second entry in a list */
 .rows tr.sub td { border-top: none; padding-top: 0; }
 .rows tr.group th { padding-top: 1rem; font-size: 0.85rem; font-weight: 600; color: var(--text);
   border-bottom: 1px solid var(--border); }
@@ -478,8 +469,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .q-lossy-mid { --q: var(--q-lossy-mid); }
 .q-lossy-low { --q: var(--q-lossy-low); }
 .q-missing { --q: var(--q-missing); }
-/* the swatch carries the tier; text stays in ink. A fake FLAC's badge is striped: a FLAC that is not one (the
-   rings, graphs and bars count it in the tier of its source) */
+/* the swatch carries the tier, text stays in ink; a fake FLAC's badge is striped (counted in its source's tier) */
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--q, var(--track));
   flex: none; }
 .q-fake .swatch {
@@ -489,7 +479,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
   white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chip.q-missing { color: var(--bad); }
 
-/* stacked bar: one segment per tier, a 2px surface gap between, rounded ends */
+/* stacked bar: a segment per tier, 2px gaps, rounded ends */
 .qbar { display: flex; gap: 2px; height: 10px; width: 100%; min-width: 80px; border-radius: 4px; overflow: hidden;
   background: var(--track); }
 .qbar > span { background: var(--q); min-width: 3px; }
@@ -517,7 +507,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 
 /* ------------------------------------------------------------------ pages */
 /* overview */
-/* the statistics card: the growth graph (songs or size) beside the quality ring, the key figures below */
+/* the stats card: graphs beside the rings, key figures below */
 .stats { overflow: visible; position: relative; padding-bottom: 0; isolation: isolate; }
 .stats::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
   background: radial-gradient(60% 90% at 0% 0%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%); }
@@ -528,9 +518,9 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .segmented label:has(input:checked) { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(16 24 40 / 0.14); }
 .segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 .growth-panels { position: relative; }
-.growth-panels > .graph-bar { position: absolute; top: 0.35rem; right: 0; z-index: 1; }  /* it switches this graph */
+.growth-panels > .graph-bar { position: absolute; top: 0.35rem; right: 0; z-index: 1; }
 .growth-panels.loading { opacity: 0.55; transition: opacity 0.2s 0.15s; }
-.growth-panels.graphs-wait { min-height: 26.4rem; }  /* the graphs' height while they come (pages.graphs) */
+.growth-panels.graphs-wait { min-height: 26.4rem; }  /* reserves the graphs' height while they load */
 .ranges { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.25rem; margin-top: 0.9rem; font-size: 0.78rem; }
 .range-chip { padding: 0.12rem 0.6rem; border: 1px solid transparent; border-radius: 999px; background: none;
   color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
@@ -583,8 +573,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth .brush { position: absolute; top: 0; bottom: 0; pointer-events: none; border-radius: 3px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-inline: 1.5px solid color-mix(in srgb, var(--accent) 60%, transparent); }
-/* quality over time: a band per tier in the ring's colours, softened so the line between two reads first;
-   genuine lossless (most of it) the quietest */
+/* quality bands softened so the edges read first; lossless (the bulk) the quietest */
 .stacked .band { fill: color-mix(in srgb, var(--q) 62%, var(--surface)); stroke: none; }
 .stacked .band.q-lossless { fill: color-mix(in srgb, var(--q) 20%, var(--surface)); }
 .stacked .edge { fill: none; stroke: var(--q); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
@@ -638,8 +627,7 @@ a.kpi:hover { text-decoration: none; background: color-mix(in srgb, var(--accent
 }
 .connections { display: flex; flex-wrap: wrap; gap: 0.4rem; min-height: 1.3rem; }
 
-/* settings and accounts: the page's sections in a rail beside them, each a card; a setting is a row
-   (what it is and why on the left, the control on the right) */
+/* settings: a section rail beside the cards; a setting is a row, label left, control right */
 .with-rail { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1.5rem; align-items: start; }
 .rail { position: sticky; top: 4.75rem; display: grid; gap: 0.75rem; }
 .rail h1 { font-size: 1.5rem; letter-spacing: -0.01em; }
@@ -664,13 +652,11 @@ a.kpi:hover { text-decoration: none; background: color-mix(in srgb, var(--accent
 .field > label, .field > .label { font-weight: 550; }
 .hint { display: block; color: var(--muted); font-size: 0.82rem; font-weight: 400; margin-top: 0.1rem; line-height: 1.4; }
 .control { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
-.control input[type="url"], .control input.wide { flex: 1; min-width: min(100%, 16rem); }
+.control input[type="url"] { flex: 1; min-width: min(100%, 16rem); }
 .control code { overflow-wrap: anywhere; }
 .section-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.9rem; margin-top: 0.25rem;
   border-top: 1px solid var(--border); }
 .schedule input[type="text"] { width: 100%; max-width: 16rem; }
-.account-body { display: grid; gap: 0.75rem; margin-top: 0.5rem; }
-.account-body > p, .account-body > ol { margin: 0; }
 ol.steps { margin: 0.5rem 0 1rem; padding-left: 1.4rem; display: grid; gap: 0.75rem; }
 ol.steps li::marker { color: var(--muted); font-weight: 600; }
 ol.steps form { margin-top: 0.5rem; }
@@ -688,18 +674,17 @@ ol.steps form { margin-top: 0.5rem; }
   border: 1px solid var(--border); border-radius: var(--radius); transition: border-color 0.15s, box-shadow 0.15s; }
 .src-card.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
-/* always square: a portrait or landscape picture is cropped to its middle (overflow keeps a tall one from
-   stretching the box past its aspect ratio) */
+/* always square, the picture cropped to its middle (overflow stops a tall one stretching the box) */
 .src-card .cover { aspect-ratio: 1; background: var(--track); display: grid; place-items: center; position: relative; overflow: hidden; }
 .src-card .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
-.src-card .cover img.shown { opacity: 1; }  /* fades in when loaded (lazily, as it scrolls into view) */
+.src-card .cover img.shown { opacity: 1; }  /* fades in once (lazily) loaded */
 .src-card:not(.on) .cover img { filter: saturate(0.6); }
 .src-card:not(.on) .cover img.shown { opacity: 0.85; }
 .src-card .no-cover { font-size: 2.5rem; color: var(--muted); }
 .src-card .body { padding: 0.6rem 0.7rem 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
 .src-card .body > p { margin: 0; }
 .src-card .name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.src-card form { margin-top: auto; padding-top: 0.3rem; }  /* the buttons line up at the bottom of a row */
+.src-card form { margin-top: auto; padding-top: 0.3rem; }  /* buttons line up at the bottom of a row */
 .src-card .seg { display: flex; }
 .src-card .seg label { flex: 1; text-align: center; padding: 0.25rem 0.3rem; }
 /* placeholders while a list of cards loads */
@@ -722,8 +707,7 @@ table.missing td.tried { min-width: 18rem; }
 .stage i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--track); }
 .stage i.on { background: var(--warn); }
 
-/* missing: upload by hand. A dialog in the card's look: pick files (a drop zone), check them in a table,
-   confirm; the row's upload button is a quiet icon until the row is hovered */
+/* upload dialog; a row's upload button stays quiet until the row is hovered */
 .row-action { width: 1%; text-align: right; }
 .row-actions { text-align: right; }
 .row-actions > * { vertical-align: middle; margin-left: 0.3rem; }
@@ -742,9 +726,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
   transition: border-color 0.15s, background 0.15s; }
 .drop:hover, .drop:focus-within, .drop.drag { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--track)); }
 .drop.drag { border-style: solid; }
-/* a file not done yet: its name and soft grey lines, as tall as a result. One being uploaded or checked (working)
-   pings like a running job and a faint light scans across its lines, slowly; one waiting rests (grey dot). Its
-   result fades in in its place */
+/* a pending file: placeholder lines as tall as a result; while working it pings and a light scans across */
 .upload-row.pending td { height: 4.6rem; vertical-align: top; }
 .upload-row:not(.pending) td { animation: appear 0.3s ease-out; }
 @keyframes appear { from { opacity: 0; } }
@@ -765,7 +747,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
   border: 1.5px solid var(--accent); animation: dot-ping 2.2s cubic-bezier(0, 0, 0.2, 1) infinite; }
 .upload-row.working .ping::after { animation-delay: 1.1s; }
 
-/* the whole batch's progress, at the bottom beside the buttons: Echolot's gradient with a light gliding along it */
+/* the batch's progress bar */
 .dialog-actions .upload-progress { flex: 1; min-width: 12rem; margin-right: auto; align-self: center; display: grid; gap: 0.35rem; }
 .upload-progress[hidden] { display: none; }
 .upload-progress .bar { position: relative; height: 10px; border-radius: 999px; overflow: hidden;
@@ -781,12 +763,12 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .busy::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4rem; vertical-align: -1px;
   border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }  /* the whole zone takes files and drops */
+.drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }  /* the whole zone takes files */
 .drop-text b { color: var(--accent); }
 .upload progress { width: 100%; margin-top: 0.75rem; accent-color: var(--accent); }
 .table-scroll { max-height: 55vh; overflow: auto; margin: 0 -0.2rem; }
 .upload-table td { vertical-align: top; }
-/* the same columns for placeholders and results: nothing reflows when the results fill in */
+/* fixed columns, so nothing reflows when results replace placeholders */
 .upload-table { table-layout: fixed; width: 100%; }
 .upload-table th:nth-child(1) { width: 34%; } .upload-table th:nth-child(2) { width: 30%; }
 .upload-table th:nth-child(4) { width: 2.5rem; }
@@ -796,7 +778,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .upload-facts { min-width: 11rem; }
 .upload-facts > * { margin: 0 0.3rem 0.25rem 0; }
 .upload-table .name { font-weight: 600; }
-/* the audio check: a score per reference (rows) and measure (columns), its colour the verdict */
+/* the audio check: references in rows, measures in columns */
 .upload-facts .checks { display: grid; grid-template-columns: auto auto auto; justify-content: start; gap: 0.1rem 0.9rem;
   margin-top: 0.35rem; font-variant-numeric: tabular-nums; }
 .checks .head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.03em; text-transform: uppercase; text-align: right; }
@@ -805,10 +787,10 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .checks .none { grid-column: span 2; color: var(--muted); font-style: italic; }
 .upload-table .force { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.2rem; cursor: pointer; color: var(--muted); }
 .upload-table .force:has(input:checked) { color: var(--warn); font-weight: 600; }
-/* where the file came from (library/origin): pre-filled from the song's links */
+/* where the file came from (library/origin) */
 .upload-table .upload-from { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; color: var(--muted); }
 .upload-table .upload-from select { max-width: 100%; min-width: 0; padding: 0.1rem 0.35rem; font-size: 0.8rem; }
-@media (max-width: 640px) {  /* narrow: a file per block, its file, song and check above each other, × beside */
+@media (max-width: 640px) {  /* a block per file, × beside */
   .upload-table thead { display: none; }
   .upload-table, .upload-table tbody { display: block; }
   .upload-table tr.upload-row { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem; border-top: 1px solid var(--border); }
@@ -822,15 +804,14 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .upload-results { margin: 0.5rem 0 0.75rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 
-/* a download's facts (Review, Activity): source · length · quality · size, then a tag and a note */
+/* a download's facts (Review, Activity) */
 .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.7rem; font-size: 0.8rem; color: var(--muted); }
 .facts .fits { color: var(--ok); }
 .facts .off { color: var(--warn); }
 .facts .arrow { margin: 0 -0.35rem; }
 .activity td:last-child { width: 50%; }
 
-/* review: the section is the only box. Each song is a block (a hairline between songs); its header and its
-   download rows share three columns: the source icon above each play button, the text, the buttons */
+/* review: song blocks; header and download rows share three columns (icon/play, text, buttons) */
 .review-list { display: grid; }
 .song-review { display: grid; gap: 0.15rem; padding: 0.75rem 0; border-top: 1px solid var(--border); }
 .song-review:first-child { border-top: none; padding-top: 0.25rem; }
@@ -848,7 +829,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .download.settled .download-body, .download.settled .play { opacity: 0.55; }
 .play { justify-self: center; align-self: center; width: 2rem; height: 2rem; padding: 0; border-radius: 50%;
   display: grid; place-items: center; color: var(--text); }
-.play > span { display: flex; }  /* no line box: an inline icon sat on the baseline, above the middle */
+.play > span { display: flex; }  /* no line box: an inline icon would sit on the baseline */
 .play .icon { display: block; }
 .play .when-playing, .download.playing .play .when-paused { display: none; }
 .download.playing .play .when-playing { display: flex; }
@@ -856,13 +837,13 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .download-body { display: grid; gap: 0.2rem; min-width: 0; }
 .download-name { font-weight: 550; overflow-wrap: anywhere; }
 .download-why { font-size: 0.8rem; color: var(--muted); }
-/* the page's player volume (Review): a quiet control at the top of the first card */
+/* Review: the player's volume */
 .volume { display: inline-flex; align-items: center; gap: 0.35rem; }
 .volume input[type="range"] { width: 7.5rem; accent-color: var(--accent); cursor: pointer; }
 .volume .volume-value { min-width: 3.2rem; font-variant-numeric: tabular-nums; }
 .seek { display: none; position: relative; height: 6px; border-radius: 3px; background: var(--track); cursor: pointer;
   margin: 0.6rem 0 0.5rem; }
-.seek::before { content: ""; position: absolute; inset: -9px 0; }  /* a 24 px high target around the thin bar */
+.seek::before { content: ""; position: absolute; inset: -9px 0; }  /* a 24 px click target */
 .seek-done { position: relative; display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); }
 .seek-done::after { content: ""; position: absolute; right: -7px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
   border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); opacity: 0; transition: opacity 0.15s; }
@@ -883,7 +864,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .answers dt { color: inherit; font-weight: 600; }
 .answers + p { margin: 0.75rem 0 0; }
 
-/* login: the deep sea, the logo's sonar pings spreading from the card */
+/* login: deep sea with sonar pings from the card */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .login-page {
   --sea-1: #dcebfa; --sea-2: #b7d4f3; --sea-3: #8fb9ea; --glow-1: #6aa9f2; --glow-2: #3fc1c9; --glow-3: #8b7cf6;
@@ -897,7 +878,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
     --ping: #6aa9f2; --title: #b9d8ff; --glass: rgb(16 22 30 / 0.66); --glass-edge: rgb(106 169 242 / 0.22);
   }
 }
-.login-page::before, .login-page::after {  /* two slow drifting glows: light through the water */
+.login-page::before, .login-page::after {  /* two slow drifting glows */
   content: ""; position: fixed; inset: -25%; pointer-events: none; filter: blur(60px); opacity: 0.55;
   background: radial-gradient(closest-side at 30% 35%, var(--glow-1), transparent),
               radial-gradient(closest-side at 70% 65%, var(--glow-2), transparent 80%);
@@ -947,13 +928,10 @@ main.login { position: relative; z-index: 1; min-height: 100vh; min-height: 100d
   .sonar span:nth-child(4) { display: none; }
 }
 
-/* recording with Mitschnitt (web/recorders): the Record buttons and dialog, a session's panel, the devices */
-.list-actions { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.list-actions button { display: inline-flex; align-items: center; gap: 0.35rem; }
-.record-button .icon, .record-dot { color: var(--bad); }  /* the Upload button's icon stays in the text colour */
+/* recording with Mitschnitt */
+.record-button .icon, .record-dot { color: var(--bad); }
 .record-dot { display: inline-flex; vertical-align: -2px; }
-/* a song Spotify can't give better (nothing better there, or it no longer plays it): a small info mark on a
-   faint tint, next to its quality */
+/* the mark of a song not to record (song_mark) */
 .spotify-best { display: inline-flex; vertical-align: -1.5px; margin-left: 0.3rem; padding: 0.1rem; border-radius: 50%;
   color: var(--muted); background: color-mix(in srgb, var(--accent) 9%, transparent); }
 button.spotify-best { border: 0; }
@@ -973,8 +951,7 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-where { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.6rem 0 0.3rem; }
 .record-where label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }
 .record-file { margin-right: auto; align-self: center; display: inline-flex; align-items: center; gap: 0.3rem; }
-/* a session's panel: its mark (red and pulsing while recording, amber paused, green done, grey stopped), title
-   and state line, the X once it ended; then the song now, the progress, the counts */
+/* a session's panel; its mark coloured by state */
 .recording-head { display: flex; align-items: flex-start; gap: 0.7rem; }
 .recording-mark { flex: none; display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%;
   color: var(--muted); background: var(--track); }
@@ -989,7 +966,7 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .recording-close { flex: none; margin: -0.25rem -0.35rem 0 0; }
 .recording-now { margin: 0.8rem 0 0; }
 .recording .record-progress { max-width: none; height: 6px; margin: 0.55rem 0 0; border-radius: 3px; }
-.recording .record-progress span { transition: none; }  /* moved on every frame (_record.html) */
+.recording .record-progress span { transition: none; }  /* set every frame (_record.html) */
 .recording-counts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.7rem 0 0; }
 .record-summary { margin: 0.6rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
 .record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
@@ -1021,7 +998,7 @@ a.button.primary:hover { filter: brightness(1.08); }
   header nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; margin: 0 -0.25rem; }
   header nav a { white-space: nowrap; }
   header .user-menu { margin-left: auto; }
-  header > .version, .user-menu .user-name { display: none; }  /* logo, view and avatar fit one row */
+  header > .version, .user-menu .user-name { display: none; }  /* so the header fits one row */
   .user-menu .menu .version { display: block; }
   main { padding: 0 1rem; margin-top: 1rem; }
   .card { padding: 0.9rem 1rem; }
@@ -1033,7 +1010,7 @@ a.button.primary:hover { filter: brightness(1.08); }
   .recorders .rename { flex-wrap: wrap; gap: 0.15rem 0.5rem; }
   .recorders .rename input { width: 100%; min-width: 6rem; }
   .recorders td:last-child button { padding: 0.32rem 0.55rem; }
-  .growth-panels > .graph-bar { position: static; margin-bottom: 0.6rem; }  /* the tabs above the figure */
+  .growth-panels > .graph-bar { position: static; margin-bottom: 0.6rem; }
   .growth-panels .headline { padding-right: 0; }
   .growth-panels.graphs-wait { min-height: 29.1rem; }
 }
@@ -1059,7 +1036,7 @@ a.button.primary:hover { filter: brightness(1.08); }
   .file { max-width: 12rem; }
 }
 
-/* Discover: a search over Deezer, Apple Music and SoundCloud */
+/* Search (Discover) */
 .discover-search { position: relative; margin: 1rem 0 0.75rem; }
 .discover-search input { -webkit-appearance: none; appearance: none; width: 100%; font: inherit; font-size: 1.05rem; color: var(--text);
   padding: 0.8rem 2.8rem 0.8rem 2.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -1121,7 +1098,7 @@ a.button.primary:hover { filter: brightness(1.08); }
 @media (max-width: 640px) { .link-card { grid-template-columns: 3.5rem 1fr; } .link-card .link-cover { width: 3.5rem; height: 3.5rem; }
   .link-follow { grid-column: 1 / -1; justify-content: flex-end; } }
 
-/* the player line (Discover): what plays, play/pause, where it is; fixed at the bottom */
+/* Search: the player line, fixed at the bottom */
 body.with-player main { padding-bottom: 5rem; }
 .player { position: fixed; left: 50%; bottom: 0.75rem; transform: translateX(-50%); z-index: 20; width: min(46rem, calc(100% - 1.5rem));
   display: grid; grid-template-columns: 2.5rem auto 1fr auto auto auto; align-items: center; gap: 0.7rem; padding: 0.45rem 0.7rem 0.45rem 0.45rem;
@@ -1151,8 +1128,7 @@ body.with-player main { padding-bottom: 5rem; }
 .player-sc { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 @media (max-width: 640px) { .player { grid-template-columns: 2.5rem auto 1fr auto; } .player-time, .player-source { display: none; } }
 
-/* Discogs (web/discogs): releases Discogs lacks, filters beside the title; a row opens what to submit, each
-   field with its copy button, in the order of Discogs' form */
+/* Discogs page and its dialog */
 .discogs-filters, .discogs-check { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .discogs-filters select, .discogs-check select { max-width: 16rem; }
 .discogs-check { margin: 0 0 0.9rem; }
@@ -1187,7 +1163,7 @@ dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
   .dc-head img { width: 64px; height: 64px; }
 }
 
-/* a page's explanation: one line shown, the rest under "How it works" (macros.how) */
+/* "How it works" (macros.how) */
 .intro { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.75rem; margin: 0.25rem 0 0.85rem; }
 .intro > .lead { margin: 0; }
 .how > summary { margin: 0; display: inline-flex; align-items: center; gap: 0.3rem; color: var(--accent); font-size: 0.85rem;
@@ -1199,9 +1175,9 @@ dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
 .how[open] { flex-basis: 100%; }
 .how-body { margin-top: 0.4rem; padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); background: var(--track);
   color: var(--muted); font-size: 0.85rem; line-height: 1.5; text-wrap: pretty; }
-header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
+header nav.pages .icon { display: none; }  /* shown in the small screens' tab bar */
 
-/* small screens: the pages as a tab bar at the bottom; tables of rows become blocks */
+/* small screens: a tab bar at the bottom; .row-blocks tables become blocks */
 @media (max-width: 720px) {
   body { padding-bottom: calc(4.4rem + env(safe-area-inset-bottom)); }
   header nav.pages { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; order: 0; margin: 0; flex: none;
@@ -1215,7 +1191,7 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   header nav.pages a::after { display: none; }
   header nav.pages a[aria-current] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   header nav.pages .icon { display: block; }
-  header { gap: 0.6rem; backdrop-filter: none; -webkit-backdrop-filter: none;  /* (a filter would hold the tab bar) */
+  header { gap: 0.6rem; backdrop-filter: none; -webkit-backdrop-filter: none;  /* a filter would contain the fixed tab bar */
     background: color-mix(in srgb, var(--surface) 94%, transparent); }
   header .user-menu { margin-left: auto; }
   .page-top { flex-direction: column; align-items: stretch; }
@@ -1229,7 +1205,7 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   .step::before { left: -0.7rem; }
   .step-foot { flex-wrap: wrap; }
   .step-rule { flex-basis: 100%; }
-  .job-tiles > .step:only-child .step-rule { flex-basis: 0; }  /* the whole width: one line still */
+  .job-tiles > .step:only-child .step-rule { flex-basis: 0; }  /* still one line */
   .job-side { gap: 0.4rem; }
   details.group > summary > .muted { white-space: normal; }
   .card-head { gap: 0.6rem; }
@@ -1239,7 +1215,7 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   .kpi:nth-child(-n+2) { border-top: 0; }
   .kpi:last-child:nth-child(odd) { grid-column: span 2 !important; }
 
-  /* the Library's lists: a block per list, its name, its bar, then its numbers side by side */
+  /* the Library's lists: a block per list */
   table.lists, table.lists tbody { display: block; table-layout: auto; }
   table.lists colgroup, table.lists thead { display: none; }
   table.lists tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem 0.5rem; padding: 0.7rem 0.25rem;
@@ -1254,7 +1230,7 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   table.lists td.num::before { content: attr(data-label); display: block; font-size: 0.68rem; font-weight: 600;
     letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 
-  /* tables of rows (Activity, Buy, Discogs, Changes, a list's songs): a block per row, its cells wrapping */
+  /* .row-blocks tables: a block per row, cells wrapping */
   table.row-blocks, table.row-blocks tbody { display: block; }
   table.row-blocks thead { display: none; }
   table.row-blocks tr { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; padding: 0.6rem 0.2rem;
@@ -1269,7 +1245,7 @@ header nav.pages .icon { display: none; }  /* the tab bar's (small screens) */
   table.row-blocks td[data-label]::before { content: attr(data-label); color: var(--muted); order: 2; }
   table.missing.row-blocks td:nth-child(2), table.songs.row-blocks td:nth-child(2) { flex: 1 1 100%; order: -1; }
   table.list-songs.row-blocks td:nth-child(2) { order: 0; }
-  table.list-songs.row-blocks td:nth-child(3) { flex: 1 1 0; min-width: 0; }  /* #, the song, its quality in one row */
+  table.list-songs.row-blocks td:nth-child(3) { flex: 1 1 0; min-width: 0; }  /* #, song and quality in one row */
   table.list-songs.row-blocks tr { flex-wrap: nowrap; align-items: flex-start; }
   table.missing.row-blocks td.tried { min-width: 0; flex: 1 1 auto; }
   .rows td, .rows th { padding-left: 0.35rem; padding-right: 0.35rem; }

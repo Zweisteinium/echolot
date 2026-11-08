@@ -1,4 +1,4 @@
-{# the Record dialog's form (web/recorders.record_dialog): what, and on which of your devices #}
+{# the Record dialog's form (recorders.record_dialog) #}
 {% from "_icons.html" import icon %}
 {% set nothing = not choices[0].songs %}
 <form method="post" action="/recordings" class="record-form">{{ csrf_input }}

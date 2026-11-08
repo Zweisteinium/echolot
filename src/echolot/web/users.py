@@ -1,6 +1,4 @@
-"""Users page (admins): everyone who logged in with their Navidrome account, whether they are an admin
-here (a Navidrome admin always is; only a Navidrome admin makes someone one) and what else they may do with
-their own songs (auth.PERMISSIONS); log someone out everywhere. Accounts gone from Navidrome show as disabled (auth.sync_users)."""
+"""Users page (admins): admin flag, permissions, logging someone out everywhere."""
 
 from typing import Annotated
 
@@ -22,20 +20,16 @@ def users_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.post("/users/{user_id}")
 async def users_save(request: Request, con: DB, user_id: int) -> RedirectResponse:
-    """An admin or not (only a Navidrome admin changes that), and the permissions (the checked boxes of the
-    form; an admin's stay as stored)."""
+    """Only a Navidrome admin changes the admin flag. An admin's permission boxes are locked: the stored
+    ones stay, for when they are no admin any more."""
     row = con.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if row is None:
         return back("/users", error="No such user.")
     form = await request.form()
-    # a Navidrome admin's box is locked (always an admin): their own Echolot flag stays as it was; and only a
-    # Navidrome admin gives or takes admin rights (anyone else's box is locked for the other admins)
     keep = row["navidrome_admin"] or not request.state.user.navidrome_admin
     explicit = bool(row["admin"]) if keep else form.get("admin") == "1"
     stored = {p for p in (row["permissions"] or "").split(",") if p in auth.PERMISSIONS}
-    # an admin's permissions are locked on the page (an admin may do everything): what is stored stays, for
-    # when they are no admin any more
-    locked = explicit or row["navidrome_admin"] or form.get("locked") == "1"  # (boxes not shown as editable)
+    locked = explicit or row["navidrome_admin"] or form.get("locked") == "1"  # boxes shown locked
     permissions = stored if locked else {p for p in auth.PERMISSIONS if form.get(p) == "1"}
     try:
         auth.set_rights(con, user_id, explicit, permissions)

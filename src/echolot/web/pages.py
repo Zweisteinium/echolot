@@ -1,4 +1,4 @@
-"""The pages that show the library: overview, missing songs, a list and the activity."""
+"""Library pages: overview and its graphs, Missing, Buy, a list, Activity."""
 
 import sqlite3
 from datetime import datetime, timedelta
@@ -18,20 +18,18 @@ router = APIRouter(include_in_schema=False)
 
 @router.get("/stats")
 def old_overview(request: Request) -> RedirectResponse:
-    """The Library page was Stats (0.10)."""
     query = f"?{request.url.query}" if request.url.query else ""
     return RedirectResponse(f"/library{query}", status_code=301)
 
 
 @router.get("/library", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
-    """The user's songs (an admin's, or everyone's as they chose), with the library's size besides."""
     uid = stats.scope(request.state.user)
     o, vault = stats.overview(con, uid), request.app.state.vault
     connected = vault.has(con, spotify.refresh_name(request.state.user.id)) or vault.has(
         con, soundcloud.token_name(request.state.user.id)
     )
-    rings = {  # the library's files by quality; the songs by quality (and missing); by how near their best they are
+    rings = {
         "files": charts.donut(o["tiers"], size=160, width=22),
         "songs": charts.donut(o["song_tiers"], size=160, width=22),
         "best": charts.donut(best := stats.best_tiers(con, uid), size=160, width=22),
@@ -52,7 +50,7 @@ def overview(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/library/graphs", response_class=HTMLResponse)
 def graphs(request: Request, con: DB) -> HTMLResponse:
-    """The Library page's graphs for a stretch of time (?range=7d|30d|90d|all, or ?from=&to= in UTC)."""
+    """The graphs fragment for ?range=7d|30d|90d|all or ?from=&to= (UTC)."""
     uid = stats.scope(request.state.user)
     return page(
         request,
@@ -63,17 +61,16 @@ def graphs(request: Request, con: DB) -> HTMLResponse:
 
 
 def library_tabs(con: sqlite3.Connection, uid: int | None) -> dict[str, int | None]:
-    """The counts on the Library page's tabs: the songs to buy on Bandcamp (the Buy page), the releases Discogs
-    lacks (None while Discogs is off: no tab)."""
+    """Counts on the Library tabs: Buy, and Discogs (None while Discogs is off: no tab)."""
     return {"buy": len(stats.buy(con, uid)), "discogs": discogs.to_add(con, uid)}
 
 
-RANGES = {"7d": ("7 d", 7), "30d": ("30 d", 30), "90d": ("3 mo", 90), "all": ("All", None)}  # the graphs' chips
+RANGES = {"7d": ("7 d", 7), "30d": ("30 d", 30), "90d": ("3 mo", 90), "all": ("All", None)}
 
 
 def _window(query: Any) -> tuple[str, str, str]:
-    """(range, from, to): a chip of RANGES, or "" for a stretch chosen on the graph (from and to, UTC); from
-    is "" for all of it, to "" for until now."""
+    """(range, from, to): a RANGES key, or "" for a stretch dragged on the graph (from, to in UTC).
+    from "" means from the start, to "" until now."""
     if (start := _stamp(query.get("from"))) and (stop := _stamp(query.get("to"))) and start < stop:
         return "", start, stop
     chosen = query.get("range") if query.get("range") in RANGES else "all"
@@ -89,7 +86,7 @@ def _stamp(value: str | None) -> str:
 
 
 def _span(start: str, stop: str) -> str:
-    """A stretch dragged on a graph, in local time: "12 Oct – 19 Oct", with the hours when it is short."""
+    """A dragged stretch in local time: "12 Oct – 19 Oct", with hours when at most two days."""
     a, b = (datetime.fromisoformat(ts).astimezone() for ts in (start, stop))
     if b - a <= timedelta(days=2):
         return f"{a.day} {a:%b %H:%M} – {b.day} {b:%b %H:%M}"
@@ -97,8 +94,8 @@ def _span(start: str, stop: str) -> str:
 
 
 def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[str, Any]]:
-    """The points from `start` to `stop` ("": open), with the one before and the one after: the line
-    reaches the edges, and a stretch between two points still shows."""
+    """The points from `start` to `stop` ("": open) plus one on each side, so the line reaches the edges
+    and a stretch between two points still shows."""
     inside = [n for n, (ts, _) in enumerate(points) if (not start or ts >= start) and (not stop or ts <= stop)]
     if not inside:
         before = [n for n, (ts, _) in enumerate(points) if start and ts < start]
@@ -109,9 +106,8 @@ def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[st
 
 
 def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, start: str, stop: str) -> dict[str, Any]:
-    """The songs in the library over time, as files (a recording several list entries share counts once:
-    the user's, or everyone's), the library's size (everyone's) and the files' quality (as the ring's Files
-    shows them), for the stretch shown; each ends with the value of now."""
+    """Songs (counted as files), library size (always everyone's) and quality over the stretch; each
+    series ends with the current value."""
     now = history.utc(datetime.now())
     files = _files(con, uid, o)
     songs = [*files, (now, o["files"])]
@@ -134,8 +130,7 @@ def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, star
 
 
 def _quality(con: sqlite3.Connection, uid: int | None, files: dict[str, float]) -> list[tuple[str, dict[str, float]]]:
-    """The library files per quality tier over time (everyone's), as the ring's Files counts them; a user's:
-    their songs per tier, taken in the proportion of their files then (as the songs graph counts them)."""
+    """Files per quality tier over time; for a user, their songs per tier scaled to their file count."""
     if uid is None:
         return [(ts, _tiers(n)) for ts, n in history.keyed(con, "library_files_by_quality")]
     out = []
@@ -146,8 +141,8 @@ def _quality(con: sqlite3.Connection, uid: int | None, files: dict[str, float]) 
 
 
 def _tiers(n: dict[str, float]) -> dict[str, float]:
-    """A snapshot's counts on catalog.TIERS: until 2026-11-08 fake FLACs were a tier of their own; counted
-    as high (where most of them are by their source: 160 of 223 then)."""
+    """A snapshot on catalog.TIERS: older snapshots have a "fake" tier, counted as lossy-high (where most
+    fake FLACs are by their source)."""
     n = dict(n)
     if fake := n.pop("fake", 0):
         n["lossy-high"] = n.get("lossy-high", 0) + fake
@@ -155,8 +150,8 @@ def _tiers(n: dict[str, float]) -> dict[str, float]:
 
 
 def _files(con: sqlite3.Connection, uid: int | None, o: dict) -> list[tuple[str, float]]:
-    """The library files over time (everyone's), or the user's: counted since 2026-10-07, before that their
-    songs in the library scaled to the files they had at the first count (or have now)."""
+    """Library files over time. A user's are counted since 2026-10-07; before that, their songs in the
+    library scaled to their files at the first count (or now)."""
     if uid is None:
         return history.totals(con, "library_files")
     files = history.totals(con, "user_library_files", str(uid))
@@ -181,7 +176,6 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
 
 @router.get("/buy", response_class=HTMLResponse)
 def buy_page(request: Request, con: DB) -> HTMLResponse:
-    """Songs Bandcamp sells lossless, with their price and a link (jobs/bandcamp); an upload takes in the file."""
     songs = stats.buy(con, stats.scope(request.state.user))
     last = con.execute("SELECT * FROM jobs WHERE name = 'bandcamp'").fetchone()
     runs, asked = request.app.state.worker.state()
@@ -192,7 +186,7 @@ def buy_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.post("/buy/refresh")
 def buy_refresh(request: Request) -> RedirectResponse:
-    """Look at every lossy SoundCloud song's Bandcamp link again (admins: it asks Bandcamp for each page)."""
+    """Admins only: it asks Bandcamp for every page."""
     if not request.app.state.worker.trigger("bandcamp"):
         return back("/buy", error="Refresh could not start.")
     return back("/buy", ok="Refresh starts in a moment; reload the page in a few minutes.")
@@ -201,15 +195,15 @@ def buy_refresh(request: Request) -> RedirectResponse:
 @router.get("/lists/{key:path}", response_class=HTMLResponse)
 def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     lst = stats.get_list(con, key, stats.scope(request.state.user))
-    if lst is None:  # (or not theirs)
+    if lst is None:  # or not theirs
         raise HTTPException(404, "no such list")
     songs = stats.list_songs(con, key)
-    same = stats.same_as(songs)  # (the quality bar counts such a song once)
+    same = stats.same_as(songs)  # counted once in the quality bar
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
     marks = recording.marks(con, request.state.user.id, songs) if lst["service"] == "spotify" else {}
     marks |= {k: recording.Mark("original", why) for k, why in origin.marks(con, [s["key"] for s in songs]).items()}
-    offers = stats.offers(con) if lst["service"] == "soundcloud" else {}  # (Bandcamp sells these)
-    links = stats.links(con) if lst["service"] == "soundcloud" else {}  # (free downloads elsewhere)
+    offers = stats.offers(con) if lst["service"] == "soundcloud" else {}
+    links = stats.links(con) if lst["service"] == "soundcloud" else {}
     return page(
         request,
         "list.html",

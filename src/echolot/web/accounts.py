@@ -1,7 +1,6 @@
-"""Accounts page: each user connects their own Spotify (the login through the Spotify app an admin set
-up: automatic when the redirect reaches Echolot, else the final address pasted back) and SoundCloud (the
-web token, checked right away). Admins also set up the Spotify app and Soulseek (the account the Sockseek
-daemon logs in with; Echolot writes its login file, the daemon restarts with it)."""
+"""Account connections: each user's Spotify (OAuth through the admin's app; over plain http the final URL
+is pasted back) and SoundCloud (the browser's token). Admins set up the Spotify app and Soulseek (Echolot
+writes the Sockseek daemon's login file)."""
 
 import logging
 import secrets
@@ -25,26 +24,22 @@ from echolot.web.common import DB, back, page
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 CALLBACK = "/accounts/spotify/callback"
-STATE = "spotify_login_state"  # meta: '<state> <unix time> <redirect address>' of the last login
-ONLINE_SECONDS = 600  # the overview's line asks Spotify and SoundCloud again (in the background) after this
+STATE = "spotify_login_state"  # meta "<prefix>:<uid>": '<state> <unix time> <redirect URI>'
+ONLINE_SECONDS = 600  # the Library page's line renews its cached status after this
 LOW_DISK = 20 * 2**30
 
 
 def redirect_uri(request: Request) -> str:
-    """Where Spotify sends the browser after the login. Spotify accepts https addresses and, over http,
-    only the loopback address: reached over https (a reverse proxy whose headers Echolot trusts), the
-    login returns to Echolot itself; else to 127.0.0.1, which the browser can't open and the user
-    pastes back."""
+    """Spotify accepts https or, over http, only the loopback address: over https (a trusted proxy) the login
+    returns to Echolot; else to 127.0.0.1, which the user pastes back."""
     if request.url.scheme == "https":
         return f"https://{request.url.netloc}{CALLBACK}"
     return f"http://127.0.0.1:{request.app.state.settings.port}{CALLBACK}"
 
 
 def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> dict[str, Any]:
-    """What the logged-in user has connected (and Soulseek), for this page and the overview. Soulseek's daemon
-    is asked every time (it runs beside Echolot); Spotify and SoundCloud at once, or with `cached` (the
-    overview's line) their last answer right away, asked again in the background once it is ONLINE_SECONDS
-    old (the next load shows that)."""
+    """The user's Spotify and SoundCloud status and Soulseek's. The Soulseek client is asked every time;
+    with `cached` the services' last answer is used, renewed in the background after ONLINE_SECONDS."""
     state, uid = request.app.state, request.state.user.id
     if not hasattr(state, "account_status"):
         state.account_status = {}
@@ -71,7 +66,7 @@ def status(request: Request, con: sqlite3.Connection, cached: bool = False) -> d
 
 
 def _online(state: Any, con: sqlite3.Connection, uid: int) -> dict[str, Any]:
-    """The user's Spotify and SoundCloud accounts as the services answer now (kept for the line)."""
+    """Ask Spotify and SoundCloud now; cached for the line."""
     try:  # a secret stored with another key can't be read: shown as the account's error
         token, token_error = soundcloud.token_of(con, state.vault, uid), None
     except VaultError as e:
@@ -84,12 +79,12 @@ def _online(state: Any, con: sqlite3.Connection, uid: int) -> dict[str, Any]:
     return result
 
 
-_asking: set[int] = set()  # users whose accounts are being asked in the background
+_asking: set[int] = set()  # users whose status is being renewed
 _asking_lock = threading.Lock()
 
 
 def _ask_later(state: Any, uid: int) -> None:
-    """Ask the user's accounts again in a thread of its own (once at a time per user)."""
+    """Renew the user's status in a thread (one at a time per user)."""
     with _asking_lock:
         if uid in _asking:
             return
@@ -99,7 +94,7 @@ def _ask_later(state: Any, uid: int) -> None:
         con = db.connect(state.settings.db_path)
         try:
             _online(state, con, uid)
-        except Exception:  # (the old answer stays; the next load asks again)
+        except Exception:  # the old answer stays; the next load asks again
             log.exception("accounts: the status of user %s was not renewed", uid)
         finally:
             con.close()
@@ -109,19 +104,9 @@ def _ask_later(state: Any, uid: int) -> None:
     threading.Thread(target=ask, name=f"accounts-{uid}", daemon=True).start()
 
 
-def known(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
-    """What the logged-in user has connected, without asking the services (for pages that must not
-    wait): their stored logins, and the account names of their last status check."""
-    uid, vault = request.state.user.id, request.app.state.vault
-    last = getattr(request.app.state, "account_status", {}).get(uid, (0, {}))[1]
-    sp = options.get(con, options.Spotify).client_id and vault.has(con, spotify.refresh_name(uid))
-    connected = {"spotify": bool(sp), "soundcloud": vault.has(con, soundcloud.token_name(uid))}
-    return {s: {"connected": on, "name": (last.get(s) or {}).get("name")} for s, on in connected.items()}
-
-
 def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
     sp: dict[str, Any] = {"app": False, "connected": False, "client_id": ""}
-    con = db.connect(state.settings.db_path)  # its own: the login may store a new refresh token
+    con = db.connect(state.settings.db_path)  # own connection: it may store a new refresh token
     try:
         creds = spotify.Credentials.load(con, state.vault, uid)
         sp.update(app=creds.app, connected=creds.connected, client_id=creds.client_id)
@@ -136,7 +121,7 @@ def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
 
 
 def _soundcloud_status(token: str | None, token_error: str | None, renews: bool = False) -> dict[str, Any]:
-    """renews: its refresh token is stored (Echolot renews the token)."""
+    """renews: a refresh token is stored."""
     if token_error or not token:
         return {"connected": False} | ({"error": token_error} if token_error else {})
     when = soundcloud.expires(token)
@@ -148,7 +133,7 @@ def _soundcloud_status(token: str | None, token_error: str | None, renews: bool 
 
 
 def _daemon_status(url: str, client: Any = None) -> dict[str, Any]:
-    """The Soulseek client's state: the Sockseek daemon at `url`, or `client` (slskd)."""
+    """The Soulseek client's state: `client` (slskd), else the Sockseek daemon at `url`."""
     try:
         return (client or soulseek.Daemon(url, timeout=5)).status() | {"reachable": True}
     except soulseek.DaemonError as e:
@@ -157,12 +142,11 @@ def _daemon_status(url: str, client: Any = None) -> dict[str, Any]:
 
 @router.get("/accounts")
 def accounts_redirect() -> RedirectResponse:
-    """The accounts' old page: Spotify and SoundCloud are on Playlists, Soulseek in Settings."""
     return RedirectResponse("/playlists", status_code=301)
 
 
 def connections(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
-    """What the Playlists page needs to show and set up the user's Spotify and SoundCloud accounts."""
+    """The Playlists page's account sections."""
     return {
         "s": status(request, con),
         "market": options.get(con, options.Spotify).market,
@@ -173,7 +157,7 @@ def connections(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
 
 @router.get("/accounts/line", response_class=HTMLResponse)
 def connection_line(request: Request, con: DB) -> HTMLResponse:
-    """The connections and the free disk space on the overview (loaded after the page)."""
+    """The Library page's connection line and free disk space."""
     folder = request.app.state.settings.library_dir
     free = shutil.disk_usage(folder).free if folder and folder.is_dir() else None
     return page(request, "_connections.html", s=status(request, con, cached=True), free=free, low_disk=LOW_DISK)
@@ -181,7 +165,7 @@ def connection_line(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/accounts/soulseek", response_class=HTMLResponse)
 def soulseek_fragment(request: Request, con: DB) -> HTMLResponse:
-    """The Soulseek card alone (htmx polls it while the daemon logs in)."""
+    """The Soulseek card (polled while the daemon logs in)."""
     return page(request, "_soulseek.html", s=status(request, con),
                 has_daemon_dir=request.app.state.settings.daemon_dir is not None)  # fmt: skip
 
@@ -229,7 +213,6 @@ def spotify_market(con: DB, market: Annotated[str, Form()]) -> RedirectResponse:
 
 @router.post("/accounts/spotify/login")
 def spotify_login(request: Request, con: DB) -> Response:
-    """Off to Spotify's login; it comes back to the redirect address with a code."""
     sp = options.get(con, options.Spotify)
     if not sp.client_id:
         return back("/playlists#spotify", error="Save your Spotify app's client ID and secret first.")
@@ -249,7 +232,7 @@ def _finish_login(request: Request, con: sqlite3.Connection, query: dict[str, li
         return back("/playlists#spotify", error="That is not the address of the last Spotify login (or it is older "
                                        "than 30 min). Click 'Connect Spotify' again.")  # fmt: skip
     try:
-        spotify.exchange(con, request.app.state.vault, code, redirect, uid)  # the address the login used
+        spotify.exchange(con, request.app.state.vault, code, redirect, uid)  # the URI the login used
     except spotify.SpotifyError as e:
         return back("/playlists#spotify", error=str(e))
     with con:
@@ -264,7 +247,7 @@ def spotify_callback(request: Request, con: DB) -> RedirectResponse:
 
 @router.post("/accounts/spotify/paste")
 def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> RedirectResponse:
-    """The address the browser showed after the login (it could not open 127.0.0.1)."""
+    """The URL the browser showed after the login (it could not open 127.0.0.1)."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url.strip()).query)
     if not query.get("code") and not query.get("error"):
         return back("/playlists#spotify", error="Paste the whole address from the address bar (it contains ?code=...).")
@@ -285,8 +268,8 @@ def spotify_disconnect(request: Request, con: DB) -> RedirectResponse:
 def soundcloud_token(
     request: Request, con: DB, token: Annotated[str, Form()], refresh: Annotated[str, Form()] = ""
 ) -> RedirectResponse:
-    """The browser's token, and its refresh token if given: renewed at once, so it is known to work and
-    Echolot's (the browser's copy is used up)."""
+    """The browser's token and optional refresh token, renewed at once: it is then known to work and is
+    Echolot's alone (the browser's copy is used up)."""
     token, refresh = token.strip().removeprefix("OAuth ").strip(), refresh.strip()
     try:
         if refresh:
@@ -299,7 +282,7 @@ def soundcloud_token(
         vault.set(con, soundcloud.token_name(uid), token)
         if refresh:
             vault.set(con, soundcloud.refresh_name(uid), refresh)
-        else:  # (one of another login renews no more)
+        else:  # a refresh token of an earlier login no longer fits
             vault.delete(con, soundcloud.refresh_name(uid))
         con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (me["user"], uid))
     renews = " Echolot renews its token each day." if refresh else ""
@@ -346,8 +329,7 @@ def soulseek_backend(
     slskd_secret: Annotated[str, Form()] = "",
     slskd_downloads: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
-    """Which Soulseek client Echolot uses: the Sockseek daemon, or slskd (its address, login and downloads
-    folder; an empty secret keeps the saved one)."""
+    """Sockseek daemon or slskd (address, login, downloads folder; an empty secret keeps the saved one)."""
     vault = request.app.state.vault
     fields: dict[str, Any] = {"backend": backend}
     if backend == "slskd":
@@ -365,13 +347,3 @@ def soulseek_backend(
         return back("/settings#soulseek-client", error=str(e))
     name = "slskd" if backend == "slskd" else "the Sockseek daemon"
     return back("/settings#soulseek-client", ok=f"Soulseek through {name} from the next search on.")
-
-
-@router.post("/accounts/soulseek/url")
-def soulseek_url(con: DB, url: Annotated[str, Form()]) -> RedirectResponse:
-    try:
-        with con:
-            options.update(con, options.Soulseek, url=url.strip().rstrip("/"))
-    except options.OptionsError as e:
-        return back("/settings#soulseek-client", error=str(e))
-    return back("/settings#soulseek-client", ok="Daemon address saved.")

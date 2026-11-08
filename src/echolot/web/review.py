@@ -1,10 +1,8 @@
-"""The review page: downloads filed on a probable match (Please confirm) and kept rejected ones (Worth a
-look), with a player; a decision is applied by the library job after a short undo window
-(library/review.py). Also: a close match's song searched again (from the Missing page).
+"""Review page: probable matches (Please confirm) and kept rejects (Worth a look); the library job applies a
+decision after an undo window (library/review). Also the Missing page's close-match actions.
 
-A user with the Review permission decides the downloads of their own songs (each decision records who
-made it); admins decide everyone's, and see the decisions of users who are no admins to take them back
-(override) within 30 days."""
+The review permission covers downloads of the user's own songs; admins decide everyone's and may take back
+(override) other users' decisions within 30 days."""
 
 import sqlite3
 from pathlib import Path
@@ -30,7 +28,7 @@ def music_dir(request: Request) -> Path:
 
 
 def _own(request: Request, con: sqlite3.Connection, event_id: int) -> None:
-    """A user who is no admin decides only the downloads of their own songs."""
+    """403 unless an admin or the download is for one of the user's songs."""
     user = request.state.user
     if not user.admin and not review.theirs(con, user.id, event_id):
         raise HTTPException(403, "That download is for a song of another user.")
@@ -48,8 +46,7 @@ def review_page(request: Request, con: DB) -> HTMLResponse:
 
 
 def _hidden(music: Path, found: dict[str, list[review.Item]]) -> int:
-    """Kept downloads in inbox/review that are no longer up for review (their song was found since, or
-    they are far off in length): they wait for the purge after 30 days."""
+    """Files in inbox/review no longer up for review (song found since, or far off in length)."""
     folder = music / "inbox" / "review"
     shown = {i.file for rows in found.values() for i in rows}
     return sum(1 for f in folder.rglob("*") if f.is_file() and f not in shown) if folder.is_dir() else 0
@@ -58,8 +55,8 @@ def _hidden(music: Path, found: dict[str, list[review.Item]]) -> int:
 def _answer(
     request: Request, con: sqlite3.Connection, event_id: int, ok: str = "", error: str = "", name: str = ""
 ) -> Response:
-    """htmx: the song's card as it is now (gone when nothing is up for review), an error next to the
-    download it is about (with the close match name typed); otherwise back to the page."""
+    """htmx: the song's card as it is now ("" when nothing is left), an error by its download (keeping the
+    typed close-match name); else a redirect."""
     if not request.headers.get("hx-request"):
         return back("/review", **({"error": error} if error else {"ok": ok}))
     g = review.find_group(con, music_dir(request), event_id)
@@ -81,7 +78,7 @@ def review_decide(request: Request, con: DB, event_id: int, decision: Field, nam
 
 @router.post("/review/{event_id}/discard-all")
 def review_discard_all(request: Request, con: DB, event_id: int) -> Response:
-    """No match for every download of the song that has no decision yet."""
+    """No match for every undecided download of the song."""
     _own(request, con, event_id)
     try:
         g = review.discard_all(con, music_dir(request), event_id)
@@ -113,7 +110,6 @@ def review_audio(request: Request, con: DB, event_id: int) -> FileResponse:
 
 @router.post("/review/{event_id}/override")
 def review_override(request: Request, con: DB, event_id: int) -> Response:
-    """An admin takes back a user's decision (library/review.override)."""
     paths = filing.Paths(music_dir(request))
     try:
         result = review.override(con, paths, event_id, request.state.user.name)
@@ -124,7 +120,7 @@ def review_override(request: Request, con: DB, event_id: int) -> Response:
 
 @router.post("/songs/{key:path}/search")
 def close_search(request: Request, con: DB, key: str) -> Response:
-    """A song linked to a close match: look for the perfect match again (the close match stays a file)."""
+    """Search a close-matched song again for the perfect match (the close match stays)."""
     user = request.state.user
     if not user.admin and key not in review.songs_of(con, user.id):
         raise HTTPException(403, "That song is on another user's lists.")
@@ -138,7 +134,7 @@ def close_search(request: Request, con: DB, key: str) -> Response:
 
 @router.post("/songs/{key:path}/close-remove")
 def close_remove(request: Request, con: DB, key: str) -> Response:
-    """Remove a song's close match (its file kept 30 days in inbox/replaced) and search for the song again."""
+    """Remove a song's close match (kept 30 days in inbox/replaced) and search the song again."""
     user = request.state.user
     if not user.admin and key not in review.songs_of(con, user.id):
         raise HTTPException(403, "That song is on another user's lists.")
