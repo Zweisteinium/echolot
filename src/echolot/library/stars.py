@@ -1,13 +1,12 @@
 """Hearts in Navidrome for the songs people like. A song in one of a user's likes lists (Spotify Liked Songs,
-SoundCloud Likes, Echolot · Wished: sources.likes) gets a heart in their Navidrome account on its file, the
-one their playlists play (songs.file). Echolot notes each heart it gave (the stars table) and acts only on
-what changed since: a song liked or unliked, or one with another file now (an upgrade). It takes back only
-its own hearts, of songs that left a list the user still follows: a heart the user gave first stays, one
-they took back in a player is not given again, and a list they no longer follow leaves its hearts. A file
-Navidrome has not read yet gets its heart at a later upkeep. Hearts are given in the order the songs were
-liked (list_songs.added, across the lists), so a player's recently hearted follows it; Navidrome stamps each
-heart when given. When that order changes (ORDER), Echolot gives its hearts again once, in the new order, as
-soon as all of the user's likes are timed."""
+SoundCloud Likes, Echolot · Wished: sources.likes) gets a heart in their Navidrome account on its file
+(songs.file, the one their playlists play). Echolot notes each heart it gave (stars) and acts only on changes:
+a song liked or unliked, or with another file now (an upgrade). It takes back only its own hearts, of songs
+that left a list the user still follows: a heart the user gave first stays, one they took back in a player is
+not given again, and an unfollowed list leaves its hearts. A file Navidrome has not read yet gets its heart at
+a later upkeep. Hearts go in the order the songs were liked (list_songs.added, across the lists), so a
+player's recently hearted follows it (Navidrome stamps each heart when given); when that order changes
+(ORDER), all are given again once, in the new order, as soon as all of the user's likes are timed."""
 
 import sqlite3
 from collections import defaultdict

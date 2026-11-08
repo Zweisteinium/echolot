@@ -1,17 +1,18 @@
-"""Recording Spotify songs with a recorder on the user's own computer (Mitschnitt): the devices, what to
-record, the sessions and their songs (items), handed to the device one at a time (web/recorders).
+"""Recording Spotify songs with a recorder on the user's computer (Mitschnitt): devices, what to record,
+sessions and their songs (items), handed to the device one at a time (web/recorders).
 
-A device belongs to the user who connected it: only they see it and record on it (an admin neither). It
-connects the way a desktop app signs in (OAuth with PKCE): the browser asks the user (approve), the app
-trades the code for its token (exchange). What to record is a user's Spotify songs that the library has worse
-than a tier (BELOW), worst first, each recording once, without what Spotify plays nowhere, what played as
-another song lately (SKIP_DAYS) or what Spotify has nothing better of (block: its stream is lossy, or no better
-than the library's copy; for good, while Spotify plays the song as that track); a session's songs are fixed
-when it starts, one that got better meanwhile is skipped when its turn comes (found); a song whose start
-failed goes to the end of the queue, and to the end of the next session within TROUBLE_HOURS. A song handed
-out is the device's until its lease ends (its length and LEASE_SLACK), then it is queued again once (TRIES);
-a device that restarts (fresh) or a session stopped releases it at once, without costing it a try. One
-session runs on a device at a time: a new one stops the old.
+A device is its user's alone (not even an admin's). It connects like a desktop app signs in (OAuth with PKCE):
+the user approves in the browser (approve), the app trades the code for its token (exchange).
+
+What to record: a user's Spotify songs the library has worse than a tier (BELOW), worst first, each recording
+once; not what Spotify plays nowhere, what played as another song lately (SKIP_DAYS), or what Spotify has
+nothing better of (block: lossy only, or no better than the copy; while Spotify plays the song as that track).
+
+A session's songs are fixed at its start; one that got better meanwhile is skipped at its turn (found); one
+whose start failed goes to the end of the queue, and of the next session within TROUBLE_HOURS. A song handed
+out is the device's until its lease ends (its length plus LEASE_SLACK), then queued again until TRIES; a
+device restart (fresh) or a stopped session releases it at once, without costing a try. One session per
+device: a new one stops the old.
 """
 
 import base64
@@ -42,10 +43,10 @@ BELOW_LABELS = {  # (the lossy tiers by format: catalog.LIMITS)
 CODE_MINUTES = 10  # an approved connection's code works this long, once
 ONLINE_SECONDS = 75  # a device that asked this lately is online (it asks at least every 30 s)
 LEASE_SLACK = 15 * 60  # seconds a device has beyond the song's length to answer for it
-TRIES = 2  # a song that failed (or got no answer) is queued again until it was handed out this often
+TRIES = 2  # a failed (or unanswered) song is queued again until it was handed out this often
 SKIP_DAYS = 30  # a song Spotify plays as another song (wrong_song) is not offered again for this long
-# a song done with this was not recorded (the session's "skipped"); skipped (by the user on the device): for this
-# session only; lossy_only: never again (block)
+# results of songs not recorded (the session's "skipped"): skipped (by the user) for this session only,
+# lossy_only for good (block)
 SKIPS = ("lossy_only", "wrong_song", "skipped")
 BEST = {  # spotify_best.reason -> why Spotify has nothing better (the lists show it)
     "lossy": "Spotify plays this song lossy only",
@@ -111,7 +112,7 @@ def approve(con: sqlite3.Connection, user_id: int, name: str, app: str, challeng
 def exchange(
     con: sqlite3.Connection, code: str, verifier: str, name: str = "", app: str = ""
 ) -> tuple[str, sqlite3.Row]:
-    """The app's token for an approved code (once, CODE_MINUTES) and its verifier: (token, device)."""
+    """(token, device) for an approved code (once, within CODE_MINUTES) and its PKCE verifier."""
     row = con.execute("SELECT * FROM recorder_codes WHERE code = ?", (_sha(code),)).fetchone()
     if row is None or row["expires"] < _stamp():
         raise RecordingError("Unknown or expired code: connect again.")
@@ -140,8 +141,7 @@ def by_token(con: sqlite3.Connection, token: str) -> sqlite3.Row | None:
 
 
 def devices(con: sqlite3.Connection, user_id: int) -> list[dict]:
-    """The user's devices, the one seen last first (online ones lead), each with whether it is online and its
-    session."""
+    """The user's devices, last seen first, each with whether it is online and its session."""
     since = _stamp(-timedelta(seconds=ONLINE_SECONDS))
     out = []
     sql = "SELECT * FROM recorders WHERE user_id = ? ORDER BY last_seen IS NULL, last_seen DESC, id DESC"
@@ -190,9 +190,9 @@ def _name(name: str) -> str:
 
 @dataclass
 class Track:
-    """A song to record: its key, the Spotify URI that plays it here (the release Spotify relinks it to:
-    the list's own can start the album one song off), its names, length (s) and ISRC (that release's where they
-    can be trusted or checked: candidates), and what the library has."""
+    """A song to record: its key, the Spotify URI that plays it here (the release Spotify relinks it to: the
+    list's own can start the album one song off), names, length (s) and ISRC (the relink's where trustworthy:
+    survey), and what the library has."""
 
     key: str
     uri: str
@@ -212,9 +212,9 @@ class Track:
 
 @dataclass(frozen=True)
 class Mark:
-    """Why a Spotify song is not one to record (the lists show it, the Record dialog counts it): lossless (the
-    library has it so), best (Spotify has nothing better of it: blocks; Try again lifts it), gone (Spotify no
-    longer plays it) or lately (it played as another song in the last SKIP_DAYS)."""
+    """Why a Spotify song is not to record (the lists show it, the Record dialog counts it): lossless, best
+    (Spotify has nothing better: blocks; Try again lifts it), gone (Spotify no longer plays it) or lately (it
+    played as another song in the last SKIP_DAYS)."""
 
     kind: str
     why: str = ""
@@ -263,7 +263,7 @@ def _lately(con: sqlite3.Connection, user_id: int) -> dict[str, str]:
 
 def marks(con: sqlite3.Connection, user_id: int, rows: list[sqlite3.Row] | list[dict]) -> dict[str, Mark]:
     """Song key -> why a list's Spotify song the library has worse than lossless is not to record (rows: key,
-    file, close_match, quality, unavailable, state): for the lists' marks."""
+    file, close_match, quality, unavailable, state)."""
     held, lately = blocks(con), _lately(con, user_id)
     out = {}
     for r in rows:
@@ -302,9 +302,8 @@ def _songs(con: sqlite3.Connection, user_id: int, list_key: str | None) -> list[
 
 
 def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> list[Track]:
-    """Every song of the user's Spotify lists (or of that one, whoever follows it: the pages decide who may see
-    it) that is to record (_mark: not lossless, nor what Spotify has nothing better of, no longer plays or
-    played as another song lately), worst first (then in the lists' order), each recording once."""
+    """The songs to record of the user's Spotify lists (or of that one, whoever follows it: the pages decide who
+    may see it), worst first, then in list order, each recording once (_mark: what is left out)."""
     return survey(con, user_id, list_key)[0]
 
 
@@ -403,7 +402,7 @@ def choices(tracks: list[Track]) -> list[dict]:
     """Each choice with how many songs and how long: for the Record dialog."""
     out = []
     for below, label in BELOW_LABELS.items():
-        mine = [t for t in tracks if t.have in BELOW[below]]
+        mine = select(tracks, below)
         out.append({"below": below, "label": label, "songs": len(mine), "seconds": sum(t.length for t in mine)})
     return out
 
@@ -429,21 +428,26 @@ def start(con: sqlite3.Connection, user_id: int, recorder_id: int, list_key: str
     )
     trouble = {r[0] for r in con.execute(failed, (user_id, since))}
     tracks.sort(key=lambda t: t.key in trouble)  # (stable: worst first otherwise)
-    name = "All Spotify lists"
-    if list_key:
-        row = con.execute("SELECT title FROM lists WHERE key = ?", (list_key,)).fetchone()
-        name = row["title"] if row else list_key
     with con:
         cur = con.execute(
             "INSERT INTO recordings (user_id, recorder_id, title, list_key, below, state, created) "
             "VALUES (?, ?, ?, ?, ?, 'running', ?)",
-            (user_id, recorder_id, f"{name} · {BELOW_LABELS[below]}", list_key, below, _stamp()),
+            (user_id, recorder_id, _title(con, list_key, below), list_key, below, _stamp()),
         )
         con.executemany(
             "INSERT INTO recording_items (recording_id, position, song_key, state) VALUES (?, ?, ?, 'queued')",
             [(cur.lastrowid, n, t.key) for n, t in enumerate(tracks)],
         )
     return cur.lastrowid
+
+
+def _title(con: sqlite3.Connection, list_key: str | None, below: str) -> str:
+    """A session's title: the list's (or all lists) and the choice."""
+    name = "All Spotify lists"
+    if list_key:
+        row = con.execute("SELECT title FROM lists WHERE key = ?", (list_key,)).fetchone()
+        name = row["title"] if row else list_key
+    return f"{name} · {BELOW_LABELS[below]}"
 
 
 def active(con: sqlite3.Connection, recorder_id: int) -> sqlite3.Row | None:
@@ -455,9 +459,8 @@ def active(con: sqlite3.Connection, recorder_id: int) -> sqlite3.Row | None:
 
 
 def latest(con: sqlite3.Connection, user_id: int, list_key: str | None = None, hours: int = 24) -> sqlite3.Row | None:
-    """The user's session to show: one that runs or is paused, else the newest, if it ended in the last `hours`
-    and was not dismissed (never an older one: closing a session's summary closes it). For a list page: that
-    list's; None: any."""
+    """The user's session to show: one that runs or is paused, else the newest if it ended in the last `hours`
+    and was not dismissed (never an older one). list_key: that list's; None: any."""
     one = " AND list_key IS ?" if list_key is not None else ""
     args = (user_id, list_key) if list_key is not None else (user_id,)
     row = con.execute(
@@ -622,9 +625,8 @@ def item_of(con: sqlite3.Connection, recorder_id: int, item_id: int) -> sqlite3.
 
 
 def open_for(item: sqlite3.Row) -> bool:
-    """Whether the device may still answer for an item: handed to it, or let go of (LATE: its lease ran out, its
-    session was stopped, the device restarted) and neither handed out again nor answered for since (an upload
-    retried for a while, or after a restart, still comes in)."""
+    """Whether the device may still answer for an item: handed to it, or let go (LATE) and neither handed out
+    again nor answered since (an upload retried for a while, or after a restart, still counts)."""
     late = item["detail"] in LATE and (item["state"] == "queued" or item["result"] == "failed")
     return item["state"] == "recording" or late
 
@@ -656,12 +658,11 @@ def _release(con: sqlite3.Connection, item_ids: list[int], why: str) -> None:
 def answer(
     con: sqlite3.Connection, item: sqlite3.Row, result: str, detail: str = "", tier: str = "", stream: str = ""
 ) -> None:
-    """What became of a song handed out: done (UPLOADED, SKIPS), queued again (AGAIN: until it was handed out
-    TRIES times), or queued again as it was and its session paused (took_over: the user played Spotify, or
-    stopped the device; a session paused already keeps its reason, by_user from the device's own Stop).
-    Spotify has nothing better of the song (block) when it plays it lossy only (lossy_only; a lossy recording:
-    `tier`, or `stream` lossy as the device heard it), when a recording that is not genuine lossless was filed,
-    or when one was no better than the library's copy (a genuine lossless one too: quieter, upload.QUIETER)."""
+    """What became of a song handed out: done (UPLOADED, SKIPS), queued again (AGAIN, until handed out TRIES
+    times), or queued again as it was with its session paused (took_over: the user played Spotify or stopped
+    the device; a session paused already keeps its reason). Blocked (block) when Spotify plays it lossy only
+    (lossy_only, a lossy `tier`, or `stream` lossy as the device heard it), when a recording not genuine
+    lossless was filed, or when one was no better than the copy (even genuine lossless: upload.QUIETER)."""
     if result in (*UPLOADED, *SKIPS):
         _finish(con, item["id"], result, detail)
         uploaded = tier and (result == "not_better" or (result == "filed" and tier != "lossless"))
@@ -682,8 +683,7 @@ def answer(
 
 
 def _again(con: sqlite3.Connection, item_id: int, detail: str) -> None:
-    """A song that failed: failed once it was tried TRIES times, else queued again at the end of its session (it
-    does not hold up the others)."""
+    """A song that failed: failed for good after TRIES, else queued again at the end of its session."""
     row = con.execute("SELECT tries, recording_id FROM recording_items WHERE id = ?", (item_id,)).fetchone()
     if row["tries"] >= TRIES:
         _finish(con, item_id, "failed", detail)
@@ -729,10 +729,6 @@ def export(con: sqlite3.Connection, user_id: int, user: str, base: str, list_key
     """The songs of a choice as a file for a recorder without a connection (it records them by itself)."""
     if below not in BELOW:
         raise RecordingError("Choose what to record.")
-    name = "All Spotify lists"
-    if list_key:
-        row = con.execute("SELECT title FROM lists WHERE key = ?", (list_key,)).fetchone()
-        name = row["title"] if row else list_key
     tracks = select(candidates(con, user_id, list_key), below)
-    out = {"echolot": base, "user": user, "title": f"{name} · {BELOW_LABELS[below]}", "below": below}
+    out = {"echolot": base, "user": user, "title": _title(con, list_key, below), "below": below}
     return out | {"exported": _iso(_now()), "tracks": [t.item() for t in tracks]}

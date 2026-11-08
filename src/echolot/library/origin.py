@@ -1,9 +1,9 @@
-"""Where a file uploaded by hand comes from (origins): the artist's free download (a gate on Hypeddit and the like,
-the song's free_links), bought (on Bandcamp or elsewhere) or elsewhere. A file that is the artist's own release
-(free or bought) is the best there is, even lossy (an MP3 320 the artist gives away): it counts as at its best,
-leaves the Buy list and the FLAC upgrade no longer searches for it, unless Bandcamp sells the song (lossless:
-better). Noted for the file it came with: another file of the song ends it; Try again (the lists' mark) forgets
-it. Files carry no sign of where they came from, so the upload dialog asks, filled in from the song's links."""
+"""Where a file uploaded by hand comes from (origins): the artist's free download (a gate on Hypeddit and the
+like: the song's free_links), bought (on Bandcamp or elsewhere) or elsewhere. The artist's own release (free or
+bought) is the best there is, even lossy (an MP3 320 the artist gives away): it counts as at its best, leaves
+the Buy list and the FLAC upgrade skips it, unless Bandcamp sells the song (lossless: better). Noted for the
+file it came with: another file of the song ends it; Try again (the lists' mark) forgets it. Files carry no
+sign of their origin, so the upload dialog asks, prefilled from the song's links."""
 
 import datetime
 import sqlite3
@@ -26,8 +26,8 @@ class Choice:
 
 
 def choices(con: sqlite3.Connection, key: str) -> tuple[str, list[Choice]]:
-    """(the likely one, the choices) of where an upload of the song comes from: its free download when it has
-    one, else Bandcamp when Bandcamp sells it, else elsewhere."""
+    """(the likely one, the choices) of where an upload of the song comes from: its free download if it has
+    one, else Bandcamp if Bandcamp sells it, else elsewhere."""
     link = con.execute("SELECT site FROM free_links WHERE song_key = ? AND url > ''", (key,)).fetchone()
     offer = con.execute("SELECT 1 FROM bandcamp WHERE song_key = ? AND url > ''", (key,)).fetchone()
     out = [
@@ -64,14 +64,13 @@ def note(con: sqlite3.Connection, key: str, file: str, kind: str) -> None:
 
 
 def forget(con: sqlite3.Connection, key: str) -> bool:
-    """Try again: the song's file is searched and offered again (whether there was a note)."""
+    """Try again: the song is searched and offered again (whether there was a note)."""
     with con:
         return con.execute("DELETE FROM origins WHERE song_key = ?", (key,)).rowcount > 0
 
 
 def marks(con: sqlite3.Connection, keys: list[str]) -> dict[str, str]:
-    """Song key -> why it is the best there is though lossy (its file the artist's own release), for those of
-    `keys` (a genuine FLAC needs no mark)."""
+    """Song key -> why it is the best there is though lossy (the artist's own release), for those of `keys`."""
     if not keys:
         return {}
     rows = con.execute(

@@ -1,19 +1,18 @@
-"""The same recording under other names. Spotify lists one recording twice (single and album, another
-main artist, "Edit" and "Radio Edit", a re-release), and a SoundCloud upload names it its own way; matched
-by name (catalog.Catalog.song), each got its own file. So the library is asked first:
+"""The same recording under other names. Spotify lists one recording twice (single and album, another main
+artist, "Edit" and "Radio Edit", a re-release), a SoundCloud upload names it its own way; matched by name
+(catalog.Catalog.song), each would get its own file. So the library is asked first:
 
   link_isrc   a missing song whose ISRC another song has a file of is linked to that file
-  twins       of missing songs with one ISRC, one is searched and shown: the others follow it (link_isrc)
+  twins       of missing songs sharing an ISRC, one is searched and shown; the others follow it (link_isrc)
   in_library  before a missing song is searched: a file with the same core title and length (±3 s) that
-              sounds like the song's release (identity.check) is the song
+              sounds like the release (identity.check) is the song
   already     before a SoundCloud or YouTube download is filed: a file with the same core title and length
               that is the same audio (identity.same_master) is the song; a genuine FLAC still replaces a lossy
               copy
-  merge_same  files of different songs that are the same audio, whichever came first and from wherever: the
-              better one is kept for all of them
-  another_edit / merge_edits  a YouTube song (an upload is often a shorter edit) named as a library song of
-              another length: the same recording by its audio (SAME_EDIT) is linked to that file, one that is
-              probably the same (ALIKE) goes to review
+  merge_same  files of different songs that are the same audio: the better one is kept for all of them
+  another_edit / merge_edits  a YouTube song (often a shorter edit) named as a library song of another
+              length: the same recording by its audio (SAME_EDIT) is linked to that file, a probable one
+              (ALIKE) goes to review
 
 Either way the song is linked to the file (songs.link, as a review link) and an event says why."""
 
@@ -57,7 +56,7 @@ class Index:
 
 
 def link(con: sqlite3.Connection, paths: Paths, key: str, want: Want, e: catalog.Entry, why: str) -> None:
-    """The song is the file `e` from now on: found by its name and length, as a review link (the length tells
+    """The song is file `e` from now on, found by its name and length as a review link (the length tells
     "I Remember" 3:21 from "I Remember (9m54s)")."""
     with con:
         con.execute("DELETE FROM attempts WHERE song_key = ?", (key,))
@@ -84,9 +83,9 @@ def link_isrc(con: sqlite3.Connection, paths: Paths) -> int:
 
 
 def twins(rows: list[sqlite3.Row]) -> dict[str, str]:
-    """Missing songs (rows with key, isrc, tries) that are another one's recording, its ISRC (Spotify lists
-    a release twice): {twin's key: the key that stands for it}, the one searched most (then the first key).
-    Only that one is searched and shown; once it has a file, link_isrc links the twins to it."""
+    """{twin's key: the key standing for it} of missing songs (key, isrc, tries) sharing an ISRC (Spotify lists
+    a release twice): the one searched most, then the first key, stands for them and alone is searched and
+    shown; once it has a file, link_isrc links the twins to it."""
     first: dict[str, sqlite3.Row] = {}
     for r in rows:
         if isrc := (r["isrc"] or "").replace("-", "").upper():
@@ -111,8 +110,8 @@ def in_library(con: sqlite3.Connection, paths: Paths, want: Want, index: Index) 
 
 
 def already(paths: Paths, src: Path, title: str, length: float, index: Index) -> catalog.Entry | None:
-    """A library file that is the same audio as the download `src` (a like title and length), or None: a
-    fingerprint alone takes a remix that keeps the vocals for the song."""
+    """A library file that is the same audio as `src` (a like title and length), or None. Not by fingerprint:
+    that takes a remix keeping the vocals for the song."""
     for e in index.candidates(title, length):
         if identity.same_master(src, paths.tracks / e.path) >= identity.SAME_MASTER:
             return e
@@ -123,9 +122,9 @@ SAME_CHECKED = "same_checked"  # meta: {"<file>:<size>|<file>:<size>": same_mast
 
 
 def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
-    """Library files of different songs that are the same audio (a like title and length, identity.same_master),
-    whichever came first and from wherever: the better one is kept, the other one's songs are linked to it and
-    the other one is retired. Close matches and DJ mix cuts are left as they are."""
+    """Library files of different songs that are the same audio (a like title and length, same_master): the
+    better is kept, the other's songs are linked to it and the other retired. Close matches and DJ-mix cuts
+    are left alone."""
     from echolot import db
 
     checked = json.loads(db.get_meta(con, SAME_CHECKED, "{}"))
@@ -189,9 +188,8 @@ EDIT_RE = re.compile(r"probably the same recording as (?P<path>.+) in another ed
 def other_edits(
     cat: catalog.Catalog, want: Want, seconds: float, own: str = "", con: sqlite3.Connection | None = None
 ) -> list[catalog.Entry]:
-    """Library files named as the song (any of its artists, its title), or the files of songs named so (a
-    collaboration filed under its other artist), but more than 3 s off its length `seconds`: maybe another
-    edit of the recording (a YouTube upload often is shorter); not `own`."""
+    """Library files named as the song (any of its artists, its title), or of songs so named (a collaboration
+    filed under its other artist), more than 3 s off `seconds`: maybe another edit; not `own`."""
     if rules.mix_cut(want.title):
         return []
     found = [e for a in dict.fromkeys([want.artist, *want.artists]) for e in cat.find(a, want.title, 0)]
@@ -227,9 +225,9 @@ def another_edit(
 
 
 def merge_edits(con: sqlite3.Connection, paths: Paths) -> list[str]:
-    """YouTube songs whose own file is another edit of a file the library has under their names: at
-    SAME_EDIT linked to that file, their own one retired; from ALIKE put up for review again (Please
-    confirm). Each pair of files is compared once (meta edits_checked)."""
+    """YouTube songs whose own file is another edit of a library file under their names: from SAME_EDIT linked
+    to it and their own retired; from ALIKE up for review again. Each pair is compared once (meta
+    edits_checked)."""
     from echolot import db
     from echolot.library import review
 
