@@ -58,6 +58,7 @@ class Run:
         self.while_paused = False  # started by hand while paused: the pause leaves it alone
         self.only: set[int] | None = None  # by hand for these users' songs (None: everyone's)
         self.claim_resource: Callable[[Run], None] = lambda run: None  # Worker._claim
+        self.start_job: Callable[[str], None] = self.after.add  # Worker._follow
 
     @property
     def paths(self) -> filing.Paths:
@@ -81,6 +82,10 @@ class Run:
     def claim(self) -> None:
         """For a JobInfo.beside job: its work needs the resource now, the less urgent runs give way."""
         self.claim_resource(self)
+
+    def start(self, name: str) -> None:
+        """Start the job `name` now as one of `after` (beside this run if it uses another resource)."""
+        self.start_job(name)
 
     def todo(self, rows: list, key: Callable[[Any], str] = lambda r: r["key"]) -> list:
         """`rows` without those the runs this one goes on from did."""
@@ -325,7 +330,7 @@ class Worker:
                 run = Run(job, self.settings, self.vault, trigger)
                 run.budget, run.only, run.skip = budget, only if by_hand else None, skip
                 run.while_paused = paused
-                run.claim_resource = self._claim
+                run.claim_resource, run.start_job = self._claim, self._follow
                 self.runs[job.name] = running[job.resource] = run
                 threading.Thread(target=self._run, args=(run,), name=job.name, daemon=True).start()
 
@@ -335,6 +340,18 @@ class Worker:
             for r in self.runs.values():
                 if r is not run and r.job.resource == run.job.resource and r.job.priority < run.job.priority:
                     r.give_way.set()
+
+    def _follow(self, name: str) -> None:
+        """Run.start."""
+        with self._lock:
+            self._request_after(name)
+        self._wake.set()
+
+    def _request_after(self, name: str) -> None:
+        """A job another one asked for, for everyone, as scheduled; with the lock held."""
+        if name not in self.requested:  # one asked for by hand stays so
+            self.followups.add(name)
+        self.requested[name] = None
 
     def _run(self, run: Run) -> None:
         name = run.job.name
@@ -365,10 +382,8 @@ class Worker:
             with self._lock:
                 self.runs.pop(name, None)
                 self.last[name] = run
-                for after in run.after - {name}:  # for everyone, as scheduled
-                    if after not in self.requested:  # one asked for by hand stays so
-                        self.followups.add(after)
-                    self.requested[after] = None
+                for after in run.after - {name}:
+                    self._request_after(after)
                 if run.left:
                     self.resume[name] = (run.left, run.trigger, run.skip | run.handled)
                 self._save_resume()

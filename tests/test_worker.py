@@ -332,6 +332,39 @@ def test_a_follow_up_waits_while_paused_and_keeps_the_songs_waits(w) -> None:
     release.set()
 
 
+def test_a_run_starts_a_job_of_another_resource_at_once(w) -> None:
+    """Run.start: the fallback starts while the search still runs (as a follow-up: trigger "after"), not
+    when the search ends."""
+    wk, _, release, settings = w
+    con = db.connect(settings.db_path)
+    with con:  # nothing due by the schedule
+        options.update(con, options.Jobs, paused=False)
+        now = datetime.now().isoformat(timespec="seconds")
+        con.executemany(
+            "INSERT OR REPLACE INTO jobs VALUES (?, ?, ?, 1, '')", [(n, now, now) for n in worker.FUNCTIONS]
+        )
+    con.close()
+    triggers: dict[str, str] = {}
+
+    def search_new(r: worker.Run) -> str:
+        r.start("fallback")
+        release.wait(5)
+        return "searched"
+
+    def fallback(r: worker.Run) -> str:
+        triggers["fallback"] = r.trigger
+        return "searched"
+
+    worker.FUNCTIONS["search_new"], worker.FUNCTIONS["fallback"] = search_new, fallback
+    wk.trigger("search_new")
+    wk._start_due()
+    wait_for(lambda: "fallback" in wk.requested)
+    wk._start_due()
+    wait_for(lambda: "fallback" in triggers)
+    assert "search_new" in wk.runs and triggers["fallback"] == "after"
+    release.set()
+
+
 def test_slskd_rescans_its_share_after_the_library_changed(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     """slskd only scans at its start: ask for a rescan after library changes, at most hourly, only with
     slskd set up; a refused ask (already scanning) is retried."""

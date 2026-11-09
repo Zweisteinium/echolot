@@ -29,12 +29,15 @@ def wav(path: Path, seconds: int = 200) -> None:
 
 
 class FakeDaemon:
-    """Search results by query title: [(user, path, seconds, behaviour)]; behaviour: ok, stuck, slow, fail."""
+    """Search results by query title: [(user, path, seconds, behaviour)]; behaviour: ok, stuck, slow, fail,
+    held (moving until `release` is set)."""
 
     files: ClassVar[dict[str, list[tuple[str, str, int, str]]]] = {}
     searches: ClassVar[list[tuple[str, str, int, dict]]] = []
     downloads: ClassVar[list[str]] = []
     lost = False
+    moved = 0
+    release = threading.Event()
 
     def __init__(self, url: str, timeout: float = 30) -> None:
         self.jobs: dict[str, object] = {}
@@ -73,6 +76,9 @@ class FakeDaemon:
             return soulseek.Transfer("running", None, seconds + 1, 10**9, "")
         if behaviour == "fail":
             return soulseek.Transfer("failed", None, 0, 1000, "AllDownloadsFailed")
+        if behaviour == "held" and not FakeDaemon.release.is_set():
+            FakeDaemon.moved += 1
+            return soulseek.Transfer("running", None, FakeDaemon.moved, 10**9, "")
         wav(Path(path), 300 if behaviour == "long" else seconds)  # long: the peer's length was wrong
         return soulseek.Transfer("done", path, 1000, 1000, "")
 
@@ -83,7 +89,7 @@ class FakeDaemon:
 @pytest.fixture
 def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     FakeDaemon.files, FakeDaemon.searches, FakeDaemon.downloads, FakeDaemon.lost = {}, [], [], False
-    FakeDaemon.ready = True
+    FakeDaemon.ready, FakeDaemon.release = True, threading.Event()
     monkeypatch.setattr(soulseek, "Daemon", FakeDaemon)
     monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))  # no ffmpeg here
     monkeypatch.setattr(acquire, "pictures", lambda *a, **k: None)  # no Spotify pictures
@@ -720,3 +726,39 @@ def test_a_soundcloud_flac_with_the_same_audio_takes_over(
     con.close()
     assert paths == ["Uploader/Uploader - Trance Tune.flac"] and e["audio"] == "the same audio as your copy (0.999)"
     assert (e["matched"] == "probable") is for_review and bool(filed) is for_review
+
+
+def test_new_songs_join_a_running_search_and_a_miss_starts_the_fallback_at_once(
+    run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow download holds up only its own place: songs that come meanwhile are searched in the same run
+    (one filed, one missed), and the miss starts the fallback while the slow one still downloads."""
+    monkeypatch.setattr(acquire, "REFILL_SECONDS", 0.05)
+    monkeypatch.setattr(acquire, "POLL_SECONDS", 0.01)
+    started: list[str] = []
+    run.start_job = started.append
+    FakeDaemon.files["Slow Song"] = [("u1", "Music\\Artist N\\Artist N - Slow Song.flac", 200, "held")]
+    FakeDaemon.files["Late Song"] = [("u2", "Music\\Artist N\\Artist N - Late Song.flac", 200, "ok")]
+    add_missing(run, "spotify:slow", "Slow Song")
+    result: list[str] = []
+    search = threading.Thread(target=lambda: result.append(acquire.search_new(run)))
+    search.start()
+    try:
+        end = time.monotonic() + 10
+        while "Music\\Artist N\\Artist N - Slow Song.flac" not in FakeDaemon.downloads:
+            assert time.monotonic() < end, "the slow download never started"
+            time.sleep(0.02)
+        add_missing(run, "spotify:late", "Late Song")
+        add_missing(run, "spotify:nowhere", "Nowhere Song")
+        while len(run.log) < 2:
+            assert time.monotonic() < end, "the songs that came waited for the slow one"
+            time.sleep(0.02)
+        assert search.is_alive() and started == ["fallback"]  # the slow one still downloads
+        assert sorted(line for _, line in run.log) == [
+            "Artist N – Late Song: new · Artist N/Artist N - Late Song.flac",
+            "Artist N – Nowhere Song: not found · no results",
+        ]
+    finally:
+        FakeDaemon.release.set()
+        search.join(10)
+    assert result == ["3 of 3 songs: 2 new, 1 not found"], result

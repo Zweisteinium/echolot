@@ -22,7 +22,7 @@ import threading
 import time
 import urllib.parse
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -49,6 +49,7 @@ SEARCH_SECONDS = 300  # including the wait behind the rate limit
 TRANSFER_SECONDS = 45 * 60  # a download's limit
 SLOW_AFTER = 120  # s a download moves before its speed tells whether it ends in TRANSFER_SECONDS
 POLL_SECONDS = 2
+REFILL_SECONDS = 15  # a run of new songs takes the songs that came meanwhile this often (and as a song ends)
 EDIT_REVIEW = "another edit, in review"  # a YouTube song's download, probably a library song's other edit
 FOUND = {"new", "upgrade", "duplicate", "linked", EDIT_REVIEW}  # linked: the library had it under other names
 # songs (or files, upgrades) searched now, by any run: one started beside a run giving way skips them
@@ -371,8 +372,15 @@ def _for(run: "Run", con: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[s
     return [r for r in rows if r["key"] in keys]
 
 
-def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
-    """Search and download songs, several at a time, each song's attempt counted as it ends."""
+def _new(con: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The missing songs never searched."""
+    return [r for r in _missing(con) if not r["tries"]]
+
+
+def _search(run: "Run", songs: list[sqlite3.Row], purpose: str, new: bool = False) -> str:
+    """Search and download songs, several at a time, each song's attempt counted as it ends. `new` (New songs
+    search): songs that come meanwhile join while it runs (a slow download holds up only its own place), and
+    a miss starts the fallback at once."""
     songs = run.todo(songs)
     if not songs:
         return "nothing to search"
@@ -387,7 +395,7 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         con.close()
     deadline = time.monotonic() + 20 * 60 + 15 * len(songs)  # a run shares Soulseek with the others
     counts: dict[str, int] = {}
-    done = 0
+    done, total = 0, len(songs)
     lock, waiting = threading.Lock(), threading.Lock()
 
     def one(row: sqlite3.Row) -> None:
@@ -434,20 +442,39 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str) -> str:
         if outcome.action != "interrupted":  # (else a run that goes on from this one searches it again)
             with lock:
                 run.handled.add(row["key"])
+            if new and outcome.action not in FOUND:
+                run.start("fallback")
         log.info("%s: %s - %s: %s %s", purpose, want.artist, want.title, outcome.action, outcome.detail)
         run.note(f"{want.artist} – {want.title}: {outcome.action}" + (f" · {outcome.detail}" if outcome.detail else ""))
         with lock:
             done += 1
             counts[outcome.action] = counts.get(outcome.action, 0) + 1
             summary = ", ".join(f"{n} {a}" for a, n in sorted(counts.items()))
-            run.say(f"{run.of(done, len(songs))} songs: {summary}", done, len(songs))
+            run.say(f"{run.of(done, total)} songs: {summary}", done, total)
 
+    queue, seen = list(songs), {r["key"] for r in songs}
     with ThreadPoolExecutor(fetcher.opts.parallel, thread_name_prefix=purpose) as pool:
-        list(pool.map(one, songs))
+        busy: set[Future] = set()
+        while queue or busy:
+            while queue and len(busy) < fetcher.opts.parallel:
+                busy.add(pool.submit(one, queue.pop(0)))
+            ended, busy = wait(busy, REFILL_SECONDS if new else None, FIRST_COMPLETED)
+            for f in ended:
+                f.result()
+            if new and not (run.stop.is_set() or run.give_way.is_set()) and time.monotonic() < deadline:
+                con = run.connect()
+                try:
+                    came = [r for r in run.todo(_new(con)) if r["key"] not in seen]
+                finally:
+                    con.close()
+                seen |= {r["key"] for r in came}
+                queue += came
+                total += len(came)
+                deadline += 15 * len(came)
     run.after.add("library")
-    summary = f"{done} of {len(songs)} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
-    if run.give_way.is_set() and not run.stop.is_set() and done < len(songs):
-        run.left = len(songs) - done
+    summary = f"{done} of {total} songs: " + (", ".join(f"{n} {a}" for a, n in sorted(counts.items())) or "none")
+    if run.give_way.is_set() and not run.stop.is_set() and done < total:
+        run.left = total - done
         summary += f"; gave way, {run.left} left"
     return summary
 
@@ -549,7 +576,7 @@ def sync(run: "Run") -> str:
 
 def search_new(run: "Run") -> str:
     """The songs never searched: the library first (the same recording under other names is linked), then
-    Soulseek; a miss starts the fallback right after."""
+    Soulseek, with the ones that come meanwhile; a miss starts the fallback at once."""
     parts = []
     con = run.connect()
     try:
@@ -557,21 +584,12 @@ def search_new(run: "Run") -> str:
         if linked := recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
-        songs = [r for r in _missing(con) if not r["tries"]]
+        songs = _new(con)
     finally:
         con.close()
     if not songs:
         return "; ".join(parts) or "no new songs"
-    parts.append(_search(run, songs, "search"))
-    con = run.connect()
-    try:  # a miss counted a try (_count)
-        keys = [r["key"] for r in songs]
-        sql = f"SELECT 1 FROM attempts WHERE tries >= 1 AND song_key IN ({','.join('?' * len(keys))})"
-        missed = con.execute(sql, keys).fetchone()
-    finally:
-        con.close()
-    if missed:
-        run.after.add("fallback")
+    parts.append(_search(run, songs, "search", new=True))
     return "; ".join(parts)
 
 
