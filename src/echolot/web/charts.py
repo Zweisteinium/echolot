@@ -80,6 +80,7 @@ class Growth(Graph):
     line: str  # SVG path in the W x H box
     area: str  # under each stretch of the line, not under a gap
     gaps: str  # dotted lines across the gaps
+    also: str = ""  # a second metric's line (growth's `also`), no area
 
 
 @dataclass
@@ -174,23 +175,47 @@ class _Time:
 
 
 def growth(
-    points: list[tuple[str, float]], value: Callable[[float], str], axis: Callable[[float], str]
+    points: list[tuple[str, float]],
+    value: Callable[[float], str],
+    axis: Callable[[float], str],
+    also: list[tuple[str, float]] | None = None,
+    also_value: Callable[[float], str] = str,
 ) -> Growth | None:
     """A metric over time ((UTC ts, value), oldest first) as a line over an area (axis: _span). `value`
     formats a value, `axis` an axis label. Leading zeros are dropped (taken before the library was first
-    read). None for fewer than two points."""
+    read). `also`: a second metric drawn as a plain line on the same axis, at each point its last value
+    by then (`also_value` formats it, after the value in the pointer's data). None for fewer than two points."""
     while len(points) > 1 and points[0][1] == 0 and points[1][1] != 0:
         points = points[1:]
     if len(points) < 2:
         return None
     t = _Time([ts for ts, _ in points])
-    bottom, top, step = _span(min(v for _, v in points), max(v for _, v in points))
+    second: list[float | None] = []
+    if also:
+        by, last, j = sorted(also), None, 0
+        for ts, _ in points:
+            while j < len(by) and by[j][0] <= ts:
+                last, j = by[j][1], j + 1
+            second.append(last)
+    values = [v for _, v in points] + [v for v in second if v is not None]
+    bottom, top, step = _span(min(values), max(values))
+
+    def y(v: float) -> float:
+        return H - H * (v - bottom) / (top - bottom)
 
     def xy(i: int) -> tuple[float, float]:
-        return t.x(i), H - H * (points[i][1] - bottom) / (top - bottom)
+        return t.x(i), y(points[i][1])
 
     def path(run: list[int]) -> str:
         return "".join(f"{'L' if n else 'M'}{xy(i)[0]:.1f},{xy(i)[1]:.1f}" for n, i in enumerate(run))
+
+    def also_path(run: list[int]) -> str:
+        at = [(t.x(i), y(v)) for i in run if (v := second[i]) is not None]
+        return "".join(f"{'L' if n else 'M'}{x:.1f},{v:.1f}" for n, (x, v) in enumerate(at))
+
+    def datum(i: int) -> list:
+        d = [round(100 * xy(i)[0] / W, 2), round(100 * xy(i)[1] / H, 2), t.label(i), value(points[i][1])]
+        return [*d, also_value(v)] if second and (v := second[i]) is not None else d
 
     def under(run: list[int]) -> str:
         return f"{path(run)}L{xy(run[-1])[0]:.1f},{H}L{xy(run[0])[0]:.1f},{H}Z"
@@ -207,12 +232,7 @@ def growth(
                 for k in range(round((top - bottom) / step) + 1)
             ],
             end=(100 * last[0] / W, 100 * last[1] / H),
-            points=json.dumps(
-                [
-                    [round(100 * xy(i)[0] / W, 2), round(100 * xy(i)[1] / H, 2), t.label(i), value(points[i][1])]
-                    for i in t.keep
-                ]
-            ),
+            points=json.dumps([datum(i) for i in t.keep]),
             now=value(points[-1][1]),
             total=_signed(points[-1][1] - points[0][1], value),
             week=_signed(points[-1][1] - points[ago][1], value) if ago is not None else "",
@@ -220,6 +240,7 @@ def growth(
         line="".join(path(r) for r in t.runs),
         area="".join(under(r) for r in t.runs if len(r) > 1),
         gaps="".join(bridge(a[-1], b[0]) for a, b in itertools.pairwise(t.runs)),
+        also="".join(also_path(r) for r in t.runs) if second else "",
     )
 
 

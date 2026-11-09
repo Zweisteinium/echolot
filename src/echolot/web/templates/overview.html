@@ -60,7 +60,7 @@
           {% endfor %}
           </tbody>
         </table>
-        <p class="muted small ring-note">The {{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists; the shares leave out those not to be had, as the lists' Best column does.</p>
+        <p class="muted small ring-note">The {{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists; the shares leave out those that seem wiped off the internet, as the lists' Best column does.</p>
       </div>
       </div>
     </div>
@@ -169,7 +169,8 @@
         } else {
           const value = document.createElement("b");
           value.textContent = near[3];
-          tip.replaceChildren(value, near[2]);
+          const also = near[4] ? [Object.assign(document.createElement("span"), { className: "tip-also", textContent: near[4] })] : [];
+          tip.replaceChildren(value, ...also, near[2]);
         }
         cursor.hidden = mark.hidden = tip.hidden = false;
         const box = plot.getBoundingClientRect(), half = tip.offsetWidth / 2, left = (near[0] / 100) * box.width;

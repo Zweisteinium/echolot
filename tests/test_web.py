@@ -75,6 +75,7 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
     assert 'data-panel="size" hidden' in html and '<span class="figure">3 songs</span>' in html  # the owner's 3 files
     assert "&#34;1 songs&#34;" in html and ">+2 songs</span>" in html  # one file at the snapshot, two more since
     assert "data-stack" in html and 'class="band q-lossless"' in html  # the quality over time, its tiers as bands
+    assert 'class="line also"' in html and "on the lists</p>" in html  # the listed songs beside the files
 
 
 def test_graphs_for_a_stretch_of_time(client: TestClient, settings: Settings) -> None:
@@ -116,7 +117,10 @@ def test_best_ring(client: TestClient, settings: Settings) -> None:
     html = client.get("/library").text
     assert 'data-ring="best" hidden' in html and 'value="best"' in html and "At their best" in html
     assert 'data-ring="files">' in html and 'data-ring="songs" hidden' in html  # Files first, Songs and Best behind
-    assert "1 of the lossy ones are FLACs made from lossy files" in html and "Missing · not to be had" in html
+    assert (
+        "1 of the lossy ones are FLACs made from lossy files" in html
+        and "Missing · seems wiped off the internet :(" in html
+    )
 
 
 def test_missing(client: TestClient) -> None:

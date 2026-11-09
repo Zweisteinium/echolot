@@ -34,7 +34,12 @@ def test_best_quality_leaves_out_what_cannot_be_had(con) -> None:
         row = next(r for r in stats.lists(con) if r["key"] == "spotify:likes:1")
         return row["songs"], row["best"], row["unobtainable"]
 
-    # s1 an MP3, s2 a FLAC made from a lossy file, s3 missing and greyed out on Spotify
+    # s1 an MP3, s2 a FLAC made from a lossy file, s3 missing and greyed out on Spotify: still searched
+    assert liked() == (3, 0, 0)
+    with con:  # searched everywhere in vain
+        con.execute(
+            "INSERT OR REPLACE INTO attempts (song_key, tries, last_try, last_fallback) VALUES ('spotify:s3', 4, 1, 1)"
+        )
     assert liked() == (3, 0, 1)
     with con:  # a recording proved Spotify has nothing better of s2
         con.execute(
@@ -173,4 +178,28 @@ def test_the_rings_count_files_and_songs(con) -> None:
     assert dict((k, n) for k, _, n in o["song_tiers"])["missing"] == o["wanted"] - o["have"]
     assert sum(n for _, _, n in o["song_tiers"]) == o["wanted"] and o["song_fakes"] >= 1
     labels = [label for _, label, _ in stats.best_tiers(con)]
-    assert labels == ["At their best", "Can get better", "Missing · searched", "Missing · not to be had"]
+    assert labels == [
+        "At their best",
+        "Could be better",
+        "Missing · still searching",
+        "Missing · seems wiped off the internet :(",
+    ]
+
+
+def test_a_song_seems_wiped_only_once_searched_everywhere(con) -> None:
+    """Gone from Spotify alone is not enough: only after Soulseek at its loosest (4 searches) and the
+    fallback does a missing song seem wiped off the internet; until then it is still searched."""
+    key = con.execute("SELECT key FROM wanted WHERE file IS NULL AND key LIKE 'spotify:%' LIMIT 1").fetchone()[0]
+    with con:
+        con.execute("DELETE FROM attempts")
+        con.execute("UPDATE songs SET unavailable = '2026-11-01' WHERE key = ?", (key,))
+        con.execute("INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES (?, 2, 1, 1)", (key,))
+
+    def tiers() -> dict[str, int]:
+        return {k: n for k, _, n in stats.best_tiers(con)}
+
+    before = tiers()
+    with con:
+        con.execute("UPDATE attempts SET tries = 4 WHERE song_key = ?", (key,))
+    after = tiers()
+    assert after["gone"] == before["gone"] + 1 and after["missing"] == before["missing"] - 1

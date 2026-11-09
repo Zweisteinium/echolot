@@ -142,8 +142,11 @@ _BEST = (
     f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR {_ORIGINAL} "
     f"OR (s.key LIKE 'spotify:%' AND {_GONE}))), 0) AS best"
 )
-# missing and no source hands it out: left out of the Best share
-_UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND ({_GONE} OR {_HELD})), 0) AS unobtainable"
+# searched everywhere in vain: Soulseek at its loosest (acquire.LOOSEN), YouTube and SoundCloud too
+_SEARCHED_OUT = "s.key IN (SELECT song_key FROM attempts WHERE tries >= 4 AND last_fallback > 0)"
+# gone from Spotify (or Spotify has nothing better) and searched out: left out of the Best share
+_WIPED = f"({_GONE} OR {_HELD}) AND {_SEARCHED_OUT}"
+_UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND {_WIPED}), 0) AS unobtainable"
 
 
 BEST_TIERS = [  # (key, label, hover text), best first
@@ -153,16 +156,21 @@ BEST_TIERS = [  # (key, label, hover text), best first
         "genuine lossless, or the best copy there is: the artist's own release, Spotify has nothing better, or "
         "no longer plays it",
     ),
-    ("better", "Can get better", "lossy (a fake FLAC too), a close match, or Spotify played another song lately"),
-    ("missing", "Missing · searched", "not in the library yet, and searched for"),
-    ("gone", "Missing · not to be had", "not in the library, and no source hands it out: greyed out, taken down, DRM"),
+    ("better", "Could be better", "lossy (a fake FLAC too), a close match, or Spotify played another song lately"),
+    ("missing", "Missing · still searching", "not in the library yet: searched for (or about to be)"),
+    (
+        "gone",
+        "Missing · seems wiped off the internet :(",
+        "gone from Spotify (greyed out, taken down) and searched in vain at Soulseek's loosest, on YouTube and "
+        "SoundCloud",
+    ),
 ]
 
 
 def best_tiers(con: Connection, uid: int | None = None) -> list[tuple[str, str, int]]:
     """(tier, label, songs) on BEST_TIERS, counted as the lists' Best column."""
     mine, args = _mine(uid)
-    gone = f"coalesce(sum(s.file IS NULL AND ({_GONE} OR {_HELD})), 0)"
+    gone = f"coalesce(sum(s.file IS NULL AND {_WIPED}), 0)"
     best, gone, have, songs = con.execute(
         f"SELECT {_BEST}, {gone}, count(s.file), count(*) FROM wanted s LEFT JOIN files f ON f.path = s.file "
         f"LEFT JOIN availability av ON av.song_key = s.key WHERE {mine}",

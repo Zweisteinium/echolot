@@ -551,6 +551,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth .fill-bottom { stop-color: var(--chart-b); stop-opacity: 0; }
 .growth .line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .growth .line.gap { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 0.5 6; opacity: 0.7; }
+.growth .line.also { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 7 5; stroke-linecap: butt; }
 .growth .line-a { stop-color: var(--chart-a); } .growth .line-b { stop-color: var(--chart-b); } .growth .line-c { stop-color: var(--chart-c); }
 .growth .y { position: absolute; left: 0; width: 3rem; text-align: right; transform: translateY(-50%); font-size: 0.72rem;
   color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -570,6 +571,10 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .graph-note { margin: 0.35rem 0 0 3.6rem; font-size: 0.72rem; color: var(--muted); }
 .graph-note .dash { display: inline-block; width: 1.4rem; margin-right: 0.45rem; vertical-align: middle;
   border-top: 2px dotted color-mix(in srgb, var(--muted) 75%, transparent); }
+.graph-note .key { display: inline-block; width: 1.4rem; margin-right: 0.45rem; vertical-align: middle;
+  border-top: 2.5px solid var(--chart-b); }
+.graph-note .key.also { margin-left: 0.9rem; border-top: 2px dashed var(--muted); }
+.growth .tip .tip-also { display: block; color: var(--text); font-variant-numeric: tabular-nums; }
 .growth .brush { position: absolute; top: 0; bottom: 0; pointer-events: none; border-radius: 3px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-inline: 1.5px solid color-mix(in srgb, var(--accent) 60%, transparent); }

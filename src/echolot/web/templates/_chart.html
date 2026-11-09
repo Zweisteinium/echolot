@@ -29,12 +29,14 @@
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
       <path class="area" d="{{ g.area }}" fill="url(#{{ name }}-fill)"></path>
       {% if g.gaps %}<path class="line gap" d="{{ g.gaps }}"></path>{% endif %}
+      {% if g.also %}<path class="line also" d="{{ g.also }}"></path>{% endif %}
       <path class="line" d="{{ g.line }}" stroke="url(#{{ name }}-line)"></path>
     </svg>
     {{ _pointer(g) }}
     </div>
   </div>
   {{ _dates(g) }}
+  {% if g.also %}<p class="graph-note"><span class="key" aria-hidden="true"></span>in the library <span class="key also" aria-hidden="true"></span>on the lists</p>{% endif %}
   {% if g.gaps %}<p class="graph-note"><span class="dash dots" aria-hidden="true"></span>no figures: Echolot was off</p>{% endif %}
   <figcaption class="sr-only">{{ caption }}</figcaption>
 </figure>

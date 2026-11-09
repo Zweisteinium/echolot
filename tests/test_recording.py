@@ -448,6 +448,10 @@ def test_best_marks_and_the_record_dialog_agree(app: FastAPI, login: Callable[..
     connect(owner, app)
     con = db.connect(app.state.settings.db_path)
     recording.block(con, "spotify:s2", "spotify:track:s2", "same")  # s2: the fake FLAC; s3: greyed out
+    with con:  # s3 searched everywhere in vain: it seems wiped off the internet, left out of the share
+        con.execute(
+            "INSERT OR REPLACE INTO attempts (song_key, tries, last_try, last_fallback) VALUES ('spotify:s3', 4, 1, 1)"
+        )
 
     def state() -> tuple:
         liked = next(r for r in stats.lists(con, 1) if r["key"] == "spotify:likes:1")
