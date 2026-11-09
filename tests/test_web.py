@@ -68,12 +68,15 @@ def test_overview_growth_graph(client: TestClient, settings: Settings) -> None:
     history.snapshot(con)
     with con:
         con.execute("UPDATE snapshots SET ts = '2026-09-27T10:00:00Z'")
-        con.execute("UPDATE snapshots SET value = 1 WHERE metric = 'user_library_files'")  # (one file then)
+        con.execute("UPDATE snapshots SET value = 1 WHERE metric = 'library_files'")  # (one file then)
     con.close()
     html = client.get("/library/graphs").text
     assert html.count('<figure class="growth') == 3 and 'name="growth" value="quality"' in html
-    assert 'data-panel="size" hidden' in html and '<span class="figure">3 songs</span>' in html  # the owner's 3 files
-    assert "&#34;1 songs&#34;" in html and ">+2 songs</span>" in html  # one file at the snapshot, two more since
+    con = db.connect(settings.db_path)
+    files = stats.overview(con)["library_files"]
+    con.close()
+    assert 'data-panel="size" hidden' in html and f'<span class="figure">{files} files</span>' in html  # everyone's
+    assert "&#34;1 files&#34;" in html and f">+{files - 1} files</span>" in html  # one file at the snapshot
     assert "data-stack" in html and 'class="band q-lossless"' in html  # the quality over time, its tiers as bands
     assert 'class="line also"' in html and "on the lists</p>" in html  # the listed songs beside the files
 

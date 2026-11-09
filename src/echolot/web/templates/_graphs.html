@@ -1,6 +1,6 @@
 {# the Library page's graphs (pages._graphs); /library/graphs sends it anew for another stretch #}
 {% from "_chart.html" import growth_chart, stack_chart %}
-{% set panels = (('songs', 'Songs', 'your songs in the library' if o.scoped else 'songs in the library'), ('size', 'Size', 'the size of the library'), ('quality', 'Quality', 'the quality of ' ~ ('your songs' if o.scoped else 'the songs'))) %}
+{% set panels = (('songs', 'Songs', 'the files in the library'), ('size', 'Size', 'the size of the library'), ('quality', 'Quality', 'the quality of ' ~ ('your songs' if o.scoped else 'the songs'))) %}
 {% set show = request.query_params.get('show') if request.query_params.get('show') in ('songs', 'size', 'quality') else 'songs' %}
 <div class="growth-panels" id="graphs" data-graphs data-range="{{ window.range }}">
   <div class="graph-bar">
@@ -14,7 +14,7 @@
     {% if g %}
     <div class="headline">
       <span class="figure">{{ g.now }}</span>{% if key == 'quality' %}<span class="figure-unit">FLAC</span>{% endif %}
-      <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span>{% if g.week %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% endif %}{% if key == 'size' and o.scoped %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap">the whole library</span>{% endif %}</span>
+      <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span>{% if g.week %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% endif %}{% if key in ('songs', 'size') and o.scoped %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap">the whole library</span>{% endif %}</span>
     </div>
     {% endif %}
   </div>

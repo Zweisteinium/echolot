@@ -106,11 +106,11 @@ def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[st
 
 
 def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, start: str, stop: str) -> dict[str, Any]:
-    """Songs (counted as files, with the songs on the lists beside), library size (always everyone's) and
-    quality over the stretch; each series ends with the current value."""
+    """The library's files (always everyone's) with the songs on the lists beside, library size (everyone's
+    too) and quality over the stretch; each series ends with the current value."""
     now = history.utc(datetime.now())
     files = _files(con, uid, o)
-    songs = [*files, (now, o["files"])]
+    library = [*history.totals(con, "library_files"), (now, o["library_files"])]
     listed = history.totals(con, "songs_wanted") if uid is None else history.totals(con, "user_songs_wanted", str(uid))
     listed.append((now, o["wanted"]))
     sizes = [*history.totals(con, "library_bytes"), (now, o["library_size"])]
@@ -118,11 +118,11 @@ def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, star
     return {
         "growth": {
             "songs": charts.growth(
-                _crop(songs, start, stop),
-                lambda v: f"{num(round(v))} songs",
+                _crop(library, start, stop),
+                lambda v: f"{num(round(v))} files",
                 lambda v: num(round(v)),
                 also=listed,
-                also_value=lambda v: f"{num(round(v))} on the lists",
+                also_value=lambda v: f"{num(round(v))} songs on the lists",
             ),
             "size": charts.growth(
                 _crop(sizes, start, stop),
