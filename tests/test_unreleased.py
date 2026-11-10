@@ -364,6 +364,7 @@ def test_a_released_upload_goes_into_wished(
     wished = "SELECT song_key FROM list_songs WHERE list_key = ?"
     assert key in [r[0] for r in con.execute(wished, (sources.wished_key(OWNER),))]
     con.close()
+    monkeypatch.setattr(identity, "against", lambda a, b: (0.95, 0.97))  # (its file against the library's: the same)
     dialog = client.get("/unreleased/upload").text  # the unreleased dialog: a release is better imported as it
     batch = re.search(r'data-batch="([0-9a-f]{16})"', dialog).group(1)
     files = {"file": ("Newcomer - Fresh Tune.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac")}
