@@ -23,7 +23,7 @@
       {% endfor %}
     </div>{% endif %}
     {% if not f.error %}
-    {% if choices|length > 2 %}
+    {% if choices|length > 2 or likely != 'local' %}
     <select name="song_{{ f.n }}" class="small" aria-label="Import {{ f.name }} as">
       {% for value, text in choices %}<option value="{{ value }}"{% if value == likely %} selected{% endif %}>{{ text }}</option>{% endfor %}
     </select>

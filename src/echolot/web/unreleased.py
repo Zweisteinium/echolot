@@ -41,13 +41,14 @@ REPLACE = "replace:"  # a file's choice: in place of this unreleased song's file
 KEEP = "local"  # a file's choice: a new unreleased song
 
 
-def _twin_label(t: songs.Twin, owner: Any) -> upload.Label:
-    """What a library file the upload sounds like says, for its row."""
-    what = (
-        f"your unreleased {t.path.rpartition('/')[2]}"
-        if t.local
-        else (f"your {owner['artist']} – {owner['title']}" if owner else t.path)
-    )
+def _twin_label(t: songs.Twin, owner: Any, mine: set[str]) -> upload.Label:
+    """What a library file the upload sounds like says, for its row (another user's unreleased song unnamed)."""
+    if t.local and t.local not in mine:
+        what = "another user's unreleased song"
+    elif t.local:
+        what = f"your unreleased {t.path.rpartition('/')[2]}"
+    else:
+        what = f"your {owner['artist']} – {owner['title']}" if owner else t.path
     if t.verdict == "same":
         return ("You have it", "warn", f"The same audio as {what}")
     if t.verdict == "version":
@@ -56,13 +57,16 @@ def _twin_label(t: songs.Twin, owner: Any) -> upload.Label:
 
 
 def _choices(
-    found: uploads.Found | None, twins: list[songs.Twin], owners: dict[str, Any], mine: set[str]
+    found: uploads.Found | None, twins: list[songs.Twin], owners: dict[str, Any], mine: set[str], lost: list[Any]
 ) -> tuple[list[tuple[str, str]], str]:
     """What a file can be imported as (value, text) and the likeliest: a new unreleased song (KEEP), in place of
-    an unreleased song's file it is (REPLACE), as your song or the release it is (wish:<id>), or not at all
-    (''). A file whose audio the library has is left out, unless it is the better copy; a release is imported
-    as the release."""
-    out = [(KEEP, "Keep as a new unreleased song")]
+    an unreleased song's file it is (REPLACE; `lost`: the user's songs of its names whose file is gone, the
+    likeliest), as your song or the release it is (wish:<id>), or not at all (''). A file whose audio the
+    library has is left out, unless it is the better copy; a release is imported as the release."""
+    out = [
+        (f"{REPLACE}{r['key']}", f"Its file again: your {r['artist']} – {r['title']} (its file is gone)") for r in lost
+    ]
+    out.append((KEEP, "Keep as a new unreleased song"))
     release, as_release = found.release if found else None, None
     if found and release is not None:
         if found.mine:
@@ -86,6 +90,8 @@ def _choices(
         if t.verdict == "same" and as_same is None:
             as_same = value if t.better else ""
     out.append(("", "Leave it out"))
+    if lost:
+        return out, out[0][0]
     if as_same is not None:
         return out, as_same
     return out, as_release if release is not None and release.verdict == "released" and as_release else KEEP
@@ -106,7 +112,9 @@ def _row(request: Request, con: DB, batch: str, f: upload.File, names: songs.Nam
         found.mine = uploads.yours(found, mysongs)
     twins = songs.twins(con, paths, f, n)
     owners = {s["file"]: s for s in mysongs.values() if s["file"] and not s["close_match"]}
-    choices, likely = _choices(found, twins, owners, set(songs.user_songs(con, _user(request))))
+    mine = set(songs.user_songs(con, _user(request)))
+    lost = songs.gone(con, _user(request), n) if named else []
+    choices, likely = _choices(found, twins, owners, mine, lost)
     labels: list[upload.Label] = []
     if f.error:
         labels.append(("Not audio", "bad", f.error))
@@ -121,10 +129,14 @@ def _row(request: Request, con: DB, batch: str, f: upload.File, names: songs.Nam
             labels.append(("Released", "warn", f"The recording of {who} at its length: better imported as that song"))
         else:
             labels.append(("Resembles a release", "warn", f"Like {who}, in another edit or length (or unclear)"))
-    labels += [_twin_label(t, owners.get(t.path)) for t in twins]
-    if named and not (found and (found.release or found.failed)) and not twins:
+    labels += [_twin_label(t, owners.get(t.path), mine) for t in twins]
+    labels += [
+        ("Its file is gone", "ok", f"Your unreleased {r['artist']} – {r['title']} has no file: this one replaces it")
+        for r in lost
+    ]
+    if named and not (found and (found.release or found.failed)) and not twins and not lost:
         labels.append(("Not released", "ok", "No release with its audio (Deezer), nothing like it in your library"))
-    if named and likely == KEEP and songs.taken(paths, n):
+    if named and likely == KEEP and songs.taken(con, paths, n):
         detail = "An unreleased song has these names already: put what differs into the title, e.g. (Custom Edit)"
         labels.append(("Name taken", "bad", detail))
     labels += upload.file_notes(f) if not f.error else []
@@ -190,6 +202,11 @@ def _import(
     mine = uploads._songs(request, con) if yours else {}
     if any(key not in mine for key in yours.values()):
         raise HTTPException(403, "That song is not one of yours.")
+    names = [songs.file_name(names) for names in local.values()]  # (refused before anything is filed)
+    if twice := next((name for name in names if names.count(name) > 1), None):
+        raise HTTPException(400, f"Two files would both be {twice}: give one of them another title.")
+    if len(set(replaced.values())) < len(replaced):
+        raise HTTPException(400, "Two files would replace the same song's file: leave one of them out.")
     key, out = "", []
     if local:
         try:

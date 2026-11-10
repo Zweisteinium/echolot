@@ -163,9 +163,20 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source
             )
 
 
+NAME_BYTES = 200  # an unreleased file's name before its extension, at most (file systems allow 255 bytes)
+
+
+def _cut(text: str, size: int) -> str:
+    """`text` cut to at most `size` bytes of UTF-8 (whole characters)."""
+    data = text.encode()
+    return text if len(data) <= size else data[: max(size, 0)].decode("utf-8", "ignore").rstrip()
+
+
 def unreleased_name(artist: str, title: str) -> str:
-    """An unreleased song's file name (without its extension): '<Artist> - <Title>' in tracks/Unreleased/."""
-    return f"{clean_name(artist)} - {clean_name(title)}"
+    """An unreleased song's file name (without its extension): '<Artist> - <Title>' in tracks/Unreleased/, cut to
+    NAME_BYTES (the artist to 80 bytes, the title to the rest)."""
+    a = _cut(clean_name(artist), 80)
+    return f"{a} - {_cut(clean_name(title), NAME_BYTES - len(a.encode()) - 3)}"
 
 
 def unreleased_taken(paths: Paths, name: str) -> bool:

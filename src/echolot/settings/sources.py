@@ -442,8 +442,9 @@ def set_playlist(con: sqlite3.Connection, user_id: int, key: str, playlist: bool
 
 
 def remove_list(con: sqlite3.Connection, user_id: int, key: str) -> None:
-    sql = "SELECT 1 FROM sources WHERE user_id = ? AND key = ? AND likes = 0"
-    if not con.execute(sql, (user_id, key)).fetchone():
+    """Unfollow a list; not one Echolot keeps itself (OWN: Wished, the Unreleased lists have their own ways)."""
+    sql = f"SELECT 1 FROM sources WHERE user_id = ? AND key = ? AND likes = 0 AND service NOT IN ({', '.join('?' * len(OWN))})"
+    if not con.execute(sql, (user_id, key, *OWN)).fetchone():
         raise ConfigError("You don't follow that list (any more).")
     _change(con, user_id, lambda: con.execute("DELETE FROM sources WHERE user_id = ? AND key = ?", (user_id, key)))
 

@@ -21,7 +21,7 @@
     </div>
     <label class="edit-field wide"><span class="edit-label">Title</span><input type="text" name="title" value="{{ e.title }}" maxlength="{{ max_field }}" required></label>
     <label class="edit-field"><span class="edit-label">Album <span class="muted">(empty: the title, as a single)</span></span><input type="text" name="album" value="{{ e.album if e.album != e.title else '' }}" maxlength="{{ max_field }}"></label>
-    <label class="edit-field narrow"><span class="edit-label">Year</span><input type="text" name="year" value="{{ e.year }}" inputmode="numeric" pattern="(19|20)[0-9]{2}" maxlength="4" placeholder="2026"></label>
+    <label class="edit-field narrow"><span class="edit-label">Year</span><input type="text" name="year" value="{{ e.year }}" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="2026"></label>
     <label class="edit-field"><span class="edit-label">Genre</span><input type="text" name="genre" value="{{ e.genre }}" maxlength="{{ max_field }}" placeholder="e.g. Trance"></label>
     <label class="edit-field"><span class="edit-label">Where it is from</span><input type="text" name="note" value="{{ e.note }}" maxlength="{{ max_field }}" placeholder="e.g. from Felix, 2026"></label>
     <label class="edit-field wide"><span class="edit-label">{{ 'Replace the cover' if info.cover else 'Cover' }} <span class="muted">(a JPEG)</span></span><input type="file" name="cover" accept="image/jpeg"></label>

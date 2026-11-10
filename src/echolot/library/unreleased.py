@@ -165,15 +165,17 @@ def add_to(con: sqlite3.Connection, user_id: int, key: str, song: str) -> None:
     if not in_lists(con, user_id, song):
         raise Refused("That song is on none of your Unreleased lists.")
     here = _songs_of(con, key)
-    if all(k != song for k, _ in here):
-        _store(con, key, [*here, (song, _added())])
+    if any(k == song for k, _ in here):
+        raise Refused("It is on that list already.")
+    _store(con, key, [*here, (song, _added())])
 
 
 def move(con: sqlite3.Connection, user_id: int, key: str, song: str, to: str) -> None:
     """The song out of the list `key` into the list `to` (both the user's)."""
     if to == key:
         return
-    add_to(con, user_id, to, song)
+    if to not in in_lists(con, user_id, song):  # (on it already: only out of this one)
+        add_to(con, user_id, to, song)
     remove(con, user_id, key, song, moved=True)
 
 
@@ -194,8 +196,13 @@ def delete_song(con: sqlite3.Connection, paths: Paths, user_id: int, song: str) 
     lists_in = in_lists(con, user_id, song)
     if row is None or not lists_in:
         raise Refused("That song is on none of your Unreleased lists.")
-    if row["file"] and (e := next((e for e in catalog.Catalog.from_db(con).entries if e.path == row["file"]), None)):
-        with filing.LOCK:
+    stem = row["stem"] or ""
+    on_disk = [p for e in audio.AUDIO if stem and (p := paths.tracks / f"{stem}.{e}").is_file()]
+    known = {e.path: e for e in catalog.Catalog.from_db(con).entries}
+    with filing.LOCK:  # (its file, and one of its name the files table does not know yet)
+        for p in on_disk:
+            rel = p.relative_to(paths.tracks).as_posix()
+            e = known.get(rel) or catalog.Entry(rel, 0, 0, False)
             filing.retire(con, paths, e, f"unreleased song deleted by hand: {row['artist']} – {row['title']}")
     for key in lists_in:
         _store(con, key, [(k, added) for k, added in _songs_of(con, key) if k != song])
@@ -233,10 +240,31 @@ class Names:
         return Names(*(" ".join(v.split()) for v in (self.artist, self.title, self.album)))
 
 
-def taken(paths: Paths, names: Names) -> bool:
-    """An unreleased song has this file name already (two must differ in their names: "(Custom Edit)")."""
+def _taken(con: sqlite3.Connection, paths: Paths, name: str, but: str = "") -> bool:
+    """A file of that name is in tracks/Unreleased/, or an unreleased song (but `but`) has it as its stem (its
+    file gone: it is that song's to get back, by replace)."""
+    sql = "SELECT 1 FROM songs WHERE service = ? AND stem = ? AND key != ?"
+    stem = f"{catalog.UNRELEASED}/{name}"
+    return filing.unreleased_taken(paths, name) or con.execute(sql, (LOCAL, stem, but)).fetchone() is not None
+
+
+def file_name(names: Names) -> str:
+    """The file name (without its extension) an unreleased song of these names gets."""
     n = names.clean()
-    return filing.unreleased_taken(paths, filing.unreleased_name(n.artist, n.title))
+    return filing.unreleased_name(n.artist, n.title)
+
+
+def taken(con: sqlite3.Connection, paths: Paths, names: Names) -> bool:
+    """An unreleased song has these names already (two must differ in their names: "(Custom Edit)")."""
+    return _taken(con, paths, file_name(names))
+
+
+def gone(con: sqlite3.Connection, user_id: int, names: Names) -> list[sqlite3.Row]:
+    """The user's unreleased songs with these names whose file is gone (an upload of it replaces it)."""
+    n = names.clean()
+    stem = f"{catalog.UNRELEASED}/{filing.unreleased_name(n.artist, n.title)}" if n.artist and n.title else ""
+    sql = "SELECT * FROM songs WHERE service = ? AND file IS NULL AND stem = ?"
+    return [r for r in con.execute(sql, (LOCAL, stem)) if in_lists(con, user_id, r["key"])] if stem else []
 
 
 def add(
@@ -249,10 +277,12 @@ def add(
     label = f"{n.artist or '?'} – {n.title or '?'}"
     if not n.artist or not n.title:
         return f"{f.name}: not imported (it needs an artist and a title)", None
+    if any(len(v) > LONGEST_FIELD for v in (n.artist, n.title, n.album, note)):
+        return f"{f.name}: not imported (names have at most {LONGEST_FIELD} characters each)", None
     if f.path is None or not f.path.is_file() or f.error:
         return f"{f.name}: not imported (gone)", None
     name = filing.unreleased_name(n.artist, n.title)
-    if filing.unreleased_taken(paths, name):
+    if _taken(con, paths, name):
         return f"{label}: not imported ({catalog.UNRELEASED}/{name} is another song's: give it another title)", None
     try:
         tagging.write_unreleased(f.path, n.artist, n.title, n.album, note)
@@ -350,10 +380,10 @@ def twins(con: sqlite3.Connection, paths: Paths, f: File, names: Names) -> list[
     return sorted(out, key=lambda t: ("same", "version", "resembles").index(t.verdict))
 
 
-def _note(con: sqlite3.Connection, rel: str | None) -> str:
-    """The note an unreleased file was uploaded with (its event "new")."""
-    sql = "SELECT reason FROM events WHERE path = ? AND action = 'new' ORDER BY id DESC"
-    row = con.execute(sql, (rel,)).fetchone() if rel else None
+def _note(con: sqlite3.Connection, song: str) -> str:
+    """The note an unreleased song's latest file was uploaded with (its event "new")."""
+    sql = "SELECT reason FROM events WHERE song = ? AND action = 'new' ORDER BY id DESC"
+    row = con.execute(sql, (song,)).fetchone()
     return (row[0] or "") if row else ""
 
 
@@ -361,23 +391,32 @@ def replace(
     con: sqlite3.Connection, paths: Paths, f: File, user_id: int, song: str, note: str = "", cover: bytes | None = None
 ) -> tuple[str, str | None]:
     """An uploaded file in place of the file of the unreleased song `song` (on one of the user's lists): a better
-    copy (a friend's WAV of the MP3). It takes the song's names and its note (or `note`); the old file goes
-    into inbox/replaced/<date>/ (kept KEEP_DAYS days). A line for the dialog and the song's key (None: not)."""
+    copy (a friend's WAV of the MP3), or the file again after it was gone. It takes what the song has: its names,
+    artists, album, year, genre, note (or `note`) and cover (or `cover`); the old file goes into
+    inbox/replaced/<date>/ (kept KEEP_DAYS days), back in place if the new one can't be filed. A line for the
+    dialog and the song's key (None: not)."""
     row = con.execute("SELECT * FROM songs WHERE key = ? AND service = ?", (song, LOCAL)).fetchone()
     if row is None or not in_lists(con, user_id, song):
         return f"{f.name}: not imported (that unreleased song is gone)", None
     if f.path is None or not f.path.is_file() or f.error:
         return f"{f.name}: not imported (gone)", None
     label = f"{row['artist']} – {row['title']}"
-    note = note or _note(con, row["file"])
+    before = paths.tracks / row["file"] if row["file"] else None
+    there = before is not None and before.is_file()
+    extras = tagging.unreleased_extras(before) if there and before else {"year": None, "genre": None, "note": ""}
+    picture = audio.picture(before) if there and before else None
+    artists = json.loads(row["artists"] or "[]") or [row["artist"]]
+    note = note or extras["note"] or _note(con, song)
     try:
-        tagging.write_unreleased(f.path, row["artist"], row["title"], row["album"] or "", note)
+        tagging.write_unreleased(
+            f.path, row["artist"], row["title"], row["album"] or "", note, artists, extras["year"], extras["genre"]
+        )
     except Exception as e:  # (a format the tagger can't write: the file keeps its own tags)
         tag_note = f" (tags not written: {e})"
     else:
         tag_note = ""
-    if cover:
-        audio.embed_cover(f.path, cover)
+    if cover or picture:  # (the new picture, else the old file's, into a file without one)
+        audio.embed_cover(f.path, cover or picture or b"", replace=bool(cover))
     name = row["stem"].removeprefix(catalog.UNRELEASED + "/")
     info = {"source": "manual", "matched": "by hand", "song": song, "artist": row["artist"], "title": row["title"]}
     with filing.LOCK:
@@ -388,10 +427,10 @@ def replace(
         )
         try:
             dest = filing.place_unreleased(con, paths, f.path, name, f.tier == "fake", f.source, reason=note, **info)
-        except FileExistsError:
+        except Exception as e:  # (taken meanwhile, or the disk said no: the old file goes back)
             if retired and old:
                 filing.place_back(con, paths, retired, paths.tracks / old.path)
-            return f"{label}: not imported ({catalog.UNRELEASED}/{name} is taken)", None
+            return f"{label}: not imported ({catalog.UNRELEASED}/{name}: {e})", None
     with con:
         con.execute("UPDATE songs SET length = ? WHERE key = ?", (float(f.seconds or 0), song))
     was = f" (was {old.path.rpartition('/')[2]})" if old else ""
@@ -459,8 +498,9 @@ def details(con: sqlite3.Connection, paths: Paths, user_id: int, song: str) -> d
             "bytes": path.stat().st_size,
             "cover": audio.picture(path) is not None,
         }
-    sql = "SELECT ts FROM events WHERE action = 'new' AND (path = ? OR artist = ? AND title = ?) ORDER BY id LIMIT 1"
-    first = con.execute(sql, (row["file"], row["artist"], row["title"])).fetchone()
+    first = con.execute(
+        "SELECT ts FROM events WHERE song = ? AND action = 'new' ORDER BY id LIMIT 1", (song,)
+    ).fetchone()
     return {
         "song": row,
         "edit": edit,
@@ -492,7 +532,7 @@ def edit(
         raise Refused("A song needs an artist and a title.")
     if any(len(v) > LONGEST_FIELD for v in (*artists, title, album, genre, note)):
         raise Refused(f"Names, album, genre and note have at most {LONGEST_FIELD} characters each.")
-    if year and not re.fullmatch(r"(19|20)\d\d", year):
+    if year and not re.fullmatch(r"\d{4}", year):
         raise Refused("The year is four digits, e.g. 2026.")
     wanted = list(dict.fromkeys(lists_in))
     if not wanted:
@@ -505,20 +545,19 @@ def edit(
         raise Refused("Its file is gone from the library: upload it again.")
     shown = ", ".join(artists)
     name, old = filing.unreleased_name(shown, title), row["stem"].removeprefix(catalog.UNRELEASED + "/")
-    if name != old and filing.unreleased_taken(paths, name):
+    if name != old and _taken(con, paths, name, but=song):
         raise Refused(f"An unreleased song is named {name} already: put what differs into the title.")
-    tagging.write_unreleased(path, shown, title, album, note, artists, year, genre)
-    if cover:
-        audio.embed_cover(path, cover, replace=True)
-    if name != old:
+    if name != old:  # (first: a name taken meanwhile changes nothing)
         try:
             path = filing.rename_unreleased(con, paths, rel, name, f"names edited by hand: {shown} – {title}")
         except FileExistsError as exc:
             raise Refused(f"An unreleased song is named {name} already: put what differs into the title.") from exc
-    else:
-        st = path.stat()
-        with con:
-            con.execute("UPDATE files SET size = ?, mtime = ? WHERE path = ?", (st.st_size, int(st.st_mtime), rel))
+    tagging.write_unreleased(path, shown, title, album, note, artists, year, genre)
+    if cover:
+        audio.embed_cover(path, cover, replace=True)
+    st, now_rel = path.stat(), path.relative_to(paths.tracks).as_posix()
+    with con:
+        con.execute("UPDATE files SET size = ?, mtime = ? WHERE path = ?", (st.st_size, int(st.st_mtime), now_rel))
     with con:
         con.execute(
             "UPDATE songs SET artist = ?, title = ?, album = ?, artists = ? WHERE key = ?",

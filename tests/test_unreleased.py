@@ -101,7 +101,9 @@ def test_an_unreleased_song_is_its_own_file_in_its_list(settings: Settings) -> N
     again = uploaded(settings)
     line, none = unreleased.add(con, paths_of(settings), again, unreleased.Names("Felix", "Night Drive"), key)
     assert none is None and "is another song's: give it another title" in line  # never in place of another
-    assert unreleased.taken(paths_of(settings), unreleased.Names("felix", "Night Drive")) is False  # (case: own name)
+    assert (
+        unreleased.taken(con, paths_of(settings), unreleased.Names("felix", "Night Drive")) is False
+    )  # (case: own name)
     con.close()
 
 
@@ -611,4 +613,111 @@ def test_the_order_and_the_playlist(settings: Settings, login: Callable[..., Tes
     client.post(f"/unreleased/{key}/playlist", data={"show": "on"})
     con = db.connect(settings.db_path)
     assert con.execute("SELECT playlist FROM lists WHERE key = ?", (key,)).fetchone()[0] == 1
+    con.close()
+
+
+def test_a_gone_file_comes_back_in_place_and_a_better_copy_keeps_the_song(
+    settings: Settings, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Its file gone, an upload of its names is that song's file again (never a second song of the same name);
+    a replace keeps what the song had: its artists, year, genre, note and cover."""
+    song = put(settings)
+    con = db.connect(settings.db_path)
+    key = unreleased.lists(con, OWNER)[0]["key"]
+    con.close()
+    monkeypatch.setattr(catalogs, "deezer", lambda q, limit=20: [])
+    client = login(create_app(settings))
+    cover = b"\xff\xd8\xff\xe0" + b"2" * 64
+    edit = {"song": song, "artist": ["Felix", "Mara"], "title": "Night Drive", "year": "2024", "genre": "Trance"}
+    edit |= {"note": "from Mara", "lists": [key]}
+    client.post(f"/unreleased/{key}/song/edit", data=edit, files={"cover": ("c.jpg", cover, "image/jpeg")})
+    old = settings.library_dir / "Unreleased" / "Felix, Mara - Night Drive.mp3"
+    assert old.is_file()
+    old.unlink()
+    con = db.connect(settings.db_path)
+    catalog.refresh(con, settings.library_dir)
+    f = uploaded(settings)
+    line, new = unreleased.add(con, paths_of(settings), f, unreleased.Names("Felix, Mara", "Night Drive"), key)
+    assert new is None and "another song's" in line  # (its name is the gone song's)
+    con.close()
+    batch = re.search(r'data-batch="([0-9a-f]{16})"', client.get("/unreleased/upload").text).group(1)
+    files = {"file": ("Felix, Mara - Night Drive.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac")}
+    row = client.post(f"/unreleased/upload/{batch}/file", files=files).text
+    assert "Its file is gone" in row and f'<option value="replace:{song}" selected>' in row
+    done = client.post(f"/unreleased/upload/{batch}/import", data={"song_1": f"replace:{song}"}).text
+    assert "Felix, Mara – Night Drive: replaced by Unreleased/Felix, Mara - Night Drive.flac" in done
+    path = settings.library_dir / "Unreleased" / "Felix, Mara - Night Drive.flac"
+    con = db.connect(settings.db_path)
+    assert con.execute("SELECT count(*) FROM songs WHERE service = 'local'").fetchone()[0] == 1
+    assert (
+        con.execute("SELECT file FROM songs WHERE key = ?", (song,)).fetchone()[0]
+        == path.relative_to(settings.library_dir).as_posix()
+    )
+    con.close()
+    assert tagging.read(path)["artists"] == ["Felix", "Mara"]
+    assert tagging.unreleased_extras(path) == {"year": "", "genre": "", "note": "from Felix"}  # (its upload's note)
+    better = {"file": ("Felix, Mara - Night Drive (master).flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac")}
+    client.post(f"/unreleased/{key}/song/edit", data=edit, files={"cover": ("c.jpg", cover, "image/jpeg")})
+    batch = re.search(r'data-batch="([0-9a-f]{16})"', client.get("/unreleased/upload").text).group(1)
+    client.post(f"/unreleased/upload/{batch}/file", files=better)
+    client.post(f"/unreleased/upload/{batch}/import", data={"song_1": f"replace:{song}"})
+    con = db.connect(settings.db_path)
+    now = settings.library_dir / con.execute("SELECT file FROM songs WHERE key = ?", (song,)).fetchone()[0]
+    con.close()
+    assert now == path and tagging.unreleased_extras(now) == {"year": "2024", "genre": "Trance", "note": "from Mara"}
+    assert tagging.read(now)["artists"] == ["Felix", "Mara"] and audio.picture(now) == cover
+
+
+def test_names_are_cut_and_checked_before_anything_is_filed(
+    settings: Settings, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    long = unreleased.Names("ä" * 150, "T" * 150)
+    name = unreleased.file_name(long)
+    assert len(name.encode()) <= filing.NAME_BYTES and name.startswith("ä" * 40)
+    assert not unreleased.taken(db.connect(settings.db_path), paths_of(settings), long)  # (no error: name too long)
+    monkeypatch.setattr(catalogs, "deezer", lambda q, limit=20: [])
+    client = login(create_app(settings))
+    batch = re.search(r'data-batch="([0-9a-f]{16})"', client.get("/unreleased/upload").text).group(1)
+    for n in ("a", "b"):
+        files = {"file": (f"{n}.mp3", (AUDIO / "silence.mp3").read_bytes(), "audio/mpeg")}
+        client.post(f"/unreleased/upload/{batch}/file", files=files)
+    form = {"list": "new", "new_list": "Twice", "song_1": "local", "artist_1": "Felix", "title_1": "Same"}
+    form |= {"song_2": "local", "artist_2": "Felix", "title_2": " Same "}
+    r = client.post(f"/unreleased/upload/{batch}/import", data=form)
+    assert r.status_code == 400 and "Two files would both be" in r.json()["detail"]
+    con = db.connect(settings.db_path)
+    assert unreleased.lists(con, OWNER) == []  # (nothing filed, no list made)
+    con.close()
+
+
+def test_echolots_own_lists_are_not_unfollowed_as_others(settings: Settings) -> None:
+    put(settings)
+    con = db.connect(settings.db_path)
+    key = unreleased.lists(con, OWNER)[0]["key"]
+    with pytest.raises(sources.ConfigError):
+        sources.remove_list(con, OWNER, key)
+    con.close()
+
+
+def test_a_deleted_song_takes_a_file_the_library_has_not_scanned_yet(settings: Settings) -> None:
+    song = put(settings)
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("DELETE FROM files WHERE path LIKE 'Unreleased/%'")
+    unreleased.delete_song(con, paths_of(settings), OWNER, song)
+    con.close()
+    assert not list((settings.library_dir / "Unreleased").glob("*"))
+    assert list(paths_of(settings).inbox("replaced").rglob("Felix - Night Drive.mp3"))
+
+
+def test_a_song_moved_into_a_list_it_is_on_leaves_this_one(settings: Settings) -> None:
+    song = put(settings)
+    con = db.connect(settings.db_path)
+    first = unreleased.lists(con, OWNER)[0]["key"]
+    second = unreleased.create(con, OWNER, "Second")
+    unreleased.add_to(con, OWNER, second, song)
+    with pytest.raises(unreleased.Refused, match="already"):
+        unreleased.add_to(con, OWNER, second, song)
+    unreleased.move(con, OWNER, first, song, second)
+    assert unreleased.in_lists(con, OWNER, song) == [second]
     con.close()
