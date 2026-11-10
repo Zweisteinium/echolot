@@ -25,11 +25,12 @@
       <defs>
         <linearGradient id="{{ name }}-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="fill-top"></stop><stop offset="1" class="fill-bottom"></stop></linearGradient>
         <linearGradient id="{{ name }}-line" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1000" y2="0"><stop offset="0" class="line-a"></stop><stop offset="0.55" class="line-b"></stop><stop offset="1" class="line-c"></stop></linearGradient>
+        {% if g.also %}<linearGradient id="{{ name }}-also-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="also-top"></stop><stop offset="1" class="also-bottom"></stop></linearGradient>{% endif %}
       </defs>
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
       <path class="area" d="{{ g.area }}" fill="url(#{{ name }}-fill)"></path>
       {% if g.gaps %}<path class="line gap" d="{{ g.gaps }}"></path>{% endif %}
-      {% if g.also %}<path class="line also" d="{{ g.also }}"></path>{% endif %}
+      {% if g.also %}<path class="area also" d="{{ g.also_area }}" fill="url(#{{ name }}-also-fill)"></path><path class="line also" d="{{ g.also }}"></path>{% endif %}
       <path class="line" d="{{ g.line }}" stroke="url(#{{ name }}-line)"></path>
     </svg>
     {{ _pointer(g) }}
@@ -64,8 +65,9 @@
 
 
 {% macro _pointer(g) -%}
+{% if g.also_end %}<span class="end also" style="left: {{ g.also_end[0] }}%; top: {{ g.also_end[1] }}%" aria-hidden="true"></span>{% endif %}
 <span class="end" style="left: {{ g.end[0] }}%; top: {{ g.end[1] }}%" aria-hidden="true"></span>
-<span class="cursor" aria-hidden="true" hidden></span><span class="mark" aria-hidden="true" hidden></span><span class="tip" aria-hidden="true" hidden></span>
+<span class="cursor" aria-hidden="true" hidden></span>{% if g.also %}<span class="mark also" aria-hidden="true" hidden></span>{% endif %}<span class="mark" aria-hidden="true" hidden></span><span class="tip" aria-hidden="true" hidden></span>
 <span class="brush" aria-hidden="true" hidden></span>
 {%- endmacro %}
 

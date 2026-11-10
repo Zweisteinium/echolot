@@ -49,12 +49,73 @@
   {% endblock %}
   {% block main %}
   <main>
-    {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
-    {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
   {% endblock %}
+  {% include "_toasts.html" %}
   <script>
+    // toasts (_toasts.html): each slides in, and out after TOAST_MS (an error stays longer); pointing at it or
+    // focusing it holds it, × closes it. The address loses ?ok= and ?error=, so a reload does not show it again
+    const TOAST_MS = { ok: 5000, error: 9000 };
+    const TOAST_ICON = { ok: "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+      error: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" };
+    const showToast = (el) => {
+      const kind = el.classList.contains("error") ? "error" : "ok";
+      const text = document.createElement("span");
+      text.className = "toast-text";
+      text.append(...el.childNodes);
+      el.innerHTML = `<svg class="toast-icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${TOAST_ICON[kind]}"/></svg>`;
+      el.append(text);
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "toast-close";
+      close.setAttribute("aria-label", "Close the message");
+      close.textContent = "×";
+      const time = document.createElement("span");
+      time.className = "toast-time";
+      time.style.animationDuration = `${TOAST_MS[kind]}ms`;
+      el.append(close, time);
+      let left = TOAST_MS[kind], since = 0, timer = 0;
+      const hide = () => {
+        clearTimeout(timer);
+        el.classList.replace("in", "out");
+        setTimeout(() => el.remove(), 400);
+      };
+      const run = () => { since = Date.now(); timer = setTimeout(hide, left); el.classList.remove("held"); };
+      const hold = () => { clearTimeout(timer); left -= Date.now() - since; el.classList.add("held"); };
+      el.addEventListener("mouseenter", hold);
+      el.addEventListener("mouseleave", run);
+      el.addEventListener("focusin", hold);
+      el.addEventListener("focusout", run);
+      close.addEventListener("click", hide);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add("in")));
+      run();
+    };
+    window.toast = (message, kind = "ok") => {  // (the same message again replaces the one shown)
+      for (const old of document.querySelectorAll(".toast")) if (old.querySelector(".toast-text")?.textContent === message) old.remove();
+      const el = document.createElement("div");
+      el.className = `toast ${kind === "error" ? "error" : "ok"}`;
+      el.setAttribute("role", kind === "error" ? "alert" : "status");
+      el.textContent = message;
+      document.querySelector("[data-toasts]").append(el);
+      showToast(el);
+    };
+    document.querySelectorAll("[data-toast]").forEach(showToast);
+    {
+      const url = new URL(location.href);
+      if (url.searchParams.has("ok") || url.searchParams.has("error")) {
+        url.searchParams.delete("ok");
+        url.searchParams.delete("error");
+        history.replaceState(history.state, "", url);
+      }
+    }
+    // a failed htmx request no dialog of its own handles (the upload dialog, the graphs do): say why
+    document.addEventListener("htmx:responseError", (e) => {
+      if (e.detail.elt.closest("#upload, [data-graphs]") || e.detail.target?.closest?.("[data-graphs]")) return;
+      let why = `That did not work (${e.detail.xhr.status}).`;
+      try { const detail = JSON.parse(e.detail.xhr.responseText).detail; if (typeof detail === "string") why = detail; } catch {}
+      toast(why, "error");
+    });
     // info buttons (data-info="id") toggle a text; open ones stay open across morph swaps (the jobs poll)
     const openInfo = new Set();
     const showInfo = (id, open) => {

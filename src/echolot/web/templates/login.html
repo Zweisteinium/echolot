@@ -10,8 +10,7 @@
     <h1>Echolot</h1>
     <span class="login-version">v{{ version }}</span>
     <p class="login-with"><img src="{{ asset('navidrome.png') }}" alt="" width="22" height="22"> With your Navidrome account</p>
-    {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
-    {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
+    {% if notice %}<div class="flash error" role="alert">{{ notice }}</div>{% endif %}
     {% if ready %}
     <form method="post" action="/login" class="stack">{{ csrf_input }}
       <input type="hidden" name="next" value="{{ next }}">

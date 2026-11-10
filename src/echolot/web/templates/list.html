@@ -131,7 +131,10 @@
       const form = new FormData();
       for (const tr of rows()) form.append("song", tr.dataset.song);
       const r = await fetch("/unreleased/{{ lst.key }}/order", { method: "POST", body: form, headers: { "X-CSRF-Token": csrf() } });
-      if (!r.ok) location.reload();
+      if (r.ok) return toast("Order saved.");
+      let why = "The order was not saved: reload the page.";
+      try { why = (await r.json()).detail || why; } catch {}
+      toast(why, "error");
     };
     let dragging = null, before = "";
     body.addEventListener("pointerdown", (e) => {

@@ -648,3 +648,11 @@ def test_connection_line_answers_from_the_last_check(client: TestClient, monkeyp
     assert len(calls) == 2 and "<span>account2</span>" in client.get("/accounts/line").text
     client.get("/playlists")
     assert len(calls) == 3
+
+
+def test_messages_are_toasts(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """An action's message (?ok=, ?error=: common.back) is a toast on every page, the login page's too."""
+    page = login(create_app(settings)).get("/library", params={"ok": "Saved for tim."}).text
+    assert '<div class="toast ok" role="status" data-toast>Saved for tim.</div>' in page and 'class="flash' not in page
+    wrong = TestClient(create_app(settings)).post("/login", data={"name": "owner", "password": "nope"}).text
+    assert '<div class="toast error" role="alert" data-toast>Wrong user name or password.</div>' in wrong

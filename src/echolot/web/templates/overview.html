@@ -143,11 +143,12 @@
     });
     const wire = (figure) => {
       const points = JSON.parse(figure.dataset.points), plot = figure.querySelector(".canvas");
-      const cursor = plot.querySelector(".cursor"), mark = plot.querySelector(".mark"), tip = plot.querySelector(".tip");
+      const cursor = plot.querySelector(".cursor"), mark = plot.querySelector(".mark:not(.also)"), tip = plot.querySelector(".tip");
+      const markAlso = plot.querySelector(".mark.also");  // (on the second line, where it has a value)
       const brush = plot.querySelector(".brush"), stack = "stack" in figure.dataset;
       let from = null;  // where a drag began (percent from the left)
       const at = (e) => { const box = plot.getBoundingClientRect(); return Math.min(Math.max((100 * (e.clientX - box.left)) / box.width, 0), 100); };
-      const hide = () => { cursor.hidden = mark.hidden = tip.hidden = true; };
+      const hide = () => { cursor.hidden = mark.hidden = tip.hidden = true; if (markAlso) markAlso.hidden = true; };
       const point = (x) => {
         let near = points[0];
         for (const p of points) if (Math.abs(p[0] - x) < Math.abs(near[0] - x)) near = p;
@@ -173,6 +174,11 @@
           tip.replaceChildren(value, ...also, near[2]);
         }
         cursor.hidden = mark.hidden = tip.hidden = false;
+        if (markAlso) {
+          markAlso.hidden = near[5] === undefined;
+          markAlso.style.left = `${near[0]}%`;
+          markAlso.style.top = `${near[5]}%`;
+        }
         const box = plot.getBoundingClientRect(), half = tip.offsetWidth / 2, left = (near[0] / 100) * box.width;
         tip.style.left = `${Math.min(Math.max(left, half), box.width - half)}px`;  // stays inside the card
       };

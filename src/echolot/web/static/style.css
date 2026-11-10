@@ -18,6 +18,7 @@
   --accent: #1f6bcf;
   --brand: linear-gradient(90deg, #174ea6, #1f6bcf 55%, #2ba3b4);  /* the wordmark, the header's hairline */
   --chart-a: #174ea6; --chart-b: #1f6bcf; --chart-c: #2ba3b4;  /* the graph line: the brand's colours */
+  --chart-d: #7a5af0;  /* a second line beside it: violet, next to the blues */
   --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 6px 18px -10px rgb(16 24 40 / 0.12);
   --accent-text: #ffffff;
   --ok: #1a7f37;
@@ -49,7 +50,7 @@
     --track: #1b2430;
     --accent: #6aa9f2;
     --brand: linear-gradient(90deg, #b9d8ff, #6aa9f2 55%, #3fc1c9);
-    --chart-a: #8cc0ff; --chart-b: #6aa9f2; --chart-c: #3fc1c9;
+    --chart-a: #8cc0ff; --chart-b: #6aa9f2; --chart-c: #3fc1c9; --chart-d: #a996ff;
     --shadow: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 10px 28px -16px rgb(0 0 0 / 0.6);
     --accent-text: #0f1216;
     --ok: #3fb950;
@@ -551,7 +552,11 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth .fill-bottom { stop-color: var(--chart-b); stop-opacity: 0; }
 .growth .line { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .growth .line.gap { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 0.5 6; opacity: 0.7; }
-.growth .line.also { stroke: var(--muted); stroke-width: 2; stroke-dasharray: 7 5; stroke-linecap: butt; }
+.growth .line.also { stroke: var(--chart-d); stroke-width: 2.25; }
+.growth .also-top { stop-color: var(--chart-d); stop-opacity: 0.15; }
+.growth .also-bottom { stop-color: var(--chart-d); stop-opacity: 0; }
+.growth .end.also, .growth .mark.also { background: var(--chart-d); }
+.growth .end.also::after { background: var(--chart-d); }
 .growth .line-a { stop-color: var(--chart-a); } .growth .line-b { stop-color: var(--chart-b); } .growth .line-c { stop-color: var(--chart-c); }
 .growth .y { position: absolute; left: 0; width: 3rem; text-align: right; transform: translateY(-50%); font-size: 0.72rem;
   color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -571,10 +576,10 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .graph-note { margin: 0.35rem 0 0 3.6rem; font-size: 0.72rem; color: var(--muted); }
 .graph-note .dash { display: inline-block; width: 1.4rem; margin-right: 0.45rem; vertical-align: middle;
   border-top: 2px dotted color-mix(in srgb, var(--muted) 75%, transparent); }
-.graph-note .key { display: inline-block; width: 1.4rem; margin-right: 0.45rem; vertical-align: middle;
-  border-top: 2.5px solid var(--chart-b); }
-.graph-note .key.also { margin-left: 0.9rem; border-top: 2px dashed var(--muted); }
-.growth .tip .tip-also { display: block; color: var(--text); font-variant-numeric: tabular-nums; }
+.graph-note .key { display: inline-block; width: 0.65rem; height: 0.65rem; margin-right: 0.4rem; vertical-align: -0.05em;
+  border-radius: 3px; background: linear-gradient(135deg, var(--chart-a), var(--chart-c)); }
+.graph-note .key.also { margin-left: 1rem; background: var(--chart-d); }
+.growth .tip .tip-also { display: block; color: var(--chart-d); font-weight: 600; font-variant-numeric: tabular-nums; }
 .growth .brush { position: absolute; top: 0; bottom: 0; pointer-events: none; border-radius: 3px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-inline: 1.5px solid color-mix(in srgb, var(--accent) 60%, transparent); }
@@ -1321,3 +1326,25 @@ label.check input { flex: none; }
 .tag-table td { border-top: 1px solid var(--border); padding: 0.25rem 0.4rem; overflow-wrap: anywhere; vertical-align: top; }
 .tag-table td:first-child { white-space: nowrap; width: 1%; }
 @media (max-width: 640px) { .edit-grid { grid-template-columns: 1fr; } .edit-head { align-items: flex-start; } }
+/* toasts (_toasts.html): top right under the header, sliding in from the right; a bar runs out with its time */
+.toasts { position: fixed; top: 4.25rem; right: 1rem; z-index: 60; display: grid; gap: 0.5rem; width: min(24rem, calc(100vw - 2rem));
+  pointer-events: none; }
+.toast { --tone: var(--ok); position: relative; overflow: hidden; display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.7rem 0.6rem 0.75rem 0.85rem; border: 1px solid var(--border); border-left: 4px solid var(--tone);
+  border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.9rem; line-height: 1.35;
+  box-shadow: 0 14px 34px -12px rgb(16 24 40 / 0.4); pointer-events: auto;
+  opacity: 0; transform: translateX(calc(100% + 1.5rem)); transition: transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.15), opacity 0.25s; }
+.toast.error { --tone: var(--bad); }
+.toast.in { opacity: 1; transform: none; }
+.toast.out { opacity: 0; transform: translateX(calc(100% + 1.5rem)); transition-timing-function: ease-in; }
+.toast-icon { flex: none; color: var(--tone); margin-top: 0.05rem; }
+.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-close { flex: none; border: none; background: none; padding: 0 0.25rem; font-size: 1.15rem; line-height: 1; color: var(--muted);
+  cursor: pointer; }
+.toast-close:hover, .toast-close:focus-visible { color: var(--text); }
+.toast-time { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--tone); opacity: 0.55;
+  transform-origin: left; animation: toast-time linear forwards; }
+.toast.held .toast-time { animation-play-state: paused; }
+@keyframes toast-time { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (max-width: 720px) { .toasts { top: 0.75rem; right: 0.75rem; width: calc(100vw - 1.5rem); } }
+@media (prefers-reduced-motion: reduce) { .toast, .toast.out { transform: none; transition: opacity 0.2s; } }

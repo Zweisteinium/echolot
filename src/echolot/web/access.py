@@ -195,8 +195,8 @@ def login_page(request: Request, con: DB, next: str = "/") -> Response:
 
 def _login_page(request: Request, con: sqlite3.Connection, status_code: int, **extra: object) -> Response:
     ready = bool(navidrome.address(con))
-    extra.setdefault("error", "" if ready else NO_NAVIDROME)
-    return page(request, "login.html", status_code, ready=ready, **extra)
+    notice = "" if ready else NO_NAVIDROME  # (a state, shown on the card; what a login said is a toast)
+    return page(request, "login.html", status_code, ready=ready, notice=notice, **extra)
 
 
 @router.post("/login", response_class=HTMLResponse, response_model=None)

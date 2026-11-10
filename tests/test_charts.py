@@ -30,14 +30,16 @@ def test_growth_geometry() -> None:
 
 
 def test_growth_draws_a_second_metric_on_the_same_axis() -> None:
-    """`also` (the songs on the lists beside the library's): a plain line on the shared axis, each point with
-    the second metric's last value by then; before its first value, none."""
+    """`also` (the songs on the lists beside the library's): a line over its own area on the shared axis, each
+    point with the second metric's last value by then and its height; before its first value, none."""
     points = [("2026-10-01T00:00:00Z", 100), ("2026-10-02T00:00:00Z", 110), ("2026-10-03T00:00:00Z", 120)]
     listed = [("2026-10-02T00:00:00Z", 150), ("2026-10-02T12:00:00Z", 160)]
     g = charts.growth(points, fmt, axis, also=listed, also_value=lambda v: f"{round(v)} on the lists")
     data = json.loads(g.points)
-    assert [d[4:] for d in data] == [[], ["150 on the lists"], ["160 on the lists"]]
+    assert [d[4:5] for d in data] == [[], ["150 on the lists"], ["160 on the lists"]]
+    assert data[1][5] > data[2][5]  # (higher up: 160)
     assert g.also.startswith("M") and g.also.count("L") == 1  # from the second point on
+    assert g.also_area.startswith(g.also) and g.also_area.endswith("Z") and g.also_end == (100.0, data[2][5])
     assert max(float(t.label) for t in g.values) >= 160  # the axis reaches the higher metric
     assert charts.growth(points, fmt, axis).also == ""
 

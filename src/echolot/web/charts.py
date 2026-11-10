@@ -80,7 +80,9 @@ class Growth(Graph):
     line: str  # SVG path in the W x H box
     area: str  # under each stretch of the line, not under a gap
     gaps: str  # dotted lines across the gaps
-    also: str = ""  # a second metric's line (growth's `also`), no area
+    also: str = ""  # a second metric's line (growth's `also`)
+    also_area: str = ""  # under it
+    also_end: tuple[float, float] | None = None  # its last point (% of the box)
 
 
 @dataclass
@@ -183,8 +185,9 @@ def growth(
 ) -> Growth | None:
     """A metric over time ((UTC ts, value), oldest first) as a line over an area (axis: _span). `value`
     formats a value, `axis` an axis label. Leading zeros are dropped (taken before the library was first
-    read). `also`: a second metric drawn as a plain line on the same axis, at each point its last value
-    by then (`also_value` formats it, after the value in the pointer's data). None for fewer than two points."""
+    read). `also`: a second metric drawn as a line over its own area on the same axis, at each point its last
+    value by then (`also_value` formats it, after the value in the pointer's data, then its height). None for
+    fewer than two points."""
     while len(points) > 1 and points[0][1] == 0 and points[1][1] != 0:
         points = points[1:]
     if len(points) < 2:
@@ -215,7 +218,11 @@ def growth(
 
     def datum(i: int) -> list:
         d = [round(100 * xy(i)[0] / W, 2), round(100 * xy(i)[1] / H, 2), t.label(i), value(points[i][1])]
-        return [*d, also_value(v)] if second and (v := second[i]) is not None else d
+        return [*d, also_value(v), round(100 * y(v) / H, 2)] if second and (v := second[i]) is not None else d
+
+    def also_under(run: list[int]) -> str:
+        at = [i for i in run if second[i] is not None]
+        return f"{also_path(at)}L{t.x(at[-1]):.1f},{H}L{t.x(at[0]):.1f},{H}Z" if len(at) > 1 else ""
 
     def under(run: list[int]) -> str:
         return f"{path(run)}L{xy(run[-1])[0]:.1f},{H}L{xy(run[0])[0]:.1f},{H}Z"
@@ -225,6 +232,7 @@ def growth(
         return f"M{x0:.1f},{y0:.1f}L{x1:.1f},{y1:.1f}"
 
     last, ago = xy(t.keep[-1]), t.week_ago()
+    also_last = next((i for i in reversed(t.keep) if second and second[i] is not None), None)
     return Growth(
         **t.frame(
             values=[
@@ -241,6 +249,8 @@ def growth(
         area="".join(under(r) for r in t.runs if len(r) > 1),
         gaps="".join(bridge(a[-1], b[0]) for a, b in itertools.pairwise(t.runs)),
         also="".join(also_path(r) for r in t.runs) if second else "",
+        also_area="".join(also_under(r) for r in t.runs) if second else "",
+        also_end=(100 * t.x(also_last) / W, 100 * y(second[also_last]) / H) if also_last is not None else None,
     )
 
 

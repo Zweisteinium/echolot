@@ -1,0 +1,6 @@
+{# toasts, top right: the last action's message (?ok=, ?error=: common.back) slides in and out by itself (base.html's
+   script); a page's script shows more with toast(text, "ok" | "error"), a failed htmx request says why #}
+<div class="toasts" data-toasts aria-live="polite">
+  {% if ok %}<div class="toast ok" role="status" data-toast>{{ ok }}</div>{% endif %}
+  {% if error %}<div class="toast error" role="alert" data-toast>{{ error }}</div>{% endif %}
+</div>
