@@ -10,8 +10,8 @@
   <div class="card-head">
     <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
     <div class="actions">
-      {% if local and mine and user.can('upload') %}<button type="button" hx-get="/unreleased/upload?list={{ lst.key|urlencode }}" hx-target="#upload-body" title="Add unreleased songs to this list: music that exists nowhere else">{{ icon('upload', 14) }} Upload unreleased</button>
-      <form method="post" action="/unreleased/{{ lst.key }}/playlist" class="playlist-form">{{ csrf_input }}<label class="playlist-switch" title="Show this list as a playlist in Navidrome and the apps that use it (its songs are in the library either way)"><input type="checkbox" name="show" value="on"{% if lst.playlist %} checked{% endif %} onchange="this.form.requestSubmit()"> Playlist in the music server</label></form>
+      {% if local and mine and user.can('upload') %}<form method="post" action="/unreleased/{{ lst.key }}/playlist">{{ csrf_input }}<label class="switch" title="This list as a playlist in the music server (Navidrome and the apps using it); its songs are in the library either way"><input type="checkbox" role="switch" name="show" value="on"{% if lst.playlist %} checked{% endif %} onchange="this.form.requestSubmit()"><span class="switch-track" aria-hidden="true"></span>Playlist</label></form>
+      <button type="button" hx-get="/unreleased/upload?list={{ lst.key|urlencode }}" hx-target="#upload-body" title="Add unreleased songs to this list: music that exists nowhere else">{{ icon('upload', 14) }} Upload unreleased</button>
       <button type="button" data-open="rename-dialog">Rename</button>
       <button type="button" class="danger" data-open="delete-dialog">Delete</button>
       {% elif not local and user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
