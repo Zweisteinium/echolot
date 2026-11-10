@@ -29,7 +29,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 OURS = re.compile(
-    r"^(?:spotify-[A-Za-z0-9]+|soundcloud-[a-z0-9-]+|Spotify Liked Songs|SoundCloud Likes|echolot-wished)"
+    r"^(?:spotify-[A-Za-z0-9]+|soundcloud-[a-z0-9-]+|Spotify Liked Songs|SoundCloud Likes|echolot-wished|"
+    r"echolot-unreleased-[0-9a-f]+)"
     r"\.(?:m3u|jpg|png)$"
 )
 
@@ -100,6 +101,8 @@ def write(con: sqlite3.Connection, folder: Path) -> str:
     written = 0
 
     def best(r: sqlite3.Row) -> str | None:
+        if r["service"] == catalog.LOCAL:  # an unreleased song: its own file (catalog.match_songs), never one by names
+            return r["file"]
         hits = cat.song(r["artist"], r["title"], r["length"], json.loads(r["artists"] or "[]"),
                         json.loads(r["link"] or "null"))  # fmt: skip
         e = hits[0] if hits else cat.by_stem.get(r["stem"] or "")
@@ -154,6 +157,8 @@ def comment(row: sqlite3.Row, owner: str = "", missing: int = 0) -> str:
     lost = f"{missing} song{'' if missing == 1 else 's'} missing" if missing else ""
     if row["service"] == sources.WISHED:
         return " · ".join(p for p in ("Songs you hearted before Echolot had them", "fetched by Echolot", lost) if p)
+    if row["service"] == catalog.LOCAL:
+        return " · ".join(p for p in ("Unreleased songs you uploaded", "kept as they are", lost) if p)
     creator = row["creator"]
     if not creator and row["service"] == "soundcloud":
         creator = (row["url"] or "").removeprefix("https://soundcloud.com/").split("/", 1)[0]

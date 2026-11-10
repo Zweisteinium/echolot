@@ -1,7 +1,10 @@
-"""The music library: <root>/<Artist>/<Artist> - <Title>.<ext>.
+"""The music library: <root>/<Artist>/<Artist> - <Title>.<ext>, and the unreleased songs' files in
+<root>/Unreleased/<Artist> - <Title>.<ext> (library/unreleased).
 
 scan() keeps the files table in step with the disk; match_songs() finds each song's best copy by the
-same-song rules (rules.py). Only filing.py puts files in or takes them out.
+same-song rules (rules.py). Only filing.py puts files in or takes them out (an unreleased song's:
+library/unreleased). An unreleased file is its own song's alone: no song is matched to it by names
+(match_songs, Catalog.find), and an unreleased song has no file but its own (its stem).
 """
 
 import json
@@ -43,6 +46,15 @@ def source_tier(source: str | None) -> str | None:
     spectrum's "~256 kbps / V0" as MP3; a range by its lower end)."""
     m = _SOURCE.search(source or "")
     return lossy_tier((m[1] or "mp3").lower(), int(m[2])) if m else None
+
+
+LOCAL = "local"  # the unreleased songs' service (songs.service; their lists' too)
+UNRELEASED = "Unreleased"  # the folder of the unreleased songs' files (library/unreleased)
+
+
+def unreleased(path: str) -> bool:
+    """An unreleased song's file (a path relative to the library root)."""
+    return path.startswith(UNRELEASED + "/")
 
 
 # what filing appends to another version's file of the same name: " (3m43s)", " (3m43s) (2)"
@@ -108,14 +120,18 @@ class Catalog:
         self.by_stem: dict[str, Entry] = {}
         self.folders: dict[str, dict[str, int]] = {}  # artist key -> {folder: files}
         for e in entries:
-            for k in e.akeys:
-                self.by_key.setdefault((k, e.tkey), []).append(e)
-                folders = self.folders.setdefault(k, {})
-                folder = e.path.partition("/")[0]
-                folders[folder] = folders.get(folder, 0) + 1
+            if not unreleased(e.path):  # (named by its song, never found by names)
+                self._index(e)
             other = self.by_stem.get(e.stem)
             if other is None or AUDIO.index(e.ext) < AUDIO.index(other.ext):
                 self.by_stem[e.stem] = e
+
+    def _index(self, e: "Entry") -> None:
+        for k in e.akeys:
+            self.by_key.setdefault((k, e.tkey), []).append(e)
+            folders = self.folders.setdefault(k, {})
+            folder = e.path.partition("/")[0]
+            folders[folder] = folders.get(folder, 0) + 1
 
     @classmethod
     def from_db(cls, con: sqlite3.Connection) -> "Catalog":
@@ -227,13 +243,18 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None) -> str
 
 
 def match_songs(con: sqlite3.Connection) -> str:
-    """Set each file's quality tier and each song's best library copy."""
+    """Set each file's quality tier and each song's best library copy (an unreleased song: its own file)."""
     cat = Catalog.from_db(con)
-    songs = con.execute("SELECT key, artist, title, length, stem, artists, link FROM songs").fetchall()
+    songs = con.execute("SELECT key, service, artist, title, length, stem, artists, link FROM songs").fetchall()
     found: list[tuple[str | None, str]] = []
-    for key, artist, title, length, stem, artists, link in songs:
+    for key, service, artist, title, length, stem, artists, link in songs:
+        if service == LOCAL:
+            best = cat.by_stem.get(stem or "")
+            found.append((best.path if best and unreleased(best.path) else None, key))
+            continue
         hits = cat.song(artist, title, length, json.loads(artists or "[]"), json.loads(link or "null"))
         best = hits[0] if hits else cat.by_stem.get(stem or "")  # SoundCloud: its own download
+        best = None if best and unreleased(best.path) else best
         found.append((best.path if best else None, key))
     with con:
         con.executemany(

@@ -34,6 +34,7 @@ from echolot.web import (
     sources,
     stats,
     subsonic,
+    unreleased,
     upload,
     users,
 )
@@ -54,6 +55,7 @@ ROUTERS = (
     jobs,
     review,
     upload,
+    unreleased,
     recorders,
     sources,
     accounts,

@@ -1,0 +1,43 @@
+{# the dialog for unreleased songs (web/unreleased.py), in the upload dialog (_upload_dialog.html: its script
+   uploads each file to data-post and checks it; rows: _unreleased_row.html); done: _upload.html #}
+<div class="upload" data-batch="{{ batch }}" data-post="/unreleased/upload/{{ batch }}/file">
+  <h2>Upload unreleased songs</h2>
+  <p class="muted small">Music that exists nowhere else: a friend's own tracks, customs deleted everywhere. Each file is checked first: against releases (Deezer's previews) and your library, by its names and its audio; what it may be already is shown in its row. The others are kept exactly as you upload them, in <code>Unreleased/</code>: Echolot never searches, upgrades, retags or covers them. Up to {{ max_lists }} lists of your own, each a playlist.</p>
+  <label class="drop">
+    <input type="file" multiple accept="audio/*,.flac,.mp3,.m4a,.opus,.ogg,.wav,.aiff,.aif" data-files>
+    <span class="drop-text"><b>Choose files</b> or drop them here</span>
+    <span class="muted small">FLAC, MP3, M4A, Opus, Ogg, WAV, AIFF (WAV and AIFF become FLAC, hi-res kept) · add more any time</span>
+  </label>
+  <form hx-post="/unreleased/upload/{{ batch }}/import" hx-target="#upload-body" hx-encoding="multipart/form-data">
+    {{ csrf_input }}
+    <div class="unreleased-batch">
+      <div class="batch-field"><label for="unreleased-list">Into the list</label>
+        <span class="pick">
+          <select id="unreleased-list" name="list" data-list-pick>
+            {% for l in lists %}<option value="{{ l.key }}"{% if l.key == chosen %} selected{% endif %}>{{ l.title }} ({{ l.songs|num }})</option>{% endfor %}
+            {% if lists|length < max_lists %}<option value="{{ new }}"{% if chosen == new %} selected{% endif %}>New list…</option>{% endif %}
+          </select>
+          <input type="text" name="new_list" placeholder="Name of the new list" maxlength="80" aria-label="Name of the new list" data-new-list{% if chosen != new %} hidden{% else %} required{% endif %}>
+        </span>
+      </div>
+      <div class="batch-field"><label for="unreleased-note">Where they are from</label><input type="text" id="unreleased-note" name="note" maxlength="200" placeholder="e.g. from Felix, 2026"></div>
+      <div class="batch-field" title="Embedded in the files that have no cover of their own (a JPEG picture)"><label for="unreleased-cover">Cover for files without one</label><input type="file" id="unreleased-cover" name="cover" accept="image/jpeg"></div>
+    </div>
+    <div class="table-scroll" data-table hidden>
+    <table class="rows upload-table">
+      <thead><tr><th>File</th><th>Song</th><th>Check</th><th></th></tr></thead>
+      <tbody data-rows></tbody>
+    </table>
+    </div>
+    <p class="muted small" data-table hidden>Each file becomes the song named in its row. Two unreleased songs can't share a name: put what differs into the title, e.g. <i>(Custom Edit)</i>. Leave out a file with ×.</p>
+    <div class="dialog-actions">
+      <div class="upload-progress" data-progress hidden role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="label"><span data-progress-text></span><b data-progress-pct>0 %</b></div>
+        <div class="bar"><span></span></div>
+      </div>
+      <span class="muted small busy" hidden>Importing…</span>
+      <button type="button" data-close>Cancel</button>
+      <button class="primary" data-import disabled>Import</button>
+    </div>
+  </form>
+</div>

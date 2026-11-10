@@ -8,6 +8,7 @@ takes them out, under one lock, keeping the files table current (catalog.scan pi
   - search results must be the requested song (rules.identify); near misses (right artist, 2/3 to 1.5 times
     the length) are kept in inbox/review/<date>/, other rejects deleted
   - replaced/ and review/ are emptied after KEEP_DAYS (purge)
+  - an unreleased song's file goes into tracks/Unreleased/ under the names it was given (place_unreleased)
   - every change is an event (events table)
 """
 
@@ -162,6 +163,31 @@ def _add_file(con: sqlite3.Connection, paths: Paths, p: Path, fake: bool, source
             )
 
 
+def unreleased_name(artist: str, title: str) -> str:
+    """An unreleased song's file name (without its extension): '<Artist> - <Title>' in tracks/Unreleased/."""
+    return f"{clean_name(artist)} - {clean_name(title)}"
+
+
+def unreleased_taken(paths: Paths, name: str) -> bool:
+    """An unreleased song has that file name already (by any extension)."""
+    return any((paths.tracks / catalog.UNRELEASED / f"{name}.{e}").exists() for e in audio.AUDIO)
+
+
+def place_unreleased(
+    con: sqlite3.Connection, paths: Paths, src: Path, name: str, fake: bool, fake_source: str, **info: object
+) -> Path:
+    """File an unreleased song's file as tracks/Unreleased/<name>.<ext> (library/unreleased), never in place
+    of another: FileExistsError when the name is taken. Recorded (files, an event "new") like any filing."""
+    dest = paths.tracks / catalog.UNRELEASED / f"{name}{src.suffix.lower()}"
+    with LOCK:
+        if unreleased_taken(paths, name):
+            raise FileExistsError(f"{catalog.UNRELEASED}/{name} is taken")
+        _place(src, dest)
+        _add_file(con, paths, dest, fake, fake_source)
+        event(con, paths, "new", dest, **{"fake": int(fake), **info})
+    return dest
+
+
 def place_back(con: sqlite3.Connection, paths: Paths, src: Path, dest: Path) -> None:
     """A retired file back at its library place, fake again if the event that filed it said so."""
     rel = dest.relative_to(paths.tracks).as_posix()
@@ -284,15 +310,17 @@ def is_blocked(con: sqlite3.Connection, key: str, names: list[str]) -> bool:
 
 
 def artist_dir(paths: Paths, cat: catalog.Catalog, artist: str) -> Path:
-    """The artist's existing folder (any spelling; the fuller one), else a new one."""
+    """The artist's existing folder (any spelling; the fuller one), else a new one (an artist called Unreleased:
+    "Unreleased (artist)", that name is the unreleased songs' folder)."""
     keys = [k for k in (artist_key(artist), artist_key(first_artist(artist))) if k]
     for k in keys:
         if folders := cat.folders.get(k):
             return paths.tracks / max(folders, key=lambda f: folders[f])
-    for d in paths.tracks.iterdir():  # a folder without audio (only artist.jpg left)
-        if d.is_dir() and artist_key(d.name) in keys:
+    for d in paths.tracks.iterdir():  # a folder without audio (only artist.jpg left); never the unreleased one
+        if d.is_dir() and artist_key(d.name) in keys and d.name != catalog.UNRELEASED:
             return d
-    return paths.tracks / clean_name(artist)
+    name = clean_name(artist)
+    return paths.tracks / (f"{name} (artist)" if artist_key(name) == artist_key(catalog.UNRELEASED) else name)
 
 
 def song_link(con: sqlite3.Connection, key: str) -> list[str] | None:

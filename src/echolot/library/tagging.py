@@ -83,7 +83,7 @@ def clean_title(title: str, artist: str) -> str:
     return t or title
 
 
-NAMED = ("spotify", "youtube", "discover", "soundcloud")  # the services in the order a file takes their names
+NAMED = ("spotify", "youtube", "discover", "soundcloud", "local")  # the order a file takes their names in
 
 
 def page(song: sqlite3.Row) -> str:
@@ -123,11 +123,14 @@ def lead(con: sqlite3.Connection, rel: str, key: str = "") -> sqlite3.Row | None
 
 def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Tags | None:
     """A library file's tags (rel: relative to tracks/), from the songs it is and the song `key` it was just
-    filed for; None for a file no song has."""
+    filed for; None for a file no song has, and for an unreleased song's (its tags stay as written at upload:
+    library/unreleased)."""
     songs = _songs(con, rel, key)
     if not songs:
         return None
     lead = _lead(songs, rel)
+    if lead["service"] == "local":
+        return None
     link = json.loads(lead["link"]) if lead["close_match"] and lead["link"] else None
     if link:
         artists, title, album = [link[0]], link[1], None
@@ -352,6 +355,28 @@ def write(path: Path, tags: Tags) -> None:
                 t[key] = vals
             elif key in t:
                 del t[key]
+    m.save()
+
+
+UNRELEASED = "Unreleased"  # an unreleased song's comment starts so (write_unreleased)
+
+
+def write_unreleased(path: Path, artist: str, title: str, album: str, note: str) -> None:
+    """An unreleased song's tags, written once, when it is uploaded (library/unreleased; for_file has none
+    for it later): its names as given, the album (empty: the title, as a single's), the download source "by
+    hand" and the comment "Unreleased · <note>"; the cover stays."""
+    write(path, Tags([artist], artist, title, album or title, [], SOURCES["manual"]))
+    m = _raw(path)
+    t, text = m.tags, " · ".join(p for p in (UNRELEASED, note.strip()) if p)
+    kind = _kind(t)
+    if kind == "id3":
+        from mutagen.id3 import COMM
+
+        t.setall("COMM", [COMM(encoding=3, lang="eng", desc="", text=[text])])
+    elif kind == "mp4":
+        t["\xa9cmt"] = [text]
+    else:
+        t["comment"] = [text]
     m.save()
 
 

@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from echolot.library import catalog, filing, history, origin, recording
+from echolot.library import catalog, filing, history, origin, recording, unreleased
 from echolot.services import soundcloud, spotify
 from echolot.web import charts, discogs, stats
 from echolot.web.common import DB, back, page
@@ -210,6 +210,9 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     marks |= {k: recording.Mark("original", why) for k, why in origin.marks(con, [s["key"] for s in songs]).items()}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}
     links = stats.links(con) if lst["service"] == "soundcloud" else {}
+    mine = unreleased.owns(con, request.state.user.id, key)  # an Unreleased list of theirs: they manage it
+    others = [r for r in unreleased.lists(con, request.state.user.id) if r["key"] != key] if mine else []
+    alone = set(unreleased.only_here(con, request.state.user.id, key)) if mine else set()
     return page(
         request,
         "list.html",
@@ -221,6 +224,10 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
         marks=marks,
         offers=offers,
         links=links,
+        mine=mine,
+        others=others,
+        alone=alone,
+        drop=unreleased.DROP,
     )
 
 

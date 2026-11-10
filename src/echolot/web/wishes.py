@@ -104,6 +104,13 @@ def like(
 
 def wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
     """Store the user's Wished list, then search its new songs and write the playlist."""
+    store(con, user)
+    for job in ("search_new", "library"):
+        request.app.state.worker.trigger(job)
+
+
+def store(con: sqlite3.Connection, user: auth.User) -> None:
+    """Store the user's Wished list as their hearts are now (jobs/lists.store_wished); nothing searched."""
     rows = con.execute(
         "SELECT s.id, s.data, l.liked FROM discover_likes l JOIN discover_songs s ON s.id = l.song_id "
         "WHERE l.user_id = ? ORDER BY l.liked DESC, s.id",
@@ -115,13 +122,12 @@ def wish(request: Request, con: sqlite3.Connection, user: auth.User) -> None:
         pages = [h["url"] for h in sorted(d["hits"], key=lambda h: h["source"] != "soundcloud") if h["url"]]
         songs.append((song_key(sid), {**d, "url": pages[0] if pages else "", "liked": liked}))
     lists.store_wished(con, user.id, songs)
-    for job in ("search_new", "library"):
-        request.app.state.worker.trigger(job)
 
 
-def keep(con: sqlite3.Connection, r: discover.Result, now: str) -> tuple[str, dict[str, Any]]:
-    """Keep a result to come back to (no commit): (id, record)."""
-    song = record(r)
+def keep(con: sqlite3.Connection, r: discover.Result, now: str, isrc: str | None = None) -> tuple[str, dict[str, Any]]:
+    """Keep a result to come back to (no commit): (id, record), with its ISRC when known (a wish then asks
+    Deezer for none)."""
+    song = record(r) | ({"isrc": isrc} if isrc is not None else {})
     sid = sid_of(song)
     con.execute(
         "INSERT INTO discover_songs (id, data, seen) VALUES (?, ?, ?) "

@@ -39,12 +39,13 @@ def core(title: str) -> str:
 
 
 class Index:
-    """The library's files by core title."""
+    """The library's files by core title (not the unreleased songs' files: no other song is linked to one)."""
 
     def __init__(self, cat: catalog.Catalog) -> None:
         self.by_core: dict[str, list[catalog.Entry]] = {}
         for e in cat.entries:
-            self.by_core.setdefault(core(e.title), []).append(e)
+            if not catalog.unreleased(e.path):
+                self.by_core.setdefault(core(e.title), []).append(e)
 
     def candidates(self, title: str, length: float) -> list[catalog.Entry]:
         """Files with the title's core and a length within 3 s, best first."""
@@ -123,8 +124,8 @@ SAME_CHECKED = "same_checked"  # meta: {"<file>:<size>|<file>:<size>": same_mast
 
 def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
     """Library files of different songs that are the same audio (a like title and length, same_master): the
-    better is kept, the other's songs are linked to it and the other retired. Close matches and DJ-mix cuts
-    are left alone."""
+    better is kept, the other's songs are linked to it and the other retired. Close matches, DJ-mix cuts and
+    unreleased songs' files (there is no other copy) are left alone."""
     from echolot import db
 
     checked = json.loads(db.get_meta(con, SAME_CHECKED, "{}"))
@@ -136,7 +137,9 @@ def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
     files = {
         p: rows
         for p, rows in owners.items()
-        if p in entries and not any(r["close_match"] or rules.mix_cut(r["title"]) for r in rows)
+        if p in entries
+        and not catalog.unreleased(p)
+        and not any(r["close_match"] or rules.mix_cut(r["title"]) or r["service"] == catalog.LOCAL for r in rows)
     }
     done = []
     for a, b in _pairs(files, entries):
@@ -197,7 +200,8 @@ def other_edits(
         ours, tk = {k for a in [want.artist, *want.artists] for k in rules.artist_keys(a)}, rules.title_key(want.title)
         entries = {e.path: e for e in cat.entries}
         for r in con.execute(
-            "SELECT artist, artists, title, file FROM songs WHERE file IS NOT NULL AND key != ?", (want.key,)
+            "SELECT artist, artists, title, file FROM songs WHERE file IS NOT NULL AND key != ? AND service != ?",
+            (want.key, catalog.LOCAL),
         ):
             names = [r["artist"], *json.loads(r["artists"] or "[]")]
             if (

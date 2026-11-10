@@ -313,8 +313,11 @@ def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: P
 
 def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:
     """The song's cover in place of the uploader's (`cover`: a SoundCloud download's artwork, else
-    covers.Covers), and the artist picture from Spotify."""
+    covers.Covers), and the artist picture from Spotify. Never for an unreleased song (library/unreleased)."""
     from echolot.jobs import covers
+
+    if want.key.startswith(f"{catalog.LOCAL}:"):
+        return
 
     try:
         song = tagging.lead(con, dest.relative_to(run.paths.tracks).as_posix(), want.key)
@@ -624,7 +627,8 @@ def _upgradable(con: sqlite3.Connection) -> list[sqlite3.Row]:
     return con.execute(
         "SELECT s.*, coalesce(u.tries, 0) AS tries, coalesce(u.last_try, 0) AS last_try FROM wanted s "
         "JOIN files f ON f.path = s.file LEFT JOIN upgrades u ON u.song_key = s.key "
-        f"WHERE f.quality != 'lossless' AND NOT s.close_match AND s.key NOT IN ({origin.BEST}) AND ({SEARCHED} OR NOT EXISTS "
+        f"WHERE f.quality != 'lossless' AND NOT s.close_match AND s.service != '{catalog.LOCAL}' "
+        f"AND s.key NOT IN ({origin.BEST}) AND ({SEARCHED} OR NOT EXISTS "
         "(SELECT 1 FROM wanted o WHERE o.service != 'soundcloud' AND o.file = s.file)) ORDER BY last_try"
     ).fetchall()
 
@@ -634,7 +638,7 @@ def _upgrade(run: "Run", everything: bool) -> str:
     longest waiting first, at most upgrade_batch per run (or what a run that gave way left). A SoundCloud
     song's FLAC waits in Review (Fetcher.attempt), and the song is not searched while it does; one whose
     file a Spotify or YouTube song has is upgraded as that one. Not upgraded: close matches (a FLAC found
-    would be the song, not the version taken) and the artist's own release (origin.BEST)."""
+    would be the song, not the version taken), the artist's own release (origin.BEST) and unreleased songs."""
     con = run.connect()
     try:
         catalog.refresh(con, run.paths.tracks)

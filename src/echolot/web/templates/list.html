@@ -4,17 +4,26 @@
 {% block title %}{{ lst.title }} · Echolot{% endblock %}
 {% block content %}
 {% set missing = tiers[-1][2] %}
+{% set local = lst.service == 'local' %}{# an Unreleased list (library/unreleased): of unreleased songs only, managed by its owner (mine) #}
 <a class="crumb" href="/library">← Library</a>
 <section class="card">
   <div class="card-head">
     <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
     <div class="actions">
-      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
+      {% if local and mine and user.can('upload') %}<button type="button" hx-get="/unreleased/upload?list={{ lst.key|urlencode }}" hx-target="#upload-body" title="Add unreleased songs to this list: music that exists nowhere else">{{ icon('upload', 14) }} Upload unreleased</button>
+      <details class="list-manage"><summary class="button">Rename</summary><form method="post" action="/unreleased/{{ lst.key }}/rename">{{ csrf_input }}<input type="text" name="name" value="{{ lst.title }}" maxlength="80" required aria-label="New name"> <button class="primary">Save</button></form></details>
+      <details class="list-manage"><summary class="button">Delete</summary><form method="post" action="/unreleased/{{ lst.key }}/delete" onsubmit="return this.songs_to.value !== '{{ drop }}' || confirm('Delete this list and its {{ alone|length }} songs on no other list? Their files are kept 30 days in inbox/replaced, then deleted.')">{{ csrf_input }}
+        {% if alone %}<label class="small" for="songs-to">Its {{ alone|length|num }} {{ 'song' if alone|length == 1 else 'songs' }} on no other list</label>
+        <select id="songs-to" name="songs_to">{% for l in others %}<option value="{{ l.key }}">Move into {{ l.title }}</option>{% endfor %}<option value="{{ drop }}">Delete with the list</option></select>
+        {% else %}<input type="hidden" name="songs_to" value=""><span class="small muted">Its playlist goes; its songs stay on your other lists.</span>{% endif %}
+        <button class="danger">Delete list</button></form></details>
+      {% elif not local and user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
       {% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
-      <a class="button" href="{{ lst.url }}" target="_blank" rel="noopener" title="The list at its source">{{ icon(lst.service, 14) }} Open on {{ lst.service|source }} ↗</a>
+      {% if not local %}<a class="button" href="{{ lst.url }}" target="_blank" rel="noopener" title="The list at its source">{{ icon(lst.service, 14) }} Open on {{ lst.service|source }} ↗</a>{% endif %}
     </div>
   </div>
-  <p class="lead">{{ (songs|length - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
+  {% if local %}<p class="lead">Unreleased songs, kept as you uploaded them: never searched, upgraded, retagged or covered{% if missing %} · <span class="bad-text">{{ missing|num }} {{ 'file is' if missing == 1 else 'files are' }} gone</span>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
+  {% else %}<p class="lead">{{ (songs|length - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>{% endif %}
   {{ qbar(tiers, large=True) }}
   {{ legend(tiers) }}
 </section>
@@ -22,7 +31,7 @@
 
 <section class="card">
   <table class="rows songs list-songs row-blocks">
-    {% set upload = user.can('upload') %}
+    {% set upload = user.can('upload') and (mine or not local) %}
     <thead><tr><th class="num">#</th>{{ song_heads() }}<th>Quality</th><th class="hide-narrow">File</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}
@@ -32,12 +41,34 @@
       {{ song_cells(s) }}
       <td><span class="nowrap">{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}{{ song_mark(s.key, marks.get(s.key) or ({'kind': 'twin', 'why': 'The same song as #' ~ (twin + 1) ~ ', another release at its source: one file, recorded once'} if twin is not none), upload) }}{% if s.quality != 'lossless' and offers.get(s.key) %} {{ bandcamp(offers[s.key]) }}{% endif %}{% if s.quality != 'lossless' and links.get(s.key) %} {{ free_link(links[s.key]) }}{% endif %}</span></td>
       <td class="hide-narrow">{% if twin is not none %}<span class="small muted" title="The list has this recording twice (another release at its source); it is one file and plays once in the playlist">same song as #{{ twin + 1 }}, another release</span>{% elif s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>
-      {% if upload %}<td class="row-action">{% if twin is none and (not s.file or s.quality != 'lossless') %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="{{ 'Upload a file for this song' if not s.file else 'Upload a better copy of this song' }}" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
+      {% if upload and local %}<td class="row-action"><details class="song-menu"><summary class="icon-button" title="Move, add to another list, delete" aria-label="Manage {{ s.artist }} – {{ s.title }}">⋯</summary>
+        <form method="post" action="/unreleased/{{ lst.key }}/song" onsubmit="return this.to.value !== '{{ drop }}' || confirm({{ ('Delete ' ~ s.artist ~ ' – ' ~ s.title ~ '? Its file is kept 30 days in inbox/replaced, then deleted.')|tojson|forceescape }})">{{ csrf_input }}<input type="hidden" name="song" value="{{ s.key }}">
+          <select name="to" aria-label="What to do with {{ s.artist }} – {{ s.title }}">
+            {% for l in others %}<option value="move:{{ l.key }}">Move into {{ l.title }}</option>{% endfor %}
+            {% for l in others %}<option value="add:{{ l.key }}">Also add to {{ l.title }}</option>{% endfor %}
+            {% if s.key not in alone %}<option value="remove">Take out of this list</option>{% endif %}
+            <option value="{{ drop }}">Delete the song</option>
+          </select>
+          <button class="primary small">Do it</button>
+        </form></details></td>
+      {% elif upload %}<td class="row-action">{% if twin is none and (not s.file or s.quality != 'lossless') %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="{{ 'Upload a file for this song' if not s.file else 'Upload a better copy of this song' }}" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
     </tr>
     {% endfor %}
     </tbody>
   </table>
 </section>
 {% if upload %}{% include "_upload_dialog.html" %}{% endif %}
+{% if upload and local %}<script>
+  // a song's menu opens below its button over the page (the card would cut it off); one at a time, closed on scroll
+  document.addEventListener("toggle", (e) => {
+    const menu = e.target;
+    if (!(menu instanceof HTMLDetailsElement) || !menu.matches(".song-menu") || !menu.open) return;
+    document.querySelectorAll(".song-menu[open]").forEach((d) => { if (d !== menu) d.open = false; });
+    const at = menu.querySelector("summary").getBoundingClientRect(), form = menu.querySelector("form");
+    form.style.top = `${at.bottom + 4}px`;
+    form.style.right = `${Math.max(8, document.documentElement.clientWidth - at.right)}px`;
+  }, true);
+  addEventListener("scroll", () => document.querySelectorAll(".song-menu[open]").forEach((d) => { d.open = false; }), { passive: true });
+</script>{% endif %}
 {% if lst.service == 'spotify' and user.can('upload') %}{% include "_record.html" %}{% endif %}
 {% endblock %}

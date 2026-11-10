@@ -39,6 +39,10 @@ cannot find yet, it tells you, and why.
   where it came from: the artist's own release counts as the best there is, even as an MP3.
 - **Search.** Find a single song in Deezer, Apple Music and SoundCloud at once, hear a preview, and get
   it: it lands in your playlist "Echolot · Wished". Paste a playlist link to follow it.
+- **Unreleased music.** A friend's own tracks, customs deleted everywhere: upload them into up to 10
+  Unreleased lists of your own (each one a playlist). Each file is held against releases and your library by
+  its audio first; the rest are kept exactly as uploaded, in `tracks/Unreleased/`, and never searched,
+  upgraded, retagged or matched to another song. A better copy (the WAV of an MP3) replaces its file.
 - **Recording.** With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your PC (Windows or Linux),
   press Record on a Spotify list, or on the Library page for all of them: Mitschnitt plays the songs
   Echolot is missing or only has lossy, records each from Spotify bit for bit, checks it and uploads it, and

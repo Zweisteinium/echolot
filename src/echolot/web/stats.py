@@ -10,7 +10,7 @@ from echolot import db
 from echolot.jobs import acquire
 from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
-from echolot.library import catalog, origin, recording, recordings, review
+from echolot.library import catalog, origin, recording, recordings, review, unreleased
 from echolot.library.filing import Paths
 
 TIERS = [*catalog.TIERS, ("missing", "Missing")]  # best first; a fake FLAC counts in its source's tier
@@ -84,9 +84,9 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     services = {
         r[0]: {"songs": r[1], "missing": r[1] - r[2]}
         for r in con.execute(
-            "SELECT l.service, count(DISTINCT s.key), count(DISTINCT CASE WHEN s.file IS NOT NULL "
+            f"SELECT {GROUP} AS grp, count(DISTINCT s.key), count(DISTINCT CASE WHEN s.file IS NOT NULL "
             "THEN s.key END) FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
-            f"JOIN songs s ON s.key = ls.song_key WHERE {theirs} GROUP BY l.service",
+            f"JOIN songs s ON s.key = ls.song_key WHERE {theirs} GROUP BY grp",
             args,
         )
     }
@@ -94,7 +94,7 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "scoped": uid is not None,
         "library_files": library[0],  # always the whole library
         "library_size": library[1],
-        "services": services,  # distinct songs and missing ones per service
+        "services": services,  # distinct songs and missing ones per group of lists (GROUP)
         "song_tiers": tier_counts(songs),  # the ring's Songs (with the missing)
         "song_fakes": songs["fakes"],  # fake FLACs among them (counted in their source's tier)
         "files": files,
@@ -137,15 +137,17 @@ _OWN = "(s.file IS NOT NULL AND NOT s.close_match)"  # its own copy, not only a 
 _GONE = f"(s.unavailable IS NOT NULL OR av.state IN {UNPLAYABLE})"  # Spotify no longer plays it
 _HELD = f"s.key IN ({recording.HELD})"  # Spotify has nothing better of it
 _ORIGINAL = f"s.key IN ({origin.BEST})"  # its file is the artist's own release
-# at the best quality there is: genuine lossless, held, gone from Spotify, or the artist's own release
+_THE_ONLY = f"s.service = '{catalog.LOCAL}'"  # an unreleased song: its file is the only copy there is
+# at the best quality there is: genuine lossless, held, gone from Spotify, the artist's own release, unreleased
 _BEST = (
-    f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR {_ORIGINAL} "
+    f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR {_ORIGINAL} OR {_THE_ONLY} "
     f"OR (s.key LIKE 'spotify:%' AND {_GONE}))), 0) AS best"
 )
 # searched everywhere in vain: Soulseek at its loosest (acquire.LOOSEN), YouTube and SoundCloud too
 _SEARCHED_OUT = "s.key IN (SELECT song_key FROM attempts WHERE tries >= 4 AND last_fallback > 0)"
 # gone from Spotify (or Spotify has nothing better) and searched out: left out of the Best share
-_WIPED = f"({_GONE} OR {_HELD}) AND {_SEARCHED_OUT}"
+# (an unreleased song whose file is gone: nothing searches it, there is no other copy)
+_WIPED = f"((({_GONE} OR {_HELD}) AND {_SEARCHED_OUT}) OR {_THE_ONLY})"
 _UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND {_WIPED}), 0) AS unobtainable"
 
 
@@ -193,7 +195,7 @@ def lists(con: Connection, uid: int | None = None) -> list[Row]:
         mode = "(SELECT playlist FROM sources WHERE key = l.key AND user_id = ?)"
         playlist, where, args = f"{mode} AS playlist", f"WHERE l.key IN ({_FOLLOWS})", (uid, uid)
     return con.execute(
-        f"SELECT l.key, l.service, l.title, l.url, {playlist}, l.fetched, {owners}, "
+        f"SELECT l.key, l.service, {GROUP} AS grp, l.title, l.url, {playlist}, l.fetched, {owners}, "
         f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS}, {_BEST}, {_UNOBTAINABLE} "
         "FROM lists l LEFT JOIN list_songs ls ON ls.list_key = l.key "
         "LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
@@ -204,6 +206,8 @@ def lists(con: Connection, uid: int | None = None) -> list[Row]:
 
 
 _FOLLOWS = "SELECT key FROM sources WHERE user_id = ? AND enabled"
+# the group a list is shown in: its service's, Echolot's own (Wished, the Unreleased lists) together
+GROUP = "CASE WHEN l.service IN ('discover', 'local') THEN 'echolot' ELSE l.service END"
 
 
 def offers(con: Connection) -> dict[str, Row]:
@@ -275,6 +279,8 @@ UNAVAILABLE = {
     GREYED_OUT: "Spotify no longer plays it (withdrawn or not in your country); it is searched first.",
     NOT_ON_SOUNDCLOUD: "SoundCloud hands this upload out to nobody (a label release); YouTube and SoundCloud "
     "search for other uploads.",
+    unreleased.UNAVAILABLE: "An unreleased song you uploaded: its file is gone from the library and nothing "
+    "searches for it. Upload it again (Upload unreleased) if you still have it.",
 }
 
 
@@ -328,8 +334,8 @@ def missing(
 
 def upload_songs(con: Connection, uid: int | None = None, key: str | None = None) -> list[Row]:
     """The songs an uploaded file can be (`key`: only that one), with their copy (quality, kbps, a fake
-    FLAC's source, close match, shared: other songs with that file). Shares are counted in one pass:
-    songs.file has no index."""
+    FLAC's source, close match, shared: other songs with that file); not the unreleased songs (their file is
+    the song). Shares are counted in one pass: songs.file has no index."""
     mine, args = _mine(uid)
     one = " AND s.key = ?" if key is not None else ""
     return con.execute(
@@ -338,7 +344,7 @@ def upload_songs(con: Connection, uid: int | None = None, key: str | None = None
         "(SELECT source FROM lossy_sourced l WHERE s.file LIKE l.stem || '.%' AND length(s.file) - length(l.stem) <= 5) "
         "AS fake_source FROM wanted s LEFT JOIN files f ON f.path = s.file "
         "LEFT JOIN (SELECT file, count(*) AS n FROM songs WHERE file IS NOT NULL GROUP BY file) c ON c.file = s.file "
-        f"WHERE {mine}{one} ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
+        f"WHERE {mine}{one} AND s.service != 'local' ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         (*args, key) if key is not None else args,
     ).fetchall()
 
