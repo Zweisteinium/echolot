@@ -188,6 +188,26 @@ def place_unreleased(
     return dest
 
 
+def rename_unreleased(con: sqlite3.Connection, paths: Paths, rel: str, name: str, reason: str) -> Path:
+    """An unreleased song's file (rel: relative to tracks/) under a new name in tracks/Unreleased/, never in
+    place of another: FileExistsError when the name is taken. Its song's stem follows."""
+    src = paths.tracks / rel
+    dest = src.with_name(f"{name}{src.suffix}")
+    old_stem, new_stem = rel.rsplit(".", 1)[0], f"{catalog.UNRELEASED}/{name}"
+    with LOCK:
+        if unreleased_taken(paths, name):
+            raise FileExistsError(f"{catalog.UNRELEASED}/{name} is taken")
+        mark = con.execute("SELECT source FROM lossy_sourced WHERE stem = ?", (old_stem,)).fetchone()
+        _place(src, dest)
+        with con:
+            con.execute("DELETE FROM files WHERE path = ?", (rel,))
+            con.execute("DELETE FROM lossy_sourced WHERE stem = ?", (old_stem,))
+            con.execute("UPDATE songs SET stem = ? WHERE stem = ?", (new_stem, old_stem))
+        _add_file(con, paths, dest, mark is not None, mark[0] if mark else "")
+        event(con, paths, "renamed", dest, reason=f"{reason} (was {rel})")
+    return dest
+
+
 def place_back(con: sqlite3.Connection, paths: Paths, src: Path, dest: Path) -> None:
     """A retired file back at its library place, fake again if the event that filed it said so."""
     rel = dest.relative_to(paths.tracks).as_posix()

@@ -361,14 +361,27 @@ def write(path: Path, tags: Tags) -> None:
 UNRELEASED = "Unreleased"  # an unreleased song's comment starts so (write_unreleased)
 
 
-def write_unreleased(path: Path, artist: str, title: str, album: str, note: str) -> None:
-    """An unreleased song's tags, written once, when it is uploaded (library/unreleased; for_file has none
-    for it later): its names as given, the album (empty: the title, as a single's), the download source "by
-    hand" and the comment "Unreleased · <note>"; the cover stays."""
-    write(path, Tags([artist], artist, title, album or title, [], SOURCES["manual"]))
+def write_unreleased(
+    path: Path,
+    artist: str,
+    title: str,
+    album: str,
+    note: str,
+    artists: list[str] | None = None,
+    year: str | None = None,
+    genre: str | None = None,
+) -> None:
+    """An unreleased song's tags, written when it is uploaded or edited by hand (library/unreleased; for_file
+    has none for it): its names as given (`artists`: each one, `artist` the shown name), the album (empty: the
+    title, as a single's), the download source "by hand", the comment "Unreleased · <note>", the year and the
+    genre (None: the file's stay; '': none); the cover stays."""
+    write(path, Tags(artists or [artist], artist, title, album or title, [], SOURCES["manual"]))
     m = _raw(path)
     t, text = m.tags, " · ".join(p for p in (UNRELEASED, note.strip()) if p)
     kind = _kind(t)
+    for key, value in (("DATE", year), ("GENRE", genre)):
+        if value is not None:
+            _set_extra(t, kind, key, value.strip())
     if kind == "id3":
         from mutagen.id3 import COMM
 
@@ -378,6 +391,116 @@ def write_unreleased(path: Path, artist: str, title: str, album: str, note: str)
     else:
         t["comment"] = [text]
     m.save()
+
+
+_EXTRA = {"id3": {"DATE": "TDRC", "GENRE": "TCON"}, "mp4": {"DATE": "\xa9day", "GENRE": "\xa9gen"}}
+_COMMENT = {"id3": "COMM", "mp4": "\xa9cmt", "vorbis": "comment"}
+
+
+def _set_extra(t: Any, kind: str, key: str, value: str) -> None:
+    """The year (DATE) or the genre, in tags of `kind`; '' takes it out."""
+    if kind == "id3":
+        from mutagen.id3 import TCON, TDRC
+
+        frame = {"DATE": TDRC, "GENRE": TCON}[key]
+        t.setall(frame.__name__, [frame(encoding=3, text=[value])] if value else [])
+    elif kind == "mp4":
+        name = _EXTRA["mp4"][key]
+        if value:
+            t[name] = [value]
+        elif name in t:
+            del t[name]
+    elif value:
+        t[key.lower()] = [value]
+    elif key.lower() in t:
+        del t[key.lower()]
+
+
+def _first(t: Any, kind: str, name: str) -> str:
+    if kind == "id3":
+        return next((str(v) for f in t.getall(name) for v in getattr(f, "text", [])), "")
+    values = t.get(name) or []
+    return str(values[0]) if values else ""
+
+
+def unreleased_extras(path: Path) -> dict[str, str]:
+    """An unreleased song's year, genre and note (its comment without "Unreleased · "), as its file has them."""
+    out = {"year": "", "genre": "", "note": ""}
+    try:
+        m = _raw(path)
+    except Exception:
+        return out
+    t = m.tags if m is not None else None
+    if t is None:
+        return out
+    kind = _kind(t)
+    names = _EXTRA.get(kind, {"DATE": "date", "GENRE": "genre"})
+    out["year"] = _first(t, kind, names["DATE"])[:4]
+    out["genre"] = _first(t, kind, names["GENRE"])
+    note = _first(t, kind, _COMMENT[kind])
+    out["note"] = note.removeprefix(UNRELEASED).removeprefix(" · ") if note.startswith(UNRELEASED) else note
+    return out
+
+
+PICTURES = {"APIC", "covr", "metadata_block_picture"}  # (tags that are pictures: not listed as text)
+# what a tag is called in players, by its name in each format (all_tags: shown beside it)
+NAMES = {
+    "artist": "Artist",
+    "tpe1": "Artist",
+    "\xa9art": "Artist",
+    "artists": "Artists",
+    "txxx:artists": "Artists",
+    "title": "Title",
+    "tit2": "Title",
+    "\xa9nam": "Title",
+    "album": "Album",
+    "talb": "Album",
+    "\xa9alb": "Album",
+    "albumartist": "Album artist",
+    "tpe2": "Album artist",
+    "aart": "Album artist",
+    "date": "Year",
+    "tdrc": "Year",
+    "\xa9day": "Year",
+    "genre": "Genre",
+    "tcon": "Genre",
+    "\xa9gen": "Genre",
+    "comment": "Comment",
+    "comm::eng": "Comment",
+    "\xa9cmt": "Comment",
+    "download": "Download",
+    "txxx:download": "Download",
+    "encoder": "Encoder",
+    "tsse": "Encoder",
+    "\xa9too": "Encoder",
+    "isrc": "ISRC",
+    "tsrc": "ISRC",
+}
+
+
+def all_tags(path: Path, longest: int = 200) -> list[tuple[str, str, str]]:
+    """Every tag of the file but its pictures, as (what players call it, its name in the file, its value as text),
+    each value cut to `longest` characters."""
+    try:
+        m = _raw(path)
+    except Exception:
+        return []
+    t = m.tags if m is not None else None
+    if t is None:
+        return []
+    out = []
+    if _kind(t) == "id3":
+        for frame in t.values():
+            if frame.FrameID not in PICTURES:
+                out.append((NAMES.get(frame.HashKey.lower(), ""), frame.HashKey, str(frame)[:longest]))
+        return sorted(out, key=lambda t: (not t[0], t[0], t[1]))
+    for key, values in t.items():
+        if key.split(":")[0] in PICTURES or key.lower() in PICTURES:
+            continue
+        text = ", ".join(v.decode("utf-8", "replace") if isinstance(v, bytes) else str(v) for v in values)
+        name = key.removeprefix(MP4_FREE)
+        out.append((NAMES.get(name.lower(), ""), name, text[:longest]))
+    return sorted(out, key=lambda t: (not t[0], t[0], t[1]))
 
 
 def _write_facts(t: Any, kind: str, facts: dict[str, str]) -> None:

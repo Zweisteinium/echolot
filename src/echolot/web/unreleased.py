@@ -7,11 +7,11 @@ the upload permission."""
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile as FormFile
 
-from echolot.library import catalog, upload
+from echolot.library import audio, catalog, upload
 from echolot.library import unreleased as songs
 from echolot.web import upload as uploads
 from echolot.web.common import DB, back, page
@@ -254,6 +254,18 @@ def rename_list(request: Request, con: DB, key: str, name: Annotated[str, Form()
     return back(f"/lists/{key}", ok="Renamed.")
 
 
+@router.post("/unreleased/{key}/playlist")
+def playlist(request: Request, con: DB, key: str, show: Annotated[str, Form()] = "") -> RedirectResponse:
+    """The list as a playlist in the music server (show: on) or not."""
+    try:
+        songs.show_playlist(con, _user(request), key, show == "on")
+    except songs.Refused as e:
+        return _refused(key, e)
+    request.app.state.worker.trigger("library")  # (the playlist written, or taken out of the music server)
+    shown = "It is a playlist in the music server now." if show == "on" else "Its playlist goes from the music server."
+    return back(f"/lists/{key}", ok=shown)
+
+
 @router.post("/unreleased/{key}/delete")
 def delete_list(request: Request, con: DB, key: str, songs_to: Annotated[str, Form()] = "") -> RedirectResponse:
     """The list goes; its songs on no other list into the list `songs_to`, or (DROP) deleted with it."""
@@ -308,3 +320,61 @@ def song_action(
         return _refused(key, e)
     request.app.state.worker.trigger("library")  # (the playlists)
     return back(f"/lists/{key}", ok=done)
+
+
+@router.get("/unreleased/{key}/song/edit", response_class=HTMLResponse)
+def edit_form(request: Request, con: DB, key: str, song: str) -> HTMLResponse:
+    """The edit dialog's body for a song of the user's list `key`: its names, its lists, its file and tags."""
+    uid = _user(request)
+    try:
+        d = songs.details(con, uploads._paths(request), uid, song)
+    except songs.Refused as e:
+        raise HTTPException(404, str(e)) from e
+    mine = songs.lists(con, uid)
+    return page(request, "_unreleased_edit.html", key=key, d=d, mine=mine, max_field=songs.LONGEST_FIELD)
+
+
+@router.post("/unreleased/{key}/song/edit")
+async def edit_song(request: Request, con: DB, key: str) -> RedirectResponse:
+    """Save the edit dialog: artist (each one), title, album, year, genre, note, lists, cover (a JPEG)."""
+    form = await request.form()
+    song = str(form.get("song") or "")
+    e = songs.Edit(
+        tuple(str(v) for v in form.getlist("artist")),
+        *(str(form.get(field) or "") for field in ("title", "album", "year", "genre", "note")),
+    )
+    cover_file = form.get("cover")
+    cover = _cover(await cover_file.read() if isinstance(cover_file, FormFile) else b"")
+    wanted = [str(v) for v in form.getlist("lists")]
+    try:
+        done = await run_in_threadpool(songs.edit, con, uploads._paths(request), _user(request), song, e, wanted, cover)
+    except songs.Refused as exc:
+        return _refused(key, exc)
+    request.app.state.worker.trigger("library")  # (the playlists: names, lists)
+    return back(f"/lists/{key}" if key in wanted else f"/lists/{wanted[0]}", ok=f"{done}.")
+
+
+@router.get("/unreleased/cover")
+def song_cover(request: Request, con: DB, song: str) -> Response:
+    """The picture in an unreleased song's file (one of the user's)."""
+    try:
+        d = songs.details(con, uploads._paths(request), _user(request), song)
+    except songs.Refused as e:
+        raise HTTPException(404, str(e)) from e
+    data = audio.picture(uploads._paths(request).tracks / d["file"]) if d["file"] else None
+    if not data:
+        raise HTTPException(404, "It has no picture.")
+    kind = "image/png" if data.startswith(b"\x89PNG") else "image/jpeg"
+    return Response(data, media_type=kind, headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/unreleased/{key}/order")
+async def reorder(request: Request, con: DB, key: str) -> Response:
+    """The list in a new order (song: its songs' keys, in order), as dragged on its page."""
+    form = await request.form()
+    try:
+        songs.reorder(con, _user(request), key, [str(v) for v in form.getlist("song")])
+    except songs.Refused as e:
+        raise HTTPException(409, str(e)) from e
+    request.app.state.worker.trigger("library")  # (the playlist's order)
+    return Response(status_code=204)
