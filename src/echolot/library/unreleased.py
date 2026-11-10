@@ -10,6 +10,7 @@ Before an upload becomes one, the release check (upload.release) asks whether it
 released song goes into Echolot · Wished as any released song (web/unreleased)."""
 
 import json
+import re
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -91,6 +92,15 @@ def rename(con: sqlite3.Connection, user_id: int, key: str, name: str) -> None:
     name = _name(con, user_id, name, key)
     with con:
         con.execute("UPDATE sources SET title = ? WHERE user_id = ? AND key = ?", (name, user_id, key))
+    _sync(con)
+
+
+def show_playlist(con: sqlite3.Connection, user_id: int, key: str, on: bool) -> None:
+    """The list as a playlist in the music server, or not (its songs stay either way)."""
+    if not owns(con, user_id, key):
+        raise Refused("That is not one of your Unreleased lists (any more).")
+    with con:
+        con.execute("UPDATE sources SET playlist = ? WHERE user_id = ? AND key = ?", (int(on), user_id, key))
     _sync(con)
 
 
@@ -386,3 +396,140 @@ def replace(
         con.execute("UPDATE songs SET length = ? WHERE key = ?", (float(f.seconds or 0), song))
     was = f" (was {old.path.rpartition('/')[2]})" if old else ""
     return f"{label}: replaced by {dest.relative_to(paths.tracks).as_posix()}{was}{tag_note}", song
+
+
+def reorder(con: sqlite3.Connection, user_id: int, key: str, order: list[str]) -> None:
+    """The user's list `key` in the order `order` (its songs' keys, each once)."""
+    if not owns(con, user_id, key):
+        raise Refused("That is not one of your Unreleased lists (any more).")
+    here = dict(_songs_of(con, key))
+    if len(order) != len(set(order)) or set(order) != set(here):
+        raise Refused("The list changed meanwhile: reload the page.")
+    _store(con, key, [(k, here[k]) for k in order])
+
+
+LONGEST_FIELD = 200  # characters of a name, the album, the genre or the note
+
+
+@dataclass(frozen=True)
+class Edit:
+    """What the edit dialog sets of an unreleased song: its artists (each one), title, album, year, genre and
+    the note where it is from."""
+
+    artists: tuple[str, ...]
+    title: str
+    album: str = ""
+    year: str = ""
+    genre: str = ""
+    note: str = ""
+
+
+def _song(con: sqlite3.Connection, user_id: int, song: str) -> sqlite3.Row:
+    row = con.execute("SELECT * FROM songs WHERE key = ? AND service = ?", (song, LOCAL)).fetchone()
+    if row is None or not in_lists(con, user_id, song):
+        raise Refused("That song is on none of your Unreleased lists.")
+    return row
+
+
+def details(con: sqlite3.Connection, paths: Paths, user_id: int, song: str) -> dict:
+    """What the edit dialog shows of an unreleased song of the user's: its names (as Edit), its lists, its file
+    (path, format, length, bitrate, sample rate, bits, channels, size, when it was uploaded) and the file's tags."""
+    row = _song(con, user_id, song)
+    path = paths.tracks / row["file"] if row["file"] else None
+    there = path is not None and path.is_file()
+    extras = tagging.unreleased_extras(path) if there else {"year": "", "genre": "", "note": ""}
+    artists = tuple(json.loads(row["artists"] or "[]") or [row["artist"]])
+    edit = Edit(artists, row["title"], row["album"] or "", extras["year"], extras["genre"], extras["note"])
+    info: dict = {}
+    if there and path is not None:
+        from mutagen import File as Mutagen
+
+        try:
+            m = Mutagen(path)
+        except Exception:
+            m = None
+        a = getattr(m, "info", None)
+        info = {
+            "format": path.suffix.lstrip(".").upper(),
+            "seconds": float(getattr(a, "length", 0) or row["length"] or 0),
+            "kbps": round((getattr(a, "bitrate", 0) or 0) / 1000),
+            "rate": getattr(a, "sample_rate", 0) or 0,
+            "bits": getattr(a, "bits_per_sample", 0) or 0,
+            "channels": getattr(a, "channels", 0) or 0,
+            "bytes": path.stat().st_size,
+            "cover": audio.picture(path) is not None,
+        }
+    sql = "SELECT ts FROM events WHERE action = 'new' AND (path = ? OR artist = ? AND title = ?) ORDER BY id LIMIT 1"
+    first = con.execute(sql, (row["file"], row["artist"], row["title"])).fetchone()
+    return {
+        "song": row,
+        "edit": edit,
+        "lists": in_lists(con, user_id, song),
+        "file": row["file"] if there else "",
+        "info": info,
+        "uploaded": first[0] if first else "",
+        "tags": tagging.all_tags(path) if there and path is not None else [],
+    }
+
+
+def edit(
+    con: sqlite3.Connection,
+    paths: Paths,
+    user_id: int,
+    song: str,
+    e: Edit,
+    lists_in: list[str],
+    cover: bytes | None = None,
+) -> str:
+    """Set an unreleased song's names, album, year, genre and note (its file renamed to its new names in
+    tracks/Unreleased/, its tags written), its cover (`cover`: a JPEG in place of its picture) and the user's
+    lists it is on (`lists_in`: one at least). Returns what was done; Refused says what can't be."""
+    row = _song(con, user_id, song)
+    artists = [a for a in dict.fromkeys(" ".join(a.split()) for a in e.artists) if a]
+    title, album, genre, note = (" ".join(v.split()) for v in (e.title, e.album, e.genre, e.note))
+    year = e.year.strip()
+    if not artists or not title:
+        raise Refused("A song needs an artist and a title.")
+    if any(len(v) > LONGEST_FIELD for v in (*artists, title, album, genre, note)):
+        raise Refused(f"Names, album, genre and note have at most {LONGEST_FIELD} characters each.")
+    if year and not re.fullmatch(r"(19|20)\d\d", year):
+        raise Refused("The year is four digits, e.g. 2026.")
+    wanted = list(dict.fromkeys(lists_in))
+    if not wanted:
+        raise Refused("Keep it on one of your lists at least (or delete the song).")
+    if any(not owns(con, user_id, k) for k in wanted):
+        raise Refused("That is not one of your Unreleased lists (any more).")
+    rel = row["file"]
+    path = paths.tracks / rel if rel else None
+    if path is None or not path.is_file():
+        raise Refused("Its file is gone from the library: upload it again.")
+    shown = ", ".join(artists)
+    name, old = filing.unreleased_name(shown, title), row["stem"].removeprefix(catalog.UNRELEASED + "/")
+    if name != old and filing.unreleased_taken(paths, name):
+        raise Refused(f"An unreleased song is named {name} already: put what differs into the title.")
+    tagging.write_unreleased(path, shown, title, album, note, artists, year, genre)
+    if cover:
+        audio.embed_cover(path, cover, replace=True)
+    if name != old:
+        try:
+            path = filing.rename_unreleased(con, paths, rel, name, f"names edited by hand: {shown} – {title}")
+        except FileExistsError as exc:
+            raise Refused(f"An unreleased song is named {name} already: put what differs into the title.") from exc
+    else:
+        st = path.stat()
+        with con:
+            con.execute("UPDATE files SET size = ?, mtime = ? WHERE path = ?", (st.st_size, int(st.st_mtime), rel))
+    with con:
+        con.execute(
+            "UPDATE songs SET artist = ?, title = ?, album = ?, artists = ? WHERE key = ?",
+            (shown, title, album, json.dumps(artists), song),
+        )
+    now = in_lists(con, user_id, song)
+    for key in wanted:
+        if key not in now:
+            _store(con, key, [*_songs_of(con, key), (song, _added())])
+    for key in now:
+        if key not in wanted:
+            _store(con, key, [(k, added) for k, added in _songs_of(con, key) if k != song])
+    catalog.match_songs(con)
+    return f"{shown} – {title} saved" + (f", its file is now {path.name}" if name != old else "")

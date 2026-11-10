@@ -409,17 +409,6 @@ a.button { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0
   color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 0.36rem 0.85rem; white-space: nowrap; transition: border-color 0.15s, background 0.15s; }
 a.button:hover { border-color: var(--muted); text-decoration: none; }
-/* an Unreleased list's Rename: a button that opens its small form below it */
-.list-manage { position: relative; display: flex; }
-.list-manage > summary { display: inline-flex; align-items: center; margin: 0; font-size: 0.85rem; font-weight: 550; color: var(--text);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.36rem 0.85rem; cursor: pointer;
-  list-style: none; background: var(--surface); }
-.list-manage > summary::-webkit-details-marker { display: none; }
-.list-manage > summary:hover, .list-manage[open] > summary { border-color: var(--muted); }
-.list-manage > form { position: absolute; right: 0; top: calc(100% + 0.35rem); z-index: 5; display: flex; gap: 0.4rem;
-  padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  box-shadow: 0 12px 30px -12px rgb(16 24 40 / 0.35); }
-.list-manage input { width: 16rem; max-width: 60vw; }
 a.button .icon { color: var(--muted); }
 /* a card's action buttons */
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
@@ -1282,15 +1271,42 @@ header nav.pages .icon { display: none; }  /* shown in the small screens' tab ba
 }
 .crumb { justify-self: start; margin-bottom: -0.4rem; font-size: 0.85rem; color: var(--muted); }
 .crumb:hover { color: var(--accent); text-decoration: none; }
-/* an unreleased song's menu on its list page (move, add to another list, take out, delete): below its button,
-   placed by the page's script (fixed: the card would cut it off) */
-.song-menu { position: relative; }
-.song-menu > summary { list-style: none; cursor: pointer; margin: 0; }
-.song-menu > summary::-webkit-details-marker { display: none; }
-.song-menu > form { position: fixed; z-index: 20; display: flex; gap: 0.4rem; align-items: center; max-width: calc(100vw - 16px);
-  padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  box-shadow: 0 12px 30px -12px rgb(16 24 40 / 0.35); }
-.song-menu select { min-width: 0; max-width: 60vw; }
-.song-menu button, .list-manage > form button { white-space: nowrap; }
-.list-manage > form label { white-space: nowrap; align-self: center; }
-.list-manage > form .muted { align-self: center; white-space: nowrap; }
+/* an Unreleased list's page: a song's handle, edit and remove; its order dragged by the handle */
+.song-actions .icon-button { padding: 0.25rem; }
+.drag-handle { cursor: grab; touch-action: none; }
+tr.dragging { background: var(--track); outline: 1px dashed var(--muted); outline-offset: -1px; }
+tr.dragging .drag-handle { cursor: grabbing; color: var(--accent); }
+.playlist-switch { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--muted); cursor: pointer; }
+/* a small dialog in the middle of the screen (Rename, Delete, Remove) */
+dialog.modal.box { width: min(30rem, calc(100vw - 2rem)); }
+dialog.modal h2 { margin: 0 0 0.4rem; font-size: 1.1rem; }
+.wide-input { width: 100%; margin-top: 0.4rem; }
+.choices { display: grid; gap: 0.5rem; margin: 0.6rem 0 0.2rem; }
+label.check { display: flex; align-items: baseline; gap: 0.5rem; cursor: pointer; }
+label.check input { flex: none; }
+/* an unreleased song's edit dialog */
+.edit-head { display: flex; gap: 1rem; align-items: center; margin-bottom: 0.9rem; }
+.edit-head h2 { margin: 0 0 0.2rem; overflow-wrap: anywhere; }
+.edit-head p { margin: 0; }
+.edit-cover { flex: none; width: 88px; height: 88px; border-radius: var(--radius-sm); object-fit: cover; border: 1px solid var(--border); }
+.edit-cover.none { display: grid; place-items: center; color: var(--muted); background: var(--track); }
+.edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem 1rem; }
+.edit-field { display: grid; gap: 0.25rem; min-width: 0; margin: 0; }
+.edit-field.wide { grid-column: 1 / -1; }
+.edit-field.narrow input[type="text"] { width: 7rem; }
+.edit-field input[type="text"] { width: 100%; }
+.edit-label { font-size: 0.8rem; color: var(--muted); padding: 0; }
+.artists { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.artist-field { display: inline-flex; align-items: center; gap: 0.15rem; flex: 1 1 12rem; }
+.artist-field input { flex: 1; min-width: 0; }
+.edit-lists { border: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; }
+.edit-lists legend { margin-bottom: 0.3rem; }
+.edit-file { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.3rem; }
+.edit-file summary { margin-top: 0.4rem; }
+.edit-file dl { margin: 0.7rem 0; font-size: 0.85rem; }
+.edit-file dd { overflow-wrap: anywhere; }
+.tag-table { width: 100%; border-collapse: collapse; }
+.tag-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 0.2rem 0.4rem; }
+.tag-table td { border-top: 1px solid var(--border); padding: 0.25rem 0.4rem; overflow-wrap: anywhere; vertical-align: top; }
+.tag-table td:first-child { white-space: nowrap; width: 1%; }
+@media (max-width: 640px) { .edit-grid { grid-template-columns: 1fr; } .edit-head { align-items: flex-start; } }

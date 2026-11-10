@@ -325,7 +325,8 @@ def test_upload_unreleased_songs(settings: Settings, login: Callable[..., TestCl
     assert f'href="/lists/{key}"' in done
     page = client.get(f"/lists/{key}").text
     assert "From Felix" in page and "Upload unreleased" in page and f"/unreleased/{key}/song" in page
-    assert 'value="move:' not in page and ">Delete the song</option>" in page  # (no other list to move into)
+    assert "/song/edit?song=" in page and "data-drag" in page and "data-alone title=" in page  # (no other list)
+    assert 'name="show" value="on" checked' in page  # (a playlist in the music server)
     assert "Open on" not in page and "Felix - Night Drive.mp3" in page
     library = client.get("/library").text
     assert "Echolot" in library and ">unreleased</span>" in library and "Upload unreleased" in library
@@ -464,11 +465,11 @@ def test_a_songs_menu_moves_adds_takes_out_and_deletes(settings: Settings, login
         assert r.status_code == 303
         return r.headers["location"]
 
-    page = client.get(f"/lists/{first}").text
-    assert f'value="move:{second}"' in page and f'value="add:{second}"' in page and 'value="remove"' not in page
-    assert "error=" in act(first, "remove")  # (its only list)
+    alone = f'data-remove="{song}" data-name="Felix – Night Drive" data-alone title='
+    assert alone in client.get(f"/lists/{first}").text  # (its only list: removing it deletes it)
+    assert "error=" in act(first, "remove")
     assert "ok=" in act(first, f"add:{second}")
-    assert 'value="remove"' in client.get(f"/lists/{first}").text
+    assert alone not in client.get(f"/lists/{first}").text
     assert "ok=" in act(first, "remove")
     assert "error=" in act(first, f"move:{second}")  # (not on this list any more)
     assert "ok=" in act(second, f"move:{first}")
@@ -542,3 +543,71 @@ def test_the_release_check_looks_by_title_alone_and_shows_only_what_the_audio_sa
     files = {"file": ("Felix - Night Drive.mp3", (AUDIO / "silence.mp3").read_bytes(), "audio/mpeg")}
     row = client.post(f"/unreleased/upload/{batch}/file", files=files).text
     assert "Named like" not in row and "Not released" in row  # (named so, no preview: nothing to tell by)
+
+
+def test_a_song_is_edited_and_its_file_follows(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """The edit dialog: names (each artist), album, year, genre, note into the file's tags, the file renamed to
+    its new names, a new cover, its lists; the file's facts and tags shown."""
+    song = put(settings)
+    con = db.connect(settings.db_path)
+    first = unreleased.lists(con, OWNER)[0]["key"]
+    second = unreleased.create(con, OWNER, "Second")
+    con.close()
+    client = login(create_app(settings))
+    form = client.get(f"/unreleased/{first}/song/edit", params={"song": song}).text
+    assert 'name="artist" value="Felix"' in form and 'name="title" value="Night Drive"' in form
+    assert "Unreleased/Felix - Night Drive.mp3" in form and 'value="from Felix"' in form and "COMM" in form
+    data = {"song": song, "artist": ["Felix", "Mara"], "title": "Night Drive (Custom Edit)", "album": "Tapes"}
+    data |= {"year": "2024", "genre": "Trance", "note": "from Felix, 2026", "lists": [first, second]}
+    cover = b"\xff\xd8\xff\xe0" + b"1" * 64
+    files = {"cover": ("c.jpg", cover, "image/jpeg")}
+    r = client.post(f"/unreleased/{first}/song/edit", data=data, files=files, follow_redirects=False)
+    assert r.status_code == 303 and "ok=" in r.headers["location"], r.headers["location"]
+    path = settings.library_dir / "Unreleased" / "Felix, Mara - Night Drive (Custom Edit).mp3"
+    assert path.is_file() and not (settings.library_dir / "Unreleased" / "Felix - Night Drive.mp3").exists()
+    assert audio.picture(path) == cover
+    assert tagging.unreleased_extras(path) == {"year": "2024", "genre": "Trance", "note": "from Felix, 2026"}
+    assert tagging.read(path)["artists"] == ["Felix", "Mara"] and tagging.read(path)["album"] == "Tapes"
+    con = db.connect(settings.db_path)
+    row = con.execute("SELECT * FROM songs WHERE key = ?", (song,)).fetchone()
+    assert row["file"] == "Unreleased/Felix, Mara - Night Drive (Custom Edit).mp3" and row["artist"] == "Felix, Mara"
+    assert json.loads(row["artists"]) == ["Felix", "Mara"] and row["album"] == "Tapes"
+    assert sorted(unreleased.in_lists(con, OWNER, song)) == sorted([first, second])
+    con.close()
+    assert client.get("/unreleased/cover", params={"song": song}).content == cover
+    bad = data | {"year": "24", "lists": [first]}
+    assert (
+        "error=" in client.post(f"/unreleased/{first}/song/edit", data=bad, follow_redirects=False).headers["location"]
+    )
+    none = data | {"lists": []}
+    r = client.post(f"/unreleased/{first}/song/edit", data=none, follow_redirects=False)
+    assert "error=Keep" in r.headers["location"]
+    data |= {"lists": [second], "year": "", "genre": ""}  # (out of the first list; year and genre taken out)
+    r = client.post(f"/unreleased/{first}/song/edit", data=data, follow_redirects=False)
+    assert r.headers["location"].startswith(f"/lists/{second}")
+    assert tagging.unreleased_extras(path)["year"] == "" and tagging.unreleased_extras(path)["genre"] == ""
+
+
+def test_the_order_and_the_playlist(settings: Settings, login: Callable[..., TestClient]) -> None:
+    first = put(settings, "Felix", "One")
+    second = put(settings, "Mara", "Two")
+    con = db.connect(settings.db_path)
+    key = unreleased.lists(con, OWNER)[0]["key"]
+    unreleased.add_to(con, OWNER, key, second)
+    con.close()
+    client = login(create_app(settings))
+    assert client.post(f"/unreleased/{key}/order", data={"song": [second, first]}).status_code == 204
+    con = db.connect(settings.db_path)
+    order = "SELECT song_key FROM list_songs WHERE list_key = ? ORDER BY position"
+    assert [r[0] for r in con.execute(order, (key,))] == [second, first]
+    con.close()
+    assert client.post(f"/unreleased/{key}/order", data={"song": [second]}).status_code == 409  # (one missing)
+    client.post(f"/unreleased/{key}/playlist", data={})
+    con = db.connect(settings.db_path)
+    assert con.execute("SELECT playlist FROM lists WHERE key = ?", (key,)).fetchone()[0] == 0
+    con.close()
+    assert "no playlist in the music server" in client.get(f"/lists/{key}").text
+    client.post(f"/unreleased/{key}/playlist", data={"show": "on"})
+    con = db.connect(settings.db_path)
+    assert con.execute("SELECT playlist FROM lists WHERE key = ?", (key,)).fetchone()[0] == 1
+    con.close()

@@ -11,12 +11,9 @@
     <h1>{{ lst.title }} <span class="count">{{ songs|length|num }}</span></h1>
     <div class="actions">
       {% if local and mine and user.can('upload') %}<button type="button" hx-get="/unreleased/upload?list={{ lst.key|urlencode }}" hx-target="#upload-body" title="Add unreleased songs to this list: music that exists nowhere else">{{ icon('upload', 14) }} Upload unreleased</button>
-      <details class="list-manage"><summary class="button">Rename</summary><form method="post" action="/unreleased/{{ lst.key }}/rename">{{ csrf_input }}<input type="text" name="name" value="{{ lst.title }}" maxlength="80" required aria-label="New name"> <button class="primary">Save</button></form></details>
-      <details class="list-manage"><summary class="button">Delete</summary><form method="post" action="/unreleased/{{ lst.key }}/delete" onsubmit="return this.songs_to.value !== '{{ drop }}' || confirm('Delete this list and its {{ alone|length }} songs on no other list? Their files are kept 30 days in inbox/replaced, then deleted.')">{{ csrf_input }}
-        {% if alone %}<label class="small" for="songs-to">Its {{ alone|length|num }} {{ 'song' if alone|length == 1 else 'songs' }} on no other list</label>
-        <select id="songs-to" name="songs_to">{% for l in others %}<option value="{{ l.key }}">Move into {{ l.title }}</option>{% endfor %}<option value="{{ drop }}">Delete with the list</option></select>
-        {% else %}<input type="hidden" name="songs_to" value=""><span class="small muted">Its playlist goes; its songs stay on your other lists.</span>{% endif %}
-        <button class="danger">Delete list</button></form></details>
+      <form method="post" action="/unreleased/{{ lst.key }}/playlist" class="playlist-form">{{ csrf_input }}<label class="playlist-switch" title="Show this list as a playlist in Navidrome and the apps that use it (its songs are in the library either way)"><input type="checkbox" name="show" value="on"{% if lst.playlist %} checked{% endif %} onchange="this.form.requestSubmit()"> Playlist in the music server</label></form>
+      <button type="button" data-open="rename-dialog">Rename</button>
+      <button type="button" class="danger" data-open="delete-dialog">Delete</button>
       {% elif not local and user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload', 14) }} Upload files</button>{% endif %}
       {% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record songs of this list with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
       {% if not local %}<a class="button" href="{{ lst.url }}" target="_blank" rel="noopener" title="The list at its source">{{ icon(lst.service, 14) }} Open on {{ lst.service|source }} ↗</a>{% endif %}
@@ -36,21 +33,16 @@
     <tbody>
     {% for s in songs %}
     {% set twin = same.get(s.position) %}
-    <tr{% if twin is not none %} class="same"{% elif not s.file %} class="missing"{% endif %}>
+    <tr{% if twin is not none %} class="same"{% elif not s.file %} class="missing"{% endif %}{% if local and upload %} data-song="{{ s.key }}"{% endif %}>
       <td class="num muted">{{ s.position + 1 }}</td>
       {{ song_cells(s) }}
       <td><span class="nowrap">{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}{{ song_mark(s.key, marks.get(s.key) or ({'kind': 'twin', 'why': 'The same song as #' ~ (twin + 1) ~ ', another release at its source: one file, recorded once'} if twin is not none), upload) }}{% if s.quality != 'lossless' and offers.get(s.key) %} {{ bandcamp(offers[s.key]) }}{% endif %}{% if s.quality != 'lossless' and links.get(s.key) %} {{ free_link(links[s.key]) }}{% endif %}</span></td>
       <td class="hide-narrow">{% if twin is not none %}<span class="small muted" title="The list has this recording twice (another release at its source); it is one file and plays once in the playlist">same song as #{{ twin + 1 }}, another release</span>{% elif s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>
-      {% if upload and local %}<td class="row-action"><details class="song-menu"><summary class="icon-button" title="Move, add to another list, delete" aria-label="Manage {{ s.artist }} – {{ s.title }}">⋯</summary>
-        <form method="post" action="/unreleased/{{ lst.key }}/song" onsubmit="return this.to.value !== '{{ drop }}' || confirm({{ ('Delete ' ~ s.artist ~ ' – ' ~ s.title ~ '? Its file is kept 30 days in inbox/replaced, then deleted.')|tojson|forceescape }})">{{ csrf_input }}<input type="hidden" name="song" value="{{ s.key }}">
-          <select name="to" aria-label="What to do with {{ s.artist }} – {{ s.title }}">
-            {% for l in others %}<option value="move:{{ l.key }}">Move into {{ l.title }}</option>{% endfor %}
-            {% for l in others %}<option value="add:{{ l.key }}">Also add to {{ l.title }}</option>{% endfor %}
-            {% if s.key not in alone %}<option value="remove">Take out of this list</option>{% endif %}
-            <option value="{{ drop }}">Delete the song</option>
-          </select>
-          <button class="primary small">Do it</button>
-        </form></details></td>
+      {% if upload and local %}<td class="row-action song-actions"><span class="nowrap">
+        <button type="button" class="icon-button drag-handle" data-drag title="Drag to move it in the list (or arrow keys)" aria-label="Move {{ s.artist }} – {{ s.title }} in the list">{{ use('drag') }}</button>
+        <button type="button" class="icon-button" hx-get="/unreleased/{{ lst.key }}/song/edit?song={{ s.key|urlencode }}" hx-target="#song-body" title="Edit: names, album, year, genre, cover, lists; its file" aria-label="Edit {{ s.artist }} – {{ s.title }}">{{ use('edit') }}</button>
+        <button type="button" class="icon-button" data-remove="{{ s.key }}" data-name="{{ s.artist }} – {{ s.title }}"{% if s.key in alone %} data-alone{% endif %} title="{{ 'Delete the song' if s.key in alone else 'Take it out of this list' }}" aria-label="Remove {{ s.artist }} – {{ s.title }}">{{ use('delete') }}</button>
+      </span></td>
       {% elif upload %}<td class="row-action">{% if twin is none and (not s.file or s.quality != 'lossless') %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="{{ 'Upload a file for this song' if not s.file else 'Upload a better copy of this song' }}" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
     </tr>
     {% endfor %}
@@ -58,17 +50,127 @@
   </table>
 </section>
 {% if upload %}{% include "_upload_dialog.html" %}{% endif %}
-{% if upload and local %}<script>
-  // a song's menu opens below its button over the page (the card would cut it off); one at a time, closed on scroll
-  document.addEventListener("toggle", (e) => {
-    const menu = e.target;
-    if (!(menu instanceof HTMLDetailsElement) || !menu.matches(".song-menu") || !menu.open) return;
-    document.querySelectorAll(".song-menu[open]").forEach((d) => { if (d !== menu) d.open = false; });
-    const at = menu.querySelector("summary").getBoundingClientRect(), form = menu.querySelector("form");
-    form.style.top = `${at.bottom + 4}px`;
-    form.style.right = `${Math.max(8, document.documentElement.clientWidth - at.right)}px`;
-  }, true);
-  addEventListener("scroll", () => document.querySelectorAll(".song-menu[open]").forEach((d) => { d.open = false; }), { passive: true });
+{% if upload and local %}{% from "_icons.html" import sprite %}{{ sprite(['drag', 'edit', 'delete', 'songs', 'close']) }}
+<dialog id="song-dialog" class="modal" aria-label="Edit the song"><div id="song-body"></div></dialog>
+<dialog id="rename-dialog" class="modal box" aria-labelledby="rename-title">
+  <form method="post" action="/unreleased/{{ lst.key }}/rename">{{ csrf_input }}
+    <h2 id="rename-title">Rename the list</h2>
+    <p class="muted small">Its playlist in the music server takes the new name.</p>
+    <input type="text" name="name" value="{{ lst.title }}" maxlength="80" required aria-label="New name" class="wide-input">
+    <div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="primary">Rename</button></div>
+  </form>
+</dialog>
+<dialog id="delete-dialog" class="modal box" aria-labelledby="delete-title">
+  <form method="post" action="/unreleased/{{ lst.key }}/delete">{{ csrf_input }}
+    <h2 id="delete-title">Delete {{ lst.title }}?</h2>
+    {% if alone %}<p>Its playlist goes. {{ alone|length|num }} of its songs {{ 'is' if alone|length == 1 else 'are' }} on none of your other lists:</p>
+    <div class="choices">
+      {% for l in others %}<label class="check"><input type="radio" name="songs_to" value="{{ l.key }}"{% if loop.first %} checked{% endif %}> <span>Move {{ 'it' if alone|length == 1 else 'them' }} into <b>{{ l.title }}</b></span></label>{% endfor %}
+      <label class="check"><input type="radio" name="songs_to" value="{{ drop }}"{% if not others %} checked{% endif %}> <span>Delete {{ 'it' if alone|length == 1 else 'them' }} too <span class="muted">(the files are kept 30 days in inbox/replaced, then deleted)</span></span></label>
+    </div>
+    {% else %}<input type="hidden" name="songs_to" value=""><p>Its playlist goes; its songs stay on your other lists.</p>{% endif %}
+    <div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="danger">Delete the list</button></div>
+  </form>
+</dialog>
+<dialog id="remove-dialog" class="modal box" aria-labelledby="remove-title">
+  <form method="post" action="/unreleased/{{ lst.key }}/song">{{ csrf_input }}<input type="hidden" name="song"><input type="hidden" name="to">
+    <h2 id="remove-title"></h2>
+    <p data-text></p>
+    <div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="danger" data-go></button></div>
+  </form>
+</dialog>
+<script>
+  // the list page of an Unreleased list: dialogs in the middle of the screen (closed by Cancel, Esc or a click
+  // beside them), a song's edit dialog (loaded into #song-body), remove (take out, or delete a song on no other
+  // list), and the order by dragging a row's handle (or its arrow keys), saved at once
+  (() => {
+    const csrf = () => JSON.parse(document.body.getAttribute("hx-headers") || "{}")["X-CSRF-Token"] || "";
+    const open = (id) => document.getElementById(id).showModal();
+    for (const d of document.querySelectorAll("dialog.modal")) {
+      d.addEventListener("click", (e) => {
+        if (e.target.closest("[data-close]")) return d.close();
+        if (e.target !== d) return;
+        const r = d.getBoundingClientRect();  // (the dialog's own padding is the dialog too: only outside it)
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close();
+      });
+    }
+    document.addEventListener("click", (e) => {
+      const opener = e.target.closest("[data-open]");
+      if (opener) return open(opener.dataset.open);
+      const remove = e.target.closest("[data-remove]");
+      if (remove) {
+        const d = document.getElementById("remove-dialog"), alone = remove.hasAttribute("data-alone");
+        d.querySelector("[name=song]").value = remove.dataset.remove;
+        d.querySelector("[name=to]").value = alone ? "{{ drop }}" : "remove";
+        d.querySelector("h2").textContent = alone ? `Delete ${remove.dataset.name}?` : `Take ${remove.dataset.name} out of this list?`;
+        d.querySelector("[data-text]").textContent = alone
+          ? "It is on none of your other lists, so the song goes: its file is kept 30 days in inbox/replaced, then deleted."
+          : "It stays on your other lists and in the library.";
+        d.querySelector("[data-go]").textContent = alone ? "Delete the song" : "Take it out";
+        return open("remove-dialog");
+      }
+      const add = e.target.closest("[data-artist-add]");
+      if (add) {
+        const field = document.createElement("span");
+        field.className = "artist-field";
+        field.innerHTML = '<input type="text" name="artist" required maxlength="200" aria-label="Another artist"><button type="button" class="icon-button" data-artist-drop title="Take this artist out" aria-label="Take this artist out"><svg class="icon" width="14" height="14" aria-hidden="true"><use href="#i-close"></use></svg></button>';
+        add.before(field);
+        return field.querySelector("input").focus();
+      }
+      const drop = e.target.closest("[data-artist-drop]");
+      if (drop) drop.closest(".artist-field").remove();
+    });
+    document.body.addEventListener("htmx:afterSwap", (e) => {
+      if (e.detail.target.id === "song-body") document.getElementById("song-dialog").showModal();
+    });
+    // the order: drag a handle (mouse, pen, touch), or Arrow up/down on it; saved when let go
+    const body = document.querySelector("tbody");
+    const rows = () => [...body.querySelectorAll("tr[data-song]")];
+    const renumber = () => rows().forEach((tr, n) => { tr.querySelector("td.num").textContent = n + 1; });
+    const save = async () => {
+      const form = new FormData();
+      for (const tr of rows()) form.append("song", tr.dataset.song);
+      const r = await fetch("/unreleased/{{ lst.key }}/order", { method: "POST", body: form, headers: { "X-CSRF-Token": csrf() } });
+      if (!r.ok) location.reload();
+    };
+    let dragging = null, before = "";
+    body.addEventListener("pointerdown", (e) => {
+      const handle = e.target.closest("[data-drag]");
+      if (!handle || e.button > 0) return;
+      e.preventDefault();
+      dragging = handle.closest("tr");
+      before = rows().map((tr) => tr.dataset.song).join();
+      dragging.classList.add("dragging");
+      handle.setPointerCapture(e.pointerId);
+    });
+    body.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const over = rows().find((tr) => tr !== dragging && (() => { const r = tr.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; })());
+      if (!over) return;
+      const r = over.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) over.before(dragging); else over.after(dragging);
+    });
+    const end = () => {
+      if (!dragging) return;
+      dragging.classList.remove("dragging");
+      dragging = null;
+      renumber();
+      if (rows().map((tr) => tr.dataset.song).join() !== before) save();
+    };
+    body.addEventListener("pointerup", end);
+    body.addEventListener("pointercancel", end);
+    body.addEventListener("keydown", (e) => {
+      const handle = e.target.closest("[data-drag]");
+      if (!handle || !["ArrowUp", "ArrowDown"].includes(e.key)) return;
+      e.preventDefault();
+      const tr = handle.closest("tr"), next = e.key === "ArrowUp" ? tr.previousElementSibling : tr.nextElementSibling;
+      if (!next) return;
+      if (e.key === "ArrowUp") next.before(tr); else next.after(tr);
+      handle.focus();
+      renumber();
+      save();
+    });
+  })();
 </script>{% endif %}
 {% if lst.service == 'spotify' and user.can('upload') %}{% include "_record.html" %}{% endif %}
 {% endblock %}
