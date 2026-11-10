@@ -103,3 +103,22 @@ def test_same_master_of_nothing_but_silence_is_nothing(monkeypatch: pytest.Monke
     monkeypatch.setattr(identity, "fingerprint", lambda p: np.ones(200, dtype=np.uint32))
     monkeypatch.setattr(identity, "_pcm", lambda p: np.zeros(30 * identity._RATE, dtype="<f4"))
     assert identity.same_master(tmp_path / "a.flac", tmp_path / "b.flac") == 0.0
+
+
+def test_a_self_release_with_artist_and_title_swapped(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fayahh - Robinson (a self-release taken down) and Robinson - Fayahh (Ayo Girl & Love Me Back Beat), the
+    label's re-release, are one file: of equal files the re-release's is kept."""
+    con, paths = env
+    old, new = "Fayahh/Fayahh - Robinson.flac", "Robinson/Robinson - Fayahh (Ayo Girl & Love Me Back Beat).flac"
+    add_file(con, paths, old, 207.9, 787)
+    add_file(con, paths, new, 208.5, 787)
+    song = (
+        "INSERT INTO songs (key, service, artist, title, length, file, released) VALUES (?, 'spotify', ?, ?, ?, ?, ?)"
+    )
+    with con:
+        con.execute(song, ("spotify:old", "Fayahh", "Robinson", 208, old, "2021-11-29"))
+        con.execute(song, ("spotify:new", "Robinson", "Fayahh (Ayo Girl & Love Me Back Beat)", 208, new, "2022-01-14"))
+    monkeypatch.setattr(identity, "same_master", lambda a, b: float("Fayahh" in a.name + b.name))
+    assert recordings.merge_same(con, paths) == [f"{old} -> {new}"]
+    catalog.match_songs(con)
+    assert file_of(con, "spotify:old") == file_of(con, "spotify:new") == new

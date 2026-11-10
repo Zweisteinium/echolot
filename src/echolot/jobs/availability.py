@@ -3,7 +3,7 @@ happened to them and to the lists (the changes table).
 
 Spotify, through the app's own access in one market (options.Spotify.market): a song plays (available),
 plays as another release of the recording (replaced: Spotify relinks it, or one with its ISRC plays that
-Spotify does not link), plays nowhere (taken_down), not in that market (blocked), or exists no more (gone).
+Spotify does not link, or one of other names and ISRC that sounds as its file), plays nowhere (taken_down), not in that market (blocked), or exists no more (gone).
 SoundCloud, through any user's token: gone (deleted or private: SoundCloud does not tell which), blocked
 here (policy BLOCK), or a 30-second preview without Go+ (preview); a label release that can't be
 downloaded still plays. YouTube, as its lists are read (lists.youtube): available, blocked or gone
@@ -21,7 +21,7 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from echolot import db
-from echolot.library import rules
+from echolot.library import identity, recordings, rules
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify
 from echolot.settings import options
@@ -40,6 +40,8 @@ WHY_REMOVED = {
 BATCH = 50  # songs per request (Spotify's and SoundCloud's limit)
 SEARCH_AGAIN = datetime.timedelta(days=7)  # another release of a song that plays nowhere: looked for again after
 SEARCHES = 50  # ... and at most this many per check
+NAMED = 10  # tracks a search by a lost song's names looks at
+RENAMED_LENGTH = 2  # s: a release of the recording under other names is as long
 
 
 def _now() -> str:
@@ -207,14 +209,19 @@ def _other_release(
             if t and t.get("is_playable") is not False:
                 found[key] = ("replaced", f"spotify:{t['id']}")
     due = (datetime.datetime.now() - SEARCH_AGAIN).isoformat(timespec="seconds")
-    ask = [(k, isrc) for k, isrc in lost.items() if isrc and k not in found]
-    ask = [(k, i) for k, i in ask if k in before or not (k in known and (known[k]["searched"] or "") > due)][:SEARCHES]
+    ask = [k for k in lost if k not in found]
+    ask = [k for k in ask if k in before or not (k in known and (known[k]["searched"] or "") > due)][:SEARCHES]
+    marks = ", ".join("?" * len(ask))
+    songs = {r["key"]: r for r in con.execute(f"SELECT * FROM songs WHERE key IN ({marks})", ask)}
     searched = []
-    for n, (key, isrc) in enumerate(ask):
+    for n, key in enumerate(ask):
         if run.stop.is_set():
             break
         run.say(f"Spotify: other releases, {n + 1} of {len(ask)}", n, len(ask))
-        if t := sp.by_isrc(isrc, market):
+        t = sp.by_isrc(isrc, market) if (isrc := lost[key]) else None
+        if t is None and key in songs:
+            t = _renamed(con, run, sp, market, songs[key])
+        if t:
             found[key] = ("replaced", f"spotify:{t['id']}")
         searched.append(key)
     now, state = _now(), {k: found.get(k) or states[k] for k in searched}
@@ -225,6 +232,42 @@ def _other_release(
             [(k, state[k][0], now, state[k][1], now) for k in searched],
         )
     return found
+
+
+def _renamed(con: sqlite3.Connection, run: "Run", sp: spotify.Spotify, market: str, song: sqlite3.Row) -> dict | None:
+    """A release of the song under other names and another ISRC that plays here (a self-release a label
+    released again, renamed: "Fayahh - Robinson" as "Robinson - Fayahh (Ayo Girl & Love Me Back Beat)", its
+    artist and title swapped): a track a search for its names finds, as long (RENAMED_LENGTH), naming its
+    artist and title's core either way round, whose release sounds as the song's library file
+    (identity.check). None without a file."""
+    if not song["file"] or rules.mix_cut(song["title"]) or not (title := recordings.core(song["title"])):
+        return None
+    try:
+        path = run.paths.tracks / song["file"]
+    except RuntimeError:  # no library
+        return None
+    if not path.is_file():
+        return None
+    artists = [c for a in [song["artist"], *json.loads(song["artists"] or "[]")] if (c := recordings.core(a))]
+    for t in sp.search(f"{song['artist']} {song['title']}", NAMED, market):
+        names = f" {' '.join(recordings.core(n) for n in [t.get('name') or '', *_artists(t)])} "
+        isrc = (t.get("external_ids") or {}).get("isrc") or ""
+        if (
+            t.get("id")
+            and f"spotify:{t['id']}" != song["key"]
+            and isrc
+            and t.get("is_playable") is not False
+            and abs((t.get("duration_ms") or 0) / 1000 - song["length"]) <= RENAMED_LENGTH
+            and f" {title} " in names
+            and any(f" {a} " in names for a in artists)
+            and identity.check(con, isrc, path).verdict == "same"
+        ):
+            return t
+    return None
+
+
+def _artists(track: dict) -> list[str]:
+    return [a.get("name") or "" for a in track.get("artists") or []]
 
 
 def _plays_as(con: sqlite3.Connection, run: "Run", states: dict[str, tuple[str, str | None]]) -> None:

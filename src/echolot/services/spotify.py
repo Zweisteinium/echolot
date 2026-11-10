@@ -350,9 +350,9 @@ class Spotify:
         items = (self.get(f"/search?q={q}&type=track&limit=1").get("tracks") or {}).get("items") or []
         return items[0] if items else None
 
-    def search(self, q: str, limit: int = 5) -> list[dict[str, Any]]:
-        """The tracks a search finds, the best first."""
-        url = f"/search?q={urllib.parse.quote(q)}&type=track&limit={limit}"
+    def search(self, q: str, limit: int = 5, market: str = "") -> list[dict[str, Any]]:
+        """The tracks a search finds, the best first (`market`: with whether each plays there)."""
+        url = f"/search?q={urllib.parse.quote(q)}&type=track&limit={limit}{f'&market={market}' if market else ''}"
         return (self.get(url).get("tracks") or {}).get("items") or []
 
     def by_isrc(self, isrc: str, market: str) -> dict[str, Any] | None:

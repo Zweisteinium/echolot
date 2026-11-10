@@ -15,6 +15,7 @@ from echolot.config import Settings
 from echolot.jobs import availability
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
+from echolot.library import identity
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify
 from echolot.settings import auth, sources
@@ -67,9 +68,15 @@ class FakeSpotify:
     unplayable: ClassVar[set[str]] = set()
     asked: ClassVar[list[str]] = []  # the ids asked for without a market
     relinked: ClassVar[bool] = True
+    named: ClassVar[list[dict]] = []  # what a search by names finds
+    queries: ClassVar[list[str]] = []
 
     def __init__(self, con, vault, user_id=None) -> None:
         pass
+
+    def search(self, q: str, limit: int = 5, market: str = "") -> list[dict]:
+        self.queries.append(q)
+        return self.named[:limit]
 
     def by_isrc(self, isrc: str, market: str) -> dict | None:
         self.searched.append(isrc)
@@ -114,6 +121,8 @@ def run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Run:
     monkeypatch.setattr(FakeSpotify, "unplayable", set())
     monkeypatch.setattr(FakeSpotify, "asked", [])
     monkeypatch.setattr(FakeSpotify, "relinked", True)
+    monkeypatch.setattr(FakeSpotify, "named", [])
+    monkeypatch.setattr(FakeSpotify, "queries", [])
     monkeypatch.setattr(sc_api, "any_token", lambda con, vault: "token")
     found = {"1001": {"id": 1001, "policy": "MONETIZE"}}  # 1002 is gone
     monkeypatch.setattr(sc_api, "tracks", lambda token, ids: [found[i] for i in ids if i in found])
@@ -282,3 +291,35 @@ def test_the_changes_page(settings: Settings, login: Callable[..., TestClient]) 
     assert "2026-10-01</td>" in owner and ">unknown</span>" in owner  # since when it was so: not known
     timon = login(app, "timon", admin=False).get("/changes").text
     assert "Gone Song" not in timon and "Second Song" in timon  # removed from timon's list
+
+
+def test_another_release_under_other_names(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A song taken down whose ISRC plays nowhere: a release found by its names, either way round, as long,
+    that sounds as its file replaces it (a self-release a label released again: Fayahh - Robinson as
+    Robinson - Fayahh). One of other audio or length does not."""
+
+    def track(tid: str, name: str, artist: str, seconds: float, isrc: str) -> dict:
+        names = {"name": name, "artists": [{"name": artist}], "duration_ms": seconds * 1000}
+        return {"id": tid, **names, "external_ids": {"isrc": isrc}, "is_playable": True}
+
+    FakeSpotify.named = [
+        track("long", "Second Song", "Artist B", 330, "ISRCL"),
+        track("other", "Second Song (Bootleg)", "Artist B", 300, "ISRCO"),
+        track("swapped", "Artist B (Love Me Back Beat)", "Second Song", 300.4, "ISRCS"),
+    ]
+    checked = []
+
+    def check(con, isrc, path, any_length=False):
+        checked.append(isrc)
+        return identity.Evidence("same" if isrc == "ISRCS" else "other")
+
+    monkeypatch.setattr(identity, "check", check)
+    con = run.connect()
+    assert con.execute("SELECT file FROM songs WHERE key = 'spotify:s2'").fetchone()[0]  # (s3 has none)
+    con.close()
+    availability.check(run)
+    con = run.connect()
+    states = {r[0]: tuple(r[1:]) for r in con.execute("SELECT song_key, state, detail FROM availability")}
+    assert states["spotify:s2"] == ("replaced", "spotify:swapped") and states["spotify:s3"] == ("blocked", None)
+    assert FakeSpotify.queries == ["Artist B Second Song (Original Mix)"] and checked == ["ISRCO", "ISRCS"]
+    con.close()

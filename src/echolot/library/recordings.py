@@ -9,7 +9,8 @@ artist, "Edit" and "Radio Edit", a re-release), a SoundCloud upload names it its
   already     before a SoundCloud or YouTube download is filed: a file with the same core title and length
               that is the same audio (identity.same_master) is the song; a genuine FLAC still replaces a lossy
               copy
-  merge_same  files of different songs that are the same audio: the better one is kept for all of them
+  merge_same  files of different songs that are the same audio (named alike, or with artist and title
+              swapped): the better one is kept for all of them
   another_edit / merge_edits  a YouTube song (often a shorter edit) named as a library song of another
               length: the same recording by its audio (SAME_EDIT) is linked to that file, a probable one
               (ALIKE) goes to review
@@ -141,6 +142,7 @@ def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
         and not catalog.unreleased(p)
         and not any(r["close_match"] or rules.mix_cut(r["title"]) or r["service"] == catalog.LOCAL for r in rows)
     }
+    lost = {r[0] for r in con.execute(f"SELECT song_key FROM availability WHERE state IN {GONE}")}
     done = []
     for a, b in _pairs(files, entries):
         if a not in files or b not in files:
@@ -150,7 +152,7 @@ def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
             checked[pair] = round(identity.same_master(paths.tracks / a, paths.tracks / b), 4)
         if (share := checked[pair]) < identity.SAME_MASTER:
             continue
-        better, worse = sorted((entries[a], entries[b]), key=catalog.Entry.rank, reverse=True)
+        better, worse = sorted((entries[a], entries[b]), key=lambda e: _keep(e, files[e.path], lost), reverse=True)
         path = paths.tracks / worse.path
         if not path.is_file() or path.stat().st_size != sizes[worse.path]:
             continue
@@ -164,16 +166,30 @@ def merge_same(con: sqlite3.Connection, paths: Paths) -> list[str]:
     return done
 
 
+GONE = "('taken_down', 'blocked', 'gone', 'replaced')"  # availability states: the song plays no more as itself
+
+
+def _keep(e: catalog.Entry, rows: list[sqlite3.Row], lost: set[str]) -> tuple:
+    """Which of two files of the same audio is kept: the better one; of equals, the one of a song that still
+    plays as itself, then of the latest release (the label's re-release, not the self-release it took down)."""
+    return (e.rank(), not all(r["key"] in lost for r in rows), max(r["released"] or "" for r in rows))
+
+
 def _pairs(files: dict[str, list[sqlite3.Row]], entries: dict[str, catalog.Entry]) -> list[tuple[str, str]]:
-    """Pairs of the files whose names or songs share a core title, within 3 s of each other's length."""
+    """Pairs of the files whose names or songs share a core title, or a song's artist and title either way
+    round (a self-release naming the song as the artist), within 3 s of each other's length."""
     by_core: dict[str, set[str]] = {}
+    by_names: dict[frozenset[str], set[str]] = {}
     for p, rows in files.items():
         for t in {entries[p].title, *(r["title"] for r in rows)}:
             if len(c := core(t)) >= 2:
                 by_core.setdefault(c, set()).add(p)
+        for r in rows:
+            if len(a := core(r["artist"])) >= 2 and len(t := core(r["title"])) >= 2 and a != t:
+                by_names.setdefault(frozenset((a, t)), set()).add(p)
     near = {
         (a, b)
-        for group in by_core.values()
+        for group in [*by_core.values(), *by_names.values()]
         for a in group
         for b in group
         if a < b and abs(entries[a].duration - entries[b].duration) <= 3
