@@ -2,7 +2,7 @@
    uploads each file to data-post and checks it; rows: _unreleased_row.html); done: _upload.html #}
 <div class="upload" data-batch="{{ batch }}" data-post="/unreleased/upload/{{ batch }}/file">
   <h2>Upload unreleased songs</h2>
-  <p class="muted small">Music that exists nowhere else: a friend's own tracks, customs deleted everywhere. Each file is first checked for a release; one that is released is better imported as that song. The others are kept exactly as you upload them, in <code>Unreleased/</code>: Echolot never searches, upgrades, retags or covers them.</p>
+  <p class="muted small">Music that exists nowhere else: a friend's own tracks, customs deleted everywhere. Each file is checked first: against releases (Deezer's previews) and your library, by its names and its audio; what it may be already is shown in its row. The others are kept exactly as you upload them, in <code>Unreleased/</code>: Echolot never searches, upgrades, retags or covers them. Up to {{ max_lists }} lists of your own, each a playlist.</p>
   <label class="drop">
     <input type="file" multiple accept="audio/*,.flac,.mp3,.m4a,.opus,.ogg,.wav,.aiff,.aif" data-files>
     <span class="drop-text"><b>Choose files</b> or drop them here</span>
@@ -15,7 +15,7 @@
         <span class="pick">
           <select id="unreleased-list" name="list" data-list-pick>
             {% for l in lists %}<option value="{{ l.key }}"{% if l.key == chosen %} selected{% endif %}>{{ l.title }} ({{ l.songs|num }})</option>{% endfor %}
-            <option value="{{ new }}"{% if chosen == new %} selected{% endif %}>New list…</option>
+            {% if lists|length < max_lists %}<option value="{{ new }}"{% if chosen == new %} selected{% endif %}>New list…</option>{% endif %}
           </select>
           <input type="text" name="new_list" placeholder="Name of the new list" maxlength="80" aria-label="Name of the new list" data-new-list{% if chosen != new %} hidden{% else %} required{% endif %}>
         </span>

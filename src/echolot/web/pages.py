@@ -211,6 +211,8 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}
     links = stats.links(con) if lst["service"] == "soundcloud" else {}
     mine = unreleased.owns(con, request.state.user.id, key)  # an Unreleased list of theirs: they manage it
+    others = [r for r in unreleased.lists(con, request.state.user.id) if r["key"] != key] if mine else []
+    alone = set(unreleased.only_here(con, request.state.user.id, key)) if mine else set()
     return page(
         request,
         "list.html",
@@ -223,6 +225,9 @@ def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
         offers=offers,
         links=links,
         mine=mine,
+        others=others,
+        alone=alone,
+        drop=unreleased.DROP,
     )
 
 

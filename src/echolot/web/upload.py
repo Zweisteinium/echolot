@@ -83,11 +83,14 @@ def yours(found: Found, songs: dict[str, Any]) -> Any:
     return songs.get(key or "")
 
 
-def find_release(con: sqlite3.Connection, paths: filing.Paths, f: upload.File, artist: str, title: str) -> Found:
-    """Look for the file as a release by these names (one Deezer search, a preview or three)."""
-    out = Found(have=upload.have_as(con, paths, f, title))
+def find_release(
+    con: sqlite3.Connection, paths: filing.Paths, f: upload.File, artist: str, title: str, loose: bool = False
+) -> Found:
+    """Look for the file as a release by these names (a Deezer search or two: `loose`, upload.release; a preview
+    or three); `loose` (the unreleased dialog: its own check of the library, unreleased.twins) without have."""
+    out = Found(have="" if loose else upload.have_as(con, paths, f, title))
     try:
-        out.release = upload.release(f, artist, title, lambda q: catalogs.deezer(q, RESULTS))
+        out.release = upload.release(f, artist, title, lambda q: catalogs.deezer(q, RESULTS), loose)
     except catalogs.CatalogError as e:
         out.failed = f"The release check could not ask Deezer ({e}); check again later."
         return out

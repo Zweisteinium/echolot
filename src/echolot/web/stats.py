@@ -146,7 +146,8 @@ _BEST = (
 # searched everywhere in vain: Soulseek at its loosest (acquire.LOOSEN), YouTube and SoundCloud too
 _SEARCHED_OUT = "s.key IN (SELECT song_key FROM attempts WHERE tries >= 4 AND last_fallback > 0)"
 # gone from Spotify (or Spotify has nothing better) and searched out: left out of the Best share
-_WIPED = f"({_GONE} OR {_HELD}) AND {_SEARCHED_OUT}"
+# (an unreleased song whose file is gone: nothing searches it, there is no other copy)
+_WIPED = f"((({_GONE} OR {_HELD}) AND {_SEARCHED_OUT}) OR {_THE_ONLY})"
 _UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND {_WIPED}), 0) AS unobtainable"
 
 

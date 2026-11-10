@@ -1,4 +1,5 @@
-{# a file in the dialog for unreleased songs (web/unreleased.py): the names it is to have, its release check #}
+{# a file in the dialog for unreleased songs (web/unreleased.py): the names it is to have, what it may be already
+   (a release, a library file: shown only when its audio says so) and what it is imported as (choices) #}
 {% from "_macros.html" import quality %}
 <tr class="upload-row">
   <td class="upload-file">
@@ -22,13 +23,11 @@
       {% endfor %}
     </div>{% endif %}
     {% if not f.error %}
-    {% if found and found.release %}{% set r = found.release.result %}
+    {% if choices|length > 2 %}
     <select name="song_{{ f.n }}" class="small" aria-label="Import {{ f.name }} as">
-      <option value="local"{% if found.release.verdict != 'released' %} selected{% endif %}>Keep it as unreleased</option>
-      {% if found.mine %}<option value="{{ found.mine.key }}" selected>Import as your {{ found.mine.artist }} – {{ found.mine.title }} (released, on your lists)</option>
-      {% else %}<option value="wish:{{ found.sid }}"{% if found.release.verdict == 'released' %} selected{% endif %}>Import as {{ r.artist }} – {{ r.title }} (released: into Echolot · Wished)</option>{% endif %}
+      {% for value, text in choices %}<option value="{{ value }}"{% if value == likely %} selected{% endif %}>{{ text }}</option>{% endfor %}
     </select>
-    {% else %}<input type="hidden" name="song_{{ f.n }}" value="local">{% endif %}
+    {% else %}<input type="hidden" name="song_{{ f.n }}" value="{{ likely }}">{% endif %}
     <button type="button" class="link small" hx-post="/unreleased/upload/{{ batch }}/{{ f.n }}/check" hx-include="closest tr" hx-target="closest tr" hx-swap="outerHTML" title="Check for a release again by the names typed in">Check again</button>
     {% endif %}
   </td>

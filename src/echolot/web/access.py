@@ -86,6 +86,7 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> permission 
     ("POST", "/unreleased/{key}/rename"): "upload",
     ("POST", "/unreleased/{key}/delete"): "upload",
     ("POST", "/unreleased/{key}/remove"): "upload",
+    ("POST", "/unreleased/{key}/song"): "upload",
     ("POST", "/songs/{key:path}/search"): "run",
     ("POST", "/songs/{key:path}/close-remove"): "review",
     ("POST", "/jobs/mine"): "run",

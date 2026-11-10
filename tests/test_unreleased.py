@@ -137,6 +137,8 @@ def test_a_gone_file_is_missing_and_never_searched(settings: Settings) -> None:
     assert song not in [r["key"] for r in acquire._missing(con)]  # (nothing searches for it)
     gone = next(s for s in stats.missing(con, uid=OWNER) if s["key"] == song)
     assert gone["notes"][0][0] == unreleased.UNAVAILABLE
+    tiers = {tier: n for tier, _, n in stats.best_tiers(con, OWNER)}
+    assert tiers["gone"] >= 1  # (wiped, not "still searching": there is no other copy)
     con.close()
 
 
@@ -225,13 +227,23 @@ def test_its_lists_are_echolots_own(settings: Settings) -> None:
     assert con.execute("SELECT title FROM lists WHERE key = ?", (key,)).fetchone()[0] == "Felix"
     with pytest.raises(unreleased.Refused, match="already"):
         unreleased.create(con, OWNER, " felix ")
+    with pytest.raises(unreleased.Refused, match="none of your other"):  # (a song stays on one of your lists)
+        unreleased.remove(con, OWNER, key, song)
+    second = unreleased.create(con, OWNER, "Second")
+    unreleased.add_to(con, OWNER, second, song)
     unreleased.remove(con, OWNER, key, song)
     assert not con.execute("SELECT 1 FROM list_songs WHERE list_key = ?", (key,)).fetchone()
-    unreleased.delete(con, OWNER, key)
+    unreleased.move(con, OWNER, second, song, key)
+    assert unreleased.in_lists(con, OWNER, song) == [key]
+    paths = paths_of(settings)
+    with pytest.raises(unreleased.Refused, match="Choose"):  # (its song is on no other list)
+        unreleased.delete(con, paths, OWNER, key, "")
+    assert unreleased.delete(con, paths, OWNER, key, second) == 1
     assert not con.execute("SELECT 1 FROM lists WHERE key = ?", (key,)).fetchone()
+    assert unreleased.in_lists(con, OWNER, song) == [second]
     assert (settings.library_dir / "Unreleased" / "Felix - Night Drive.mp3").is_file()  # (its file stays)
     with pytest.raises(unreleased.Refused):
-        unreleased.delete(con, OWNER, key)
+        unreleased.delete(con, paths, OWNER, key, second)
     con.close()
 
 
@@ -312,14 +324,20 @@ def test_upload_unreleased_songs(settings: Settings, login: Callable[..., TestCl
     con.close()
     assert f'href="/lists/{key}"' in done
     page = client.get(f"/lists/{key}").text
-    assert "From Felix" in page and "Upload unreleased" in page and f"/unreleased/{key}/remove" in page
+    assert "From Felix" in page and "Upload unreleased" in page and f"/unreleased/{key}/song" in page
+    assert 'value="move:' not in page and ">Delete the song</option>" in page  # (no other list to move into)
     assert "Open on" not in page and "Felix - Night Drive.mp3" in page
     library = client.get("/library").text
     assert "Echolot" in library and ">unreleased</span>" in library and "Upload unreleased" in library
     assert client.post(f"/unreleased/{key}/rename", data={"name": "Felix"}, follow_redirects=False).status_code == 303
     r = client.post(f"/unreleased/{key}/delete", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/library")
+    assert r.status_code == 303 and "error=Choose" in r.headers["location"]  # (where its songs go, or not)
     assert (settings.library_dir / "Unreleased" / "Felix - Morning Run.wav").is_file()
+    r = client.post(f"/unreleased/{key}/delete", data={"songs_to": unreleased.DROP}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/library")
+    assert not (settings.library_dir / "Unreleased" / "Felix - Morning Run.wav").exists()
+    kept = list((paths_of(settings).inbox("replaced")).rglob("Felix - Morning Run.wav"))
+    assert len(kept) == 1  # (kept 30 days)
 
 
 def test_a_released_upload_goes_into_wished(
@@ -349,7 +367,8 @@ def test_a_released_upload_goes_into_wished(
     batch = re.search(r'data-batch="([0-9a-f]{16})"', dialog).group(1)
     files = {"file": ("Newcomer - Fresh Tune.flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac")}
     row = client.post(f"/unreleased/upload/{batch}/file", files=files).text
-    assert re.search(r'<option value="discover:[0-9a-f]+" selected>Import as your Newcomer – Fresh Tune', row)
+    assert "You have it" in row and '<option value="" selected>Leave it out' in row  # (its audio is in the library)
+    assert re.search(r'<option value="discover:[0-9a-f]+">Import as your Newcomer – Fresh Tune', row)
 
 
 def test_unreleased_needs_the_upload_permission(settings: Settings, login: Callable[..., TestClient]) -> None:
@@ -418,4 +437,108 @@ def test_only_its_owner_manages_an_unreleased_list(settings: Settings, login: Ca
     assert client.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
     page = client.get(f"/lists/{key}").text
     assert "From Felix" in page and "Felix - Night Drive.mp3" in page
-    assert "/rename" not in page and "/delete" not in page and "/remove" not in page and "Upload" not in page
+    assert "/rename" not in page and "/delete" not in page and "/song" not in page and "Upload" not in page
+
+
+def test_up_to_ten_lists(settings: Settings, login: Callable[..., TestClient]) -> None:
+    con = db.connect(settings.db_path)
+    for n in range(unreleased.MAX_LISTS):
+        unreleased.create(con, OWNER, f"List {n}")
+    with pytest.raises(unreleased.Refused, match="10 Unreleased lists already"):
+        unreleased.create(con, OWNER, "One more")
+    con.close()
+    dialog = login(create_app(settings)).get("/unreleased/upload").text
+    assert "List 9 (0)" in dialog and "New list…" not in dialog  # (the newest chosen)
+
+
+def test_a_songs_menu_moves_adds_takes_out_and_deletes(settings: Settings, login: Callable[..., TestClient]) -> None:
+    song = put(settings)
+    con = db.connect(settings.db_path)
+    first = unreleased.lists(con, OWNER)[0]["key"]
+    second = unreleased.create(con, OWNER, "Second")
+    con.close()
+    client = login(create_app(settings))
+
+    def act(key: str, to: str) -> str:
+        r = client.post(f"/unreleased/{key}/song", data={"song": song, "to": to}, follow_redirects=False)
+        assert r.status_code == 303
+        return r.headers["location"]
+
+    page = client.get(f"/lists/{first}").text
+    assert f'value="move:{second}"' in page and f'value="add:{second}"' in page and 'value="remove"' not in page
+    assert "error=" in act(first, "remove")  # (its only list)
+    assert "ok=" in act(first, f"add:{second}")
+    assert 'value="remove"' in client.get(f"/lists/{first}").text
+    assert "ok=" in act(first, "remove")
+    assert "error=" in act(first, f"move:{second}")  # (not on this list any more)
+    assert "ok=" in act(second, f"move:{first}")
+    con = db.connect(settings.db_path)
+    assert unreleased.in_lists(con, OWNER, song) == [first]
+    con.close()
+    path = settings.library_dir / "Unreleased" / "Felix - Night Drive.mp3"
+    assert "ok=" in act(first, unreleased.DROP) and not path.exists()
+    assert list(paths_of(settings).inbox("replaced").rglob("Felix - Night Drive.mp3"))  # (kept 30 days)
+    con = db.connect(settings.db_path)
+    assert con.execute("SELECT 1 FROM songs WHERE key = ?", (song,)).fetchone() is None
+    con.close()
+
+
+def test_a_file_the_library_has_is_told_and_a_better_copy_replaces_it(
+    settings: Settings, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every upload is held against the library files named alike (unreleased ones too): shown only when its
+    audio says it may be one; the same audio is left out, a better copy of an unreleased song replaces its file."""
+    song = put(settings)  # (Felix - Night Drive, an MP3)
+    monkeypatch.setattr(catalogs, "deezer", lambda q, limit=20: [])
+    held: list[tuple[str, str]] = []
+    share = {"fp": 0.95, "wave": 0.97}
+
+    def against(path: Path, copy: Path) -> tuple[float, float]:
+        held.append((path.name, copy.name))
+        return share["fp"], share["wave"]
+
+    monkeypatch.setattr(identity, "against", against)
+    client = login(create_app(settings))
+    batch = re.search(r'data-batch="([0-9a-f]{16})"', client.get("/unreleased/upload").text).group(1)
+    files = {"file": ("Felix - Night Drive (Master).flac", (AUDIO / "silence.flac").read_bytes(), "audio/flac")}
+    row = client.post(f"/unreleased/upload/{batch}/file", files=files).text
+    assert held and "You have it" in row and "Not released" not in row
+    assert f'<option value="replace:{song}" selected>Replace your copy (better' in row
+    share["fp"] = 0.6  # (named alike, another song by its audio: not shown)
+    again = client.post(f"/unreleased/upload/{batch}/1/check", data={"artist_1": "Felix", "title_1": "Night Drive"})
+    assert "You have it" not in again.text and "Not released" in again.text and "replace:" not in again.text
+    share["fp"] = 0.95
+    done = client.post(f"/unreleased/upload/{batch}/import", data={"song_1": f"replace:{song}"}).text
+    assert "Felix – Night Drive: replaced by Unreleased/Felix - Night Drive.flac (was Felix - Night Drive.mp3)" in done
+    assert not (settings.library_dir / "Unreleased" / "Felix - Night Drive.mp3").exists()
+    assert list(paths_of(settings).inbox("replaced").rglob("Felix - Night Drive.mp3"))
+    con = db.connect(settings.db_path)
+    assert con.execute("SELECT file FROM songs WHERE key = ?", (song,)).fetchone()[0] == (
+        "Unreleased/Felix - Night Drive.flac"
+    )
+    con.close()
+    batch = re.search(r'data-batch="([0-9a-f]{16})"', client.get("/unreleased/upload").text).group(1)
+    files = {"file": ("Felix - Night Drive.mp3", (AUDIO / "silence.mp3").read_bytes(), "audio/mpeg")}
+    row = client.post(f"/unreleased/upload/{batch}/file", files=files).text  # (the MP3 again: not better)
+    assert "You have it" in row and '<option value="" selected>Leave it out' in row
+
+
+def test_the_release_check_looks_by_title_alone_and_shows_only_what_the_audio_says(
+    tmp_path: Path, settings: Settings, login: Callable[..., TestClient], monkeypatch, audio_check: dict
+) -> None:
+    f = upload.File(1, "x.flac", path=tmp_path / "x.flac", seconds=200)
+    asked: list[str] = []
+
+    def search(q: str) -> list[discover.Hit]:
+        asked.append(q)
+        return [hit("Song", 201, artist="Alias")] if q == "Song" else []
+
+    assert upload.release(f, "Friend", "Song", search) is None and asked == ["Friend Song"]
+    found = upload.release(f, "Friend", "Song", search, loose=True)
+    assert asked[1:] == ["Friend Song", "Song"] and found.verdict == "released"
+    monkeypatch.setattr(catalogs, "deezer", lambda q, limit=20: [hit("Night Drive", 1, preview="")])
+    client = login(create_app(settings))
+    batch = re.search(r'data-batch="([0-9a-f]{16})"', client.get("/unreleased/upload").text).group(1)
+    files = {"file": ("Felix - Night Drive.mp3", (AUDIO / "silence.mp3").read_bytes(), "audio/mpeg")}
+    row = client.post(f"/unreleased/upload/{batch}/file", files=files).text
+    assert "Named like" not in row and "Not released" in row  # (named so, no preview: nothing to tell by)

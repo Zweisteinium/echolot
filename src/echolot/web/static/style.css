@@ -623,6 +623,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .quality-side .quality-split { margin-top: 0.9rem; }
 .quality-side .legend-table { min-width: 0; max-width: none; width: 100%; }
 .quality-side .legend-table td:nth-child(2) { white-space: nowrap; }
+@media (max-width: 480px) { .quality-side .legend-table td:nth-child(2) { white-space: normal; } }  /* the long Best tiers: no page scroll */
 .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 1.4rem -1.35rem 0;
   border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; }
 .kpi { padding: 0.9rem 1.35rem 1rem; border-left: 1px solid var(--border); color: inherit; min-width: 0; }
@@ -797,7 +798,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 /* the audio check: references in rows, measures in columns */
 .upload-facts .checks { display: grid; grid-template-columns: auto auto auto; justify-content: start; gap: 0.1rem 0.9rem;
   margin-top: 0.35rem; font-variant-numeric: tabular-nums; }
-.checks .head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.03em; text-transform: uppercase; text-align: right; }
+.checks .head { color: var(--muted); font-size: 0.7rem; letter-spacing: 0.03em; text-transform: uppercase; text-align: right; white-space: nowrap; }
 .checks .ref { color: var(--muted); }
 .checks .score { text-align: right; font-weight: 600; }
 .checks .none { grid-column: span 2; color: var(--muted); font-style: italic; }
@@ -1281,3 +1282,15 @@ header nav.pages .icon { display: none; }  /* shown in the small screens' tab ba
 }
 .crumb { justify-self: start; margin-bottom: -0.4rem; font-size: 0.85rem; color: var(--muted); }
 .crumb:hover { color: var(--accent); text-decoration: none; }
+/* an unreleased song's menu on its list page (move, add to another list, take out, delete): below its button,
+   placed by the page's script (fixed: the card would cut it off) */
+.song-menu { position: relative; }
+.song-menu > summary { list-style: none; cursor: pointer; margin: 0; }
+.song-menu > summary::-webkit-details-marker { display: none; }
+.song-menu > form { position: fixed; z-index: 20; display: flex; gap: 0.4rem; align-items: center; max-width: calc(100vw - 16px);
+  padding: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 0 12px 30px -12px rgb(16 24 40 / 0.35); }
+.song-menu select { min-width: 0; max-width: 60vw; }
+.song-menu button, .list-manage > form button { white-space: nowrap; }
+.list-manage > form label { white-space: nowrap; align-self: center; }
+.list-manage > form .muted { align-self: center; white-space: nowrap; }

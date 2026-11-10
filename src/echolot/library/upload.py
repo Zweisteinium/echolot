@@ -226,17 +226,22 @@ CANDIDATES = 3  # releases named as the file whose previews are held against it 
 NEAR = 6.0  # s: a file this much off the release's length (or 3 %) is the release's edit
 
 
-def release(f: File, artist: str, title: str, search: Any) -> Release | None:
+def release(f: File, artist: str, title: str, search: Any, loose: bool = False) -> Release | None:
     """Is the file a release? A catalogue search (`search`: a query -> discover.Hit list, Deezer's, which
-    gives previews) for its names; the CANDIDATES first results with the file's core title, each one's
-    preview held against the file (the fingerprint: the recording; then the best one's waveform: the master
-    and mix). None: nothing named so, or only other recordings (fingerprint OTHER or less); the search's
-    errors are raised (catalogs.CatalogError)."""
+    gives previews) for its names (`loose`: by its title alone too when that finds none: released under
+    another artist name); the CANDIDATES first results with the file's core title, each one's preview held
+    against the file (the fingerprint: the recording; then the best one's waveform: the master and mix).
+    None: nothing named so, or only other recordings (fingerprint OTHER or less); the search's errors are
+    raised (catalogs.CatalogError)."""
     if f.error or f.path is None or not artist.strip() or not title.strip():
         return None
     core = rules.title_key(rules.segments(title)[0])
-    results = [r for r in discover.merge(search(f"{artist} {title}")) if r.seconds]
-    named = [r for r in results if core and rules.title_key(rules.segments(r.title)[0]) == core][:CANDIDATES]
+    named: list[discover.Result] = []
+    for query in (f"{artist} {title}", title) if loose else (f"{artist} {title}",):
+        results = [r for r in discover.merge(search(query)) if r.seconds]
+        named = [r for r in results if core and rules.title_key(rules.segments(r.title)[0]) == core][:CANDIDATES]
+        if named:
+            break
     mine = identity.fingerprint(f.path)
     best: tuple[tuple[bool, float], discover.Result, float, bytes] | None = None
     for r in named:
@@ -420,14 +425,14 @@ def checks(fit: Fit | None, song: sqlite3.Row | None) -> list[tuple[str, str, li
     if fit is None or song is None:
         return []
     what = "The release's 30 s preview on Deezer, found by the song's ISRC"
-    rows = [("Preview", what, _graded(fit.fingerprint, fit.waveform, "the release's preview"), _no_preview(song))]
+    rows = [("Preview", what, graded(fit.fingerprint, fit.waveform, "the release's preview"), _no_preview(song))]
     if not needs(song):
         what = "Your copy in the library: three 30 s pieces of it, each held against the file as the preview is"
-        rows.append(("Your copy", what, _graded(fit.copy_fingerprint, fit.copy_waveform, "your copy"), "not readable"))
+        rows.append(("Your copy", what, graded(fit.copy_fingerprint, fit.copy_waveform, "your copy"), "not readable"))
     return [(name, what, scores, "" if any(scores) else none) for name, what, scores, none in rows]
 
 
-def _graded(fp: float | None, wave: float | None, against: str) -> list[Score]:
+def graded(fp: float | None, wave: float | None, against: str) -> list[Score]:
     out: list[Score] = [None, None]
     if fp is not None:
         grade = "ok" if fp >= identity.SAME else "bad" if fp <= identity.OTHER else "warn"
@@ -447,7 +452,7 @@ def _no_preview(song: sqlite3.Row) -> str:
 def release_checks(found: Release) -> list[tuple[str, str, list[Score], str]]:
     """The release check for the dialog, as checks shows it: the release's preview."""
     what = f"The 30 s preview of {found.result.artist} – {found.result.title}"
-    scores = _graded(found.fit.fingerprint, found.fit.waveform, "the release's preview")
+    scores = graded(found.fit.fingerprint, found.fit.waveform, "the release's preview")
     return [("Preview", what, scores, "" if any(scores) else "no preview")]
 
 
@@ -505,28 +510,24 @@ def file_notes(f: File) -> list["Label"]:
 Label = tuple[str, str, str]  # (text, style ok|warn|bad, what it says)
 
 
-def found_labels(f: File, found: Release | None, have: str, failed: str, unreleased: bool = False) -> list[Label]:
-    """Short labels for a file that is none of your songs, by its release check (release): for the upload
-    dialog (a release can be imported into your Echolot · Wished) or, `unreleased`, for the dialog of
-    unreleased songs (a release is better imported as the released song)."""
+def found_labels(f: File, found: Release | None, have: str, failed: str) -> list[Label]:
+    """Short labels for a file that is none of your songs, by its release check (release): a release can be
+    imported into your Echolot · Wished."""
     if f.error:
         return [("Not audio", "bad", f.error)]
     out = [("Not checked", "warn", failed)] if failed else []
     who = f"{found.result.artist} – {found.result.title}" if found else ""
-    if found is None and not unreleased:
+    if found is None:
         out.append(("No song found", "bad", "None of your songs, and no release named so (Deezer)"))
-    elif found is None and not failed:
-        out.append(("Not released", "ok", "No release named so (Deezer): an unreleased song"))
-    elif found and found.verdict == "released":
-        why = f"The recording of {who} at its length"
-        if unreleased:
-            out.append(("Released", "warn", f"{why}: better imported as that song (into your {WISHED_TITLE})"))
-        else:
-            out.append(("Released", "ok", f"{why}: imported as that song into your {WISHED_TITLE}"))
-    elif found and found.verdict == "resembles":
-        why = f"Like {who}, but in another edit or length (or unclear)"
-        out.append(("Resembles a release", "warn", f"{why}: {'an edit of it?' if unreleased else 'is it that?'}"))
-    elif found:
+    elif found.verdict == "released":
+        out.append(
+            ("Released", "ok", f"The recording of {who} at its length: imported as that song into your {WISHED_TITLE}")
+        )
+    elif found.verdict == "resembles":
+        out.append(
+            ("Resembles a release", "warn", f"Like {who}, but in another edit or length (or unclear): is it that?")
+        )
+    else:
         out.append(("Named like a release", "warn", f"{who} has these names; no preview to compare the audio with"))
     if have:
         out.append(("You have it", "warn", f"The same audio as your {have}"))
