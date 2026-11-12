@@ -298,13 +298,14 @@ def test_a_spotify_song_gets_its_singles_cover(settings: Settings, lookups: list
     con.close()
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 def test_a_youtube_videos_picture_as_a_square(settings: Settings, lookups: list[str], monkeypatch) -> None:
     """A YouTube song Spotify has nothing of: its video's picture, the middle square of the largest thumbnail."""
     import subprocess
 
-    wide = tmp = settings.data_dir / "wide.jpg"
+    wide = settings.data_dir / "wide.jpg"
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720", "-frames:v", "1", str(tmp)], check=True
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=red:s=1280x720", "-frames:v", "1", str(wide)], check=True
     )
 
     def download(url: str) -> bytes:
