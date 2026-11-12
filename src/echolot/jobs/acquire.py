@@ -313,7 +313,8 @@ def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: P
 
 def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:
     """The song's cover in place of the uploader's (`cover`: a SoundCloud download's artwork, else
-    covers.Covers), and the artist picture from Spotify. Never for an unreleased song (library/unreleased)."""
+    covers.Covers), noted done for the covers job, and the artist picture from Spotify. Never for an
+    unreleased song (library/unreleased)."""
     from echolot.jobs import covers
 
     if want.key.startswith(f"{catalog.LOCAL}:"):
@@ -322,8 +323,8 @@ def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover:
     try:
         song = tagging.lead(con, dest.relative_to(run.paths.tracks).as_posix(), want.key)
         jpg = cover.read_bytes() if cover and cover.is_file() else covers.Covers(con, run).of(song) if song else None
-        if jpg:
-            audio.embed_cover(dest, jpg, replace=True)
+        if jpg and audio.embed_cover(dest, jpg, replace=True) and (data := getattr(run, "data", None)):
+            covers.note_done(data, dest.relative_to(run.paths.tracks).as_posix())
     except (spotify.SpotifyError, sc_api.SoundCloudError, OSError) as e:
         log.info("cover of %s: %s", dest.name, e)
     if cover and not want.key.startswith("spotify:"):

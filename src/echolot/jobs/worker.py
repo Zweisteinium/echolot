@@ -189,6 +189,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "youtube": lists.youtube,
     "fallback": acquire.fallback,
     "covers": covers.run,
+    "covers_all": covers.run_all,
     "availability": availability.check,
     "library": upkeep,
     "lossy": lossycheck.run,

@@ -64,7 +64,7 @@
       <form method="post" action="/jobs/stop" hx-post="/jobs/stop" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ names }}"><button title="Songs in progress end first">{{ icon('stop', 14) }} Stop</button></form>
       {% else %}
       {% for label, jobs, hint in task.buttons %}
-      <form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button title="{{ hint }}">{{ label }}</button></form>
+      {% set ask = task.confirm.get(label) %}<form method="post" action="/jobs/start" hx-post="/jobs/start" hx-target="#jobs" hx-swap="morph"{% if ask %} hx-confirm="{{ ask }}"{% endif %}>{{ csrf_input }}<input type="hidden" name="names" value="{{ jobs|join(',') }}"><button title="{{ hint }}">{{ label }}</button></form>
       {% endfor %}
       {% endif %}
       {% if t.log and user.admin %}<button type="button" class="link-button job-log-toggle" data-info="task-log-{{ task.name }}" aria-controls="task-log-{{ task.name }}" aria-expanded="false">{{ 'Live log' if t.running else 'Log' }} <span class="muted">{{ t.log|length }}</span></button>{% endif %}

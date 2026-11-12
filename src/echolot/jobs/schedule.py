@@ -8,7 +8,7 @@ priorities: worker.py.
 
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from echolot.settings import options
@@ -99,11 +99,18 @@ JOBS = [
             "all songs are done (a restart of Echolot ends it, a deploy does not). Off on the schedule.",
             priority=0),
     JobInfo("covers", "Covers from your lists", "pictures", None, 60,
-            "Gives every file its song's cover. Start it with Run now.",
-            "New files get their song's cover when they are filed; this gives it to the files already there: "
-            "the Spotify album's cover or the SoundCloud song's artwork, in place of the one the uploader "
-            "embedded (a compilation, a remaster). The old picture is kept in cover-backups first. Files done "
-            "are noted, so a run that stopped goes on where it was. Off on the schedule."),
+            "Gives the files not done yet their song's cover. Start it with Add missing.",
+            "New files get their song's cover when they are filed and are noted done; this gives it to the other "
+            "files (added or renamed outside Echolot, or before): on Spotify the cover of the song's own release (its "
+            "single, else its album; else the list's release), or the SoundCloud song's artwork, in place of the "
+            "one the uploader embedded (a compilation, a remaster). The old "
+            "picture is kept in cover-backups first. Files done are noted, so a run that stopped goes on where "
+            "it was. Off on the schedule."),
+    JobInfo("covers_all", "Covers, all files", "pictures", None, 60,
+            "Gives every file its song's cover again. Start it with Replace all.",
+            "As Add missing, for every file in the library, done before or not: one request per song, so it "
+            "takes hours. A file whose cover is the song's already stays as it is. Stopped, Add missing goes on "
+            "where it was. Off on the schedule."),
     JobInfo("availability", "Availability check", "catalog", ["05:30"], 360,
             "Checks whether all lists' songs still play on Spotify and SoundCloud.",
             "Asks Spotify (in the country set with the Spotify app) and SoundCloud about every song of every "
@@ -152,7 +159,8 @@ STEPS = {  # each job's short name inside its task
     "upgrade": "Scheduled",
     "upgrade_all": "All songs",
     "library": "",
-    "covers": "",
+    "covers": "Add missing",
+    "covers_all": "Replace all",
     "availability": "",
     "lossy": "",
 }
@@ -170,6 +178,7 @@ class Task:
     buttons: tuple[tuple[str, tuple[str, ...], str], ...]
     maintenance: bool = False
     about: str = ""
+    confirm: dict[str, str] = field(default_factory=dict)  # button label -> question first
 
 
 TASKS = [
@@ -231,10 +240,16 @@ TASKS = [
         "covers",
         "Covers from your lists",
         "Gives every file its song's cover from Spotify or SoundCloud.",
-        ("covers",),
-        (("Run now", ("covers",), "Replace the uploaders' covers with your songs' covers"),),
+        ("covers", "covers_all"),
+        (
+            ("Add missing", ("covers",), "The files not done yet: added or renamed since, or that failed"),
+            ("Replace all", ("covers_all",), "Every file again, done before or not: takes hours"),
+        ),
         maintenance=True,
-        about="Gives every file the cover of its song on Spotify or SoundCloud, in place of the picture the uploader embedded. The old pictures are kept.",
+        about="Gives every file the cover of its song: on Spotify its own single's, else its album's (a compilation's only when Spotify has nothing else of it), on SoundCloud its artwork, in place of the picture the uploader embedded. New files get it when they are filed; Add missing gives it to the files not done yet, Replace all to every file again. The old pictures are kept.",
+        confirm={
+            "Replace all": "Check the cover of every file in the library again? One request per song: this takes hours. Files whose cover is the song's already stay as they are."
+        },
     ),
 ]
 TASK_OF = {job: t for t in TASKS for job in t.jobs}

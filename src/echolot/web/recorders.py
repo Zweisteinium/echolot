@@ -352,7 +352,15 @@ def _check_and_file(
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
             return "not_better", copy.why, tier, f.source
-        lines = upload.import_files(con, paths, request.app.state.vault, batch, {f.n: song["key"]}, source="mitschnitt")
+        lines = upload.import_files(
+            con,
+            paths,
+            request.app.state.vault,
+            batch,
+            {f.n: song["key"]},
+            source="mitschnitt",
+            data=request.app.state.settings.data_dir,
+        )
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
             return "rejected", line, tier, f.source

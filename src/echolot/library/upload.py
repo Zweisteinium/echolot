@@ -562,6 +562,7 @@ class _Run:
 
     paths: Paths
     vault: "Vault"
+    data: Path | None = None  # the data folder: the covers job's list of the files done (covers.note_done)
     stop: threading.Event = dataclasses.field(default_factory=threading.Event)
 
 
@@ -574,6 +575,7 @@ def import_files(
     remove: set[int] = frozenset(),
     source: str = "manual",
     origins: dict[int, str] | None = None,
+    data: Path | None = None,
 ) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file
     (one covered by a close match too: the version stays, unless n is in `remove`), a library song the file in
@@ -604,7 +606,7 @@ def import_files(
         }
         action, dest = filing.file_into(con, paths, f.path, want, source, **info)  # a better copy takes over
         if dest and action in ("new", "upgrade"):
-            finish(_Run(paths, vault), con, dest, want)
+            finish(_Run(paths, vault, data), con, dest, want)
             if kind:
                 origin.note(con, key, dest.relative_to(paths.tracks).as_posix(), kind)
         if not have and action in ("new", "upgrade", "duplicate"):

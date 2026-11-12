@@ -202,7 +202,7 @@ def test_the_upload_into_the_song(
     monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
         seen.append((dict(chosen), source))
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
 
@@ -274,7 +274,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     def add(paths, batch, name, fileobj, keep_hires=False):
         return upload.File(1, name, Path("/x/rec.flac"), 201, 900, "lossless")
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
         return [("Artist A – First Song: replaced the copy", "spotify:s1")]
 
     monkeypatch.setattr(upload, "add", add)
@@ -582,7 +582,7 @@ def test_a_recording_made_from_lossy(
         upload._save(upload.folder(paths, batch), f)
         return f
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
         f = upload.files(paths, batch)[0]
         imported.append((f.tier, f.source))
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
@@ -624,7 +624,7 @@ def files_in(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: None)
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual"):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
         filed.extend(chosen.values())
         return [(f"{k}: filed as x", k) for k in chosen.values()]
 

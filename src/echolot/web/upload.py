@@ -206,7 +206,15 @@ async def upload_import(request: Request, con: DB, batch: str) -> HTMLResponse:
     chosen |= as_wished
     vault = request.app.state.vault  # filing asks Spotify for the cover
     results += await run_in_threadpool(
-        upload.import_files, con, _paths(request), vault, batch, chosen, remove, origins=froms
+        upload.import_files,
+        con,
+        _paths(request),
+        vault,
+        batch,
+        chosen,
+        remove,
+        origins=froms,
+        data=request.app.state.settings.data_dir,
     )
     imported = [key for _, key in results if key]  # the page takes these off Missing
     if as_wished:
