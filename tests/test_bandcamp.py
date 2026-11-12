@@ -449,7 +449,10 @@ def _gates_run(settings: Settings) -> Run:
     return r
 
 
-def test_a_hypeddit_gate_is_got_and_recorded_as_a_free_download(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(("seconds", "matched"), [(400.0, "exact"), (405.0, "probable")])
+def test_a_hypeddit_gate_is_got_and_recorded_as_a_free_download(
+    settings, monkeypatch: pytest.MonkeyPatch, seconds: float, matched: str
+) -> None:
     _hypeddit_gate(settings)
     monkeypatch.setattr(job.hypeddit, "read", lambda url: SimpleNamespace(email=False, url=url))
     monkeypatch.setattr(job.hypeddit, "unlock", lambda gate, email="": SimpleNamespace(name="Artist - Tune"))
@@ -460,7 +463,7 @@ def test_a_hypeddit_gate_is_got_and_recorded_as_a_free_download(settings, monkey
 
     monkeypatch.setattr(job.hypeddit, "fetch", fetch)
     monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
-    monkeypatch.setattr(audio, "probe", lambda p: (400.0, 900))  # as long as the song (no ffprobe on CI)
+    monkeypatch.setattr(audio, "probe", lambda p: (seconds, 900))  # (no ffprobe on CI)
     copy = "Uploader/Uploader - Trance Tune.m4a"
     monkeypatch.setattr(acquire, "_same_audio", lambda *a: (copy, "the same audio as your copy (0.999)"))
     monkeypatch.setattr(acquire, "finish", lambda *a, **k: None)
@@ -471,8 +474,8 @@ def test_a_hypeddit_gate_is_got_and_recorded_as_a_free_download(settings, monkey
     try:
         origin = con.execute("SELECT kind, site FROM origins WHERE song_key = 'soundcloud:1001'").fetchone()
         assert tuple(origin) == ("free", "Hypeddit")  # the artist's own: off the Buy list, kept even lossy
-        e = con.execute("SELECT action, source FROM events WHERE song = 'soundcloud:1001' ORDER BY id DESC").fetchone()
-        assert tuple(e) == ("upgrade", "hypeddit")
+        q = "SELECT action, source, matched FROM events WHERE song = 'soundcloud:1001' ORDER BY id DESC"
+        assert tuple(con.execute(q).fetchone()) == ("upgrade", "hypeddit", matched)  # the same length: no Review
     finally:
         con.close()
 

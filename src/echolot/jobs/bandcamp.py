@@ -230,6 +230,8 @@ def _file(
     checks = {"strict": True, "probable": False, "confirm": not same}
     if same:
         checks |= {"same_audio": same[1], "replaces": same[0]}
+        own = origin_kind and want.length and abs(audio.probe(prepared.path)[0] - want.length) <= 1
+        checks["sure"] = bool(own)  # the artist's file from the song's page, same audio and length: names aside
     action, dest = filing.file_into(con, run.paths, prepared.path, want, source, **found, **checks)
     if dest and action in ("new", "upgrade"):
         acquire.finish(run, con, dest, want)

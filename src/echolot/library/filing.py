@@ -378,6 +378,7 @@ def file_into(
     confirm: bool = False,
     same_audio: str = "",
     replaces: str = "",
+    sure: bool = False,
     peer_bytes: int = 0,
     peer: tuple[str, str, int] = ("", "", 0),
     replace: bool = False,
@@ -393,7 +394,7 @@ def file_into(
     match is kept for review whatever the names (a SoundCloud song's FLAC: an uploader's names), a lossy or
     fake one deleted. `same_audio` (identity.same_master) with `replaces` (that library file): the same audio
     in another codec, so the names only tell exact (filed) from probable (filed for review); it takes over
-    that file. `replace` (an upload by hand): takes over the song's copy whatever the ranks. `url`: the page
+    that file. `sure`: same audio from the song's own page, filed as exact whatever the names. `replace` (an upload by hand): takes over the song's copy whatever the ranks. `url`: the page
     it came from; `fake_source`: what a fake FLAC was made from."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
@@ -416,7 +417,9 @@ def file_into(
             match = "exact"  # the audio confirms it
         if same_audio:  # other names make it probable, not another song
             info["audio"] = same_audio
-            if match != "exact":
+            if match != "exact" and sure:
+                match, why = "exact", f"the same audio as your copy, from the song's own page; {why or 'other names'}"
+            elif match != "exact":
                 match, why = "probable", f"the same audio as your copy; {why or 'the names differ'}"
         ok = match == "exact" or (match == "probable" and (probable or confirm or bool(same_audio)))
         if match == "probable" and not probable and not confirm:
