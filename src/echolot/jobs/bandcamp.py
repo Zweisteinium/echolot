@@ -1,7 +1,7 @@
 """Bandcamp offers of the SoundCloud songs without a genuine lossless copy: the Bandcamp track a song's
 SoundCloud page links to (buy link, description), with its price, stored in `bandcamp` for the Buy page. A
 free download (no email asked) is fetched and filed like any download. The pages' other free downloads go
-into `free_links`: a Dropbox file is fetched the same way, a gate (Hypeddit, ...) is listed to do by hand.
+into `free_links`: a Dropbox file is fetched the same way, a gate is listed (Hypeddit's got by `gates`).
 After New SoundCloud songs only the songs never looked at (Bandcamp only for a link); by hand (Refresh on
 the Buy page) every one again, a stored offer's own page too. Bandcamp's bot check (bandcamp.Challenged)
 ends the run.
@@ -238,10 +238,10 @@ def _file(
     return action
 
 
-GATE_SITE = "Hypeddit"  # the only gate Echolot gets itself: it neither performs nor checks the steps it asks
+GATE_SITE = "Hypeddit"  # the only gate site that does not check the steps it asks for
 GATE_RETRY = ("", "download failed", "needs email")  # free_links.result values a gate run tries (again)
 GATE_PACE = 2  # seconds between gates
-_GATES = (
+GATES = (  # the songs whose gate to get; params: GATE_SITE, *GATE_RETRY
     "SELECT s.*, fl.url AS gate_url FROM wanted s JOIN free_links fl ON fl.song_key = s.key "
     "LEFT JOIN files f ON f.path = s.file WHERE fl.site = ? AND fl.url > '' AND fl.result IN (?, ?, ?) "
     "AND NOT s.close_match AND (s.file IS NULL OR f.quality != 'lossless') "
@@ -258,15 +258,13 @@ _GATE_NOTE = {  # a filing action as the log tells it
 
 
 def gates(run: "Run") -> str:
-    """Get the Hypeddit free downloads of lossy songs that have one and file them with the usual checks. The file
-    is the artist's own upload, so it is recorded as a free download (kept even lossy, off the Buy list): the same
-    audio replaces your copy, a different one (an extended mix, another master) waits in Review. On-demand from the
-    Buy page; each gate is fetched once (its result is stored). A gate with an email step needs the address set in
-    Settings; without it those gates are left for later."""
+    """Get the Hypeddit free downloads of lossy songs and file them as the artist's own (origin free): the same
+    audio replaces your copy, a different one waits in Review. On demand from the Buy page; an email gate needs the
+    address in Settings, else it waits (needs email)."""
     con = run.connect()
     try:
         email = options.get(con, options.Files).gate_email
-        rows = run.todo([dict(r) for r in con.execute(_GATES, (GATE_SITE, *GATE_RETRY))])
+        rows = run.todo([dict(r) for r in con.execute(GATES, (GATE_SITE, *GATE_RETRY))])
     finally:
         con.close()
     if not rows:
@@ -316,8 +314,7 @@ def _gate(run: "Run", con: sqlite3.Connection, row: dict, email: str, want: fili
             result = _file(run, con, want, prepared, got.stem, (), url, GATE_SITE.lower(), origin_kind="free")
             note = _GATE_NOTE.get(result, result)
     except hypeddit.GateError as e:
-        result = "needs email" if "wants an email" in str(e) else "download failed"
-        note = str(e)
+        result, note = "download failed", str(e)
     except audio.Rejected as e:
         result, note = f"bad file: {e}", str(e)
     run.note(f"{want.artist} – {want.title}: {GATE_SITE}, {note}")

@@ -31,7 +31,7 @@
         <td>{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}</td>
         {% set RESULTS = {'confirm': 'waits in Review', 'wrong-song': 'not the song', 'mismatch': 'another length', 'duplicate': 'no better than your copy', 'download failed': 'download failed'} %}
         <td>{% if s.offer %}{{ bandcamp({'url': s.offer, 'artist': s.offer_artist, 'title': s.offer_title, 'price': s.price, 'currency': s.currency, 'free': s.free}) }}{% if s.free and s.result %} <span class="muted small">{{ RESULTS.get(s.result, s.result) }}</span>{% endif %}{% endif %}
-          {% if s.link %}{{ free_link({'url': s.link, 'site': s.link_site, 'label': s.link_label, 'fetch': s.link_fetch}) }}{% if s.link_fetch and s.link_result %} <span class="muted small">{{ RESULTS.get(s.link_result, s.link_result) }}</span>{% endif %}{% endif %}</td>
+          {% if s.link %}{{ free_link({'url': s.link, 'site': s.link_site, 'label': s.link_label, 'fetch': s.link_fetch}) }}{% if (s.link_fetch or s.link_site == 'Hypeddit') and s.link_result %} <span class="muted small">{{ RESULTS.get(s.link_result, s.link_result) }}</span>{% endif %}{% endif %}</td>
         <td class="hide-narrow muted small">{{ s.in_lists or '' }}</td>
         {% if upload %}<td class="row-action"><button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the FLAC you bought" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button></td>{% endif %}
       </tr>

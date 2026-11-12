@@ -10,11 +10,11 @@ valid address never reaches. Other gate sites (ToneDen, Artist Union, ...) do en
 """
 
 import html
+import http.client
 import http.cookiejar
 import json
 import random
 import re
-import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -26,6 +26,7 @@ BASE = "https://hypeddit.com"
 HOST = "hypeddit.com"
 MAX_BYTES = 1 << 30  # a 24-bit WAV of a long mix is some 300 MB
 _FILE_CHUNK = 1 << 20
+_NET = (OSError, http.client.HTTPException)  # URLError, timeouts, resets, a cut-off body
 
 
 class GateError(RuntimeError):
@@ -67,7 +68,7 @@ def read(url: str) -> Gate:
     op = _opener()
     try:
         page = op.open(url, timeout=30).read().decode("utf-8", "replace")
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+    except (*_NET, ValueError) as e:
         raise GateError(f"page: {e}") from e
 
     def value(name: str) -> str:
@@ -98,14 +99,18 @@ def _post(gate: Gate, path: str, data: dict[str, str]) -> dict:
             "Accept": "application/json, text/javascript, */*; q=0.01",
         },
     )
+    name = path.rsplit("/", 1)[-1]
     try:
         body = gate.opener.open(req, timeout=30).read()
-    except (urllib.error.URLError, TimeoutError) as e:
-        raise GateError(f"{path.rsplit('/', 1)[-1]}: {e}") from e
+    except _NET as e:
+        raise GateError(f"{name}: {e}") from e
     try:
-        return json.loads(body)
-    except ValueError as e:
-        raise GateError(f"{path.rsplit('/', 1)[-1]}: no answer") from e
+        res = json.loads(body)
+    except ValueError:
+        res = None
+    if not isinstance(res, dict):
+        raise GateError(f"{name}: no answer")
+    return res
 
 
 def unlock(gate: Gate, email: str = "") -> File:
@@ -114,8 +119,7 @@ def unlock(gate: Gate, email: str = "") -> File:
     if gate.email:
         if not email:
             raise GateError("wants an email")
-        # Register the address. 'T' is accepted; the captcha only appears after five failed tries, which a valid
-        # address never reaches. The download below is the real test, so this answer is not parsed hard.
+        # registers the address; the download below is the real test, so its answer is not parsed hard
         res = _post(
             gate,
             "/verifyEmailAddress",
@@ -129,7 +133,7 @@ def unlock(gate: Gate, email: str = "") -> File:
         )
         if str(res.get("attempts", "")).lower() == "over" or "captcha" in str(res).lower():
             raise GateError("email step wants a captcha")
-    duration = int(gate.form["duration"] or 0) or 180_000
+    duration = int(d) if (d := gate.form["duration"]).isdigit() and int(d) else 180_000
     res = _post(
         gate,
         "/gate/download/ul",
@@ -158,22 +162,20 @@ def unlock(gate: Gate, email: str = "") -> File:
     )
     if str(res.get("download_status")) != "True" or not res.get("URL"):
         raise GateError("no file (a store gate, or an empty upload)")
-    return File(
-        res["URL"],
-        res.get("name") or gate.title,
-        (res.get("ext") or "").lower(),
-        int(res.get("size") or 0),
-        res.get("type") or "",
-    )
+    size = int(n) if (n := str(res.get("size"))).isdigit() else 0  # (0: not checked)
+    name, ext = str(res.get("name") or gate.title), str(res.get("ext") or "").lower()
+    return File(str(res["URL"]), name, ext, size, str(res.get("type") or ""))
 
 
 def fetch(file: File, folder: Path, max_bytes: int = MAX_BYTES) -> Path:
     """Download `file` into `folder` under its own name; its path. GateError if it does not come whole."""
     if file.size > max_bytes:
         raise GateError(f"too big: {file.size / 1e6:.0f} MB")
+    if not file.url.lower().startswith("https://"):
+        raise GateError("file: not an https link")
     folder.mkdir(parents=True, exist_ok=True)
     stem = f"{file.name}.{file.ext}" if file.ext and not file.name.lower().endswith("." + file.ext) else file.name
-    dest = folder / (re.sub(r"[^\w\-. ()&',!]+", "_", stem)[-150:] or "download")
+    dest = folder / (re.sub(r"[^\w\-. ()&',!]+", "_", stem)[-150:].lstrip(". ") or "download")
     part = dest.with_name(dest.name + ".part")
     req = urllib.request.Request(file.url, headers={"User-Agent": USER_AGENT})
     got = 0
@@ -184,7 +186,7 @@ def fetch(file: File, folder: Path, max_bytes: int = MAX_BYTES) -> Path:
                 if got > max_bytes:
                     raise GateError(f"too big: over {max_bytes / 1e6:.0f} MB")
                 out.write(chunk)
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+    except _NET as e:
         part.unlink(missing_ok=True)
         raise GateError(f"file: {e}") from e
     if file.size and got != file.size:

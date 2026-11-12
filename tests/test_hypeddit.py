@@ -104,3 +104,19 @@ def test_fetch_writes_the_file_and_checks_its_size(monkeypatch: pytest.MonkeyPat
     short = hypeddit.File("https://s3/f", "Artist - Tune", "wav", 99, "audio/wav")
     with pytest.raises(hypeddit.GateError, match="of 99 bytes"):
         hypeddit.fetch(short, tmp_path / "dl2")  # a truncated download is rejected
+
+
+def test_a_broken_answer_fails_only_the_gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    opener = wire(monkeypatch, gate_page("dw,sc"), {"/gate/download/ul": ["not", "a", "dict"]})  # type: ignore[dict-item]
+    gate = hypeddit.read(URL)
+    with pytest.raises(hypeddit.GateError, match="no answer"):
+        hypeddit.unlock(gate)
+
+    def reset(req: object, timeout: int = 30) -> None:
+        raise ConnectionResetError("reset")
+
+    monkeypatch.setattr(opener, "open", reset)
+    with pytest.raises(hypeddit.GateError, match="reset"):
+        hypeddit.unlock(gate)
+    with pytest.raises(hypeddit.GateError, match="https"):
+        hypeddit.fetch(hypeddit.File("file:///etc/passwd", "x", "wav", 0, ""), tmp_path)

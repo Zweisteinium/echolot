@@ -7,7 +7,7 @@ from sqlite3 import Connection, Row
 from typing import Any
 
 from echolot import db
-from echolot.jobs import acquire
+from echolot.jobs import acquire, bandcamp
 from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
 from echolot.library import catalog, origin, recording, recordings, review, unreleased
@@ -244,14 +244,9 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
 
 
 def gates_to_get(con: Connection) -> int:
-    """How many Hypeddit free downloads are still to get (the predicate of jobs/bandcamp._GATES)."""
-    return con.execute(
-        "SELECT COUNT(*) FROM wanted s JOIN free_links fl ON fl.song_key = s.key "
-        "LEFT JOIN files f ON f.path = s.file WHERE fl.site = 'Hypeddit' AND fl.url > '' "
-        "AND fl.result IN ('', 'download failed', 'needs email') AND NOT s.close_match "
-        "AND (s.file IS NULL OR f.quality != 'lossless') "
-        "AND NOT EXISTS (SELECT 1 FROM origins o WHERE o.song_key = s.key)"
-    ).fetchone()[0]
+    """How many Hypeddit free downloads are still to get (jobs/bandcamp.gates)."""
+    args = (bandcamp.GATE_SITE, *bandcamp.GATE_RETRY)
+    return con.execute(f"SELECT COUNT(*) FROM ({bandcamp.GATES})", args).fetchone()[0]
 
 
 def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:

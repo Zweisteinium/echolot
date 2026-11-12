@@ -1,6 +1,6 @@
 """Free downloads outside Bandcamp linked from a song's SoundCloud page (buy link, description): a gate
-(Hypeddit, ToneDen, ...) wants a follow, repost or email, so it is listed for the user; a Dropbox file Echolot
-fetches itself (curl as Echolot, https only)."""
+(Hypeddit, ToneDen, ...) wants a follow, repost or email, so it is listed (Hypeddit's Echolot gets on request:
+services/hypeddit); a Dropbox file Echolot fetches itself (curl as Echolot, https only)."""
 
 import re
 import subprocess
