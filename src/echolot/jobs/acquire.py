@@ -380,6 +380,12 @@ def _new(con: sqlite3.Connection) -> list[sqlite3.Row]:
     return [r for r in _missing(con) if not r["tries"]]
 
 
+def unsearched(con: sqlite3.Connection) -> set[str]:
+    """The keys of the missing songs never searched (_new): those a list sync brought in are the ones it
+    names, the rest wait in search_new's run."""
+    return {r["key"] for r in _new(con)}
+
+
 def _search(run: "Run", songs: list[sqlite3.Row], purpose: str, new: bool = False) -> str:
     """Search and download songs, several at a time, each song's attempt counted as it ends. `new` (New songs
     search): songs that come meanwhile join while it runs (a slow download holds up only its own place), and
@@ -563,17 +569,23 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 def sync(run: "Run") -> str:
     """The Spotify lists job (lists.fetch_spotify). Only songs never searched start search_new, so the
-    Soulseek jobs give way only for real work."""
+    Soulseek jobs give way only for real work; the message names those this run brought in."""
     from echolot.jobs import lists
 
+    con = run.connect()
+    try:
+        before = unsearched(con)
+    finally:
+        con.close()
     message = lists.fetch_spotify(run)
     con = run.connect()
     try:
-        new = sum(1 for r in _missing(con) if not r["tries"])
+        after = unsearched(con)
     finally:
         con.close()
-    if new:
+    if after:
         run.after.add("search_new")
+    new = len(after - before)
     return message + (f"; {new} new songs to search" if new else "")
 
 

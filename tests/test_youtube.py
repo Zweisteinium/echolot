@@ -100,7 +100,7 @@ def test_a_youtube_list(settings: Settings, youtube: dict) -> None:
     assert sources.as_config(con, 1)["youtube"] == {"playlists": [URL]}  # (the configuration file)
     youtube["order"], youtube["playing"] = ["v1", "v2", "v3", "v4"], ["v1", "v2", "v3"]  # v4: never seen playing
     message, run = read(settings)
-    assert message.startswith("1 lists, 1 changed") and "search_new" in run.after
+    assert message == "1 lists, 1 changed; 3 new songs to search" and "search_new" in run.after
     names = "SELECT key, artist, title, album, length, isrc, url FROM songs WHERE service = 'youtube' ORDER BY key"
     assert [tuple(r) for r in con.execute(names)] == [
         ("youtube:v1", "Artist A", "Song A", "Album", 201.0, "ISRC-Song A", "https://www.youtube.com/watch?v=v1"),
@@ -129,7 +129,7 @@ def test_a_youtube_list(settings: Settings, youtube: dict) -> None:
         ("youtube:v2", "gone", "Video unavailable"),
     ]
     assert youtube["asked"] == ["v2"]  # v4 has no names: nothing to tell
-    assert read(settings)[0].startswith("1 lists, 0 changed") and youtube["asked"] == ["v2"]  # known gone
+    assert read(settings)[0] == "1 lists, 0 changed" and youtube["asked"] == ["v2"]  # known gone; none new
     con.close()
 
 

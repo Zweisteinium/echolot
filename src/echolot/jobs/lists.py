@@ -375,13 +375,15 @@ def _fetch_spotify_list(
 
 def youtube(run: "Run") -> str:
     """Read the followed YouTube playlists (public, no account). YouTube reports no changes, so every list
-    is read (_fetch_youtube_list); songs never searched start search_new."""
+    is read (_fetch_youtube_list); songs never searched start search_new, the message names those this run
+    brought in."""
     con = run.connect()
     try:
         sync_table(con)
         srcs = [s for s in sources.followed(con) if s.service == "youtube"]
         if not srcs:
             return "no YouTube lists"
+        before = acquire.unsearched(con)
         try:
             sp: spotify.Spotify | None = spotify.Spotify(con, run.vault)  # the app's own access
         except spotify.SpotifyError:
@@ -404,11 +406,12 @@ def youtube(run: "Run") -> str:
                 log.warning("youtube %s: %s (keeping the last listing)", s.key, e)
                 failed.append(f"{s.title or s.key}: {e}")
                 availability.list_readable(con, s.key, False, str(e))
-        new = sum(1 for r in acquire._missing(con) if not r["tries"])
+        after = acquire.unsearched(con)
     finally:
         con.close()
-    if new:
+    if after:
         run.after.add("search_new")
+    new = len(after - before)
     message = f"{done} lists, {changed} changed" + (f", failed: {'; '.join(failed)}" if failed else "")
     return message + (f"; {new} new songs to search" if new else "")
 

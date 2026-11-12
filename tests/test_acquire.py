@@ -548,12 +548,20 @@ def add_missing(run: Run, key: str, title: str, tries: int = 0, last_try: int = 
 def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """sync queues search_new only for a new song; search_new takes never-searched songs and queues the
-    fallback only for a miss."""
+    """sync queues search_new only for a new song and names only those its run brought in (the rest wait in
+    search_new's run); search_new takes never-searched songs and queues the fallback only for a miss."""
     monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "3 lists, 0 changed")
     assert acquire.sync(run) == "3 lists, 0 changed" and "search_new" not in run.after
-    add_missing(run, "spotify:new", "New Song")
-    assert acquire.sync(run).endswith("; 1 new songs to search") and "search_new" in run.after
+
+    def fetch(run: Run) -> str:
+        add_missing(run, "spotify:new", "New Song")
+        return "3 lists, 1 changed"
+
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", fetch)
+    assert acquire.sync(run) == "3 lists, 1 changed; 1 new songs to search" and "search_new" in run.after
+    run.after.clear()
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "3 lists, 0 changed")
+    assert acquire.sync(run) == "3 lists, 0 changed" and "search_new" in run.after  # still waiting: unnamed
     run.after.clear()
     acquire.search_new(run)
     assert [s[1] for s in FakeDaemon.searches] == ["New Song"] and "fallback" in run.after
