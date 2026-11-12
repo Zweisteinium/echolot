@@ -226,18 +226,31 @@ def _file(
 ) -> str:
     heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)), want.length)
     same = acquire._same_audio(run, con, want, prepared)
+    if origin_kind and not same and (copy := _copy(con, want)):  # the artist's own file: its audio decides
+        said = identity.compare(prepared.path, run.paths.tracks / copy)
+        if said.startswith("same audio"):  # (lossy against lossy stays under same_master's bar)
+            same = (copy, f"{said} as your copy")
+        elif said.startswith("another version") and heard.verdict != "same":
+            heard = identity.Evidence("other", f"{said} than your copy")
     found = {"file_name": name, "folders": folders, "fake": prepared.fake, "heard": heard, "url": url}
-    checks = {"strict": True, "probable": False, "confirm": not same}
+    checks = {"strict": True, "probable": False, "confirm": not same, "trusted": bool(origin_kind)}
     if same:
         checks |= {"same_audio": same[1], "replaces": same[0]}
-        own = origin_kind and want.length and abs(audio.probe(prepared.path)[0] - want.length) <= 1
-        checks["sure"] = bool(own)  # the artist's file from the song's page, same audio and length: names aside
+        seconds, kbps = audio.probe(prepared.path)
+        sure = bool(origin_kind and want.length and abs(seconds - want.length) <= 1)
+        better = sure and not prepared.fake and kbps > audio.probe(run.paths.tracks / same[0])[1]
+        checks |= {"sure": sure, "replace": better}  # the artist's same audio at a higher bitrate takes over
     action, dest = filing.file_into(con, run.paths, prepared.path, want, source, **found, **checks)
     if dest and action in ("new", "upgrade"):
         acquire.finish(run, con, dest, want)
         if origin_kind:  # the file is the artist's own (a free download): kept even lossy, off the Buy list
             origin.note(con, want.key, dest.relative_to(run.paths.tracks).as_posix(), origin_kind)
     return action
+
+
+def _copy(con: sqlite3.Connection, want: filing.Want) -> str | None:
+    row = con.execute("SELECT file FROM songs WHERE key = ?", (want.key,)).fetchone()
+    return row[0] if row and row[0] else None
 
 
 GATE_SITE = "Hypeddit"  # the only gate site that does not check the steps it asks for

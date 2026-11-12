@@ -492,3 +492,36 @@ def test_the_buy_page_offers_to_get_the_gates(settings, login) -> None:
     _hypeddit_gate(settings)
     buy = login(create_app(settings)).get("/buy").text
     assert "Get 1 free download" in buy and 'action="/buy/gates"' in buy
+
+
+@pytest.mark.parametrize(
+    ("name", "said", "result"),
+    [
+        ("Label - Trance Tune.mp3", "same audio", "upgrade"),  # an MP3 320 over your AAC 160
+        ("Label - Trance Tune (Original Mix).mp3", "same recording, another master", "confirm"),  # other names
+        ("Uploader - Trance Tune (OG).mp3", "another version, 11 s longer", "wrong-song"),  # the audio: full stop
+        ("Someone Else - Unrelated.mp3", "same recording, another master", "wrong-song"),  # names wholly different
+    ],
+)
+def test_a_gates_audio_decides_not_its_names(
+    settings, monkeypatch: pytest.MonkeyPatch, name: str, said: str, result: str
+) -> None:
+    _hypeddit_gate(settings)
+    monkeypatch.setattr(job.hypeddit, "read", lambda url: SimpleNamespace(email=False, url=url))
+    monkeypatch.setattr(job.hypeddit, "unlock", lambda gate, email="": SimpleNamespace(name=name))
+
+    def fetch(file: object, folder: Path, max_bytes: int = 0) -> Path:
+        folder.mkdir(parents=True, exist_ok=True)
+        return Path(shutil.copy(FIXTURES / "silence.mp3", folder / name))
+
+    monkeypatch.setattr(job.hypeddit, "fetch", fetch)
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+    monkeypatch.setattr(audio, "probe", lambda p: (400.0, 320 if p.suffix == ".mp3" else 160))  # (no ffprobe on CI)
+    monkeypatch.setattr(acquire, "_same_audio", lambda *a: None)  # (lossy against lossy: under its bar)
+    monkeypatch.setattr(job, "_copy", lambda con, want: "Uploader/Uploader - Trance Tune.m4a")
+    monkeypatch.setattr(job.identity, "compare", lambda a, b: said)
+    monkeypatch.setattr(acquire, "finish", lambda *a, **k: None)
+    job.gates(_gates_run(settings))
+    assert free(settings)["soundcloud:1001"]["result"] == result
+    kept = list((settings.library_dir.parent / "inbox" / "review").rglob("*.mp3"))
+    assert bool(kept) == (result != "upgrade")  # a doubt or a reject is kept to look at, never deleted

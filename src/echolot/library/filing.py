@@ -23,7 +23,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from echolot.library import audio, catalog, tagging
+from echolot.library import audio, catalog, rules, tagging
 from echolot.library.identity import UNKNOWN, Evidence
 from echolot.library.rules import artist_key, clean_name, first_artist, identify, mix_cut, norm_key, same_length
 
@@ -379,6 +379,7 @@ def file_into(
     same_audio: str = "",
     replaces: str = "",
     sure: bool = False,
+    trusted: bool = False,
     peer_bytes: int = 0,
     peer: tuple[str, str, int] = ("", "", 0),
     replace: bool = False,
@@ -394,7 +395,9 @@ def file_into(
     match is kept for review whatever the names (a SoundCloud song's FLAC: an uploader's names), a lossy or
     fake one deleted. `same_audio` (identity.same_master) with `replaces` (that library file): the same audio
     in another codec, so the names only tell exact (filed) from probable (filed for review); it takes over
-    that file. `sure`: same audio from the song's own page, filed as exact whatever the names. `replace` (an upload by hand): takes over the song's copy whatever the ranks. `url`: the page
+    that file. `sure`: same audio from the song's own page, filed as exact whatever the names. `trusted`: the
+    artist's own file from the song's page: names reject it only when they name neither the artist nor the
+    title (named), a doubt waits in Review even lossy, and a reject is kept. `replace` (an upload by hand): takes over the song's copy whatever the ranks. `url`: the page
     it came from; `fake_source`: what a fake FLAC was made from."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
@@ -415,6 +418,8 @@ def file_into(
             match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
             match = "exact"  # the audio confirms it
+        if trusted and match is None and named(want, [*tag_artists, tag_title, file_name, *folders]):
+            match, why = "probable", f"the artist's own file, other names: {why}"
         if same_audio:  # other names make it probable, not another song
             info["audio"] = same_audio
             if match != "exact" and sure:
@@ -428,19 +433,19 @@ def file_into(
             ok, why = False, "this download was marked wrong in review"
         if ok and heard.verdict == "other":
             ok, why = False, f"{why}, but the {heard.detail}"
+        near = not (dur and length) or 2 / 3 <= dur / length <= 1.5  # else another song: nothing to review
         if not ok:
-            far = bool(dur and length) and not 2 / 3 <= dur / length <= 1.5  # another song: nothing to review
-            kept = drop(src) if why.startswith("artist ") or far else keep(paths, src, want.artist, want.title, source)
+            lost = (why.startswith("artist ") or not near) and not trusted
+            kept = drop(src) if lost else keep(paths, src, want.artist, want.title, source)
             event(con, paths, "wrong-song", kept, reason=why, **info)
             return "wrong-song", None
-        if dur and length and not same_length(dur, length):
-            near = 2 / 3 <= dur / length <= 1.5
-            kept = keep(paths, src, want.artist, want.title, source) if near else drop(src)
+        if dur and length and not same_length(dur, length) and not (trusted and near and confirm):
+            kept = keep(paths, src, want.artist, want.title, source) if near or trusted else drop(src)
             event(con, paths, "mismatch", kept, wanted_seconds=round(length), **info)
             return "mismatch", None
         info["reason"] = why
         if confirm:
-            if ext not in audio.LOSSLESS or fake:
+            if (ext not in audio.LOSSLESS or fake) and not trusted:
                 event(con, paths, "duplicate", src, **info)  # remembered: rejected_before
                 src.unlink(missing_ok=True)
                 return "duplicate", None  # no better than the copy the song has
@@ -487,6 +492,16 @@ def file_into(
         _add_file(con, paths, dest, fake, fake_source)
         event(con, paths, "new", dest, **{"fake": int(fake), **info})
         return "new", dest
+
+
+def named(want: Want, texts: list[str]) -> bool:
+    """Whether a file's names mention the song at all: its artist, or half the words of its core title (a typo
+    or a remixer's name in front still names it)."""
+    seen = " ".join(rules.words(t) for t in texts if t)
+    if any(f" {w} " in seen for w in rules.artist_words(want.artist, want.aliases)):
+        return True
+    core = rules.words(rules.segments(want.title)[0]).split()
+    return bool(core) and sum(f" {w} " in seen for w in core) * 2 >= len(core)
 
 
 def purge(paths: Paths, days: int = KEEP_DAYS) -> list[str]:
