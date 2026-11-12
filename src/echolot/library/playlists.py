@@ -225,8 +225,9 @@ def sync_owners(con: sqlite3.Connection, svc: "navidrome.Service", folder: Path)
     done = [f"{given} playlists given to their users"] if given else []
     done += [f"{commented} playlist comments set"] if commented else []
     done += [f"{renamed} playlists renamed"] if renamed else []
-    if current - set(found):  # not all imported yet: the old playlists stay until the new ones are there
-        return ", ".join(done)
+    if waiting := current - set(found):  # not all imported yet: the old playlists stay until the new ones are there
+        svc.scan()  # (its watcher can miss a new file; the next upkeep gives the playlist to its user)
+        return ", ".join([*done, f"{len(waiting)} playlists not in Navidrome yet: asked it to scan"])
     for rel in gone & set(found):
         if not (folder / rel).exists():
             for p in found[rel]:

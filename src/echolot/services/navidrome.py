@@ -144,6 +144,10 @@ class Service:
             raise NavidromeError(f"Navidrome: {method} as {user}: {error.get('message')}")
         return answer
 
+    def scan(self) -> None:
+        """A quick scan: Navidrome imports a playlist file its watcher missed."""
+        self.as_user(self.user, "startScan")
+
     def starred(self, user: str) -> set[str]:
         """The songs the user gave a heart (their ids)."""
         songs = (self.as_user(user, "getStarred2").get("starred2") or {}).get("song") or []

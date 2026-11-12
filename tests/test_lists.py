@@ -671,7 +671,7 @@ def test_old_playlists_stay_until_the_new_ones_are_imported(run: Run) -> None:
     playlists.write(con, folder)
     with con:
         db.set_meta(con, "playlists_gone", '["Spotify Liked Songs.m3u"]')
-    deleted = []
+    deleted, scans = [], []
 
     class Navidrome:  # the new files not imported yet: only the old playlist
         def playlists(self) -> list[dict]:
@@ -680,7 +680,11 @@ def test_old_playlists_stay_until_the_new_ones_are_imported(run: Run) -> None:
         def delete_playlist(self, pid: str) -> None:
             deleted.append(pid)
 
-    assert playlists.sync_owners(con, Navidrome(), folder) == "" and deleted == []
+        def scan(self) -> None:
+            scans.append(1)
+
+    assert "not in Navidrome yet: asked it to scan" in playlists.sync_owners(con, Navidrome(), folder)
+    assert deleted == [] and scans == [1]  # its watcher can miss a file: Navidrome is asked to look
     assert db.get_meta(con, "playlists_gone") == '["Spotify Liked Songs.m3u"]'  # still to do
     con.close()
 
