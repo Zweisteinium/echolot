@@ -49,6 +49,15 @@ class Navidrome(Section):
 class Files(Section):
     SECTION = "files"
     keep_hires: bool = Field(False, description="hi-res FLAC (above 48 kHz) stays (else 44.1/48 kHz, 24 bit)")
+    gate_email: str = Field("", description="an address for free downloads that ask for one (Hypeddit email gates)")
+
+    @field_validator("gate_email")
+    @classmethod
+    def _gate_email(cls, v: str) -> str:
+        v = v.strip()
+        if v and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v):
+            raise ValueError("an address like you@example.com")
+        return v
 
 
 class Jobs(Section):

@@ -243,6 +243,17 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
     ).fetchall()
 
 
+def gates_to_get(con: Connection) -> int:
+    """How many Hypeddit free downloads are still to get (the predicate of jobs/bandcamp._GATES)."""
+    return con.execute(
+        "SELECT COUNT(*) FROM wanted s JOIN free_links fl ON fl.song_key = s.key "
+        "LEFT JOIN files f ON f.path = s.file WHERE fl.site = 'Hypeddit' AND fl.url > '' "
+        "AND fl.result IN ('', 'download failed', 'needs email') AND NOT s.close_match "
+        "AND (s.file IS NULL OR f.quality != 'lossless') "
+        "AND NOT EXISTS (SELECT 1 FROM origins o WHERE o.song_key = s.key)"
+    ).fetchone()[0]
+
+
 def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:
     """A list, if the user follows it (or anyone's, for None)."""
     if uid is None:

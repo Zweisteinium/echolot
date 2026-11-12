@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from echolot.library import catalog, filing, history, origin, recording, unreleased
 from echolot.services import soundcloud, spotify
+from echolot.settings import options
 from echolot.web import charts, discogs, stats
 from echolot.web.common import DB, back, page
 from echolot.web.format import num, size
@@ -186,8 +187,24 @@ def buy_page(request: Request, con: DB) -> HTMLResponse:
     last = con.execute("SELECT * FROM jobs WHERE name = 'bandcamp'").fetchone()
     runs, asked = request.app.state.worker.state()
     running = "bandcamp" in runs or "bandcamp" in asked
+    gates = stats.gates_to_get(con)
+    gates_last = con.execute("SELECT * FROM jobs WHERE name = 'hypeddit'").fetchone()
+    gates_running = "hypeddit" in runs or "hypeddit" in asked
+    has_email = bool(options.get(con, options.Files).gate_email)
     tabs = library_tabs(con, stats.scope(request.state.user))
-    return page(request, "buy.html", nav="buy", songs=songs, last=last, running=running, tabs=tabs)
+    return page(
+        request,
+        "buy.html",
+        nav="buy",
+        songs=songs,
+        last=last,
+        running=running,
+        tabs=tabs,
+        gates=gates,
+        gates_last=gates_last,
+        gates_running=gates_running,
+        has_email=has_email,
+    )
 
 
 @router.post("/buy/refresh")
@@ -196,6 +213,14 @@ def buy_refresh(request: Request) -> RedirectResponse:
     if not request.app.state.worker.trigger("bandcamp"):
         return back("/buy", error="Refresh could not start.")
     return back("/buy", ok="Refresh starts in a moment; reload the page in a few minutes.")
+
+
+@router.post("/buy/gates")
+def buy_gates(request: Request) -> RedirectResponse:
+    """Admins only: get the Hypeddit free downloads (jobs/bandcamp.gates)."""
+    if not request.app.state.worker.trigger("hypeddit"):
+        return back("/buy", error="Getting the free downloads could not start.")
+    return back("/buy", ok="Getting the free downloads starts in a moment; reload the page in a few minutes.")
 
 
 @router.get("/lists/{key:path}", response_class=HTMLResponse)

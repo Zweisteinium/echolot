@@ -194,6 +194,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "library": upkeep,
     "lossy": lossycheck.run,
     "bandcamp": bandcamp.run,
+    "hypeddit": bandcamp.gates,
     "discogs": discogs.run,
 }
 

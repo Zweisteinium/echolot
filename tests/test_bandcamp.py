@@ -8,6 +8,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -429,3 +430,62 @@ def test_refresh_keeps_an_offer_found_without_a_link(run, settings, monkeypatch:
         offers(settings)["soundcloud:1002"]["url"],
         offers(settings)["soundcloud:1002"]["price"],
     ) == (found, 2.0)
+
+
+def _hypeddit_gate(settings: Settings, result: str = "", url: str = "https://hypeddit.com/up/tune") -> None:
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute(
+            "INSERT OR REPLACE INTO free_links (song_key, url, site, label, fetch, result, checked) "
+            "VALUES ('soundcloud:1001', ?, 'Hypeddit', 'Free DL', 0, ?, '2026-01-01')",
+            (url, result),
+        )
+    con.close()
+
+
+def _gates_run(settings: Settings) -> Run:
+    r = Run(BY_NAME["hypeddit"], settings, vault.Vault.from_env(settings.data_dir, {}), "manual")
+    r.stop = threading.Event()
+    return r
+
+
+def test_a_hypeddit_gate_is_got_and_recorded_as_a_free_download(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    _hypeddit_gate(settings)
+    monkeypatch.setattr(job.hypeddit, "read", lambda url: SimpleNamespace(email=False, url=url))
+    monkeypatch.setattr(job.hypeddit, "unlock", lambda gate, email="": SimpleNamespace(name="Artist - Tune"))
+
+    def fetch(file: object, folder: Path, max_bytes: int = 0) -> Path:
+        folder.mkdir(parents=True, exist_ok=True)
+        return Path(shutil.copy(FIXTURES / "silence.flac", folder / "Artist - Tune.flac"))
+
+    monkeypatch.setattr(job.hypeddit, "fetch", fetch)
+    monkeypatch.setattr(audio, "prepare", lambda p, keep_hires=False: audio.Prepared(p, False, None))
+    monkeypatch.setattr(audio, "probe", lambda p: (400.0, 900))  # as long as the song (no ffprobe on CI)
+    copy = "Uploader/Uploader - Trance Tune.m4a"
+    monkeypatch.setattr(acquire, "_same_audio", lambda *a: (copy, "the same audio as your copy (0.999)"))
+    monkeypatch.setattr(acquire, "finish", lambda *a, **k: None)
+    r = _gates_run(settings)
+    assert "1 filed" in job.gates(r) and "library" in r.after
+    assert free(settings)["soundcloud:1001"]["result"] == "upgrade"
+    con = db.connect(settings.db_path)
+    try:
+        origin = con.execute("SELECT kind, site FROM origins WHERE song_key = 'soundcloud:1001'").fetchone()
+        assert tuple(origin) == ("free", "Hypeddit")  # the artist's own: off the Buy list, kept even lossy
+        e = con.execute("SELECT action, source FROM events WHERE song = 'soundcloud:1001' ORDER BY id DESC").fetchone()
+        assert tuple(e) == ("upgrade", "hypeddit")
+    finally:
+        con.close()
+
+
+def test_an_email_gate_without_an_address_waits(settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    _hypeddit_gate(settings)
+    monkeypatch.setattr(job.hypeddit, "read", lambda url: SimpleNamespace(email=True, url=url))
+    monkeypatch.setattr(job.hypeddit, "unlock", lambda *a, **k: pytest.fail("no email set: must not download"))
+    assert "1 need an email" in job.gates(_gates_run(settings))
+    assert free(settings)["soundcloud:1001"]["result"] == "needs email"
+
+
+def test_the_buy_page_offers_to_get_the_gates(settings, login) -> None:
+    _hypeddit_gate(settings)
+    buy = login(create_app(settings)).get("/buy").text
+    assert "Get 1 free download" in buy and 'action="/buy/gates"' in buy
