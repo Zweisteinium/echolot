@@ -60,7 +60,9 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
             **options.get(con, options.Soulseek).model_dump(),
             **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},
         })  # fmt: skip
-        files = options.validate(options.Files, {"keep_hires": form.get("keep_hires") == "1"})
+        files = options.validate(
+            options.Files, {"keep_hires": form.get("keep_hires") == "1", "gate_email": str(form.get("gate_email", ""))}
+        )
         with con:
             schedule.store(con, values)
             options.put(con, soulseek)

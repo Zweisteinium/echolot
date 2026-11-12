@@ -68,6 +68,10 @@
       <div class="label">Hi-res FLAC<span class="hint">above 48 kHz: by default made 44.1 or 48 kHz, 24 bit (inaudible, about half the size, plays everywhere). Kept, a file stays as downloaded</span></div>
       <div class="control"><label><input type="checkbox" name="keep_hires" value="1" {% if files.keep_hires %}checked{% endif %}> Keep hi-res as it is</label></div>
     </div>
+    <div class="field">
+      <div class="label">Email for free downloads<span class="hint">some free downloads (Hypeddit email gates) ask for an address before they hand over the file. It is sent to Hypeddit and the artist. Leave empty to skip those</span></div>
+      <div class="control"><input type="email" name="gate_email" value="{{ files.gate_email }}" placeholder="you@example.com" autocomplete="off"></div>
+    </div>
   </div>
   <div class="section-actions"><button class="primary">Save</button></div>
 </section>

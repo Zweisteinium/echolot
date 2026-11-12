@@ -71,9 +71,9 @@
 {%- endmacro %}
 
 {# a free download a SoundCloud page links to (services/free_links): fetched by Echolot, or a gate
-   (follow, repost, email) to get by hand #}
+   (follow, repost, email) to get by hand (Hypeddit's: the Buy page's button) #}
 {% macro free_link(l) -%}
-{%- if l and l.url %}<a class="pill accent-pill" href="{{ l.url }}" target="_blank" rel="noopener" title="{{ ('A file on ' ~ l.site ~ ' (Echolot fetches it)') if l.fetch else ('A free download on ' ~ l.site ~ ': the file for a follow, a repost or an email, only you can give') }}{{ ': “' ~ l.label ~ '”' if l.label }}">Free · {{ l.site }}</a>{% endif %}
+{%- if l and l.url %}<a class="pill accent-pill" href="{{ l.url }}" target="_blank" rel="noopener" title="{{ ('A file on ' ~ l.site ~ ' (Echolot fetches it)') if l.fetch else ('A free download on Hypeddit: Echolot gets it from the Buy page') if l.site == 'Hypeddit' else ('A free download on ' ~ l.site ~ ': the file for a follow, a repost or an email, only you can give') }}{{ ': “' ~ l.label ~ '”' if l.label }}">Free · {{ l.site }}</a>{% endif %}
 {%- endmacro %}
 
 {# a lead line, the rest folded under "How it works" (remembered: base.html, data-remember) #}

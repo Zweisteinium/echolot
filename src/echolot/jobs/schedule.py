@@ -141,6 +141,14 @@ JOBS = [
             "audio of your copy replaces it, anything else waits in Review). After New SoundCloud songs only the "
             "songs never looked at; Refresh on the Buy page all of them. Bandcamp is asked as Echolot, one page "
             "every 2 s; a bot check from Bandcamp ends the run.", started_by="New SoundCloud songs"),
+    JobInfo("hypeddit", "Free downloads", "web", None, 60,
+            "Gets the Hypeddit free downloads of your lossy SoundCloud songs.",
+            "For each lossy song with a Hypeddit free download (found by Bandcamp offers), gets the file "
+            "without the follow or repost it asks for (Hypeddit neither does nor checks those), one every 2 s, "
+            "and files it like any download: the file is the artist's own, so it is kept even lossy and leaves "
+            "the Buy list; the same audio replaces your copy, a different one (an extended mix, another master) "
+            "waits in Review. A gate that wants an email uses the address in Settings; without it those are left "
+            "for later. On-demand from the Buy page; each gate is got once.", started_by="the Buy page"),
     # not on the Jobs page either
     JobInfo("discogs", "Discogs check", "web", None, 60,
             "Finds the releases of a list Discogs lacks.",

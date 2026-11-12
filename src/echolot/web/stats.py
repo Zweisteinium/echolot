@@ -7,7 +7,7 @@ from sqlite3 import Connection, Row
 from typing import Any
 
 from echolot import db
-from echolot.jobs import acquire
+from echolot.jobs import acquire, bandcamp
 from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
 from echolot.library import catalog, origin, recording, recordings, review, unreleased
@@ -241,6 +241,12 @@ def buy(con: Connection, uid: int | None = None) -> list[Row]:
         "s.artist COLLATE NOCASE",
         (*their_args, *args),
     ).fetchall()
+
+
+def gates_to_get(con: Connection) -> int:
+    """How many Hypeddit free downloads are still to get (jobs/bandcamp.gates)."""
+    args = (bandcamp.GATE_SITE, *bandcamp.GATE_RETRY)
+    return con.execute(f"SELECT COUNT(*) FROM ({bandcamp.GATES})", args).fetchone()[0]
 
 
 def get_list(con: Connection, key: str, uid: int | None = None) -> Row | None:

@@ -1,7 +1,7 @@
 """Bandcamp offers of the SoundCloud songs without a genuine lossless copy: the Bandcamp track a song's
 SoundCloud page links to (buy link, description), with its price, stored in `bandcamp` for the Buy page. A
 free download (no email asked) is fetched and filed like any download. The pages' other free downloads go
-into `free_links`: a Dropbox file is fetched the same way, a gate (Hypeddit, ...) is listed to do by hand.
+into `free_links`: a Dropbox file is fetched the same way, a gate is listed (Hypeddit's got by `gates`).
 After New SoundCloud songs only the songs never looked at (Bandcamp only for a link); by hand (Refresh on
 the Buy page) every one again, a stored offer's own page too. Bandcamp's bot check (bandcamp.Challenged)
 ends the run.
@@ -11,12 +11,13 @@ import dataclasses
 import datetime
 import shutil
 import sqlite3
+import time
 from typing import TYPE_CHECKING
 
 from echolot import db
 from echolot.jobs import acquire
-from echolot.library import audio, filing, identity, rules
-from echolot.services import bandcamp, free_links
+from echolot.library import audio, filing, identity, origin, rules
+from echolot.services import bandcamp, free_links, hypeddit
 from echolot.services import soundcloud as sc_api
 from echolot.settings import options
 
@@ -221,6 +222,7 @@ def _file(
     folders: tuple[str, ...],
     url: str,
     source: str,
+    origin_kind: str = "",
 ) -> str:
     heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)), want.length)
     same = acquire._same_audio(run, con, want, prepared)
@@ -231,4 +233,92 @@ def _file(
     action, dest = filing.file_into(con, run.paths, prepared.path, want, source, **found, **checks)
     if dest and action in ("new", "upgrade"):
         acquire.finish(run, con, dest, want)
+        if origin_kind:  # the file is the artist's own (a free download): kept even lossy, off the Buy list
+            origin.note(con, want.key, dest.relative_to(run.paths.tracks).as_posix(), origin_kind)
     return action
+
+
+GATE_SITE = "Hypeddit"  # the only gate site that does not check the steps it asks for
+GATE_RETRY = ("", "download failed", "needs email")  # free_links.result values a gate run tries (again)
+GATE_PACE = 2  # seconds between gates
+GATES = (  # the songs whose gate to get; params: GATE_SITE, *GATE_RETRY
+    "SELECT s.*, fl.url AS gate_url FROM wanted s JOIN free_links fl ON fl.song_key = s.key "
+    "LEFT JOIN files f ON f.path = s.file WHERE fl.site = ? AND fl.url > '' AND fl.result IN (?, ?, ?) "
+    "AND NOT s.close_match AND (s.file IS NULL OR f.quality != 'lossless') "
+    "AND NOT EXISTS (SELECT 1 FROM origins o WHERE o.song_key = s.key) ORDER BY s.key"
+)
+_GATE_NOTE = {  # a filing action as the log tells it
+    "new": "filed",
+    "upgrade": "replaced your copy",
+    "confirm": "waits in Review",
+    "duplicate": "no better than your copy",
+    "wrong-song": "not the song",
+    "mismatch": "another length",
+}
+
+
+def gates(run: "Run") -> str:
+    """Get the Hypeddit free downloads of lossy songs and file them as the artist's own (origin free): the same
+    audio replaces your copy, a different one waits in Review. On demand from the Buy page; an email gate needs the
+    address in Settings, else it waits (needs email)."""
+    con = run.connect()
+    try:
+        email = options.get(con, options.Files).gate_email
+        rows = run.todo([dict(r) for r in con.execute(GATES, (GATE_SITE, *GATE_RETRY))])
+    finally:
+        con.close()
+    if not rows:
+        return "nothing to get"
+    got = review = waiting = nothing = 0
+    try:
+        for n, row in enumerate(rows, 1):
+            if run.stop.is_set() or run.give_way.is_set():
+                run.left = 0 if run.stop.is_set() else len(rows) - n + 1
+                break
+            if n > 1:
+                time.sleep(GATE_PACE)
+            want = acquire._want(row)
+            run.say(f"{run.of(n, len(rows))}: {want.artist} – {want.title}", n - 1, len(rows))
+            con = run.connect()
+            try:
+                result = _gate(run, con, row, email, want)
+            finally:
+                con.close()
+            got += result in ("new", "upgrade")
+            review += result == "confirm"
+            waiting += result == "needs email"
+            nothing += result not in ("new", "upgrade", "confirm", "needs email")
+            run.handled.add(row["key"])
+    finally:
+        shutil.rmtree(run.paths.inbox("hypeddit"), ignore_errors=True)
+    if got:
+        run.after.add("library")
+    done = f"{len(run.handled)} gates: {got} filed"
+    done += f", {review} in Review" if review else ""
+    done += f", {waiting} need an email" if waiting else ""
+    done += f", {nothing} gave nothing" if nothing else ""
+    return done + (f"; gave way, {run.left} left" if run.left else "")
+
+
+def _gate(run: "Run", con: sqlite3.Connection, row: dict, email: str, want: filing.Want) -> str:
+    """Fetch and file one gate; its result (also stored in free_links)."""
+    url = row["gate_url"]
+    try:
+        gate = hypeddit.read(url)
+        if gate.email and not email:
+            result, note = "needs email", "wants an email (set one in Settings → Files)"
+        else:
+            file = hypeddit.unlock(gate, email)
+            got = hypeddit.fetch(file, run.paths.inbox("hypeddit") / want.key.replace(":", "-"))
+            prepared = audio.prepare(got, options.get(con, options.Files).keep_hires)
+            result = _file(run, con, want, prepared, got.stem, (), url, GATE_SITE.lower(), origin_kind="free")
+            note = _GATE_NOTE.get(result, result)
+    except hypeddit.GateError as e:
+        result, note = "download failed", str(e)
+    except audio.Rejected as e:
+        result, note = f"bad file: {e}", str(e)
+    run.note(f"{want.artist} – {want.title}: {GATE_SITE}, {note}")
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    with con:
+        con.execute("UPDATE free_links SET result = ?, checked = ? WHERE song_key = ?", (result, now, row["key"]))
+    return result
