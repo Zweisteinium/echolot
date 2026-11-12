@@ -568,9 +568,10 @@ def _count(con: sqlite3.Connection, purpose: str, key: str, action: str, report:
 
 
 def sync(run: "Run") -> str:
-    """The Spotify lists job (lists.fetch_spotify). Only songs never searched start search_new, so the
-    Soulseek jobs give way only for real work; the message names those this run brought in."""
-    from echolot.jobs import lists
+    """The Spotify lists job (lists.fetch_spotify), then the availability of the songs it brought in
+    (availability.check_new). Only songs never searched start search_new, so the Soulseek jobs give way only for
+    real work; the message names those this run brought in."""
+    from echolot.jobs import availability, lists
 
     con = run.connect()
     try:
@@ -580,6 +581,10 @@ def sync(run: "Run") -> str:
     message = lists.fetch_spotify(run)
     con = run.connect()
     try:
+        try:
+            availability.check_new(con, run)
+        except spotify.SpotifyError as e:
+            log.warning("availability of new songs: %s", e)
         after = unsearched(con)
     finally:
         con.close()

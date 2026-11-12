@@ -227,6 +227,36 @@ def test_what_a_relinked_song_plays_as(run: Run) -> None:
     con.close()
 
 
+def test_a_new_song_is_checked_when_its_list_brings_it_in(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Spotify sync checks the songs it brought in at once (availability.check_new): the recorder knows a
+    relink and what it plays as before the daily check; a song checked once is not asked again."""
+    from echolot.jobs import acquire
+
+    def fetch(run: Run) -> str:
+        con = run.connect()
+        with con:
+            con.execute(
+                "INSERT INTO songs (key, service, artist, title, length) VALUES ('spotify:s7', 'spotify', 'A', 'B', 61)"
+            )
+            con.execute(
+                "INSERT OR IGNORE INTO list_songs (list_key, position, song_key) "
+                "VALUES ('spotify:playlist:AAA111', 9, 'spotify:s7')"
+            )
+        con.close()
+        return "1 lists, 1 changed"
+
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", fetch)
+    acquire.sync(run)
+    con = run.connect()
+    row = con.execute("SELECT state, detail, plays FROM availability WHERE song_key = 'spotify:s7'").fetchone()
+    assert (row["state"], row["detail"], json.loads(row["plays"])["title"]) == ("replaced", "spotify:s7b", "B2")
+    con.close()
+    asked = len(FakeSpotify.asked)
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "1 lists, 0 changed")
+    acquire.sync(run)
+    assert len(FakeSpotify.asked) == asked  # checked: left to the daily check
+
+
 def test_another_release_by_its_isrc(run: Run, login: Callable[..., TestClient]) -> None:
     """A song unplayable as itself is replaced by another release with its ISRC: rechecked daily, searched
     anew after a week or when it stops playing. Song links open the release that plays."""

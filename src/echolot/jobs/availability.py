@@ -135,6 +135,19 @@ def check(run: "Run") -> str:
     return f"{len(states)} songs checked: {summary}; {changed} changes{explained_text}"
 
 
+def check_new(con: sqlite3.Connection, run: "Run") -> int:
+    """The Spotify songs never checked (a list just brought them in), checked now: the recorder knows a relink
+    and what it plays as from the start (else it hands out the list's track, whose names the player does not
+    show: played as another song), and a greyed-out song is searched first. How many were checked."""
+    sql = "SELECT key FROM wanted WHERE key LIKE 'spotify:%' AND key NOT IN (SELECT song_key FROM availability)"
+    if not (keys := [r[0] for r in con.execute(sql)]):
+        return 0
+    states = _spotify(con, run, keys)
+    apply(con, states)
+    _plays_as(con, run, states)
+    return len(states)
+
+
 def _spotify(con: sqlite3.Connection, run: "Run", keys: list[str]) -> dict[str, tuple[str, str | None]]:
     """The Spotify songs' states, in the market's catalogue (the app's own access: no user needed); their
     release facts are stored on the way (the tags: tagging.for_file)."""
