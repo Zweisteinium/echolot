@@ -307,7 +307,8 @@ def _check_and_file(
     request: Request, con: sqlite3.Connection, item: sqlite3.Row, file: UploadFile, paths: filing.Paths
 ) -> tuple[str, str, str, str]:
     """(result, detail, tier, lossy source): rejected (not audio, or another recording than the release's or,
-    when Spotify plays another release, than the library's copy: recording.unsure), not_better, or filed."""
+    when Spotify plays another release, than the library's copy: upload.recorded_different), not_better, or
+    filed."""
     song = next(iter(stats.upload_songs(con, item["user_id"], item["song_key"])), None)
     if song is None:
         return "rejected", "the song is no longer in your lists", "", ""
@@ -320,7 +321,9 @@ def _check_and_file(
         tier = f.tier
         fit = upload.fit(con, f, song, paths.tracks)
         plays = recording.unsure(con, item["song_key"], item["uri"] or "")
-        if why := upload.different(fit, copy=bool(plays)):  # blocked until Try again
+        listed = recording.as_listed(con, item["song_key"], item["uri"] or "")
+        why, note = upload.recorded_different(fit, listed, bool(plays))
+        if why:  # blocked until Try again
             detail = f"{recording.DIFFERENT}: {why}" + (f" (Spotify plays it as {plays})" if plays else "")
             recording.block(con, item["song_key"], item["uri"], "other", detail)
             return "rejected", detail, tier, f.source
@@ -332,6 +335,7 @@ def _check_and_file(
         if key is None:
             return "rejected", line, tier, f.source
         # filing may still find the library's copy better (import_files' line says so)
+        line = f"{line} ({note})" if note else line
         return ("not_better" if "has a better copy" in line else "filed"), line, tier, f.source
     finally:
         upload.cancel(paths, batch)

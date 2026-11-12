@@ -389,6 +389,23 @@ def different(fit: Fit | None, copy: bool = False) -> str:
     return ""
 
 
+AS_LISTED = 3  # s: a recording of the list's own track this close to its length is the song
+
+
+def recorded_different(fit: Fit | None, as_listed: bool, unsure: bool) -> tuple[str, str]:
+    """(why a recording is another recording than the song: different, '' if not; a note when it is filed
+    though a reference disagrees). It is the song when it sounds like the release's preview (your copy may be
+    the odd one), or when it is the list's own track as Spotify lists it (recording.as_listed) and as long:
+    then the preview may be another release under the ISRC; else different(), with your copy when Spotify
+    plays another release that may be another recording (`unsure`)."""
+    if fit is None or (fit.fingerprint is not None and fit.fingerprint >= identity.SAME):
+        return "", ""
+    why = different(fit, copy=unsure)
+    if why and as_listed and fit.diff is not None and abs(fit.diff) <= AS_LISTED:
+        return "", f"the list's own track, though {why}"
+    return why, ""
+
+
 def sounds_different(fit: Fit | None) -> bool:
     return bool(different(fit))
 
@@ -402,7 +419,7 @@ def fit(con: sqlite3.Connection, f: File, song: sqlite3.Row | None, tracks: Path
     diff = round(f.seconds - song["length"]) if f.seconds and song["length"] else None
     out = Fit(diff)
     isrc = song["isrc"] or ""
-    ref = identity.reference(con, isrc) if isrc else None
+    ref = identity.reference(con, isrc, song["length"] or 0) if isrc else None
     cand = identity.fingerprint(f.path) if ref is not None else None
     if ref is not None and cand is not None and len(cand):
         out.fingerprint = round(identity.similarity(ref, cand), 2)

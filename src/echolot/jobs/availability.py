@@ -260,7 +260,7 @@ def _renamed(con: sqlite3.Connection, run: "Run", sp: spotify.Spotify, market: s
             and abs((t.get("duration_ms") or 0) / 1000 - song["length"]) <= RENAMED_LENGTH
             and f" {title} " in names
             and any(f" {a} " in names for a in artists)
-            and identity.check(con, isrc, path).verdict == "same"
+            and identity.check(con, isrc, path, length=(t.get("duration_ms") or 0) / 1000).verdict == "same"
         ):
             return t
     return None

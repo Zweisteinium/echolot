@@ -354,6 +354,15 @@ def unsure(con: sqlite3.Connection, key: str, uri: str) -> str:
     return "" if rules.same_recording(row, plays) else f"{plays['artist']} – {plays['title']}"
 
 
+def as_listed(con: sqlite3.Connection, key: str, uri: str) -> bool:
+    """Whether `uri` is the list's own track and Spotify plays it as itself (no relink): a recording of it is
+    the song as the list has it, whatever another reference says."""
+    if not key.startswith("spotify:") or uri != f"spotify:track:{key.removeprefix('spotify:')}":
+        return False
+    row = con.execute("SELECT state FROM availability WHERE song_key = ?", (key,)).fetchone()
+    return row is None or row["state"] != "replaced"
+
+
 _HELD = "FROM spotify_best b LEFT JOIN availability a ON a.song_key = b.song_key WHERE b.uri = " + PLAYS_AS.format(
     key="b.song_key"
 )

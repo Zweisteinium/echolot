@@ -219,7 +219,7 @@ def test_the_upload_into_the_song(
     assert seen == [({1: item["key"]}, "mitschnitt")]  # History shows it as recorded by Mitschnitt
     assert device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()["result"] == "filed"
     assert len(seen) == 1
-    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.4, 0.1))  # another recording
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(6, 0.4, 0.1))  # another recording
     nxt = poll(device)["item"]
     r = device.post(f"/api/recorder/items/{nxt['id']}/file", files=files)
     assert r.json()["result"] == "rejected" and "Sounds different" in r.json()["detail"]
@@ -269,7 +269,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
         con.execute("UPDATE songs SET file = ?, isrc = NULL WHERE key = 'spotify:s1'", (copy,))
     con.close()
 
-    scores = {"copy": (0.58, 0.04)}  # fingerprint, waveform against the copy; the preview matches
+    scores = {"preview": (None, None), "copy": (0.58, 0.04)}  # fingerprint, waveform (the song has no ISRC)
 
     def add(paths, batch, name, fileobj, keep_hires=False):
         return upload.File(1, name, Path("/x/rec.flac"), 201, 900, "lossless")
@@ -278,7 +278,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
         return [("Artist A – First Song: replaced the copy", "spotify:s1")]
 
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95, *scores["copy"]))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, *scores["preview"], *scores["copy"]))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
     monkeypatch.setattr(upload, "import_files", import_files)
     owner = login(app)
@@ -297,6 +297,12 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     assert recording.blocks(con)["spotify:s1"]["reason"] == "other"  # not offered again
     recording.unblock(con, "spotify:s1")
     con.close()
+    scores["preview"] = (0.97, 0.95)  # it is the release's recording: your copy is the odd one (DEVO - Whip It)
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
+    item = poll(device)["item"]
+    body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
+    assert item["key"] == "spotify:s1" and body["result"] == "filed"
+    scores["preview"] = (None, None)
     scores["copy"] = (0.95, 0.75)  # another master of the same recording
     owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
     item = poll(device)["item"]
@@ -770,3 +776,27 @@ def test_stop_start_stop_start(app: FastAPI, login: Callable[..., TestClient], f
     failed = con.execute("SELECT count(*) FROM recording_items WHERE result = 'failed'").fetchone()[0]
     con.close()
     assert failed == 0 and e["key"] in offered
+
+
+def test_the_lists_own_track_is_the_song(settings: Settings) -> None:
+    """A recording of the list's own track, as Spotify lists it and as long, is the song though the preview
+    says otherwise (Deezer's release under its ISRC may be another: LilC4 - V4MP); a relinked one, or one of
+    another length, is checked as before."""
+    con = db.connect(settings.db_path)
+    assert recording.as_listed(con, "spotify:s1", "spotify:track:s1")
+    assert not recording.as_listed(con, "spotify:s1", "spotify:track:s1b")
+    with con:
+        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL, NULL)")
+    assert not recording.as_listed(con, "spotify:s1", "spotify:track:s1")  # Spotify plays another release
+    con.close()
+    other = upload.Fit(1, 0.6, 0.29)
+    assert upload.recorded_different(other, True, False) == (
+        "",
+        "the list's own track, though another recording than the release's (fingerprint 0.60, waveform 0.29)",
+    )
+    assert upload.recorded_different(upload.Fit(6, 0.6, 0.29), True, False)[0].startswith("another recording")
+    assert upload.recorded_different(other, False, False)[0].startswith("another recording")
+    assert upload.recorded_different(upload.Fit(0, 0.9, 0.95, 0.5, 0.1), False, True) == ("", "")
+    assert upload.recorded_different(upload.Fit(0, None, None, 0.5, 0.1), False, True)[0].endswith(
+        "than your copy (fingerprint 0.50, waveform 0.10)"
+    )

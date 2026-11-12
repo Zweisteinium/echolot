@@ -106,7 +106,7 @@ def in_library(con: sqlite3.Connection, paths: Paths, want: Want, index: Index) 
     if not want.isrc or rules.mix_cut(want.title):
         return None
     for e in index.candidates(want.title, want.length):
-        if identity.check(con, want.isrc, paths.tracks / e.path).verdict == "same":
+        if identity.check(con, want.isrc, paths.tracks / e.path, length=want.length).verdict == "same":
             return e
     return None
 

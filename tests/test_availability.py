@@ -309,7 +309,7 @@ def test_another_release_under_other_names(run: Run, monkeypatch: pytest.MonkeyP
     ]
     checked = []
 
-    def check(con, isrc, path, any_length=False):
+    def check(con, isrc, path, any_length=False, length=0):
         checked.append(isrc)
         return identity.Evidence("same" if isrc == "ISRCS" else "other")
 

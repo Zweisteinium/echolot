@@ -512,7 +512,9 @@ def test_a_song_the_library_has_under_other_names_is_linked(run: Run, monkeypatc
         "Artist A/Artist A - First Song.mp3"
     )
     con.close()
-    monkeypatch.setattr(identity, "check", lambda con, isrc, path, any_length=False: identity.Evidence("same", "x"))
+    monkeypatch.setattr(
+        identity, "check", lambda con, isrc, path, any_length=False, length=0: identity.Evidence("same", "x")
+    )
     rows = [r for r in missing(run) if r["key"] == "spotify:single"]
     assert acquire._search(run, rows, "search") == "1 of 1 songs: 1 linked"
     assert FakeDaemon.searches == []  # not searched
