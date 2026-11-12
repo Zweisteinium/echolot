@@ -3,6 +3,7 @@ uploader's, the old one is backed up, and a run goes on where the last one stopp
 
 import os
 import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -394,3 +395,33 @@ def test_a_song_filed_is_tagged_as_its_own_release(settings: Settings, monkeypat
     con.close()
     now = tagging.read(p)
     assert audio.picture(p) == SONG and now["album"] == "New Song (Single)" and now["facts"]["date"] == "2018-05-04"
+
+
+def test_a_picture_comes_as_uploaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    got: dict[str, bytes] = {"https://i.scdn.co/image/ab67616d000082c1abc": SONG + b" 2000 px"}
+    got["https://i1.sndcdn.com/artworks-x-original.png"] = b"\x89PNG not embedded as a JPEG"
+
+    def download(url: str) -> bytes:
+        if url not in got and "0000b273" not in url and "t500x500" not in url:
+            raise OSError("404")
+        return got.get(url, b"\xff\xd8\xff the usual size")
+
+    monkeypatch.setattr(covers, "download", download)
+    assert covers.largest("https://i.scdn.co/image/ab67616d0000b273abc") == SONG + b" 2000 px"
+    assert covers.largest("https://i.scdn.co/image/ab67616d0000b273gone") == b"\xff\xd8\xff the usual size"
+    assert covers.largest("https://i1.sndcdn.com/artworks-x-t500x500.png") == b"\xff\xd8\xff the usual size"
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_a_larger_copy_of_the_same_picture_stays(tmp_path: Path) -> None:
+    def jpeg(source: str, size: int) -> bytes:
+        out = tmp_path / f"{size}-{len(list(tmp_path.iterdir()))}.jpg"
+        cmd = ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"{source}=size={size}x{size}", "-frames:v", "1"]
+        subprocess.run([*cmd, str(out)], check=True)
+        return out.read_bytes()
+
+    big, small = jpeg("testsrc2", 1200), jpeg("testsrc2", 640)
+    other = jpeg("mandelbrot", 640)
+    assert (covers.width(big), covers.width(small)) == (1200, 640)
+    assert covers.keeps(big, small)  # the same picture, smaller: the file keeps its own
+    assert not covers.keeps(small, big) and not covers.keeps(big, other) and not covers.keeps(None, small)

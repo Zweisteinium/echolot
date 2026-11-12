@@ -323,7 +323,8 @@ def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover:
     try:
         song = tagging.lead(con, dest.relative_to(run.paths.tracks).as_posix(), want.key)
         jpg = cover.read_bytes() if cover and cover.is_file() else covers.Covers(con, run).of(song) if song else None
-        if jpg and audio.embed_cover(dest, jpg, replace=True) and (data := getattr(run, "data", None)):
+        kept = jpg and covers.keeps(audio.picture(dest), jpg)  # the uploader's is the song's, larger
+        if jpg and (kept or audio.embed_cover(dest, jpg, replace=True)) and (data := getattr(run, "data", None)):
             covers.note_done(data, dest.relative_to(run.paths.tracks).as_posix())
     except (spotify.SpotifyError, sc_api.SoundCloudError, OSError) as e:
         log.info("cover of %s: %s", dest.name, e)

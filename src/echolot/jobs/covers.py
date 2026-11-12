@@ -4,7 +4,8 @@ its ISRC, else by its names; else the list's release), stored with the album, da
 tagged with (song_releases, tagging.for_file); the SoundCloud artwork; a YouTube video's picture as a square. New files get it when filed (acquire.pictures) and are noted done; `run` gives it
 to the files not done yet, keeping the old picture in <data>/cover-backups/<file>.jpg and noting the files
 done in done.txt, so a stopped run goes on where it was; `run_all` to every file again. A file changed in
-the last 10 minutes waits.
+the last 10 minutes waits. Pictures come as uploaded where the site keeps that (largest), and a file's picture
+that is the same one, larger, stays (keeps).
 """
 
 import datetime
@@ -17,6 +18,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.request import Request, urlopen
+
+import numpy as np
 
 from echolot.library import audio, filing, rules, tagging
 from echolot.services import soundcloud as sc_api
@@ -39,6 +42,10 @@ _ADDED = re.compile(
     re.I,
 )
 VIDEO = re.compile(r"[\w-]{11}")
+# Spotify's 640 px and SoundCloud's 500 px picture addresses, and those of the picture as uploaded
+ORIGINALS = (("ab67616d0000b273", "ab67616d000082c1"), ("-t500x500.", "-original."))
+MAX_PICTURE = 6 << 20  # bytes: an original larger than this (a print scan) is left for the usual size
+SAME_PICTURE = 4  # mean difference (0-255) of two pictures' 16x16 grey pixels up to which they are one picture
 
 
 def journal(data: Path) -> Path:
@@ -57,6 +64,53 @@ def note_done(data: Path, rel: str) -> None:
 def download(url: str) -> bytes:
     with urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as r:
         return r.read()
+
+
+def largest(url: str) -> bytes:
+    """The picture at `url` as uploaded where Spotify or SoundCloud keep it (a JPEG up to MAX_PICTURE), else as
+    given."""
+    for small, big in ORIGINALS:
+        if small in url:
+            try:
+                jpg = download(url.replace(small, big))
+            except OSError:
+                break
+            if jpg[:3] == b"\xff\xd8\xff" and len(jpg) <= MAX_PICTURE:
+                return jpg
+            break
+    return download(url)
+
+
+def width(picture: bytes) -> int:
+    """A JPEG's or PNG's width, from its header; 0 if unknown."""
+    if picture[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(picture[16:20])
+    i = 2
+    while picture[:2] == b"\xff\xd8" and i + 9 <= len(picture) and picture[i] == 0xFF:
+        marker = picture[i + 1]
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):  # a frame header: height, width
+            return int.from_bytes(picture[i + 7 : i + 9])
+        i += 2 + int.from_bytes(picture[i + 2 : i + 4])
+    return 0
+
+
+def _grey(picture: bytes) -> np.ndarray | None:
+    """A picture as 16x16 grey pixels (ffmpeg); None if it cannot be read."""
+    cmd = ["ffmpeg", "-v", "error", "-i", "-", "-vf", "scale=16:16:flags=area,format=gray", "-f", "rawvideo", "-"]
+    try:
+        out = subprocess.run(cmd, input=picture, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return np.frombuffer(out.stdout, np.uint8).astype(int) if out.returncode == 0 and len(out.stdout) == 256 else None
+
+
+def keeps(old: bytes | None, new: bytes) -> bool:
+    """Whether a file's picture `old` stays rather than `new`: the same picture, larger (the release's own
+    print-size cover over a store's 640 px)."""
+    if not old or width(old) <= width(new):
+        return False
+    a, b = _grey(old), _grey(new)
+    return a is not None and b is not None and float(np.abs(a - b).mean()) <= SAME_PICTURE
 
 
 class Covers:
@@ -123,7 +177,7 @@ class Covers:
 
     def _fetch(self, key: str, url: str | None) -> bytes | None:
         if key not in self.cache:
-            self.cache[key] = download(url) if url else None
+            self.cache[key] = largest(url) if url else None
         return self.cache[key]
 
 
@@ -320,7 +374,7 @@ def _one(run: "Run", con: sqlite3.Connection, covers: Covers, rel: str, backups:
     if not jpg:
         return "without a song or cover"
     old = audio.picture(path)
-    if old == jpg:
+    if old == jpg or keeps(old, jpg):
         return "already the song's"
     if old:
         backup = backups / f"{rel}.{'png' if old[:4] == b'\x89PNG' else 'jpg'}"
