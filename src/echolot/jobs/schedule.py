@@ -101,15 +101,16 @@ JOBS = [
     JobInfo("covers", "Covers from your lists", "pictures", None, 60,
             "Gives the files not done yet their song's cover. Start it with Add missing.",
             "New files get their song's cover when they are filed and are noted done; this gives it to the other "
-            "files (added or renamed outside Echolot, or before): on Spotify the cover of the song's own release (its "
-            "single, else its album; else the list's release), or the SoundCloud song's artwork, in place of the "
-            "one the uploader embedded (a compilation, a remaster). The old "
-            "picture is kept in cover-backups first. Files done are noted, so a run that stopped goes on where "
+            "files (added or renamed outside Echolot, or before): on Spotify the cover of the song's own original "
+            "release (its single, else its album, by its ISRC or else its names and length; else the list's "
+            "release), with that release's album, year and track number in the tags; the SoundCloud song's "
+            "artwork; a YouTube video's picture as a square. In place of the one the uploader embedded (a "
+            "compilation, a remaster). The old picture and tags are kept in cover-backups first. Files done are noted, so a run that stopped goes on where "
             "it was. Off on the schedule."),
     JobInfo("covers_all", "Covers, all files", "pictures", None, 60,
             "Gives every file its song's cover again. Start it with Replace all.",
             "As Add missing, for every file in the library, done before or not: one request per song, so it "
-            "takes hours. A file whose cover is the song's already stays as it is. Stopped, Add missing goes on "
+            "takes hours. A file whose cover and tags are the song's already stays as it is. Stopped, Add missing goes on "
             "where it was. Off on the schedule."),
     JobInfo("availability", "Availability check", "catalog", ["05:30"], 360,
             "Checks whether all lists' songs still play on Spotify and SoundCloud.",
@@ -246,7 +247,7 @@ TASKS = [
             ("Replace all", ("covers_all",), "Every file again, done before or not: takes hours"),
         ),
         maintenance=True,
-        about="Gives every file the cover of its song: on Spotify its own single's, else its album's (a compilation's only when Spotify has nothing else of it), on SoundCloud its artwork, in place of the picture the uploader embedded. New files get it when they are filed; Add missing gives it to the files not done yet, Replace all to every file again. The old pictures are kept.",
+        about="Gives every file the cover of its song: on Spotify its original single's, else its album's (a compilation's only when Spotify has nothing else of it), with that release's album, year and track number in the tags; on SoundCloud its artwork; on YouTube the video's picture as a square. In place of the picture the uploader embedded. New files get it when they are filed; Add missing gives it to the files not done yet, Replace all to every file again. The old pictures are kept.",
         confirm={
             "Replace all": "Check the cover of every file in the library again? One request per song: this takes hours. Files whose cover is the song's already stay as they are."
         },

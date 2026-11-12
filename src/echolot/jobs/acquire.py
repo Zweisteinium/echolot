@@ -299,16 +299,16 @@ def track(run: "Run", key: str, stage: str | None, done: int = 0, total: int = 0
 
 
 def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None = None) -> None:
-    """A song just filed gets its tags (tagging.for_file; an empty album: the title, as a single), its cover
-    and the artist picture. Failures only cost the tags or the pictures."""
+    """A song just filed gets its cover and the artist picture, then its tags (tagging.for_file, of the release
+    its cover is of; an empty album: the title, as a single). Failures only cost the tags or the pictures."""
     rel = dest.relative_to(run.paths.tracks).as_posix()
+    pictures(run, con, dest, want, cover)
     try:
         if tags := tagging.for_file(con, rel, dest, want.key):
             tagging.write(dest, tags)
     except Exception as e:
         log.warning("tags of %s not written: %s", dest.name, e)
     audio.write_tags(dest, album_if_empty=want.title)
-    pictures(run, con, dest, want, cover)
 
 
 def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:

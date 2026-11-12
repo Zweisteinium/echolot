@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-VERSION = 46
+VERSION = 47
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -106,6 +106,19 @@ CREATE TABLE songs (                -- every song of every list, once; kept when
     disc INTEGER,
     artist_alias TEXT               -- Spotify: the artist's English name if it differs (祖堅 正慶: Masayoshi Soken),
                                     -- searched and matched as well; '' = checked, the same; NULL = not asked yet
+);
+CREATE TABLE song_releases (       -- a song's own release on Spotify (jobs/covers.own_release): its cover, and the
+                                    -- album, date and track its file is tagged with; none: the list's release
+    song_key TEXT PRIMARY KEY,
+    album_id TEXT NOT NULL,
+    album TEXT NOT NULL,
+    released TEXT,
+    track INTEGER,
+    tracks INTEGER,
+    disc INTEGER,
+    image TEXT NOT NULL,            -- its cover's address
+    how TEXT NOT NULL,              -- isrc, or names (no own release under its ISRC: one by its names and length)
+    checked TEXT NOT NULL           -- date
 );
 CREATE TABLE list_songs (
     list_key TEXT NOT NULL REFERENCES lists(key) ON DELETE CASCADE,
@@ -544,6 +557,11 @@ MIGRATIONS = {
     ],
     46: [  # a song played as another one lately, offered for recording again (library/recording.offer_again)
         "ALTER TABLE recording_items ADD COLUMN offered_again INTEGER NOT NULL DEFAULT 0"
+    ],
+    47: [  # songs' own releases (jobs/covers.own_release), from the next cover of each
+        "CREATE TABLE IF NOT EXISTS song_releases (song_key TEXT PRIMARY KEY, album_id TEXT NOT NULL, album TEXT "
+        "NOT NULL, released TEXT, track INTEGER, tracks INTEGER, disc INTEGER, image TEXT NOT NULL, how TEXT NOT "
+        "NULL, checked TEXT NOT NULL)"
     ],
 }
 

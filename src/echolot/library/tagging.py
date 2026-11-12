@@ -1,6 +1,7 @@
 """A library file's tags come from its song, never its uploader: ARTIST (the artists shown), ARTISTS (listed),
-the album artist (the main one), the title, the album (Spotify's; else the file keeps its own), SOURCE (the
-songs' pages) and DOWNLOAD ("Soulseek" or the page it came from). A close match gets the name given in
+the album artist (the main one), the title, the album (the song's own release's, as its cover: song_releases;
+else Spotify's; else the file keeps its own), SOURCE (the songs' pages) and DOWNLOAD ("Soulseek" or the page it
+came from). A close match gets the name given in
 review. The comment and the cover stay.
 
 Written when a song is filed (acquire.finish) and for the whole library (normalize: backs the old tags up,
@@ -132,29 +133,35 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
     if lead["service"] == "local":
         return None
     link = json.loads(lead["link"]) if lead["close_match"] and lead["link"] else None
+    own = None
     if link:
         artists, title, album = [link[0]], link[1], None
     elif lead["service"] != "soundcloud":  # songs sharing a file are one recording: all their artists
         same = [s for s in songs if s["service"] != "soundcloud" and not s["close_match"]]
         artists = list(dict.fromkeys([*names(lead), *(a for s in same for a in names(s))]))
-        title, album = lead["title"], lead["album"] or None
+        own = con.execute("SELECT * FROM song_releases WHERE song_key = ?", (lead["key"],)).fetchone()
+        title, album = lead["title"], (own["album"] if own else lead["album"]) or None
     else:
         artists, title, album = [lead["artist"]], clean_title(lead["title"], lead["artist"]), None
     sources = [p for p in dict.fromkeys(page(s) for s in songs) if p]
-    return Tags(artists, artists[0], title, album, sources, download_of(con, rel, path, songs), facts(lead))
+    return Tags(artists, artists[0], title, album, sources, download_of(con, rel, path, songs), facts(lead, own))
 
 
-def facts(song: sqlite3.Row) -> dict[str, str]:
-    """The release facts a file of the song gets: a Spotify release's (also a YouTube song's Spotify has),
-    never a close match's (another version) or a SoundCloud upload's."""
-    if song["service"] == "soundcloud" or song["close_match"] or not song["released"]:
+def facts(song: sqlite3.Row, own: sqlite3.Row | None = None) -> dict[str, str]:
+    """The release facts a file of the song gets: its own release's (`own`, as its cover: song_releases), else
+    its Spotify release's (also a YouTube song's Spotify has), never a close match's (another version) or a
+    SoundCloud upload's."""
+    if song["service"] == "soundcloud" or song["close_match"]:
         return {}
-    track = f"{song['track']}/{song['tracks']}" if song["track"] and song["tracks"] else str(song["track"] or "")
+    release = own or song
+    if not release["released"]:
+        return {}
+    n, total = release["track"], release["tracks"]
     out = {
         "isrc": (song["isrc"] or "").upper(),
-        "date": song["released"],
-        "track": track,
-        "disc": str(song["disc"] or ""),
+        "date": release["released"],
+        "track": f"{n}/{total}" if n and total else str(n or ""),
+        "disc": str(release["disc"] or ""),
     }
     return {k: v for k, v in out.items() if v}
 

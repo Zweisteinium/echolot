@@ -540,6 +540,7 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("DROP INDEX events_path")  # (schema 45's)
         con.execute("DROP INDEX events_song")
         con.execute("ALTER TABLE recording_items DROP COLUMN offered_again")  # (schema 46's)
+        con.execute("DROP TABLE song_releases")  # (schema 47's)
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)
