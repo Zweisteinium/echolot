@@ -253,10 +253,12 @@ def _mark(r: sqlite3.Row, held: dict[str, sqlite3.Row], lately: dict[str, str]) 
 
 
 def _lately(con: sqlite3.Connection, user_id: int) -> dict[str, str]:
-    """The user's songs that played as another song in the last SKIP_DAYS: song key -> when (the last time)."""
+    """The user's songs that played as another song in the last SKIP_DAYS: song key -> when (the last time);
+    not those offered again since (offer_again)."""
     sql = (
         "SELECT i.song_key, max(i.finished) FROM recording_items i JOIN recordings r ON r.id = i.recording_id "
-        "WHERE r.user_id = ? AND i.result = 'wrong_song' AND i.finished >= ? GROUP BY i.song_key"
+        "WHERE r.user_id = ? AND i.result = 'wrong_song' AND NOT i.offered_again AND i.finished >= ? "
+        "GROUP BY i.song_key"
     )
     return dict(con.execute(sql, (user_id, _stamp(-timedelta(days=SKIP_DAYS)))).fetchall())
 
@@ -393,6 +395,30 @@ def unblock(con: sqlite3.Connection, key: str) -> bool:
     """Offer a song for recording again (the user wants Spotify tried again)."""
     with con:
         return con.execute("DELETE FROM spotify_best WHERE song_key = ?", (key,)).rowcount > 0
+
+
+def played_other(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> list[dict]:
+    """The songs of a choice (_songs) left out as played as another song lately: key, artist, title, when."""
+    when = _lately(con, user_id)
+    return [
+        {"key": r["key"], "artist": r["artist"], "title": r["title"], "when": when[r["key"]]}
+        for r, m in _songs(con, user_id, list_key)
+        if m is not None and m.kind == "lately"
+    ]
+
+
+def offer_again(con: sqlite3.Connection, user_id: int, keys: list[str]) -> None:
+    """Offer songs of the user's that played as another song lately for recording again (often a glitch of the
+    Spotify app); playing as another song again leaves them out again."""
+    if not keys:
+        return
+    marks = ", ".join("?" * len(keys))
+    with con:
+        con.execute(
+            "UPDATE recording_items SET offered_again = 1 WHERE result = 'wrong_song' AND NOT offered_again "
+            f"AND song_key IN ({marks}) AND recording_id IN (SELECT id FROM recordings WHERE user_id = ?)",
+            (*keys, user_id),
+        )
 
 
 def _have(row: sqlite3.Row) -> str:

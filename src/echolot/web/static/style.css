@@ -969,6 +969,8 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-choice:hover { border-color: var(--muted); }
 .record-choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .record-choice.empty { opacity: 0.5; cursor: default; }
+.record-again p { margin: 0 0 0.3rem; }
+.record-again ul { margin: 0.3rem 0 0; padding-left: 1.2rem; max-height: 12rem; overflow-y: auto; }
 .record-label { font-weight: 550; }
 .record-where { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.6rem 0 0.3rem; }
 .record-where label { display: grid; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }

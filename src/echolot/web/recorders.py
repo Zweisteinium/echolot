@@ -96,20 +96,42 @@ def device_disconnect(request: Request, con: DB, recorder_id: int) -> RedirectRe
 @router.get("/recordings/new", response_class=HTMLResponse)
 def record_dialog(request: Request, con: DB) -> HTMLResponse:
     """The Record dialog for one Spotify list (?list=) or all of the user's."""
-    user = request.state.user
-    key = request.query_params.get("list") or None
-    lst = stats.get_list(con, key, stats.scope(user)) if key else None
+    return _dialog(request, con, request.query_params.get("list") or None)
+
+
+@router.post("/recordings/again", response_class=HTMLResponse)
+def record_again(request: Request, con: DB, list_key: Annotated[str, Form(alias="list")] = "") -> HTMLResponse:
+    """Offer the songs of the Record dialog's choice that played as another song lately for recording again
+    (Spotify's app at times plays the wrong one); the dialog anew."""
+    _list(request, con, list_key or None)
+    songs = recording.played_other(con, request.state.user.id, list_key or None)
+    recording.offer_again(con, request.state.user.id, [s["key"] for s in songs])
+    n = len(songs)
+    return _dialog(request, con, list_key or None, f"{n} song{'s' if n != 1 else ''} offered for recording again.")
+
+
+def _list(request: Request, con: sqlite3.Connection, key: str | None) -> sqlite3.Row | None:
+    """The Spotify list of a Record dialog (None: all the user's lists); 404 if it is not one of theirs."""
+    lst = stats.get_list(con, key, stats.scope(request.state.user)) if key else None
     if key and (lst is None or lst["service"] != "spotify"):
         raise HTTPException(404, "Not one of your Spotify lists.")
+    return lst
+
+
+def _dialog(request: Request, con: sqlite3.Connection, key: str | None, note: str = "") -> HTMLResponse:
+    user = request.state.user
+    lst = _list(request, con, key)
     tracks, left_out = recording.survey(con, user.id, key)
-    devices = recording.devices(con, user.id)
     return page(
         request,
         "_record_dialog.html",
         lst=lst,
         choices=recording.choices(tracks),
         left_out=left_out,
-        devices=devices,
+        played_other=recording.played_other(con, user.id, key),
+        skip_days=recording.SKIP_DAYS,
+        note=note,
+        devices=recording.devices(con, user.id),
         base=_base(request),
     )
 

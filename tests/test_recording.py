@@ -539,6 +539,7 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("DROP TABLE origins")  # (schema 44's)
         con.execute("DROP INDEX events_path")  # (schema 45's)
         con.execute("DROP INDEX events_song")
+        con.execute("ALTER TABLE recording_items DROP COLUMN offered_again")  # (schema 46's)
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)
@@ -800,3 +801,39 @@ def test_the_lists_own_track_is_the_song(settings: Settings) -> None:
     assert upload.recorded_different(upload.Fit(0, None, None, 0.5, 0.1), False, True)[0].endswith(
         "than your copy (fingerprint 0.50, waveform 0.10)"
     )
+
+
+def test_songs_played_as_another_song_are_offered_again(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """The Record dialog lists the songs left out as played as another song lately; Offer again makes them
+    recordable again (the app's glitch), until Spotify plays another song for one again."""
+    owner = login(app)
+    connect(owner, app)
+    con = db.connect(app.state.settings.db_path)
+
+    def wrong_song(session: int) -> None:
+        with con:
+            con.execute(
+                "INSERT INTO recordings (id, user_id, recorder_id, title, below, state, created) "
+                "VALUES (?, 1, 1, 'Liked Songs', 'lossless', 'done', ?)",
+                (session, recording._stamp()),
+            )
+            con.execute(
+                "INSERT INTO recording_items (recording_id, position, song_key, state, result, finished) "
+                "VALUES (?, 0, 'spotify:s1', 'done', 'wrong_song', ?)",
+                (session, recording._stamp()),
+            )
+
+    def recordable() -> list[str]:
+        return [t.key for t in recording.candidates(con, 1, "spotify:likes:1")]
+
+    assert "spotify:s1" in recordable() and recording.played_other(con, 1) == []
+    wrong_song(1)
+    assert "spotify:s1" not in recordable() and [s["key"] for s in recording.played_other(con, 1)] == ["spotify:s1"]
+    dialog = owner.get("/recordings/new?list=spotify:likes:1").text
+    assert "1 song left out for 30 days" in dialog and "This makes 1 song available for recording again" in dialog
+    page = owner.post("/recordings/again", data={"list": "spotify:likes:1"})
+    assert page.status_code == 200 and "1 song offered for recording again." in page.text
+    assert "left out for 30 days" not in page.text and "spotify:s1" in recordable()
+    wrong_song(2)  # played as another song again: left out again
+    assert "spotify:s1" not in recordable()
+    assert owner.post("/recordings/again", data={"list": "spotify:nope"}).status_code == 404

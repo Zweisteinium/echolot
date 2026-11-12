@@ -22,7 +22,8 @@ V12_USERS = (
 V22_SONGS = "".join(
     f"ALTER TABLE songs DROP COLUMN {c}; " for c in ("released", "track", "tracks", "disc")
 )  # schema 22
-V44 = "DROP INDEX events_path; DROP INDEX events_song; "  # schema 44
+V45 = "ALTER TABLE recording_items DROP COLUMN offered_again; "  # schema 45
+V44 = V45 + "DROP INDEX events_path; DROP INDEX events_song; "  # schema 44
 V43 = V44 + "DROP TABLE origins; "  # schema 43
 V42 = V43 + "ALTER TABLE files DROP COLUMN tier; "  # schema 42
 V41 = V42 + "DROP TABLE free_links; "  # schema 41
