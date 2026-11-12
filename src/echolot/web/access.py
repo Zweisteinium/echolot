@@ -103,6 +103,7 @@ PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> permission 
     ("POST", "/recorders/{recorder_id}/disconnect"): "upload",
     ("GET", "/recordings/new"): "upload",
     ("POST", "/recordings"): "upload",
+    ("POST", "/recordings/again"): "upload",
     ("GET", "/recordings/panel"): "upload",
     ("POST", "/recordings/{session_id}/{action}"): "upload",
     ("GET", "/api/recorder/export"): "upload",

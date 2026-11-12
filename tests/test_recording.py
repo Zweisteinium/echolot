@@ -219,7 +219,7 @@ def test_the_upload_into_the_song(
     assert seen == [({1: item["key"]}, "mitschnitt")]  # History shows it as recorded by Mitschnitt
     assert device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()["result"] == "filed"
     assert len(seen) == 1
-    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.4, 0.1))  # another recording
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(6, 0.4, 0.1))  # another recording
     nxt = poll(device)["item"]
     r = device.post(f"/api/recorder/items/{nxt['id']}/file", files=files)
     assert r.json()["result"] == "rejected" and "Sounds different" in r.json()["detail"]
@@ -269,7 +269,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
         con.execute("UPDATE songs SET file = ?, isrc = NULL WHERE key = 'spotify:s1'", (copy,))
     con.close()
 
-    scores = {"copy": (0.58, 0.04)}  # fingerprint, waveform against the copy; the preview matches
+    scores = {"preview": (None, None), "copy": (0.58, 0.04)}  # fingerprint, waveform (the song has no ISRC)
 
     def add(paths, batch, name, fileobj, keep_hires=False):
         return upload.File(1, name, Path("/x/rec.flac"), 201, 900, "lossless")
@@ -278,7 +278,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
         return [("Artist A – First Song: replaced the copy", "spotify:s1")]
 
     monkeypatch.setattr(upload, "add", add)
-    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95, *scores["copy"]))
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, *scores["preview"], *scores["copy"]))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
     monkeypatch.setattr(upload, "import_files", import_files)
     owner = login(app)
@@ -297,6 +297,12 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     assert recording.blocks(con)["spotify:s1"]["reason"] == "other"  # not offered again
     recording.unblock(con, "spotify:s1")
     con.close()
+    scores["preview"] = (0.97, 0.95)  # it is the release's recording: your copy is the odd one (DEVO - Whip It)
+    owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
+    item = poll(device)["item"]
+    body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
+    assert item["key"] == "spotify:s1" and body["result"] == "filed"
+    scores["preview"] = (None, None)
     scores["copy"] = (0.95, 0.75)  # another master of the same recording
     owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"})
     item = poll(device)["item"]
@@ -533,6 +539,7 @@ def test_spotify_lossy_only_is_for_good_and_migrated(settings: Settings) -> None
         con.execute("DROP TABLE origins")  # (schema 44's)
         con.execute("DROP INDEX events_path")  # (schema 45's)
         con.execute("DROP INDEX events_song")
+        con.execute("ALTER TABLE recording_items DROP COLUMN offered_again")  # (schema 46's)
         con.execute("PRAGMA user_version = 30")
     con.close()
     db.init(settings.db_path)
@@ -770,3 +777,63 @@ def test_stop_start_stop_start(app: FastAPI, login: Callable[..., TestClient], f
     failed = con.execute("SELECT count(*) FROM recording_items WHERE result = 'failed'").fetchone()[0]
     con.close()
     assert failed == 0 and e["key"] in offered
+
+
+def test_the_lists_own_track_is_the_song(settings: Settings) -> None:
+    """A recording of the list's own track, as Spotify lists it and as long, is the song though the preview
+    says otherwise (Deezer's release under its ISRC may be another: LilC4 - V4MP); a relinked one, or one of
+    another length, is checked as before."""
+    con = db.connect(settings.db_path)
+    assert recording.as_listed(con, "spotify:s1", "spotify:track:s1")
+    assert not recording.as_listed(con, "spotify:s1", "spotify:track:s1b")
+    with con:
+        con.execute("INSERT INTO availability VALUES ('spotify:s1', 'replaced', '', 'x', 'spotify:s1b', NULL, NULL)")
+    assert not recording.as_listed(con, "spotify:s1", "spotify:track:s1")  # Spotify plays another release
+    con.close()
+    other = upload.Fit(1, 0.6, 0.29)
+    assert upload.recorded_different(other, True, False) == (
+        "",
+        "the list's own track, though another recording than the release's (fingerprint 0.60, waveform 0.29)",
+    )
+    assert upload.recorded_different(upload.Fit(6, 0.6, 0.29), True, False)[0].startswith("another recording")
+    assert upload.recorded_different(other, False, False)[0].startswith("another recording")
+    assert upload.recorded_different(upload.Fit(0, 0.9, 0.95, 0.5, 0.1), False, True) == ("", "")
+    assert upload.recorded_different(upload.Fit(0, None, None, 0.5, 0.1), False, True)[0].endswith(
+        "than your copy (fingerprint 0.50, waveform 0.10)"
+    )
+
+
+def test_songs_played_as_another_song_are_offered_again(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """The Record dialog lists the songs left out as played as another song lately; Offer again makes them
+    recordable again (the app's glitch), until Spotify plays another song for one again."""
+    owner = login(app)
+    connect(owner, app)
+    con = db.connect(app.state.settings.db_path)
+
+    def wrong_song(session: int) -> None:
+        with con:
+            con.execute(
+                "INSERT INTO recordings (id, user_id, recorder_id, title, below, state, created) "
+                "VALUES (?, 1, 1, 'Liked Songs', 'lossless', 'done', ?)",
+                (session, recording._stamp()),
+            )
+            con.execute(
+                "INSERT INTO recording_items (recording_id, position, song_key, state, result, finished) "
+                "VALUES (?, 0, 'spotify:s1', 'done', 'wrong_song', ?)",
+                (session, recording._stamp()),
+            )
+
+    def recordable() -> list[str]:
+        return [t.key for t in recording.candidates(con, 1, "spotify:likes:1")]
+
+    assert "spotify:s1" in recordable() and recording.played_other(con, 1) == []
+    wrong_song(1)
+    assert "spotify:s1" not in recordable() and [s["key"] for s in recording.played_other(con, 1)] == ["spotify:s1"]
+    dialog = owner.get("/recordings/new?list=spotify:likes:1").text
+    assert "1 song left out for 30 days" in dialog and "This makes 1 song available for recording again" in dialog
+    page = owner.post("/recordings/again", data={"list": "spotify:likes:1"})
+    assert page.status_code == 200 and "1 song offered for recording again." in page.text
+    assert "left out for 30 days" not in page.text and "spotify:s1" in recordable()
+    wrong_song(2)  # played as another song again: left out again
+    assert "spotify:s1" not in recordable()
+    assert owner.post("/recordings/again", data={"list": "spotify:nope"}).status_code == 404

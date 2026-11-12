@@ -45,7 +45,7 @@ def test_similarity_lets_the_preview_begin_before_the_file() -> None:
 def test_check(con, monkeypatch: pytest.MonkeyPatch) -> None:
     rng = np.random.default_rng(2)
     song, other = rng.integers(0, 2**32, (2, 1600), dtype=np.uint32)
-    monkeypatch.setattr(identity, "reference", lambda con, isrc: noisy(song[100:321], 0.93, rng))
+    monkeypatch.setattr(identity, "reference", lambda con, isrc, length=0: noisy(song[100:321], 0.93, rng))
     monkeypatch.setattr(identity.audio, "read_isrc", lambda p: "")
     monkeypatch.setattr(identity, "fingerprint", lambda p: song)
     assert identity.check(con, "NLF712605912", Path("x.flac")).verdict == "same"
@@ -72,3 +72,15 @@ def test_reference_is_cached(con, monkeypatch: pytest.MonkeyPatch) -> None:
     assert identity.reference(con, "A").tolist() == [0, 1, 2, 3, 4] and len(calls) == 2  # the second from the cache
     assert identity.reference(con, "B") is None and identity.reference(con, "B") is None
     assert len(calls) == 3  # a miss is cached too (asked again in a week)
+
+
+def test_a_reference_of_another_length_is_another_release(con, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An ISRC Deezer has for a release of another length (LilC4 - V4MP's, 1:56, is LG Izz - V4MP Remix
+    there, 2:19) is no reference for the song: not known, rather than another recording."""
+    monkeypatch.setattr(identity, "_get", lambda url, raw=False: b"mp3" if raw else {"duration": 139, "preview": "p"})
+    monkeypatch.setattr(identity, "fingerprint", lambda source: np.arange(5, dtype="<u4"))
+    assert identity.reference(con, "QM42K1863073", 116) is None  # asked
+    assert identity.reference(con, "QM42K1863073", 116) is None  # cached
+    assert identity.reference(con, "QM42K1863073", 137).tolist() == [0, 1, 2, 3, 4]  # within REF_LENGTH
+    assert identity.reference(con, "QM42K1863073").tolist() == [0, 1, 2, 3, 4]  # no length: as it is
+    assert identity.check(con, "QM42K1863073", Path("x.flac"), length=116) == identity.UNKNOWN

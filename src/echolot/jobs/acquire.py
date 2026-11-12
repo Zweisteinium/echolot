@@ -242,7 +242,7 @@ class Fetcher:
                 return Outcome("bad file", str(e))
             con = self.run.connect()
             try:
-                heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
+                heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)), want.length)
                 confirm = self.purpose == "upgrade" and want.key.startswith("soundcloud:")
                 same = _same_audio(self.run, con, want, prepared) if confirm else None
                 action, dest = filing.file_into(
@@ -799,7 +799,7 @@ def _fallback_song(
                 con, run.paths, "mismatch", kept, reason=recordings.EDIT_REASON.format(path=e.path, share=share), **info
             )
             return EDIT_REVIEW, ""
-        heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
+        heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)), want.length)
         found = {"file_name": r["title"], "folders": (r["uploader"],), "fake": prepared.fake, "heard": heard}
         found["url"] = r["url"]  # the page, for the DOWNLOAD tag
         checks = {"strict": True, "probable": strict_probable, "tries": tries}

@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-VERSION = 45
+VERSION = 46
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -337,7 +337,8 @@ CREATE TABLE recording_items (      -- a session's songs, fixed when it starts
     tries INTEGER NOT NULL DEFAULT 0,  -- how often it was handed out
     lease_until REAL,               -- recording: the device's until then (unix time)
     finished TEXT,
-    uri TEXT                        -- the Spotify track it was handed out as (spotify:track:<id>)
+    uri TEXT,                       -- the Spotify track it was handed out as (spotify:track:<id>)
+    offered_again INTEGER NOT NULL DEFAULT 0  -- wrong_song: offered for recording again by hand
 );
 CREATE TABLE spotify_best (         -- songs Spotify has nothing better of than the library: not offered for recording
                                     -- again while Spotify plays them as `uri` (library/recording), for everyone
@@ -540,6 +541,9 @@ MIGRATIONS = {
     45: [  # lookups of a file's or a song's events scanned the table (tags normalize: one per file)
         "CREATE INDEX IF NOT EXISTS events_path ON events(path)",
         "CREATE INDEX IF NOT EXISTS events_song ON events(song)",
+    ],
+    46: [  # a song played as another one lately, offered for recording again (library/recording.offer_again)
+        "ALTER TABLE recording_items ADD COLUMN offered_again INTEGER NOT NULL DEFAULT 0"
     ],
 }
 

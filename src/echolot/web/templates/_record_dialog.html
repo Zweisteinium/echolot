@@ -20,6 +20,16 @@
   </fieldset>
   {% if left_out %}<p class="muted small">Left out: {{ left_out|join(', ') }}.</p>{% endif %}
   {% endif %}
+  {% if note %}<p class="flash ok">{{ note }}</p>{% endif %}
+  {% if played_other %}{% set n = played_other|length %}{% set songs = n ~ ' song' ~ ('s' if n != 1 else '') %}
+  <div class="record-again small">
+    <p class="muted">{{ songs }} left out for {{ skip_days }} days: Spotify played another song for {{ 'them' if n != 1 else 'it' }}, at times only a glitch of the Spotify app.
+      <button type="button" class="link" hx-post="/recordings/again" hx-target="#record-body" hx-confirm="This makes {{ songs }} available for recording again. If Spotify plays another song for one again, it is left out again.">Offer {{ 'them' if n != 1 else 'it' }} again</button></p>
+    <details><summary>Show {{ 'the songs' if n != 1 else 'the song' }}</summary>
+      <ul>{% for s in played_other %}<li>{{ s.artist }} – {{ s.title }} <span class="muted">· {{ s.when[:10] }}</span></li>{% endfor %}</ul>
+    </details>
+  </div>
+  {% endif %}
   {% if devices %}
   <div class="record-where">
     <label>Device

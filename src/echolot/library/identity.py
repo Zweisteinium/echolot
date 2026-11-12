@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 
 SAME, OTHER = 0.8, 0.7  # share of equal fingerprint bits: from SAME on the recording, up to OTHER another one
 RETRY = 7 * 86400  # an ISRC Deezer did not know (or had no preview for) is asked again after a week
+REF_LENGTH = 3  # s: a Deezer release longer or shorter than the song is another one under its ISRC (ignored)
 _TO_FINGERPRINT = ["-ac", "1", "-f", "chromaprint", "-fp_format", "raw", "-"]  # ffmpeg output options
 _BITS = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
@@ -36,14 +37,14 @@ class Evidence:
 UNKNOWN = Evidence("")
 
 
-def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False) -> Evidence:
-    """What the audio of `path` says about the recording `isrc`. any_length: a DJ-mix cut, whose transitions
-    blur the audio: only a match counts."""
+def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = False, length: float = 0) -> Evidence:
+    """What the audio of `path` says about the recording `isrc` (`length` s long: reference). any_length: a
+    DJ-mix cut, whose transitions blur the audio: only a match counts."""
     if not isrc:
         return UNKNOWN
     if (tag := audio.read_isrc(path)) and tag.replace("-", "").upper() == isrc.upper():
         return Evidence("same", "ISRC tag of the release")
-    ref = reference(con, isrc)
+    ref = reference(con, isrc, 0 if any_length else length)
     cand = fingerprint(path) if ref is not None else None
     if ref is None or cand is None or not len(cand):
         return UNKNOWN
@@ -55,10 +56,14 @@ def check(con: sqlite3.Connection, isrc: str, path: Path, any_length: bool = Fal
     return Evidence("", f"audio unclear ({share:.2f})")
 
 
-def reference(con: sqlite3.Connection, isrc: str) -> np.ndarray | None:
-    """The fingerprint of the release's preview (cached in refs); None if Deezer has none."""
-    row = con.execute("SELECT fingerprint, checked FROM refs WHERE isrc = ?", (isrc,)).fetchone()
+def reference(con: sqlite3.Connection, isrc: str, length: float = 0) -> np.ndarray | None:
+    """The fingerprint of the release's preview (cached in refs); None if Deezer has none, or when the song is
+    `length` s long and Deezer's release under the ISRC is not (REF_LENGTH): another one (an ISRC reused for a
+    remix or a cover: LilC4 - V4MP's is LG Izz - V4MP Remix on Deezer, 2:19 to 1:56)."""
+    row = con.execute("SELECT fingerprint, checked, duration FROM refs WHERE isrc = ?", (isrc,)).fetchone()
     if row and (row["fingerprint"] or time.time() - row["checked"] < RETRY):
+        if length and row["duration"] and abs(row["duration"] - length) > REF_LENGTH:
+            return None
         return np.frombuffer(row["fingerprint"], dtype="<u4") if row["fingerprint"] else None
     try:
         track = _get(f"https://api.deezer.com/track/isrc:{isrc}")
@@ -73,6 +78,8 @@ def reference(con: sqlite3.Connection, isrc: str) -> np.ndarray | None:
     entry = (isrc, track.get("id"), track.get("duration"), fp.tobytes() if fp is not None else None, int(time.time()))
     with con:  # the columns in their order: isrc, deezer_id, duration, fingerprint, checked
         con.execute("INSERT OR REPLACE INTO refs VALUES (?, ?, ?, ?, ?)", entry)
+    if length and track.get("duration") and abs(track["duration"] - length) > REF_LENGTH:
+        return None
     return fp
 
 

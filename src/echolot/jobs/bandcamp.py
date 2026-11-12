@@ -222,7 +222,7 @@ def _file(
     url: str,
     source: str,
 ) -> str:
-    heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)))
+    heard = identity.check(con, want.isrc, prepared.path, bool(rules.mix_cut(want.title)), want.length)
     same = acquire._same_audio(run, con, want, prepared)
     found = {"file_name": name, "folders": folders, "fake": prepared.fake, "heard": heard, "url": url}
     checks = {"strict": True, "probable": False, "confirm": not same}
