@@ -208,13 +208,19 @@ def _fetch_spotify(run: "Run", con: sqlite3.Connection) -> str:
             failed.append(f"{s.title or s.key}: {e}")
             availability.list_readable(con, s.key, False, str(e))
 
+    accounts: dict[str, dict[str, Any]] = {}  # a Spotify account's snapshots and likes, asked once a run
     for uid in _active(con):
         mine = [s for s in sources.user_lists(con, uid) if s.service == "spotify" and s.key not in seen]
         if not mine:
             continue
         try:
             sp = spotify.Spotify(con, run.vault, uid)
-            known, likes = sp.snapshots(), sp.likes_state()
+            account = accounts.setdefault(sp.me().get("id") or f"user {uid}", {})  # (two users may share one)
+            if "known" not in account:
+                account["known"] = sp.snapshots()
+            if "likes" not in account and any(s.name == "Spotify Liked Songs" for s in mine):
+                account["likes"] = sp.likes_state()
+            known, likes = account["known"], account.get("likes")
         except spotify.SpotifyResting:
             raise
         except spotify.SpotifyError as e:

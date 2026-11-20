@@ -56,6 +56,9 @@ class FakeSpotify:
 
     name = "Name AAA111"  # as the account's library has it
 
+    def me(self) -> dict:  # (cached an hour)
+        return {"id": "account"}
+
     def snapshots(self) -> dict[str, dict]:  # BBB222 is not in the account's library: asked on its own
         return {"AAA111": {"snapshot": "snap1", "name": FakeSpotify.name}}
 
@@ -104,6 +107,31 @@ def test_two_users_lists_are_read_once(run: Run, monkeypatch: pytest.MonkeyPatch
     message = lists.fetch_spotify(run)
     assert FakeSpotify.calls.count("items AAA111") == 1 and FakeSpotify.calls.count("items ONLY2") == 1
     assert message == "4 lists, 4 changed" and logins[-1] is None  # ONLY2: the app's
+
+
+def test_a_spotify_account_is_asked_once_a_run(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two users on one Spotify account: its playlists' snapshots are asked once; the state of the likes only
+    for a user who follows them."""
+    from echolot.settings import auth, sources
+
+    asked: list[str] = []
+
+    class Counted(FakeSpotify):
+        def snapshots(self) -> dict[str, dict]:
+            asked.append("snapshots")
+            return super().snapshots()
+
+        def likes_state(self) -> str:
+            asked.append("likes")
+            return super().likes_state()
+
+    monkeypatch.setattr(spotify, "Spotify", Counted)
+    con = run.connect()
+    timon = auth.logged_in(con, "timon", "nd-timon", False).id
+    sources.add_list(con, timon, "https://open.spotify.com/playlist/ONLY2")
+    con.close()
+    lists.fetch_spotify(run)
+    assert asked == ["snapshots", "likes"]  # the owner's; timon follows no likes
 
 
 def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
