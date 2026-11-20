@@ -1,7 +1,8 @@
 """Spotify Web API: the users' lists, the catalogue, the login (authorization code flow).
 
 Needs the user's own developer app (development mode: up to 5 users, the owner needs Premium): client id in the
-settings, secret and refresh tokens in the vault. Spotify's editorial playlists can't be read through the API.
+settings, secret and refresh tokens in the vault. Spotify's own playlists, which the API withholds, are read
+from their embed (embedded).
 """
 
 import base64
