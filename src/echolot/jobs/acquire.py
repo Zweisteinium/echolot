@@ -434,6 +434,9 @@ def _search(run: "Run", songs: list[sqlite3.Row], purpose: str, new: bool = Fals
             outcome = Outcome("interrupted", "the daemon restarted")
         except soulseek.Cancelled:
             return
+        except soulseek.DaemonError as e:  # (not reachable: below it waits for the daemon)
+            log.warning("%s: %s - %s: %s", purpose, want.artist, want.title, e)
+            outcome = Outcome("failed", str(e))
         except Exception as e:  # one song's trouble never stops the others
             log.exception("%s: %s - %s", purpose, want.artist, want.title)
             outcome = Outcome("failed", str(e))
