@@ -19,7 +19,8 @@
     <tr>
       <td class="muted small nowrap" title="{{ a.ts }}">{{ a.ts|ago }}</td>
       <td><span class="pill{{ ' ' ~ a.style ~ '-pill' if a.style }}">{{ a.label }}</span></td>
-      <td class="lead-cell">{{ song_link(a.key, a.url, a.song) }}</td>
+      <td class="lead-cell">{{ song_link(a.key, a.url, a.song) }}
+        {%- if a.origin %}<div class="origin" title="{{ a.origin.all }}">{{ (a.origin.who or a.origin.group|source) if user.everyone else a.origin.group|source }} · {{ a.origin.title }}</div>{% endif %}</td>
       <td><div class="facts"{% if a.title %} title="{{ a.title }}"{% endif %}>
         {%- if a.was and a.quality %}<span>{{ a.source|source }}</span>{{ quality(*a.was) }}<span class="arrow">→</span>{{ quality(*a.quality) }}
           {%- if a.was_bytes and a.bytes %}<span>{{ a.was_bytes|size }} → {{ a.bytes|size }}</span>{% endif %}

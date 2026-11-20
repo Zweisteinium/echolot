@@ -827,6 +827,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 
 /* a download's facts (Review, Activity) */
+.origin { font-size: 0.78rem; font-weight: normal; color: var(--muted); }
 .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.7rem; font-size: 0.8rem; color: var(--muted); }
 .facts .fits { color: var(--ok); }
 .facts .off { color: var(--warn); }

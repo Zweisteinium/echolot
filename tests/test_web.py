@@ -177,6 +177,14 @@ def test_activity(client: TestClient) -> None:
     assert "Gone Song" in html and "First Song" not in html and ">another artist</span>" in html
 
 
+def test_activity_names_the_list_a_song_came_from(client: TestClient) -> None:
+    """Mine: the list's service and title; everyone's: who follows it (its other lists on hover)."""
+    origin = '<div class="origin" title="Liked Songs, Playlist A">{} · Liked Songs</div>'
+    assert origin.format("Spotify") in client.get("/activity").text
+    assert client.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
+    assert origin.format("owner") in client.get("/activity").text
+
+
 @pytest.mark.parametrize(
     ("why", "source", "ext", "fake", "was"),
     [  # "genuine lossless" replaced a lossy or fake file; by hand (Replace anyway) even a genuine FLAC

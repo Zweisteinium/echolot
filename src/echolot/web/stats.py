@@ -443,7 +443,35 @@ def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None 
         if was := gone.get(e["id"]):
             entry["note"] = f"Same audio as {_stem(e['path'])} · its own file removed"
         out.append(entry)
-    return out[:limit]
+    out = out[:limit]
+    origins = _origins(con, list({a["key"] for a in out if a["key"]}), uid)
+    for a in out:
+        a["origin"] = origins.get(a["key"])
+    return out
+
+
+def _origins(con: Connection, keys: list[str], uid: int | None) -> dict[str, dict[str, str]]:
+    """The list each song came from (the first it was on; of the user's own with uid): its title, service
+    group, followers, and all its lists' titles."""
+    if not keys:
+        return {}
+    still = "EXISTS (SELECT 1 FROM list_songs ls WHERE ls.list_key = h.list_key AND ls.song_key = h.song_key)"
+    mine = " AND src.user_id = ?" if uid is not None else ""
+    sql = (
+        f"SELECT h.song_key, l.title, {GROUP} AS grp, group_concat(u.name, ', ') AS who, min(h.first_seen) AS seen, "
+        f"max({still}) AS still FROM list_history h JOIN lists l ON l.key = h.list_key "
+        "LEFT JOIN sources src ON src.key = h.list_key AND src.enabled LEFT JOIN users u ON u.id = src.user_id "
+        f"WHERE h.song_key IN ({', '.join('?' * len(keys))}){mine} GROUP BY h.song_key, h.list_key "
+        "ORDER BY h.song_key, seen, still DESC, l.position"
+    )
+    out: dict[str, dict[str, str]] = {}
+    for r in con.execute(sql, (*keys, *((uid,) if uid is not None else ()))):
+        title = r["title"].removeprefix("Echolot · ")
+        if o := out.get(r["song_key"]):
+            o["all"] += f", {title}"
+        else:
+            out[r["song_key"]] = {"title": title, "group": r["grp"], "who": r["who"] or "", "all": title}
+    return out
 
 
 def _replaced(upgrade: Row, replaced: dict[int, Row]) -> Row | None:
