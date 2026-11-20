@@ -95,3 +95,17 @@ def test_the_lists_wait_while_spotify_rests(settings: Settings, monkeypatch: pyt
     con = db.connect(settings.db_path)
     assert not con.execute("SELECT 1 FROM changes WHERE change = 'unreadable'").fetchone()
     con.close()
+
+
+def test_a_playlist_is_read_from_its_embed(monkeypatch: pytest.MonkeyPatch) -> None:
+    tracks = [{"uri": "spotify:track:t1"}, {"uri": "spotify:episode:x"}, {"uri": "spotify:track:t2"}]
+    cover = {"sources": [{"url": "https://img/c"}]}
+    entity = {"name": "This Is Someone", "subtitle": "Spotify", "coverArt": cover, "trackList": tracks}
+    data = json.dumps({"props": {"pageProps": {"state": {"data": {"entity": entity}}}}})
+    page = f'<html><script id="__NEXT_DATA__" type="application/json">{data}</script></html>'
+    monkeypatch.setattr(spotify.urllib.request, "urlopen", lambda req, timeout=0: io.BytesIO(page.encode()))
+    got = spotify.embedded("37i9")
+    assert got == {"name": "This Is Someone", "image": "https://img/c", "owner": "Spotify", "tracks": ["t1", "t2"]}
+    monkeypatch.setattr(spotify.urllib.request, "urlopen", lambda req, timeout=0: io.BytesIO(b"<html></html>"))
+    with pytest.raises(spotify.SpotifyError, match="embed not readable"):
+        spotify.embedded("37i9")

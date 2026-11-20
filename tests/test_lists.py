@@ -138,6 +138,44 @@ def test_fetch_spotify(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     assert FakeSpotify.calls == ["liked since", "playlist BBB222"]  # only the new like read, not all
 
 
+def test_a_playlist_the_api_withholds_is_read_embedded(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spotify's own playlists (404 in the API) are read through their embed, at most every EMBED_EVERY;
+    the API is not asked for them again."""
+    embeds: list[str] = []
+
+    class Withheld(FakeSpotify):
+        def playlist(self, pid: str) -> dict:
+            if pid == "BBB222":
+                FakeSpotify.calls.append(f"playlist {pid}")
+                raise spotify.SpotifyNotFound("not found")
+            return super().playlist(pid)
+
+        def tracks(self, ids: list[str]) -> list[dict]:
+            FakeSpotify.calls.append(f"tracks {','.join(ids)}")
+            return [song(i, "Artist A", "First Song") if i == "s1" else song(i, "Artist E", f"Song {i}") for i in ids]
+
+    def embedded(pid: str) -> dict:
+        embeds.append(pid)
+        return {"name": "This Is Artist E", "image": "https://img/e", "owner": "Spotify", "tracks": ["s1", "e2"]}
+
+    monkeypatch.setattr(spotify, "Spotify", Withheld)
+    monkeypatch.setattr(spotify, "embedded", embedded)
+    assert lists.fetch_spotify(run) == "3 lists, 3 changed"
+    con = run.connect()
+    sql = "SELECT song_key FROM list_songs WHERE list_key = 'spotify:playlist:BBB222' ORDER BY position"
+    assert [r[0] for r in con.execute(sql)] == ["spotify:s1", "spotify:e2"]
+    row = con.execute("SELECT title, creator, snapshot FROM lists WHERE key = 'spotify:playlist:BBB222'").fetchone()
+    assert row["title"] == "Renamed" and row["creator"] == "Spotify" and row["snapshot"].startswith(lists.EMBEDDED)
+    FakeSpotify.calls = []
+    assert lists.fetch_spotify(run) == "3 lists, 0 changed" and embeds == ["BBB222"]  # read a moment ago
+    assert not any("BBB222" in c for c in FakeSpotify.calls)
+    with con:
+        con.execute("UPDATE lists SET fetched_at = '2000-01-01T00:00:00' WHERE key = 'spotify:playlist:BBB222'")
+    assert lists.fetch_spotify(run) == "3 lists, 0 changed" and len(embeds) == 2  # the same songs: no tracks asked
+    assert not any("BBB222" in c or c.startswith("tracks") for c in FakeSpotify.calls)
+    con.close()
+
+
 def test_a_lists_songs_keep_when_they_came(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """Songs keep their added time (UTC); a new like is read alone, a list with an untimed song in full."""
     timed = [{**s, "added": f"2026-0{n + 1}-01T10:00:00Z"} for n, s in enumerate(FakeSpotify.liked)]

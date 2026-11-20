@@ -304,11 +304,61 @@ def _active(con: sqlite3.Connection) -> list[int]:
     return [r[0] for r in con.execute(sql)]
 
 
+EMBEDDED = "embed:"  # the snapshot of a playlist read through Spotify's embed (spotify.embedded)
+EMBED_EVERY = datetime.timedelta(minutes=30)  # how often such a playlist is read (it reports no changes)
+
+
 def _fetch_spotify_list(
     con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, dict], likes: str | None
 ) -> bool:
-    """Read one list if it changed (its snapshot, or the likes' state); True if it was read."""
+    """Read one list if it changed; one the API withholds (Spotify's own) through its embed. True if read."""
     pid = spotify.playlist_id(s.url) if s.name != "Spotify Liked Songs" else None
+    row = con.execute("SELECT snapshot FROM lists WHERE key = ?", (s.key,)).fetchone()
+    if pid and row and (row["snapshot"] or "").startswith(EMBEDDED):
+        return _fetch_embedded(con, sp, s, pid)
+    try:
+        return _read_spotify_list(con, sp, s, known, likes, pid)
+    except spotify.SpotifyNotFound:
+        if pid is None:
+            raise
+        return _fetch_embedded(con, sp, s, pid)
+
+
+def _fetch_embedded(con: sqlite3.Connection, sp: spotify.Spotify, s: Source, pid: str) -> bool:
+    """A playlist the API withholds, read through its embed at most every EMBED_EVERY; its songs' details
+    from the API (a request per 50). True if it changed."""
+    row = con.execute("SELECT snapshot, fetched, fetched_at FROM lists WHERE key = ?", (s.key,)).fetchone()
+    read = row["fetched_at"] if row and (row["snapshot"] or "").startswith(EMBEDDED) else None
+    if read and datetime.datetime.fromisoformat(read) > datetime.datetime.now() - EMBED_EVERY:
+        return False
+    meta = spotify.embedded(pid)
+    if not meta["tracks"]:
+        raise spotify.SpotifyError("not found, and its embed lists no songs")
+    snapshot = EMBEDDED + hashlib.sha256(",".join(meta["tracks"]).encode()).hexdigest()[:16]
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    if row and row["fetched"] and row["snapshot"] == snapshot:
+        with con:
+            con.execute("UPDATE lists SET fetched_at = ? WHERE key = ?", (now, s.key))
+        return False
+    items = sp.tracks(meta["tracks"])
+    with con:
+        for it in items:
+            _spotify_song(con, it)
+    _store(con, s, [f"spotify:{it['id']}" for it in items], meta["name"], meta["image"], snapshot, meta["owner"])
+    return True
+
+
+def _spotify_song(con: sqlite3.Connection, it: dict[str, Any]) -> None:
+    """A song as spotify.song_of_track gives it."""
+    meta = {k: it.get(k) for k in FACTS} | {"album": it["album"], "length": it["length"], "isrc": it["isrc"]}
+    names = {"artist": it["artist"], "title": it["title"], "artists": json.dumps(it["artists"])}
+    _song(con, f"spotify:{it['id']}", "spotify", **names, **meta)
+
+
+def _read_spotify_list(
+    con: sqlite3.Connection, sp: spotify.Spotify, s: Source, known: dict[str, dict], likes: str | None, pid: str | None
+) -> bool:
+    """Read one list through the API if it changed (its snapshot, or the likes' state); True if it was read."""
     listed = known.get(pid) or {} if pid else {}
     if pid and not listed.get("snapshot"):
         listed = sp.playlist(pid)  # not in the library

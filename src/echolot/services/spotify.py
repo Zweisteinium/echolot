@@ -93,6 +93,10 @@ class SpotifyError(RuntimeError):
     """Spotify is not connected or refused (message for the user)."""
 
 
+class SpotifyNotFound(SpotifyError):
+    """404: gone, or one of Spotify's own playlists (the API withholds them: embedded reads them)."""
+
+
 class SpotifyResting(SpotifyError):
     """Spotify asked to wait (429): no requests until `until`."""
 
@@ -102,6 +106,28 @@ class SpotifyResting(SpotifyError):
         super().__init__(
             f"Spotify asked Echolot to wait until {when} (too many requests); nothing is asked before then."
         )
+
+
+EMBED = "https://open.spotify.com/embed/playlist/"
+_NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
+
+
+def embedded(pid: str) -> dict[str, Any]:
+    """name, image, owner and track ids of a public playlist as Spotify's embed shows it, without the API
+    (which withholds Spotify's own playlists, as This Is or editorial ones). A long one may be cut short."""
+    req = urllib.request.Request(EMBED + pid, headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            found = _NEXT_DATA.search(r.read().decode(errors="replace"))
+        entity = json.loads(found.group(1) if found else "")["props"]["pageProps"]["state"]["data"]["entity"]
+    except urllib.error.HTTPError as e:
+        raise (SpotifyNotFound("not found") if e.code == 404 else SpotifyError(f"Spotify: HTTP {e.code}")) from e
+    except (OSError, ValueError, AttributeError, KeyError, TypeError) as e:
+        raise SpotifyError(f"Spotify's embed not readable: {e}") from e
+    uris = [str(t.get("uri") or "") for t in entity.get("trackList") or []]
+    image = (((entity.get("coverArt") or {}).get("sources") or [{}])[0] or {}).get("url")
+    ids = [u.removeprefix("spotify:track:") for u in uris if u.startswith("spotify:track:")]
+    return {"name": entity.get("name") or "", "image": image, "owner": entity.get("subtitle") or "", "tracks": ids}
 
 
 def playlist_id(url: str) -> str | None:
@@ -249,7 +275,7 @@ class Spotify:
                     time.sleep(min(wait, 120))
                     continue
                 if e.code == 404:
-                    raise SpotifyError("not found (Spotify's own playlists can't be read)") from e
+                    raise SpotifyNotFound("not found") from e
                 raise SpotifyError(f"Spotify: HTTP {e.code} for {url.split('?')[0]}") from e
             except (OSError, TimeoutError) as e:
                 if attempt == 5:
@@ -341,6 +367,13 @@ class Spotify:
                 new.append(song)
             url = d.get("next")
         return None
+
+    def tracks(self, ids: list[str]) -> list[dict[str, Any]]:
+        """The songs (as song_of_track) of these track ids, in their order; 50 per request."""
+        found: list[dict[str, Any]] = []
+        for n in range(0, len(ids), 50):
+            found += self.get(f"/tracks?ids={','.join(ids[n : n + 50])}").get("tracks") or []
+        return [song for t in found if (song := song_of_track(t))]
 
     def track(self, track_id: str, lang: str = "") -> dict[str, Any]:
         return self.get(f"/tracks/{track_id}", lang)
