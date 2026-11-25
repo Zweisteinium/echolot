@@ -384,8 +384,22 @@ def _new(con: sqlite3.Connection) -> list[sqlite3.Row]:
 
 def unsearched(con: sqlite3.Connection) -> set[str]:
     """The keys of the missing songs never searched (_new): those a list sync brought in are the ones it
-    names, the rest wait in search_new's run."""
-    return {r["key"] for r in _new(con)}
+    names, the rest wait in search_new's run. Not a song just found, nor its twin (one ISRC): its file is
+    filed and waits for Library upkeep (catalog.match_songs, recordings.link_isrc), so no Soulseek job need
+    give way for it (a find leaves no attempt: it looks never searched)."""
+    new = _new(con)
+    if not new:
+        return set()
+    found = ", ".join("?" * len(FOUND))
+    filed = f"SELECT 1 FROM events e JOIN files f ON f.path = e.path WHERE e.song = s.key AND e.action IN ({found})"
+    sql = f"SELECT key, isrc FROM songs s WHERE (file IS NOT NULL AND NOT close_match) OR EXISTS ({filed})"
+    have = con.execute(sql, tuple(FOUND)).fetchall()
+    keys, isrcs = {r["key"] for r in have}, {_isrc(r["isrc"]) for r in have} - {""}
+    return {r["key"] for r in new if r["key"] not in keys and _isrc(r["isrc"]) not in isrcs}
+
+
+def _isrc(isrc: str | None) -> str:
+    return (isrc or "").replace("-", "").upper()
 
 
 def _search(run: "Run", songs: list[sqlite3.Row], purpose: str, new: bool = False) -> str:

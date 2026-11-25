@@ -575,8 +575,9 @@ def test_the_sync_searches_new_songs_and_hands_a_miss_to_the_fallback(
     assert acquire.search_new(run) == "no new songs"
 
 
-def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run) -> None:
-    """Two track ids with one ISRC: searched and shown once (both places listed); once filed, the twin is linked."""
+def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two track ids with one ISRC: searched and shown once (both places listed); once filed, the twin is linked,
+    and until then no list sync takes it for a new song (the Soulseek jobs would give way for nothing)."""
     from echolot.jobs import worker
     from echolot.web import stats
 
@@ -594,6 +595,9 @@ def test_a_recording_listed_twice_is_searched_and_shown_once(run: Run) -> None:
     run.trigger = "manual"
     acquire.sweep(run)
     assert [s[1] for s in FakeDaemon.searches].count("Rebirth") == 1
+    monkeypatch.setattr("echolot.jobs.lists.fetch_spotify", lambda run: "3 lists, 0 changed")
+    run.after.clear()
+    assert acquire.sync(run) == "3 lists, 0 changed" and "search_new" not in run.after  # the twin is not new
     worker.upkeep(run)
     con = run.connect()
     files = {r[0] for r in con.execute("SELECT file FROM songs WHERE key IN ('spotify:a', 'spotify:b')")}
