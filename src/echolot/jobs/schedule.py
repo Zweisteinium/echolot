@@ -132,6 +132,14 @@ JOBS = [
             "high-bitrate MP3, AAC and Opus). Each file once, a few seconds at the lowest CPU priority; a file "
             "whose tags changed is not checked again. A FLAC found made from lossy counts as lossy (FLAC upgrade "
             "looks for a better one), one found clean as lossless. Off on the schedule."),
+    JobInfo("lyrics", "Lyrics", "pictures", 30, 10,
+            "Adds the songs' lyrics from LRCLIB, synced where it has them.",
+            "Asks LRCLIB (a free lyrics database kept by its users) for each song's lyrics by its artist, title, "
+            "album and the file's length, and keeps only lyrics that surely are the song's: by one of its "
+            "artists, the same title and version (a live take or a remix is another song), as long as the file "
+            "within 2 s, and synced lines that end within it. Embedded in the file where Navidrome and other "
+            "players read them; synced ones scroll along. A file with lyrics of its own keeps them; one LRCLIB "
+            "has none for is asked again after a month. The newest files first, 400 a run."),
     # not on the Jobs page, so never scheduled (rules)
     JobInfo("bandcamp", "Bandcamp offers", "web", None, 60,
             "Finds Bandcamp offers of your lossy SoundCloud songs.",
@@ -172,6 +180,7 @@ STEPS = {  # each job's short name inside its task
     "covers_all": "Replace all",
     "availability": "",
     "lossy": "",
+    "lyrics": "",
 }
 
 
@@ -244,6 +253,15 @@ TASKS = [
         (("Run now", ("lossy",), "Check the FLACs not checked yet now"),),
         maintenance=True,
         about="Listens to every FLAC already in the library for signs of a lossy source, the same two checks every download gets. A FLAC made from an MP3 then counts as lossy and gets a FLAC upgrade.",
+    ),
+    Task(
+        "lyrics",
+        "Lyrics",
+        "Adds the songs' lyrics from LRCLIB, synced where it has them.",
+        ("lyrics",),
+        (("Run now", ("lyrics",), "Look for the lyrics of the files not done yet now"),),
+        maintenance=True,
+        about="Gives every song's file its lyrics from LRCLIB, a free lyrics database, when they surely are the song's: by one of its artists, with the same title and version, as long as the file. They are embedded in the file, so Navidrome and other players show them; synced lyrics scroll along. Lyrics a file has already stay.",
     ),
     Task(
         "covers",

@@ -527,6 +527,69 @@ def write_tags(path: Path, **values: str) -> None:
         log.warning("tags of %s not written: %s", path, e)
 
 
+LYRICS_TAGS = ("lyrics", "unsyncedlyrics", "unsynced lyrics", "syncedlyrics")  # Vorbis comments players read
+
+
+def read_lyrics(path: Path) -> str | None:
+    """The file's embedded lyrics ('' if none; None if it cannot be read): Vorbis comments (LYRICS and
+    kin), ID3 USLT or SYLT, MP4 ©lyr."""
+    from mutagen import File
+    from mutagen.mp4 import MP4
+
+    try:
+        a = File(path)
+        if a is None:
+            return None
+        t = a.tags
+        if t is None:
+            return ""
+        if hasattr(t, "getall"):  # ID3 (MP3; WAV and AIFF keep one too)
+            texts = [str(f.text) for f in t.getall("USLT")]
+            texts += ["\n".join(str(line) for line, _ in f.text) for f in t.getall("SYLT")]
+        elif isinstance(a, MP4):
+            texts = [str(v) for v in t.get("\xa9lyr") or []]
+        else:
+            texts = [str(v) for k in LYRICS_TAGS for v in t.get(k) or []]
+        return next((x.strip() for x in texts if x.strip()), "")
+    except Exception:
+        return None
+
+
+def write_lyrics(path: Path, text: str) -> bool:
+    """Embed lyrics (LRC lines or plain text) where Navidrome and other players read them: LYRICS (FLAC, Ogg,
+    Opus), USLT (MP3), ©lyr (M4A); True if they read back as written."""
+    from mutagen import File
+    from mutagen.flac import FLAC
+    from mutagen.id3 import ID3, USLT, ID3NoHeaderError
+    from mutagen.mp4 import MP4
+    from mutagen.oggopus import OggOpus
+    from mutagen.oggvorbis import OggVorbis
+
+    try:
+        a = File(path)
+        if isinstance(a, FLAC | OggOpus | OggVorbis):
+            a["LYRICS"] = [text]
+            a.save()
+        elif isinstance(a, MP4):
+            if a.tags is None:
+                a.add_tags()
+            a.tags["\xa9lyr"] = [text]
+            a.save()
+        elif path.suffix.lower() == ".mp3":
+            try:
+                t = ID3(path)
+            except ID3NoHeaderError:
+                t = ID3()
+            t.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=text)])
+            t.save(path)
+        else:
+            return False
+    except Exception as e:
+        log.warning("lyrics of %s not written: %s", path, e)
+        return False
+    return read_lyrics(path) == text.strip()
+
+
 def has_picture(path: Path) -> bool:
     from mutagen import File
     from mutagen.aiff import AIFF

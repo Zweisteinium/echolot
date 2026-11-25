@@ -22,7 +22,7 @@ from typing import Any
 
 from echolot import db
 from echolot.config import Settings
-from echolot.jobs import acquire, availability, bandcamp, covers, discogs, lists, lossycheck, schedule
+from echolot.jobs import acquire, availability, bandcamp, covers, discogs, lists, lossycheck, lyrics, schedule
 from echolot.library import catalog, filing, history, playlists, recordings, review, stars
 from echolot.services import navidrome, slskd, soulseek
 from echolot.settings import auth, options, sources
@@ -193,6 +193,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "availability": availability.check,
     "library": upkeep,
     "lossy": lossycheck.run,
+    "lyrics": lyrics.run,
     "bandcamp": bandcamp.run,
     "hypeddit": bandcamp.gates,
     "discogs": discogs.run,

@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-VERSION = 47
+VERSION = 48
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -118,6 +118,15 @@ CREATE TABLE song_releases (       -- a song's own release on Spotify (jobs/cove
     disc INTEGER,
     image TEXT NOT NULL,            -- its cover's address
     how TEXT NOT NULL,              -- isrc, or names (no own release under its ISRC: one by its names and length)
+    checked TEXT NOT NULL           -- date
+);
+CREATE TABLE lyrics (               -- the library files' lyrics (jobs/lyrics)
+    path TEXT PRIMARY KEY,          -- files.path
+    song_key TEXT NOT NULL,         -- the song they were looked up as
+    state TEXT NOT NULL,            -- synced, plain, instrumental (written from LRCLIB), own (the file had some), none
+    source TEXT NOT NULL DEFAULT '',-- lrclib:<entry id>
+    size INTEGER NOT NULL,          -- the file's size and mtime then (changed since: looked at again)
+    mtime INTEGER NOT NULL,
     checked TEXT NOT NULL           -- date
 );
 CREATE TABLE list_songs (
@@ -562,6 +571,10 @@ MIGRATIONS = {
         "CREATE TABLE IF NOT EXISTS song_releases (song_key TEXT PRIMARY KEY, album_id TEXT NOT NULL, album TEXT "
         "NOT NULL, released TEXT, track INTEGER, tracks INTEGER, disc INTEGER, image TEXT NOT NULL, how TEXT NOT "
         "NULL, checked TEXT NOT NULL)"
+    ],
+    48: [  # the library files' lyrics (jobs/lyrics)
+        "CREATE TABLE IF NOT EXISTS lyrics (path TEXT PRIMARY KEY, song_key TEXT NOT NULL, state TEXT NOT NULL, "
+        "source TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL, mtime INTEGER NOT NULL, checked TEXT NOT NULL)"
     ],
 }
 

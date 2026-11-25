@@ -28,6 +28,9 @@ cannot find yet, it tells you, and why.
   the audio is compared with the official release. Anything unsure waits on the Review page, with a player.
 - **Keeps it tidy.** One file per song, however many lists hold it, tagged as the song in your list.
   Nothing is overwritten; a replaced file waits 30 days before it goes.
+- **Lyrics.** Every song gets its lyrics from [LRCLIB](https://lrclib.net), synced where it has them, embedded
+  so Navidrome and other players show them. Only lyrics that surely are the song's: by one of its artists,
+  the same title and version, as long as the file. Lyrics a file has already stay.
 - **Explains the gaps.** For every missing song: what was searched, what came back, why it didn't fit.
   A file you have yourself can be uploaded and is checked the same way.
 - **Statistics.** Growth over time; quality by file, by song and by how near each song is to the best
@@ -305,6 +308,7 @@ docker compose up -d
 | FLAC upgrade | 14:00 and 20:30 | FLAC-only searches for lossy songs |
 | Availability check | 05:30 | whether your songs still play on Spotify and SoundCloud |
 | Library upkeep | every 5 min | rescans the files, applies review decisions, writes the playlists |
+| Lyrics | every 30 min | lyrics from LRCLIB for the files not done yet, the newest first |
 | FLAC upgrade for all songs, Covers, Lossy check | off | start them by hand |
 | Bandcamp offers | after New SoundCloud songs | a new song's Bandcamp offer and free downloads; Refresh on the Buy page reads all again |
 | Discogs check | off | Check on the Discogs page: a list's releases on Discogs and Beatport |
