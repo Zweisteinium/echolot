@@ -147,13 +147,15 @@ def test_list_page(client: TestClient, settings: Settings) -> None:
 def test_a_recording_twice_in_a_list(client: TestClient, settings: Settings) -> None:
     """A recording listed twice (two releases, same file or ISRC) is marked as the same song, not shown twice."""
     rows = [
-        {"position": 0, "file": "A/A - Song.flac", "isrc": "X1"},
-        {"position": 1, "file": None, "isrc": "Y1"},
-        {"position": 2, "file": "A/A - Song.flac", "isrc": "X2"},  # another release, the same file
-        {"position": 3, "file": None, "isrc": "Y1"},  # missing twice: the same ISRC
-        {"position": 4, "file": "B/B - Other.flac", "isrc": None},
+        {"position": 0, "key": "s:a", "file": "A/A - Song.flac", "isrc": "X1"},
+        {"position": 1, "key": "s:y", "file": None, "isrc": "Y1"},
+        {"position": 2, "key": "s:a2", "file": "A/A - Song.flac", "isrc": "X2"},  # another release, the same file
+        {"position": 3, "key": "s:y2", "file": None, "isrc": "Y-1"},  # missing twice: the same ISRC
+        {"position": 4, "key": "s:b", "file": "B/B - Other.flac", "isrc": None},
+        {"position": 5, "key": "s:z", "file": None, "isrc": None},
+        {"position": 6, "key": "s:z", "file": None, "isrc": None},  # the same song again
     ]
-    assert stats.same_as(rows) == {2: 0, 3: 1}
+    assert stats.same_as(rows) == {2: 0, 3: 1, 6: 5}
     con = db.connect(settings.db_path)
     with con:
         file = con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
@@ -168,6 +170,26 @@ def test_a_recording_twice_in_a_list(client: TestClient, settings: Settings) -> 
     con.close()
     html = client.get("/lists/spotify:playlist:AAA111").text
     assert 'class="same"' in html and "same song as #1, another release" in html
+
+
+def test_a_song_listed_twice_is_missing_once(client: TestClient, settings: Settings) -> None:
+    """A list's Missing count is the songs its Missing link shows: one listed twice, or under two track ids
+    with one ISRC, once; a song on two lists counts in each."""
+    con = db.connect(settings.db_path)
+    with con:  # Gone Song (missing, on Liked Songs and Renamed) again in Liked Songs, and its twin
+        con.execute("UPDATE songs SET isrc = 'GB-AAA-26-00001' WHERE key = 'spotify:s3'")
+        twin = "VALUES ('spotify:s3b', 'spotify', 'Artist C', 'Gone Song', 180, 'GBAAA2600001')"
+        con.execute(f"INSERT INTO songs (key, service, artist, title, length, isrc) {twin}")
+        member = "(list_key, position, song_key) VALUES ('spotify:likes:1', ?, ?)"
+        con.executemany(f"INSERT INTO list_songs {member}", [(3, "spotify:s3"), (4, "spotify:s3b")])
+    likes = {r["key"]: r for r in stats.lists(con)}["spotify:likes:1"]
+    assert (likes["songs"], likes["have"], likes["missing"]) == (5, 2, 1)
+    assert len(stats.missing(con, "spotify:likes:1")) == 1  # what its link shows
+    con.close()
+    link = '<a class="bad-text" href="/missing?list=spotify%3Alikes%3A1">1'
+    assert f"{link}</a>" in client.get("/library").text and ">Liked Songs (1)</option>" in client.get("/missing").text
+    page = client.get("/lists/spotify:likes:1").text
+    assert "2 in the library" in page and f"{link} missing</a>" in page
 
 
 def test_a_long_list_loads_its_rows_as_the_page_scrolls(

@@ -241,10 +241,10 @@
     </summary>
     <table class="rows lists">
       <colgroup><col><col class="c-num"><col class="c-bar"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
-      <thead><tr><th>List</th><th class="num">Songs</th><th>Quality</th><th class="num">FLAC</th><th class="num" title="Songs at the best quality there is: genuine FLAC, or a copy of a song Spotify has nothing better of or no longer plays (marked in the list). Missing songs not available at their source (greyed out or taken down on Spotify, DRM on SoundCloud) are left out.">Best</th><th class="num">Missing</th></tr></thead>
+      <thead><tr><th>List</th><th class="num">Songs</th><th>Quality</th><th class="num">FLAC</th><th class="num" title="Songs at the best quality there is: genuine FLAC, or a copy of a song Spotify has nothing better of or no longer plays (marked in the list). Missing songs not available at their source (greyed out or taken down on Spotify, DRM on SoundCloud) are left out.">Best</th><th class="num" title="Its songs not in the library yet: a song listed twice counts once, one on several lists in each (the Missing page lists it once)">Missing</th></tr></thead>
       <tbody>
       {% for l in group %}
-      {% set m = l.songs - l.have %}
+      {% set m = l.missing %}
       <tr>
         <td class="name">{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if l.service == 'local' %} <span class="pill" title="Unreleased songs you uploaded: kept as they are, never searched or upgraded">unreleased</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}{% if not o.scoped and l.owners %} <span class="muted small" title="who follows it">· {{ l.owners }}</span>{% endif %}</td>
         <td class="num" data-label="Songs">{{ l.songs|num }}</td>

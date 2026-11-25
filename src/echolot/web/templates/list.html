@@ -20,7 +20,7 @@
     </div>
   </div>
   {% if local %}<p class="lead">Unreleased songs, kept as you uploaded them: never searched, upgraded, retagged or covered{% if missing %} · <span class="bad-text">{{ missing|num }} {{ 'file is' if missing == 1 else 'files are' }} gone</span>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>
-  {% else %}<p class="lead">{{ (total - missing)|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>{% endif %}
+  {% else %}<p class="lead">{{ have|num }} in the library{% if missing %} · <a class="bad-text" href="/missing?list={{ lst.key|urlencode }}">{{ missing|num }} missing</a>{% endif %}{% if not lst.playlist %} · no playlist in the music server{% endif %}</p>{% endif %}
   {{ qbar(tiers, large=True) }}
   {{ legend(tiers) }}
 </section>

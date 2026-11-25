@@ -184,7 +184,8 @@ def best_tiers(con: Connection, uid: int | None = None) -> list[tuple[str, str, 
 
 def lists(con: Connection, uid: int | None = None) -> list[Row]:
     """The followed lists (a user's with their playlist choice, or everyone's with their followers), with
-    counts per tier (tier_counts), best and unobtainable."""
+    counts per tier (tier_counts), best, unobtainable and missing (each song once, as the Missing page lists
+    it: one listed twice, or under two track ids with one ISRC, is one missing song)."""
     owners = (
         "(SELECT group_concat(u.name, ', ') FROM sources src JOIN users u ON u.id = src.user_id "
         "WHERE src.key = l.key AND src.enabled) AS owners"
@@ -196,7 +197,7 @@ def lists(con: Connection, uid: int | None = None) -> list[Row]:
         playlist, where, args = f"{mode} AS playlist", f"WHERE l.key IN ({_FOLLOWS})", (uid, uid)
     return con.execute(
         f"SELECT l.key, l.service, {GROUP} AS grp, l.title, l.url, {playlist}, l.fetched, {owners}, "
-        f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS}, {_BEST}, {_UNOBTAINABLE} "
+        f"count(ls.song_key) AS songs, count(s.file) AS have, {_TIER_SUMS}, {_BEST}, {_UNOBTAINABLE}, {_MISSING} "
         "FROM lists l LEFT JOIN list_songs ls ON ls.list_key = l.key "
         "LEFT JOIN songs s ON s.key = ls.song_key LEFT JOIN files f ON f.path = s.file "
         f"LEFT JOIN availability av ON av.song_key = s.key {where} "
@@ -205,6 +206,8 @@ def lists(con: Connection, uid: int | None = None) -> list[Row]:
     ).fetchall()
 
 
+_RECORDING = "coalesce(nullif(upper(replace(s.isrc, '-', '')), ''), s.key)"  # one per ISRC, as recordings.twins
+_MISSING = f"count(DISTINCT CASE WHEN s.file IS NULL THEN {_RECORDING} END) AS missing"
 _FOLLOWS = "SELECT key FROM sources WHERE user_id = ? AND enabled"
 # the group a list is shown in: its service's, Echolot's own (Wished, the Unreleased lists) together
 GROUP = "CASE WHEN l.service IN ('discover', 'local') THEN 'echolot' ELSE l.service END"
@@ -268,12 +271,13 @@ def list_songs(con: Connection, key: str) -> list[Row]:
 
 
 def same_as(songs: list[Row]) -> dict[int, int]:
-    """position -> the first position of the same recording (same file, else same ISRC): Spotify lists a
-    recording once per release, so a list can hold it twice."""
+    """position -> the first position of the same recording (the same song, file or ISRC): Spotify lists a
+    recording once per release, so a list can hold it twice (and a song twice)."""
     first: dict[str, int] = {}
     out = {}
     for s in songs:
-        marks = [m for m in (s["file"] and f"file:{s['file']}", s["isrc"] and f"isrc:{s['isrc']}") if m]
+        isrc = (s["isrc"] or "").replace("-", "").upper()
+        marks = [m for m in (f"key:{s['key']}", s["file"] and f"file:{s['file']}", isrc and f"isrc:{isrc}") if m]
         if (seen := next((first[m] for m in marks if m in first), None)) is not None:
             out[s["position"]] = seen
         else:

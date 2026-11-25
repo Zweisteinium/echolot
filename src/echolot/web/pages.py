@@ -261,7 +261,8 @@ def list_page(request: Request, con: DB, key: str, start: From = 0) -> HTMLRespo
         return page(request, "_list_rows.html", **rows)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
     others = [r for r in unreleased.lists(con, request.state.user.id) if r["key"] != key] if mine else []
-    extra = {"total": len(songs), "tiers": tiers, "others": others, "drop": unreleased.DROP}
+    have = sum(1 for s in songs if s["file"])
+    extra = {"total": len(songs), "have": have, "tiers": tiers, "others": others, "drop": unreleased.DROP}
     return page(request, "list.html", nav="library", **rows, **extra)
 
 

@@ -12,7 +12,7 @@
       <select name="list" onchange="this.form.submit()" aria-label="List">
         <option value="">All lists</option>
         {% for l in lists %}
-        <option value="{{ l.key }}" {% if l.key == selected %}selected{% endif %}>{{ l.title }} ({{ (l.songs - l.have)|num }})</option>
+        <option value="{{ l.key }}" {% if l.key == selected %}selected{% endif %}>{{ l.title }} ({{ l.missing|num }})</option>
         {% endfor %}
       </select>
       <noscript><button>Show</button></noscript>
