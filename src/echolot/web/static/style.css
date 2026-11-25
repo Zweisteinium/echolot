@@ -846,6 +846,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .song-facts { color: var(--muted); font-size: 0.85rem; }
 .song-facts .chip { vertical-align: -1px; }
 .downloads { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.1rem; }
+.more-downloads > summary { margin: 0.25rem 0 0; font-size: 0.85rem; }
 .download { transition: background 0.15s; }
 .download:hover { background: color-mix(in srgb, var(--track) 55%, transparent); }
 .download.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }

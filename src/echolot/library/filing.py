@@ -389,9 +389,10 @@ def file_into(
     or fake copy), 'duplicate' (discarded: the library has it), and with strict 'mismatch' (another version's
     length), 'wrong-song' (tags and names are not the song) or 'confirm' (kept for review).
     strict (search results): identify, with file_name and folders, must find the song. An exact match is
-    filed; a probable one filed for review, or with probable=False (upgrades, SoundCloud uploader names) kept
-    for review. A reject far off the length is deleted. `heard` (identity.check): the release's audio makes
-    a probable match exact, other audio keeps even an exact one for review. `confirm`: a genuine lossless
+    filed; a probable one filed for review (one by the core title as exact, rules.CORE_TITLE), or with
+    probable=False (upgrades, SoundCloud uploader names) kept for review. A reject far off the length or
+    hopeless (rules.hopeless) is deleted. `heard` (identity.check): the release's audio makes a probable or
+    rejected match exact, other audio keeps even an exact one for review. `confirm`: a genuine lossless
     match is kept for review whatever the names (a SoundCloud song's FLAC: an uploader's names), a lossy or
     fake one deleted. `same_audio` (identity.same_master) with `replaces` (that library file): the same audio
     in another codec, so the names only tell exact (filed) from probable (filed for review); it takes over
@@ -414,10 +415,14 @@ def file_into(
         match, why = identify(
             want.artist, want.title, tag_artists, tag_title, file_name, folders, dur, length, tol, want.aliases
         )
+        if match == "probable" and probable and rules.CORE_TITLE in why:  # reviews confirmed these (rules)
+            match = "exact"
         if match == "exact" and tagging.conflict(tag_title, want.title):  # named the song, tagged as another
             match, why = "probable", f"the file's tags name another song: '{tag_title}'"
         if match == "probable" and heard.verdict == "same":
             match = "exact"  # the audio confirms it
+        if match is None and heard.verdict == "same":  # the release's audio under other names: reviews took all 14
+            match, why = "exact", f"the {heard.detail}, other names: {why}"
         if trusted and match is None and named(want, [*tag_artists, tag_title, file_name, *folders]):
             match, why = "probable", f"the artist's own file, other names: {why}"
         if same_audio:  # other names make it probable, not another song
@@ -435,7 +440,9 @@ def file_into(
             ok, why = False, f"{why}, but the {heard.detail}"
         near = not (dur and length) or 2 / 3 <= dur / length <= 1.5  # else another song: nothing to review
         if not ok:
-            lost = (why.startswith("artist ") or not near) and not trusted
+            names = [tag_title, file_name, *folders]
+            hopeless = rules.hopeless(why, heard.verdict == "other", want.title, [want.artist, *want.artists], names)
+            lost = (why.startswith("artist ") or not near or hopeless) and not trusted
             kept = drop(src) if lost else keep(paths, src, want.artist, want.title, source)
             event(con, paths, "wrong-song", kept, reason=why, **info)
             return "wrong-song", None

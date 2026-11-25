@@ -29,7 +29,7 @@
     {% for g in songs.kept %}{% include "_review_group.html" %}
     {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}
   </div>
-  {% if hidden %}<p class="muted small">{{ hidden|num }} more kept download{{ 's' if hidden != 1 }} in <code>inbox/review</code> {{ 'is' if hidden == 1 else 'are' }} no longer up for review: {{ 'its' if hidden == 1 else 'their' }} song was found since, or {{ 'it is' if hidden == 1 else 'they are' }} far off in length. They are deleted 30 days after the download.</p>{% endif %}
+  {% if hidden %}<p class="muted small">{{ hidden|num }} more kept download{{ 's' if hidden != 1 }} in <code>inbox/review</code> {{ 'is' if hidden == 1 else 'are' }} no longer up for review: {{ 'its' if hidden == 1 else 'their' }} song was found since, {{ 'it is' if hidden == 1 else 'they are' }} far off in length, or {{ 'it misses' if hidden == 1 else 'they miss' }} the title with no word of it in the name or with other audio. They are deleted 30 days after the download.</p>{% endif %}
 </section>
 
 {% if user.admin %}

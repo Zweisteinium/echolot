@@ -86,13 +86,20 @@ def test_waiting_goes_by_the_review_pages_rules(env) -> None:
     assert review.waiting(con, paths.music) == set() and not review.waiting(con, paths.music, CAPO.key)
 
 
-def test_probable_match_filed_with_review_mark(env) -> None:
+def test_a_probable_match_by_the_core_title_needs_no_review(env) -> None:
+    """A search's probable match by the core title is filed as exact; one crediting the song's own artist is
+    filed for review (Please confirm)."""
     con, paths, _ = env
     action, dest = file_capo(con, paths, probable=True)
     assert action == "new" and dest.name == "CAPO - Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix.wav"
     e = events(con)[-1]
-    assert e["matched"] == "probable" and e["reason"].startswith("probable") and e["song"] == "spotify:capo"
+    assert e["matched"] == "exact" and e["reason"].startswith("probable") and e["song"] == "spotify:capo"
     assert con.execute("SELECT count(*) FROM files").fetchone()[0] == 1  # the index knows it at once
+    sc = "Irgendwie Irgendwo Irgendwann - HIGH TEKK REMIX"
+    want = Want("High Tekk", "Irgendwie Irgendwo Irgendwann", 200, "spotify:ht")
+    assert search_hit(con, paths, download(paths, "2.wav"), want, sc, "soulseek", probable=True)[0] == "new"
+    assert events(con)[-1]["matched"] == "probable" and "own artist" in events(con)[-1]["reason"]
+    assert [i.event["song"] for i in review.items(con, paths.music)["filed"]] == ["spotify:ht"]
 
 
 def test_same_song_twice_is_a_duplicate(env) -> None:
@@ -214,18 +221,24 @@ def decide(con, run, event_id: int, decision: str) -> str:
     return review.apply_due(run, con)[-1]
 
 
+TEKK = Want("High Tekk", "Irgendwie Irgendwo Irgendwann", 200, "spotify:ht")
+TEKK_FILE = "Irgendwie Irgendwo Irgendwann - HIGH TEKK REMIX"  # probable: credits the song's own artist
+
+
+def file_tekk(con, paths):
+    return search_hit(con, paths, download(paths, "1.wav"), TEKK, TEKK_FILE, "soulseek", probable=True, tries=2)
+
+
 def test_wrong_retires_blocks_and_searches_again(env) -> None:
     con, paths, run = env
-    _, dest = file_capo(con, paths, probable=True)
+    _, dest = file_tekk(con, paths)
     e = events(con)[-1]
     assert decide(con, run, e["id"], "wrong").endswith("retired")
     assert not dest.exists()
-    assert tuple(con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:capo'").fetchone()) == (
-        2,
-        0,
-    )
+    tries = con.execute("SELECT tries, last_try FROM attempts WHERE song_key = 'spotify:ht'").fetchone()
+    assert tuple(tries) == (2, 0)
     # the same download is never taken again, though it is a probable match
-    assert file_capo(con, paths, probable=True) == ("wrong-song", None)
+    assert file_tekk(con, paths) == ("wrong-song", None)
     assert events(con)[-1]["reason"] == "this download was marked wrong in review"
 
 
@@ -316,6 +329,46 @@ def test_the_audio_confirms_or_overrules_the_name(env) -> None:
     result = search_hit(con, paths, download(paths, "2.wav"), song, "A - Song", heard=other)
     assert result == ("wrong-song", None)
     assert "audio differs" in events(con)[-1]["reason"] and filing.in_review(paths, "A", "Song")
+
+
+def test_the_releases_audio_files_a_download_its_names_miss(env) -> None:
+    """An ISRC tag or the release's audio files a download whose names miss the title (reviews took all)."""
+    con, paths, _ = env
+    want = Want("Ennio Morricone", "Morricone: Gabriel's Oboe (Mission)", 200, "spotify:eo")
+    same = Evidence("same", "ISRC tag of the release")
+    action, _ = search_hit(con, paths, download(paths, "1.wav"), want, "Gabriel’s Oboe", "soulseek", heard=same)
+    e = events(con)[-1]
+    assert action == "new" and e["matched"] == "exact" and e["reason"].startswith("the ISRC tag of the release")
+
+
+def test_a_hopeless_download_is_deleted(env) -> None:
+    """A download whose names miss the title is deleted when its audio differs or no word of the title is in
+    its names; one sharing a word, of unknown audio, is kept for a look."""
+    con, paths, _ = env
+    want = Want("Mika Heggemann", "Club Crazy", 250, "spotify:mh")
+    src = download(paths, "1.wav", 250)
+    assert search_hit(con, paths, src, want, "Mika Heggemann - Music Never Lies", "soulseek")[0] == "wrong-song"
+    assert not src.exists() and not filing.in_review(paths, "Mika Heggemann", "Club Crazy")
+    other = Evidence("other", "audio differs from the release (0.60)")
+    src = download(paths, "2.wav", 250)
+    search_hit(con, paths, src, want, "Mika Heggemann - Crazy Club Night", "soulseek", heard=other)
+    assert not src.exists() and not filing.in_review(paths, "Mika Heggemann", "Club Crazy")
+    src = download(paths, "3.wav", 250)
+    search_hit(con, paths, src, want, "Mika Heggemann - Crazy Club Night", "soulseek")
+    assert filing.in_review(paths, "Mika Heggemann", "Club Crazy")
+    want = Want("GbR", "Lecker Bierchen", 147, "spotify:gbr")  # the words run together
+    search_hit(con, paths, download(paths, "4.wav", 147), want, "GbR - #leckerbierchen (Offizielles Video)")
+    assert filing.in_review(paths, "GbR", "Lecker Bierchen")
+
+
+def test_review_hides_a_hopeless_download_kept_before(env) -> None:
+    con, paths, _ = env
+    want = Want("Mika Heggemann", "Club Crazy", 250, "spotify:mh")
+    search_hit(con, paths, download(paths, "1.wav", 250), want, "Mika Heggemann - Crazy Club Night", "soulseek")
+    assert review.waiting(con, paths.music) == {"spotify:mh"}
+    with con:
+        con.execute("UPDATE events SET audio = 'audio differs from the release (0.60)'")
+    assert review.waiting(con, paths.music) == set()
 
 
 def test_a_wrong_download_far_off_the_length_is_deleted(env) -> None:

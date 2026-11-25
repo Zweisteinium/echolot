@@ -501,6 +501,21 @@ def two_kept_downloads(settings: Settings) -> None:
     con.close()
 
 
+def test_a_card_shows_its_likeliest_download_and_another_performance(client: TestClient, settings: Settings) -> None:
+    """A song's card shows the likeliest download, the others folded; one of the piece by other performers
+    says so."""
+    two_kept_downloads(settings)
+    con = db.connect(settings.db_path)
+    differs = "audio differs from the release (0.60)"
+    with con:
+        con.execute("""UPDATE songs SET artists = '["Artist C", "Pianist"]' WHERE key = 'spotify:s3'""")
+        con.execute("UPDATE events SET audio = ?, reason = ?", (differs, f"tags, but the {differs}"))
+    con.close()
+    html = client.get("/review").text
+    assert "<summary>1 more download</summary>" in html
+    assert html.count(">another performance</span>") == 2
+
+
 def test_close_matches_on_the_missing_page(client: TestClient, settings: Settings) -> None:
     con = db.connect(settings.db_path)
     path, link = "Artist A/Artist A - First Song (Extended Mix).flac", '["Artist A", "First Song (Extended Mix)"]'

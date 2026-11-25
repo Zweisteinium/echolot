@@ -26,7 +26,8 @@
   <button type="button" class="play" data-play="/review/{{ e.id }}/audio" title="Play" aria-label="Play {{ d_title }}">
     <span class="when-paused">{{ icon('play', 16) }}</span><span class="when-playing">{{ icon('pause', 16) }}</span></button>
   <div class="download-body">
-    <div class="download-name">{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}</div>
+    <div class="download-name">{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}
+      {%- if i.performance %} <span class="pill" title="The piece as the song, played by others: none of the song's performers is named, and the audio is not the release's">another performance</span>{% endif %}</div>
     <div class="seek" title="Jump to"><span class="seek-done"></span></div>
     <div class="facts">{{ facts(e.source, e.seconds, i.length_diff, i.quality, e.kbps, e.bytes) }}<span class="play-time"></span></div>
     {% if note %}<div class="download-why">{{ note }}</div>{% endif %}

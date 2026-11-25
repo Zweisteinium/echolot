@@ -92,6 +92,18 @@ class Item:
         return artist, title, bool(artist) and not names_one(credited, self.song_artists)
 
     @property
+    def performance(self) -> bool:
+        """Another performance of the piece: named as the song, but not the release's audio, and none of the
+        song's performers named (the artists after the first that its title does not name: a composer's
+        piece played by others)."""
+        e = self.event
+        if self.kind != "kept" or "differs" not in (e["audio"] or "") or (e["reason"] or "").startswith("title '"):
+            return False
+        performers = [a for a in list(dict.fromkeys(self.song_artists))[1:] if a and not names_one(e["title"], [a])]
+        names = " ".join(n for n in (self.download[0], e["found"], e["file_name"], e["peer_path"]) if n)
+        return bool(performers) and not names_one(names, performers)
+
+    @property
     def quality(self) -> str:
         """The download's quality tier (catalog.QUALITY), for its chip."""
         e = self.event
@@ -172,8 +184,13 @@ def local_file(path: str, music_dir: Path) -> Path | None:
 
 
 def near_miss(e: sqlite3.Row, wanted: float) -> bool:
-    """A rejected download worth a look: the artist matched and the length is not far off."""
+    """A rejected download worth a look: the artist matched, the length is not far off, and it is not hopeless
+    (rules.hopeless: kept before that rule)."""
     if (e["reason"] or "").startswith("artist "):
+        return False
+    artists = [e["artist"], *json.loads(e["song_artists"] or "[]")]
+    names = [e["found"], e["file_name"], e["peer_path"]]
+    if rules.hopeless(e["reason"] or "", "differs" in (e["audio"] or ""), e["title"] or "", artists, names):
         return False
     return not (e["seconds"] and wanted) or 2 / 3 <= e["seconds"] / wanted <= 1.5
 

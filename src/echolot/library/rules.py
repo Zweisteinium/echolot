@@ -247,11 +247,41 @@ def identify(
     if c := probable(title, readings["tags"] + readings["file name"], known, want):
         if credited:
             return "probable", f"probable: '{c}' credits the song's own artist, length within {tol:.0f} s"
-        return ("probable", f"probable: '{c}' has the core title, the same version words, length within {tol:.0f} s")
+        return "probable", f"probable: '{c}' {CORE_TITLE}, length within {tol:.0f} s"
     return None, (
         f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' "
         "has the same core title and version"
     )
+
+
+# a probable match by the core title (identify): filed without review from a search (all but 2 of 25 were
+# confirmed as they were, those 2 renamed); a probable match crediting the song's own artist still waits
+CORE_TITLE = "has the core title, the same version words"
+_FILLER = {"the", "a", "an", "of", "and", "in", "on", "to", "for", "my", "me", "you", "i", "is", "it", "no", "s"}
+_FILLER |= {"op", "d"}  # opus, Deutsch catalogue
+_FILLER |= {"bwv", "hob", "major", "minor", "flat", "sharp"}  # a classical title's key and catalogue words
+
+
+def _stem(w: str) -> str:
+    return w[:-1] if len(w) > 3 and w.endswith("s") else w  # "Sweaters" = "Sweater"
+
+
+def shares_title(title: str, artists: Iterable[str], names: Iterable[str]) -> bool:
+    """A word of the title's core (no filler, no artist's name) is in the names, also as its singular or run
+    together ("#leckerbierchen" for "Lecker Bierchen"); a title without such words shares one always."""
+    core = segments(release_title(title))[0] or title
+    own = {w for a in artists if a for w in words(a).split()}
+    want = [_stem(w) for w in words(core).split() if w not in _FILLER and w not in own] or words(core).split()
+    have = {_stem(w) for w in words(" ".join(n for n in names if n)).split()}
+    joined = "".join(words(" ".join(n for n in names if n)).split())
+    return not want or any(w in have or (len(w) >= 4 and w in joined) for w in want)
+
+
+def hopeless(why: str, audio_differs: bool, title: str, artists: Iterable[str], names: Iterable[str]) -> bool:
+    """A download whose names miss the title (identify's reason "title '...'") that is no near miss either:
+    its audio differs from the release's, or its names share no word of the title. Review discarded all 93
+    such downloads (to 2026-11-25), so they are neither kept nor shown."""
+    return why.startswith("title '") and (audio_differs or not shares_title(title, artists, names))
 
 
 _DASHES = re.compile(r"\s+[–—~]\s+")  # other dashes between artist, title and suffix ("Song ~ 'Label'")
