@@ -221,14 +221,14 @@
 
 <section class="card">
   <div class="card-head">
-    <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ o.lists|length }}</span></h2>
+    <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ lists|length }}</span></h2>
     <div class="actions">
       {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, better copies of songs you have, or released songs on none of your lists (into Echolot · Wished)">{{ icon('upload', 14) }} Upload files</button>
       <button type="button" hx-get="/unreleased/upload" hx-target="#upload-body" title="Music that exists nowhere else (a friend's own tracks, customs deleted everywhere), into your Unreleased lists: kept as uploaded, never searched or upgraded">{{ icon('upload', 14) }} Upload unreleased</button>{% endif %}
-      {% if user.can('upload') and o.lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
+      {% if user.can('upload') and lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
     </div>
   </div>
-  {% set groups = o.lists|groupby('grp') %}
+  {% set groups = lists|groupby('grp') %}
   {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube', 'echolot'] %}
   {% for svc in order + (by_service|reject('in', order)|list) if svc in by_service %}
   {% set group = by_service[svc] %}

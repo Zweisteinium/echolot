@@ -14,7 +14,7 @@ from echolot.library import filing, history
 from echolot.library.filing import Paths
 from echolot.services import spotify
 from echolot.settings import options
-from echolot.web import create_app, stats
+from echolot.web import create_app, pages, stats
 from echolot.web import sources as sources_web
 
 OWNER = 1  # conftest: the owner of the small collection
@@ -170,6 +170,26 @@ def test_a_recording_twice_in_a_list(client: TestClient, settings: Settings) -> 
     assert 'class="same"' in html and "same song as #1, another release" in html
 
 
+def test_a_long_list_loads_its_rows_as_the_page_scrolls(
+    client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pages, "ROWS", 2)
+    con = db.connect(settings.db_path)
+    with con:  # a fourth row, another release of the first song: marked in the second part too
+        file = con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
+        song = "VALUES ('spotify:s1b', 'spotify', 'Artist A', 'First Song', 200, ?)"
+        con.execute(f"INSERT INTO songs (key, service, artist, title, length, file) {song}", (file,))
+        member = "(list_key, position, song_key) VALUES ('spotify:likes:1', 3, 'spotify:s1b')"
+        con.execute(f"INSERT INTO list_songs {member}")
+    con.close()
+    html = client.get("/lists/spotify:likes:1").text
+    assert '<span class="count">4</span>' in html and "First Song" in html and "Second Song" in html
+    assert "Gone Song" not in html and 'hx-get="/lists/spotify:likes:1?from=2" hx-trigger="revealed"' in html
+    rows = client.get("/lists/spotify:likes:1?from=2").text
+    assert "Gone Song" in rows and "same song as #1, another release" in rows and "<html" not in rows
+    assert "from=4" not in rows  # the last part
+
+
 def test_activity(client: TestClient) -> None:
     html = client.get("/activity").text
     assert "Artist A – First Song" in html and ">Added</span>" in html and ">Soulseek</span>" in html
@@ -246,7 +266,7 @@ def test_jobs(client: TestClient) -> None:
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
     assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
     html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # polled every second
-    assert "starts in a moment" in html and ">Starting</span>" in html and 'hx-trigger="every 1s"' in html
+    assert "starts in a moment" in html and ">Starting</span>" in html and 'hx-trigger="every 1s[' in html
 
 
 def test_static_stylesheet(client: TestClient) -> None:
@@ -307,9 +327,13 @@ def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) ->
         con.execute("INSERT OR REPLACE INTO attempts VALUES (?, 3, 1, 1, ?, ?)", row)
     con.close()
     html = client.get("/missing").text
-    assert "DRM on SoundCloud" in html and "stalls at peers" in html
+    assert "DRM on SoundCloud" in html and "stalls at peers" in html and "Soulseek 3×" in html
+    assert f'hx-get="/missing/tried?song={urllib.parse.quote(key, safe="")}"' in html  # loaded when opened
+    assert "Last search" not in html
+    html = client.get("/missing/tried", params={"song": key}).text
     assert "Last search: 12 results, 1 fit" in html and "7 another length, 4 another version" in html
     assert "no progress (queued at the peer)" in html and "Kept for review" in html and "3:39" in html
+    assert client.get("/missing/tried", params={"song": "spotify:s1"}).status_code == 404  # in the library
 
 
 def test_follow_and_stop_following(client: TestClient, settings: Settings, monkeypatch) -> None:

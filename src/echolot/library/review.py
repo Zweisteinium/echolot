@@ -13,7 +13,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -84,8 +84,8 @@ class Item:
         """(artist, title, another artist) of the download by its tags; another artist when they name none of
         the song's artists (a video's artist tag is often its channel, its title then 'Artist - Title').
         Without tags, or with the song's own (Echolot tagged an accepted file): the name it came as."""
-        e = self.event
-        artist, title = audio.read_credit(self.file)
+        e, st = self.event, self.file.stat()
+        artist, title = _credit(self.file, st.st_mtime_ns, st.st_size)
         if not title or (artist, title) == (e["artist"], e["title"]):
             return "", (e["found"] or e["file_name"] or "–").strip(), False
         credited = artist + (" / " + title.partition(" - ")[0] if " - " in title else "")
@@ -141,6 +141,13 @@ class Item:
         if dot and ext.lower() in audio.AUDIO:
             found = stem
         return close_guess(found, self.song_artists) or f"{e['artist']} - {e['title']}"
+
+
+@lru_cache(maxsize=4096)
+def _credit(path: Path, mtime: int, size: int) -> tuple[str, str]:
+    """audio.read_credit of a file as it is (its time and size): the page sorts every download by it, and the
+    files are on a slow disk."""
+    return audio.read_credit(path)
 
 
 # video decorations in a download's name: "(Official Music Video)", "[4K Upgrade]", "• TopPop", "| JCC 2020";
@@ -314,7 +321,9 @@ def compare_open(con: sqlite3.Connection, music_dir: Path, limit: int = 4) -> in
 
 
 def find_group(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Group | None:
-    for rows in items(con, music_dir).values():
+    """The group of a download, from its song's items only."""
+    row = con.execute("SELECT song FROM events WHERE id = ?", (event_id,)).fetchone()
+    for rows in items(con, music_dir, key=row["song"] if row else None).values():
         for g in groups(rows):
             if any(i.event["id"] == event_id for i in g.items):
                 return g
@@ -332,7 +341,8 @@ def discard_all(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Grou
 
 
 def find(con: sqlite3.Connection, music_dir: Path, event_id: int) -> Item | None:
-    return next((i for group in items(con, music_dir).values() for i in group if i.event["id"] == event_id), None)
+    g = find_group(con, music_dir, event_id)
+    return next((i for i in g.items if i.event["id"] == event_id), None) if g else None
 
 
 def split_name(name: str) -> tuple[str, str]:
@@ -344,12 +354,13 @@ def decide(
     con: sqlite3.Connection, music_dir: Path, event_id: int, decision: str, name: str = "", user_id: int | None = None
 ) -> Item:
     """Record a decision (applied when its undo time is over: apply_due) and who made it."""
-    item = find(con, music_dir, event_id)
+    g = find_group(con, music_dir, event_id)
+    item = next((i for i in g.items if i.event["id"] == event_id), None) if g else None
     if item is None:
         raise ConfigError("This download is no longer up for review.")
     if decision not in dict(item.choices):
         raise ConfigError(f"'{decision}' is not a decision for this download.")
-    taken = find_group(con, music_dir, event_id).taken
+    taken = g.taken
     if decision in TAKE and taken and taken.event["id"] != event_id:
         raise ConfigError("Another download of this song is taken already: revert that one first.")
     if decision == "close":  # any name; a title alone takes the song's artist

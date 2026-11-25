@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from echolot.library import catalog, filing, history, origin, recording, unreleased
 from echolot.services import soundcloud, spotify
 from echolot.settings import options
-from echolot.web import charts, discogs, stats
+from echolot.web import cache, charts, discogs, stats
 from echolot.web.common import DB, back, page
 from echolot.web.format import num, size
 
@@ -26,14 +26,14 @@ def old_overview(request: Request) -> RedirectResponse:
 @router.get("/library", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
     uid = stats.scope(request.state.user)
-    o, vault = stats.overview(con, uid), request.app.state.vault
+    o, vault = cache.get(con, stats.overview, uid), request.app.state.vault
     connected = vault.has(con, spotify.refresh_name(request.state.user.id)) or vault.has(
         con, soundcloud.token_name(request.state.user.id)
     )
     rings = {
         "files": charts.donut(o["tiers"], size=160, width=22),
         "songs": charts.donut(o["song_tiers"], size=160, width=22),
-        "best": charts.donut(best := stats.best_tiers(con, uid), size=160, width=22),
+        "best": charts.donut(best := cache.get(con, stats.best_tiers, uid), size=160, width=22),
     }
     return page(
         request,
@@ -45,20 +45,18 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
         tier_hints=stats.TIER_HINTS,
         connected=connected,
-        tabs=library_tabs(con, uid),
+        lists=cache.get(con, stats.lists, uid),
+        tabs=cache.get(con, library_tabs, uid),
     )
 
 
 @router.get("/library/graphs", response_class=HTMLResponse)
 def graphs(request: Request, con: DB) -> HTMLResponse:
-    """The graphs fragment for ?range=7d|30d|90d|all or ?from=&to= (UTC)."""
-    uid = stats.scope(request.state.user)
-    return page(
-        request,
-        "_graphs.html",
-        o=(o := stats.overview(con, uid)),
-        **_graphs(con, uid, o, *_window(request.query_params)),
-    )
+    """The graphs fragment for ?range=7d|30d|90d|all or ?from=&to= (UTC); a range's are shared (cache)."""
+    uid, (chosen, start, stop) = stats.scope(request.state.user), _window(request.query_params)
+    o = cache.get(con, stats.overview, uid)
+    graphs = cache.get(con, _ranged, uid, chosen) if chosen else _graphs(con, uid, chosen, start, stop)
+    return page(request, "_graphs.html", o=o, **graphs)
 
 
 def library_tabs(con: sqlite3.Connection, uid: int | None) -> dict[str, int | None]:
@@ -94,6 +92,11 @@ def _span(start: str, stop: str) -> str:
     return f"{a.day} {a:%b} – {b.day} {b:%b}"
 
 
+def _ranged(con: sqlite3.Connection, uid: int | None, chosen: str) -> dict[str, Any]:
+    """The graphs of a range chip (RANGES)."""
+    return _graphs(con, uid, *_window({"range": chosen}))
+
+
 def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[str, Any]]:
     """The points from `start` to `stop` ("": open) plus one on each side, so the line reaches the edges
     and a stretch between two points still shows."""
@@ -106,10 +109,10 @@ def _crop(points: list[tuple[str, Any]], start: str, stop: str) -> list[tuple[st
     return points[max(inside[0] - 1, 0) if start else 0 : inside[-1] + 2]
 
 
-def _graphs(con: sqlite3.Connection, uid: int | None, o: dict, chosen: str, start: str, stop: str) -> dict[str, Any]:
+def _graphs(con: sqlite3.Connection, uid: int | None, chosen: str, start: str, stop: str) -> dict[str, Any]:
     """The library's files (always everyone's) with the songs on the lists beside, library size (everyone's
     too) and quality over the stretch; each series ends with the current value."""
-    now = history.utc(datetime.now())
+    o, now = cache.get(con, stats.overview, uid), history.utc(datetime.now())
     files = _files(con, uid, o)
     library = [*history.totals(con, "library_files"), (now, o["library_files"])]
     listed = history.totals(con, "songs_wanted") if uid is None else history.totals(con, "user_songs_wanted", str(uid))
@@ -174,11 +177,20 @@ def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="lis
     library = request.app.state.settings.library_dir
     uid = stats.scope(request.state.user)
     songs = stats.missing(con, list_key or None, filing.Paths(library.parent) if library else None, uid)
-    lists, close = stats.lists(con, uid), stats.close_matches(con, uid)
+    lists, close = cache.get(con, stats.lists, uid), stats.close_matches(con, uid)
     marks = recording.marks(con, request.state.user.id, songs)
     return page(
         request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, marks=marks
     )
+
+
+@router.get("/missing/tried", response_class=HTMLResponse)
+def missing_tried(request: Request, con: DB, song: str) -> HTMLResponse:
+    """What the searches of a missing song tried: loaded when its row on the Missing page opens."""
+    found = stats.missing(con, uid=stats.scope(request.state.user), song=song)
+    if not found:
+        raise HTTPException(404, "not a missing song of yours")
+    return page(request, "_missing_tried.html", s=found[0])
 
 
 @router.get("/buy", response_class=HTMLResponse)
@@ -191,7 +203,7 @@ def buy_page(request: Request, con: DB) -> HTMLResponse:
     gates_last = con.execute("SELECT * FROM jobs WHERE name = 'hypeddit'").fetchone()
     gates_running = "hypeddit" in runs or "hypeddit" in asked
     has_email = bool(options.get(con, options.Files).gate_email)
-    tabs = library_tabs(con, stats.scope(request.state.user))
+    tabs = cache.get(con, library_tabs, stats.scope(request.state.user))
     return page(
         request,
         "buy.html",
@@ -223,37 +235,34 @@ def buy_gates(request: Request) -> RedirectResponse:
     return back("/buy", ok="Getting the free downloads starts in a moment; reload the page in a few minutes.")
 
 
+ROWS = 300  # a list's songs on its page at first and per scroll (an unreleased list, ordered by dragging: all)
+From = Annotated[int, Query(alias="from", ge=0)]
+
+
 @router.get("/lists/{key:path}", response_class=HTMLResponse)
-def list_page(request: Request, con: DB, key: str) -> HTMLResponse:
+def list_page(request: Request, con: DB, key: str, start: From = 0) -> HTMLResponse:
+    """A list's page with its first ROWS songs; ?from=: the next ROWS rows (htmx, as the page scrolls)."""
     lst = stats.get_list(con, key, stats.scope(request.state.user))
     if lst is None:  # or not theirs
         raise HTTPException(404, "no such list")
-    songs = stats.list_songs(con, key)
+    songs = cache.get(con, stats.list_songs, key)
     same = stats.same_as(songs)  # counted once in the quality bar
-    tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
-    marks = recording.marks(con, request.state.user.id, songs) if lst["service"] == "spotify" else {}
-    marks |= {k: recording.Mark("original", why) for k, why in origin.marks(con, [s["key"] for s in songs]).items()}
+    stop = len(songs) if lst["service"] == "local" else start + ROWS
+    shown = songs[start:stop]
+    marks = recording.marks(con, request.state.user.id, shown) if lst["service"] == "spotify" else {}
+    marks |= {k: recording.Mark("original", why) for k, why in origin.marks(con, [s["key"] for s in shown]).items()}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}
     links = stats.links(con) if lst["service"] == "soundcloud" else {}
     mine = unreleased.owns(con, request.state.user.id, key)  # an Unreleased list of theirs: they manage it
-    others = [r for r in unreleased.lists(con, request.state.user.id) if r["key"] != key] if mine else []
     alone = set(unreleased.only_here(con, request.state.user.id, key)) if mine else set()
-    return page(
-        request,
-        "list.html",
-        nav="library",
-        lst=lst,
-        songs=songs,
-        same=same,
-        tiers=tiers,
-        marks=marks,
-        offers=offers,
-        links=links,
-        mine=mine,
-        others=others,
-        alone=alone,
-        drop=unreleased.DROP,
-    )
+    rows = {"lst": lst, "songs": shown, "same": same, "marks": marks, "offers": offers, "links": links, "mine": mine}
+    rows |= {"alone": alone, "more": stop if stop < len(songs) else None}
+    if start:
+        return page(request, "_list_rows.html", **rows)
+    tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
+    others = [r for r in unreleased.lists(con, request.state.user.id) if r["key"] != key] if mine else []
+    extra = {"total": len(songs), "tiers": tiers, "others": others, "drop": unreleased.DROP}
+    return page(request, "list.html", nav="library", **rows, **extra)
 
 
 @router.get("/activity", response_class=HTMLResponse)

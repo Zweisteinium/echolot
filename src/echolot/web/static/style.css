@@ -342,8 +342,8 @@ dd { margin: 0; overflow-wrap: anywhere; }
   mask: var(--mask) center / contain no-repeat; }
 .loading { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
-.cards.htmx-added, .song-review.htmx-added { opacity: 0; }  /* loaded lists and decisions fade in */
-.cards, .song-review { transition: opacity 0.2s ease-out; }
+.cards.htmx-added { opacity: 0; }  /* loaded lists fade in (a decision shows at once) */
+.cards { transition: opacity 0.2s ease-out; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
 /* collapsible groups */
@@ -881,6 +881,14 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .close-line input { flex: 1; min-width: min(100%, 16rem); }
 .review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.4rem; }
 .review-actions .status { font-size: 0.8rem; color: var(--muted); }
+/* a choice shows at once while it is sent (htmx marks its form): the download settles, its button spins */
+.download:has(form.htmx-request) :is(.download-body, .play) { opacity: 0.55; }
+.song-review:has(form.song-actions.htmx-request) .downloads { opacity: 0.55; }
+.song-review:has(form.htmx-request) :is(.downloads, .song-actions) { pointer-events: none; }
+:is(.review-actions form, form.song-actions).htmx-request button::before,
+.download:has(form.htmx-request) .close-line .primary::before { content: ""; display: inline-block; width: 0.75em;
+  height: 0.75em; margin-right: 0.4rem; vertical-align: -1px; border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: spin 0.7s linear infinite; }
 @media (max-width: 720px) {
   .song-head, .download { grid-template-columns: 2.25rem minmax(0, 1fr); }
   .download .review-actions, .song-actions { grid-column: 2; justify-content: flex-start; }

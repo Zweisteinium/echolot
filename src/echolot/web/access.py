@@ -55,6 +55,7 @@ USER: set[tuple[str, str]] = {  # (method, route path) any logged-in user may us
     ("POST", "/sources/follow"),
     ("POST", "/sources/add"),
     ("GET", "/missing"),
+    ("GET", "/missing/tried"),
     ("GET", "/buy"),
     ("GET", "/discogs"),
     ("GET", "/discogs/release"),

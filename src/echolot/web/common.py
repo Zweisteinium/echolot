@@ -14,13 +14,17 @@ from markupsafe import Markup, escape
 from starlette.types import Scope
 
 from echolot import db
+from echolot.web import cache
 
 
 def get_db(request: Request) -> Iterator[Connection]:
+    """The request's connection; a request that changed the database drops the shared figures (cache)."""
     con = db.connect(request.app.state.settings.db_path)
     try:
         yield con
     finally:
+        if con.total_changes:
+            cache.clear()
         con.close()
 
 

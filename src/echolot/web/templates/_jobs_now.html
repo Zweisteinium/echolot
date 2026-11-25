@@ -2,7 +2,7 @@
    admins: it may name another user's song #}
 {% set active = tasks|selectattr('running')|list %}
 {% set run = active[0].running[0].run if active else none %}
-<a class="pill job-pill{{ ' on' if active }}" href="/jobs" hx-get="/jobs/now" hx-trigger="every {{ '4s' if active else '60s' }}" hx-swap="outerHTML" title="{{ run.progress if run and user.admin and run.progress else 'The jobs: what runs, when, and what each one does' }}">
+<a class="pill job-pill{{ ' on' if active }}" href="/jobs" hx-get="/jobs/now" hx-trigger="every {{ '4s' if active else '60s' }}[document.visibilityState === 'visible']" hx-swap="outerHTML" title="{{ run.progress if run and user.admin and run.progress else 'The jobs: what runs, when, and what each one does' }}">
   {%- if paused %}<span class="dot err"></span>Jobs paused
   {%- elif active %}<span class="dot on"></span><b>{{ active[0].task.label }}</b>{% if run.total %}<span class="job-pill-count">{{ run.done|num }}/{{ run.total|num }}</span>{% endif %}{% if active|length > 1 %}<span class="muted" title="{{ active[1:]|map(attribute='task.label')|join(', ') }}">+{{ active|length - 1 }}</span>{% endif %}
   {%- else %}{% set due = tasks|selectattr('next')|rejectattr('task.maintenance')|sort(attribute='next')|first %}<span class="dot"></span>Jobs idle{% if due %}<span class="muted">· {{ due.task.label }} {{ due.next|until }}</span>{% endif %}{% endif -%}

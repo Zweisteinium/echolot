@@ -1,0 +1,23 @@
+{# rows of a list page (pages.list_page), from its first or as the page scrolls: a last row loads the next -#}
+{% from "_macros.html" import bandcamp, free_link, quality, song_cells, song_mark -%}
+{% from "_icons.html" import use -%}
+{% set local = lst.service == 'local' -%}
+{% set upload = user.can('upload') and (mine or not local) -%}
+{% for s in songs %}
+{% set twin = same.get(s.position) %}
+<tr{% if twin is not none %} class="same"{% elif not s.file %} class="missing"{% endif %}{% if local and upload %} data-song="{{ s.key }}"{% endif %}>
+  <td class="num muted">{{ s.position + 1 }}</td>
+  {{ song_cells(s) }}
+  <td><span class="nowrap">{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}{{ quality('missing') }}{% endif %}{{ song_mark(s.key, marks.get(s.key) or ({'kind': 'twin', 'why': 'The same song as #' ~ (twin + 1) ~ ', another release at its source: one file, recorded once'} if twin is not none), upload) }}{% if s.quality != 'lossless' and offers.get(s.key) %} {{ bandcamp(offers[s.key]) }}{% endif %}{% if s.quality != 'lossless' and links.get(s.key) %} {{ free_link(links[s.key]) }}{% endif %}</span></td>
+  <td class="hide-narrow">{% if twin is not none %}<span class="small muted" title="The list has this recording twice (another release at its source); it is one file and plays once in the playlist">same song as #{{ twin + 1 }}, another release</span>{% elif s.file %}<div class="file" title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1] }}</div>{% elif s.unavailable %}<span class="small bad-text">{{ s.unavailable }}</span>{% endif %}</td>
+  {% if upload and local %}<td class="row-action song-actions"><span class="nowrap">
+    <button type="button" class="icon-button drag-handle" data-drag title="Drag to move it in the list (or arrow keys)" aria-label="Move {{ s.artist }} – {{ s.title }} in the list">{{ use('drag') }}</button>
+    <button type="button" class="icon-button" hx-get="/unreleased/{{ lst.key }}/song/edit?song={{ s.key|urlencode }}" hx-target="#song-body" title="Edit: names, album, year, genre, cover, lists; its file" aria-label="Edit {{ s.artist }} – {{ s.title }}">{{ use('edit') }}</button>
+    <button type="button" class="icon-button" data-remove="{{ s.key }}" data-name="{{ s.artist }} – {{ s.title }}"{% if s.key in alone %} data-alone{% endif %} title="{{ 'Delete the song' if s.key in alone else 'Take it out of this list' }}" aria-label="Remove {{ s.artist }} – {{ s.title }}">{{ use('delete') }}</button>
+  </span></td>
+  {% elif upload %}<td class="row-action">{% if twin is none and (not s.file or s.quality != 'lossless') %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="{{ 'Upload a file for this song' if not s.file else 'Upload a better copy of this song' }}" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
+</tr>
+{% endfor %}
+{% if more %}
+<tr class="more-rows" hx-get="/lists/{{ lst.key }}?from={{ more }}" hx-trigger="revealed" hx-swap="outerHTML"><td colspan="7" class="muted">Loading more songs…</td></tr>
+{% endif %}

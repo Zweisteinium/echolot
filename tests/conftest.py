@@ -124,6 +124,14 @@ def offline_audio_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def figures_computed_each_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pages compute their figures each time (web/cache), as tests change the database between requests."""
+    monkeypatch.setattr("echolot.web.cache.FRESH", 0)
+    monkeypatch.setattr("echolot.web.cache.STALE", 0)
+    monkeypatch.setattr("echolot.web.cache.WARM", 0)
+
+
+@pytest.fixture(autouse=True)
 def no_lossprint(monkeypatch: pytest.MonkeyPatch) -> None:
     """lossprint acts as not installed, even where it is (as in the image)."""
     monkeypatch.setattr("echolot.library.audio.lossprint", lambda path: None)

@@ -1,0 +1,40 @@
+{# what the searches of a missing song tried (stats.missing): the Missing page loads it when a row opens -#}
+{% set STAGES = [
+  ('as listed', 'Artist and title as listed; the artist must be in the file path.'),
+  ('loosened', 'From 2 misses: without feat. credits and suffixes like "- Radio Edit", first artist only; a search without results is repeated with the title alone and the artist alone.'),
+  ('loosest', 'From 4 misses: also without the artist in the file path (the tags must still name it).'),
+] %}
+{% macro stage(n) %}<span class="stage" title="Search level {{ n + 1 }} of 3, {{ STAGES[n][0] }}: {{ STAGES[n][1] }}">{% for i in range(3) %}<i class="{{ 'on' if i <= n }}"></i>{% endfor %}</span>{% endmacro %}
+{% macro found(r) %}{{ r.results }} result{{ 's' if r.results != 1 }}{% if r.results %}, {{ r.fits or 'none' }} fit{{ 's' if r.fits == 1 }}{% endif %}{% if r.rejected %} <span class="muted">(not fitting: {% for k, n in r.rejected|dictsort(by='value', reverse=true) %}{{ n }} {{ k }}{{ ', ' if not loop.last }}{% endfor %})</span>{% endif %}{% endmacro %}
+{% macro outcome(action, detail) %}{% if action == 'wrong-song' %}not the song{% elif action == 'mismatch' %}another length{% elif detail %}{{ detail }}{% else %}{{ action }}{% endif %}{% endmacro %}
+{% macro tried(s) -%}
+<dl>
+  {% if s.tries %}
+  <dt>Soulseek</dt>
+  <dd>{{ s.tries }} search{{ 'es' if s.tries != 1 }}, last {{ s.last_try|ago }}{% if s.next_try %}{% set u = s.next_try|until %}, again at the first Missing songs run {{ 'from now' if u == 'due now' else u ~ ' or later' }}{% endif %} · {{ STAGES[s.stage][0] }}
+    {% set r = s.result %}
+    {% if r %}<div>Last search: {{ found(r) }}</div>
+      {% for name, action, detail in r.tried %}<div class="muted item"><span class="name" title="{{ name }}">{{ name }}</span>: {{ outcome(action, detail) }}</div>{% endfor %}
+    {% else %}<div class="muted">Details from the next search on.</div>{% endif %}
+  </dd>
+  {% endif %}
+  {% set v = (s.fallback or {}).get('listed') %}
+  {% if v %}<dt>Its video</dt><dd>{{ s.last_fallback|ago }}: <span class="name" title="{{ v[0] }}">{{ v[0] }}</span>: {{ outcome(v[1], v[2]) }}</dd>{% endif %}
+  {% for site, label in (('youtube', 'YouTube'), ('soundcloud', 'SoundCloud')) %}
+  {% set f = (s.fallback or {}).get(site) %}
+  {% if f %}
+  <dt>{{ label }}</dt>
+  <dd>{{ s.last_fallback|ago }}: {{ found(f) }}
+    {% for name, action, detail in f.tried %}<div class="muted item"><span class="name" title="{{ name }}">{{ name }}</span>: {{ outcome(action, detail) }}</div>{% endfor %}
+    {% set n = s.fallback.near %}{% if n and n[0] == site %}<div class="item">{% if n[3] == 'mismatch' %}Kept for review{% else %}Tried{% endif %}: <span class="name" title="{{ n[1] }}">{{ n[1] }}</span> ({{ n[2]|mmss }}){% if n[3] != 'mismatch' %}: {{ outcome(n[3], n[4]) }}{% endif %}</div>{% endif %}
+  </dd>
+  {% endif %}
+  {% endfor %}
+  {% if s.last_fallback and not s.fallback %}<dt>YouTube, SoundCloud</dt><dd>{{ s.last_fallback|ago }} <span class="muted">(details from the next search on)</span></dd>{% endif %}
+  {% if s.rejected %}
+  <dt>Rejected</dt>
+  <dd>{% for e in s.rejected %}<div class="item"><span class="muted">{{ e.ts[:10] }} {{ e.source|source }}</span> <span class="name" title="{{ e.found or e.file_name }}">{{ e.found or e.file_name }}</span>: {{ e.reason or ('length ' ~ e.seconds|mmss ~ ', wanted ' ~ e.wanted_seconds|mmss) }}</div>{% endfor %}</dd>
+  {% endif %}
+</dl>
+{%- endmacro %}
+{% if s is defined %}{{ tried(s) }}{% endif %}

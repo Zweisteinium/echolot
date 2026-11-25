@@ -524,7 +524,7 @@ def test_the_card_names_the_download_by_its_tags(env, monkeypatch) -> None:
     want = add_song(con, "spotify:tk", "TEKKNO", "say it right tekkno", 135)
     search_hit(con, paths, download(paths, "a.wav", 200), want, "say it right tekkno", "soulseek")
     tags = {"credit": ("BananaCar", "say it right tekkno")}
-    monkeypatch.setattr("echolot.library.audio.read_credit", lambda p: tags["credit"])
+    monkeypatch.setattr("echolot.library.review._credit", lambda *file: tags["credit"])  # tags read (once per file)
     assert review.items(con, paths.music)["kept"][0].download == ("BananaCar", "say it right tekkno", True)
     tags["credit"] = ("TEKKNO, BananaCar", "say it right tekkno")
     assert review.items(con, paths.music)["kept"][0].download[2] is False  # names the wanted artist

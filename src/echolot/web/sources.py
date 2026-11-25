@@ -20,7 +20,7 @@ from echolot.jobs import lists
 from echolot.services import soundcloud, spotify
 from echolot.settings import sources
 from echolot.settings.sources import ConfigError
-from echolot.web import stats
+from echolot.web import cache, stats
 from echolot.web.common import DB, back, page
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ JOB = {"spotify": "sync", "soundcloud": "soundcloud", "youtube": "youtube"}  # t
 
 def _state(con: sqlite3.Connection, uid: int) -> dict[str, dict[str, Any]]:
     """A user's followed lists by key: mode, songs, have, fetched, title."""
-    counts = {r["key"]: r for r in stats.lists(con)}
+    counts = {r["key"]: r for r in cache.get(con, stats.lists, None)}
     out = {}
     for s in sources.user_lists(con, uid):
         c = counts.get(s.key)

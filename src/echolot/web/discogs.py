@@ -14,7 +14,7 @@ from echolot import db
 from echolot.jobs import discogs as job
 from echolot.services import beatport
 from echolot.settings import options
-from echolot.web import stats
+from echolot.web import cache, stats
 from echolot.web.common import DB, back, page
 
 router = APIRouter(include_in_schema=False)
@@ -43,7 +43,8 @@ def _on(con: sqlite3.Connection) -> bool:
 
 
 def _rows(con: sqlite3.Connection, uid: int | None) -> tuple[dict[str, job.Album], dict[str, sqlite3.Row]]:
-    return job.albums(con, None, uid), {r["album"]: r for r in con.execute("SELECT * FROM discogs")}
+    """The releases of the user's library songs (shared: cache) and what the checks found for them."""
+    return cache.get(con, job.albums, None, uid), {r["album"]: r for r in con.execute("SELECT * FROM discogs")}
 
 
 def to_add(con: sqlite3.Connection, uid: int | None) -> int | None:
@@ -66,7 +67,7 @@ def discogs_page(
 
     uid = stats.scope(request.state.user)
     if not _on(con):
-        return page(request, "discogs.html", nav="discogs", on=False, tabs=library_tabs(con, uid))
+        return page(request, "discogs.html", nav="discogs", on=False, tabs=cache.get(con, library_tabs, uid))
     albums, rows = _rows(con, uid)
     _, states, need_store = SHOW.get(show, SHOW["todo"])
     lists: dict[str, list] = {}  # list key -> [title, releases, looked at]
@@ -91,7 +92,7 @@ def discogs_page(
         "discogs.html",
         nav="discogs",
         on=True,
-        tabs=library_tabs(con, uid),
+        tabs=cache.get(con, library_tabs, uid),
         entries=entries,
         lists=sorted(lists.items(), key=lambda kv: kv[1][0].lower()),
         genres=genres,

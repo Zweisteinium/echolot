@@ -34,11 +34,11 @@ def test_a_user_sees_their_own_songs(app, login: Callable[..., TestClient]) -> N
     uid = timon_follows_playlist_a(app)
     timon = login(app, "timon", admin=False)
     con = db.connect(app.state.settings.db_path)
-    mine, everyone = stats.overview(con, uid), stats.overview(con, None)
+    mine, everyone, lists = stats.overview(con, uid), stats.overview(con, None), stats.lists(con, uid)
     con.close()
     assert (mine["wanted"], mine["have"], mine["scoped"]) == (1, 1, True)
     assert mine["library_files"] == everyone["files"] and everyone["wanted"] > mine["wanted"]
-    assert [r["key"] for r in mine["lists"]] == ["spotify:playlist:AAA111"]
+    assert [r["key"] for r in lists] == ["spotify:playlist:AAA111"]
     missing = timon.get("/missing").text
     assert "Gone Song" not in missing  # the owner's missing song, on a list timon does not follow
     activity = timon.get("/activity").text

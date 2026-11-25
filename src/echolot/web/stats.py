@@ -12,6 +12,7 @@ from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
 from echolot.library import catalog, origin, recording, recordings, review, unreleased
 from echolot.library.filing import Paths
+from echolot.web import cache
 
 TIERS = [*catalog.TIERS, ("missing", "Missing")]  # best first; a fake FLAC counts in its source's tier
 _TIER = "coalesce(f.tier, f.quality)"  # tier is set by the library job; until then the quality
@@ -110,7 +111,6 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "added_24h": sum(day.get(a, (0, 0))[0] for a in ADDED),
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
         "rejected_24h": sum(day.get(a, (0, 0))[0] for a in REJECTED),
-        "lists": lists(con, uid),
     }
 
 
@@ -297,15 +297,19 @@ NOTES = {  # -> (text, style, hover text)
 
 
 def missing(
-    con: Connection, list_key: str | None = None, paths: Paths | None = None, uid: int | None = None
+    con: Connection, list_key: str | None = None, paths: Paths | None = None, uid: int | None = None, song: str = ""
 ) -> list[dict[str, Any]]:
-    """Missing songs with their lists, what the searches saw, recent rejected downloads and notes."""
+    """Missing songs (of a list, or the one `song`) with their lists, what the searches saw, recent rejected
+    downloads and notes."""
     mine, mine_args = _mine(uid)
     theirs, their_args = _their_lists(uid)
     where, args = f"s.file IS NULL AND {mine}", [*their_args, *mine_args]
     if list_key:
         where += " AND EXISTS (SELECT 1 FROM list_songs WHERE song_key = s.key AND list_key = ?)"
         args.append(list_key)
+    if song:
+        where += " AND s.key = ?"
+        args.append(song)
     rows = con.execute(
         f"SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, {db.play_url()} AS url, s.isrc, "
         "s.file, s.close_match, NULL AS quality, (SELECT state FROM availability WHERE song_key = s.key) AS state, "
@@ -332,7 +336,7 @@ def missing(
         ):
             if len(rejected.setdefault(e["song"], [])) < 3:
                 rejected[e["song"]].append(e)
-    waits = review.waiting(con, paths.music) if paths is not None else set()
+    waits = cache.get(con, review.waiting, paths.music) if paths is not None else set()  # shared: it reads the inbox
     return [
         _tried(r, rejected.get(r["key"], []), waits) | {"in_lists": " · ".join(places.get(r["key"], []))} for r in rows
     ]

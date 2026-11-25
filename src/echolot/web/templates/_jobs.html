@@ -89,7 +89,7 @@
   {% endif %}
 </article>
 {%- endmacro %}
-<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}" hx-swap="morph">
+<div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}[document.visibilityState === 'visible']" hx-swap="morph">
   <div class="card-head">
     <h1>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h1>
     {% if user.admin %}
