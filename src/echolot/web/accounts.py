@@ -113,6 +113,8 @@ def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
         if creds.connected:
             me = spotify.Spotify(con, state.vault, uid).me()
             sp.update(name=me.get("display_name") or me.get("id"), error=None)
+    except spotify.SpotifyResting as e:  # the login is fine: Spotify asked to wait (no login error)
+        sp.update(resting=str(e), until=e.when)
     except (spotify.SpotifyError, VaultError) as e:
         sp["error"] = str(e)
     finally:

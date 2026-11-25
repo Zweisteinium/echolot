@@ -296,7 +296,7 @@ docker compose up -d
 
 | Job | Default | What it does |
 |---|---|---|
-| Spotify lists | every 2 min | reads the lists that changed; new songs start a search |
+| Spotify lists | every 3 min | reads the lists that changed; new songs start a search |
 | New songs search | after a list job finds new songs | the library first, then Soulseek |
 | New SoundCloud songs | every 5 min | reads the lists that changed and downloads new songs |
 | YouTube lists | every 30 min | reads each playlist |

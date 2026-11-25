@@ -313,16 +313,18 @@ def finish(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: P
 
 def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover: Path | None) -> None:
     """The song's cover in place of the uploader's (`cover`: a SoundCloud download's artwork, else
-    covers.Covers), noted done for the covers job, and the artist picture from Spotify. Never for an
-    unreleased song (library/unreleased)."""
+    covers.Covers), noted done for the covers job, and the artist picture from Spotify (its artist from the
+    track the cover's search found, else asked). Never for an unreleased song (library/unreleased)."""
     from echolot.jobs import covers
 
     if want.key.startswith(f"{catalog.LOCAL}:"):
         return
 
+    finder: covers.Covers | None = None
     try:
         song = tagging.lead(con, dest.relative_to(run.paths.tracks).as_posix(), want.key)
-        jpg = cover.read_bytes() if cover and cover.is_file() else covers.Covers(con, run).of(song) if song else None
+        finder = covers.Covers(con, run) if song and not (cover and cover.is_file()) else None
+        jpg = cover.read_bytes() if cover and cover.is_file() else finder.of(song) if finder else None
         kept = jpg and covers.keeps(audio.picture(dest), jpg)  # the uploader's is the song's, larger
         if jpg and (kept or audio.embed_cover(dest, jpg, replace=True)) and (data := getattr(run, "data", None)):
             covers.note_done(data, dest.relative_to(run.paths.tracks).as_posix())
@@ -330,17 +332,20 @@ def pictures(run: "Run", con: sqlite3.Connection, dest: Path, want: Want, cover:
         log.info("cover of %s: %s", dest.name, e)
     if cover and not want.key.startswith("spotify:"):
         return  # a SoundCloud download: its uploader's name is no Spotify artist to look up
+    picture = dest.parent / "artist.jpg"
+    if picture.exists():
+        return  # the artist's folder has its picture: nothing to ask
     try:
         sp = spotify.Spotify(con, run.vault)
         if want.key.startswith("spotify:"):
-            track = sp.track(want.key.removeprefix("spotify:"))
+            sid = want.key.removeprefix("spotify:")
+            track = finder.track(sid) if finder and finder.sp else sp.track(sid)
         else:
             track = sp.find_track(want.artist, want.title)
         if not track:
             return
         artist_id = ((track.get("artists") or [{}])[0] or {}).get("id")
-        picture = dest.parent / "artist.jpg"
-        if artist_id and not picture.exists() and (url := sp.artist_image(artist_id)):
+        if artist_id and (url := sp.artist_image(artist_id)):
             picture.write_bytes(covers.download(url))
     except (spotify.SpotifyError, OSError) as e:
         log.info("pictures for %s: %s", dest.name, e)

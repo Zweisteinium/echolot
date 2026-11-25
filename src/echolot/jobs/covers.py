@@ -114,11 +114,13 @@ def keeps(old: bytes | None, new: bytes) -> bool:
 
 
 class Covers:
-    """The cover of a song, each Spotify album and picture fetched once."""
+    """The cover of a song, each Spotify album and picture fetched once; a Spotify track the song's searches
+    found is not asked for again (track)."""
 
     def __init__(self, con: sqlite3.Connection, run: "Run") -> None:
         self.con = con
         self.cache: dict[str, bytes | None] = {}
+        self.found: dict[str, dict] = {}  # Spotify track id -> the track, as the last song's searches gave it
         self.token = sc_api.any_token(con, run.vault)
         try:
             self.sp: spotify.Spotify | None = spotify.Spotify(con, run.vault)
@@ -138,8 +140,7 @@ class Covers:
             if service != "spotify" and hits:
                 service, sid = "spotify", hits[0]["id"]
         if service == "spotify" and self.sp:
-            time.sleep(0.25)  # gently: thousands of songs, one request each
-            album = self.sp.track(sid).get("album") or {}
+            album = self.track(sid).get("album") or {}
             images = album.get("images") or []
             return self._fetch(album.get("id") or sid, images[0]["url"] if images else None)
         if service == "soundcloud" and self.token:
@@ -158,15 +159,29 @@ class Covers:
         release is the song's."""
         assert self.sp is not None
         hits: list[dict] = []
+        self.found = {}
         if song["isrc"]:
             time.sleep(0.25)  # gently: thousands of songs, one request each
-            hits = self.sp.search(f"isrc:{song['isrc']}", RELEASES)
+            hits = self._seen(self.sp.search(f"isrc:{song['isrc']}", RELEASES))
         track, listed = pick(hits, song)
         how = "isrc"
         if track is None and not listed and (q := by_names(song)):
             time.sleep(0.25)
-            track, how = own_release(self.sp.search(q, RELEASES), song, names=True), "names"
+            track, how = own_release(self._seen(self.sp.search(q, RELEASES)), song, names=True), "names"
         return store(self.con, song["key"], track, how), hits
+
+    def track(self, sid: str) -> dict:
+        """A Spotify track: as the song's search found it (the same track: its album, its artists), else asked."""
+        assert self.sp is not None
+        if sid not in self.found:
+            time.sleep(0.25)  # gently: thousands of songs, one request each
+            self.found[sid] = self.sp.track(sid)
+        return self.found[sid]
+
+    def _seen(self, tracks: list[dict]) -> list[dict]:
+        """`tracks` (a search's), noted for track: those whole (with their album and artists)."""
+        self.found.update({t["id"]: t for t in tracks if t and t.get("id") and "album" in t and "artists" in t})
+        return tracks
 
     def _discovered(self, sid: str) -> str | None:
         """The picture Discover showed of a song (web/subsonic: Deezer's, Apple Music's, SoundCloud's), in its

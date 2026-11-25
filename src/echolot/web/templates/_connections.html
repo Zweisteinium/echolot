@@ -3,7 +3,8 @@
 {% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
 {% set to = ' href="/settings#soulseek-client"' if user.admin else '' %}
 <nav class="connections" aria-label="Connections">
-  {% if sp.connected and not sp.error %}<span class="status ok" title="Spotify: {{ sp.name }}">{{ icon('spotify', 13) }}<span>{{ sp.name }}</span></span>
+  {% if sp.resting %}<a class="status warn" href="/playlists#spotify" title="{{ sp.resting }}">{{ icon('spotify', 13) }}<span>waits until {{ sp.until }}</span></a>
+  {% elif sp.connected and not sp.error %}<span class="status ok" title="Spotify: {{ sp.name }}">{{ icon('spotify', 13) }}<span>{{ sp.name }}</span></span>
   {% elif sp.error %}<a class="status bad" href="/playlists#spotify" title="{{ sp.error }}">{{ icon('spotify', 13) }}<span>error</span></a>
   {% else %}<a class="status warn" href="/playlists#spotify" title="Spotify: not connected">{{ icon('spotify', 13) }}<span>not connected</span></a>{% endif %}
   {% if sc.connected %}<span class="status ok" title="SoundCloud: {{ sc.name }}">{{ icon('soundcloud', 13) }}<span>{{ sc.name }}</span></span>

@@ -286,7 +286,7 @@ def test_jobs(client: TestClient) -> None:
     assert 'id="jobs"' in html and "Pause all" in html
     assert "after Spotify and YouTube lists" in html  # New songs search has no schedule
     jobs = {j["name"]: j for j in client.get("/api/jobs").json()["jobs"]}
-    assert jobs["sync"]["schedule"] == 2 and not jobs["sync"]["running"]
+    assert jobs["sync"]["schedule"] == 3 and not jobs["sync"]["running"]
     html = client.post("/jobs/sync/run", headers={"HX-Request": "true"}).text  # polled every second
     assert "starts in a moment" in html and ">Starting</span>" in html and 'hx-trigger="every 1s[' in html
 
@@ -679,6 +679,23 @@ def test_spotify_403_says_to_check_the_users_email(client: TestClient, monkeypat
     )
     html = client.get("/playlists").text
     assert "User Management in the Spotify developer app" not in html and "no longer has Premium" in html
+
+
+def test_spotify_asking_to_wait_is_no_login_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """While Spotify asks to wait (429), the card and the line say until when: no hint to connect again, no app
+    set-up."""
+    import time
+
+    from echolot.services import spotify
+
+    until = time.time() + 3600
+    monkeypatch.setattr(spotify.Credentials, "load", lambda con, vault, uid=None: spotify.Credentials("i", "s", "r", 1))
+    monkeypatch.setattr(spotify.Spotify, "me", lambda self: (_ for _ in ()).throw(spotify.SpotifyResting(until)))
+    html = client.get("/playlists").text
+    when = time.strftime("%H:%M", time.localtime(until))
+    assert f"wait until {when} (too many requests)" in html and "The login is fine" in html
+    assert "Connect again below" not in html and "Premium required" not in html and "Save app" not in html
+    assert f"<span>waits until {when}</span>" in client.get("/accounts/line").text
 
 
 def test_pages_are_compressed_and_pictures_not(client: TestClient) -> None:

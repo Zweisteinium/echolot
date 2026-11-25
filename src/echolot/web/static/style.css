@@ -332,6 +332,8 @@ a.pill { text-decoration: none; }
   background: color-mix(in srgb, var(--ok) 8%, var(--surface)); }
 .flash.error { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent);
   background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }
+.flash.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
 
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1.5rem; margin: 0; }
 dt { color: var(--muted); }

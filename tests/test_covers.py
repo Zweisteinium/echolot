@@ -104,6 +104,84 @@ def test_a_file_filed_with_its_cover_is_noted_done(settings: Settings, monkeypat
     assert covers.journal(settings.data_dir).read_text().splitlines() == ["Artist N/Artist N - New Song.flac"]
 
 
+def test_a_track_the_songs_search_found_is_not_asked_again(settings: Settings, monkeypatch) -> None:
+    """The cover's searches find the song's own track (here on a compilation only: the list's release is the
+    song's): its album and artists come from there, not asked again; a track they did not find is asked."""
+    run = Run(BY_NAME["covers"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+    album = {"id": "a1", "album_type": "compilation", "images": [{"url": "https://i.scdn.co/a1"}]}
+    album |= {"artists": [{"name": "Various Artists"}], "release_date": "2015-01-20"}
+    hit = {"id": "t1", "name": "First Song", "external_ids": {"isrc": "X1"}, "duration_ms": 200000, "album": album}
+    hit["artists"] = [{"id": "ar1", "name": "Artist A"}]
+    asked: list[str] = []
+
+    class Sp:
+        def search(self, q: str, limit: int) -> list[dict]:
+            asked.append(q)
+            return [hit]
+
+        def track(self, tid: str) -> dict:
+            asked.append(tid)
+            return {"id": tid, "album": {"id": "a2", "images": [{"url": "https://i.scdn.co/a2"}]}, "artists": []}
+
+    fetched: list[str] = []
+    monkeypatch.setattr(covers, "download", lambda url: fetched.append(url) or SONG)
+    monkeypatch.setattr(covers.time, "sleep", lambda s: None)
+    con = db.connect(settings.db_path)
+    c = covers.Covers(con, run)
+    c.sp = Sp()
+    song = {"key": "spotify:t1", "isrc": "X1", "artist": "Artist A", "artists": '["Artist A"]', "title": "First Song"}
+    song |= {"length": 200, "album": "Hits 2015", "released": "2015"}
+    assert c.of(song) == SONG and fetched == ["https://i.scdn.co/a1"]
+    assert asked == ["isrc:X1", "track:First Song artist:Artist A"]  # its track not asked
+    assert c.track("t1")["artists"][0]["id"] == "ar1" and len(asked) == 2  # (filing's artist picture)
+    assert c.track("t9")["album"]["id"] == "a2" and asked[-1] == "t9"
+    con.close()
+
+
+def test_filing_asks_for_the_artist_picture_only_when_missing(settings: Settings, monkeypatch) -> None:
+    """A song filed asks for its artist's picture only when the folder has none, with the artist of the track
+    the cover's search found (that track not asked again)."""
+    from echolot.jobs import acquire
+    from echolot.library.filing import Want
+    from echolot.services import spotify
+
+    run = Run(BY_NAME["covers"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+    p = settings.library_dir / "Artist N" / "Artist N - New Song.flac"
+    p.parent.mkdir(exist_ok=True)
+    shutil.copy(AUDIO / "silence.flac", p)
+    hit = {"id": "n1", "artists": [{"id": "ar1"}], "album": {"id": "a1"}}
+    asked: list[str] = []
+
+    class Sp:
+        def __init__(self, con: object = None, vault: object = None) -> None:
+            pass
+
+        def track(self, tid: str) -> dict:
+            asked.append(f"track {tid}")
+            return hit
+
+        def artist_image(self, aid: str) -> str:
+            asked.append(f"artist {aid}")
+            return "https://i.scdn.co/ar1"
+
+    def of(self, song) -> bytes:
+        self.found = {"n1": hit}  # as its search found it
+        return SONG
+
+    monkeypatch.setattr(covers.Covers, "__init__", lambda self, con, run: setattr(self, "sp", Sp()))
+    monkeypatch.setattr(covers.Covers, "of", of)
+    monkeypatch.setattr(acquire.tagging, "lead", lambda con, rel, key=None: {"key": "spotify:n1"})
+    monkeypatch.setattr(spotify, "Spotify", Sp)
+    monkeypatch.setattr(covers, "download", lambda url: b"the artist")
+    con = db.connect(settings.db_path)
+    want = Want("Artist N", "New Song", 200, "spotify:n1")
+    acquire.pictures(run, con, p, want, None)
+    assert asked == ["artist ar1"] and (p.parent / "artist.jpg").read_bytes() == b"the artist"
+    acquire.pictures(run, con, p, want, None)  # the folder has its picture now: nothing asked
+    con.close()
+    assert asked == ["artist ar1"] and audio.picture(p) == SONG
+
+
 def test_a_discover_songs_cover(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     """A song hearted in a player: the album of the Spotify track with its ISRC; without one (or Spotify
     knows none), the picture Discover showed, large."""

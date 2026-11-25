@@ -103,9 +103,10 @@ class SpotifyResting(SpotifyError):
 
     def __init__(self, until: float) -> None:
         self.until = until
-        when = time.strftime("%H:%M" if until - time.time() < 20 * 3600 else "%d.%m. %H:%M", time.localtime(until))
+        form = "%H:%M" if until - time.time() < 20 * 3600 else "%d.%m. %H:%M"
+        self.when = time.strftime(form, time.localtime(until))  # the wait's end, as the pages show it
         super().__init__(
-            f"Spotify asked Echolot to wait until {when} (too many requests); nothing is asked before then."
+            f"Spotify asked Echolot to wait until {self.when} (too many requests); nothing is asked before then."
         )
 
 

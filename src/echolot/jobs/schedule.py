@@ -36,7 +36,7 @@ class JobInfo:
 
 
 JOBS = [
-    JobInfo("sync", "Spotify lists", "spotify", 2, 1,
+    JobInfo("sync", "Spotify lists", "spotify", 3, 1,
             "Checks your Spotify lists; new songs start New songs search.",
             "Asks Spotify what changed (a few requests: the playlists' snapshots, the state of your likes) and "
             "reads only the lists that changed. Songs Spotify greys out are found by the daily Availability "

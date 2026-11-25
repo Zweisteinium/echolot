@@ -88,7 +88,7 @@ def test_partial_import_keeps_the_rest(con: sqlite3.Connection) -> None:
     before = sources.as_config(con, 1)
     configfile.apply(con, "schedule:\n  fallback: off\n")
     assert sources.as_config(con, 1) == before and schedule.rules(con)["fallback"] is None
-    assert schedule.rules(con)["sync"] == 2
+    assert schedule.rules(con)["sync"] == 3
 
 
 def test_a_file_of_format_1(con: sqlite3.Connection) -> None:
