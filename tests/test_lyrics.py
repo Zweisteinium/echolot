@@ -115,6 +115,7 @@ def test_lyrics_are_embedded_where_players_read_them(tmp_path: Path, ext: str) -
     assert audio.read_lyrics(tmp_path / "nothing.flac") is None
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
 @pytest.mark.parametrize("ext", ["flac", "mp3", "m4a", "opus"])
 def test_lyrics_move_no_audio_in_place(tmp_path: Path, ext: str) -> None:
     """Lyrics that fit the file's padding are written in place; ones that do not go into a copy that replaces

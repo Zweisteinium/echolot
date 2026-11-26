@@ -160,8 +160,8 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     files, size = con.execute(f"SELECT count(*), coalesce(sum(size), 0) FROM files WHERE {files_of}", args).fetchone()
     tiers_sql = f"SELECT {_TIER}, count(*), sum(f.quality = 'fake') FROM files f WHERE {files_of} GROUP BY 1"
     tiered = con.execute(tiers_sql, args).fetchall()
-    found = "coalesce(sum(state IN ('synced', 'plain', 'own')), 0), coalesce(sum(state = 'synced'), 0)"
-    lyrics, synced = con.execute(f"SELECT {found} FROM lyrics WHERE {files_of}", args).fetchone()
+    found = "count(*), coalesce(sum(state IN ('synced', 'plain', 'own')), 0), coalesce(sum(state = 'synced'), 0)"
+    looked, lyrics, synced = con.execute(f"SELECT {found} FROM lyrics WHERE {files_of}", args).fetchone()
     by_tier, file_fakes = {r[0]: r[1] for r in tiered}, sum(r[2] or 0 for r in tiered)
     counts = "count(*), count(file), count(DISTINCT file), coalesce(sum(file IS NOT NULL AND close_match), 0)"
     wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted s WHERE {mine}", args).fetchone()
@@ -210,6 +210,7 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "added_24h": sum(day.get(a, (0, 0))[0] for a in ADDED),
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
         "rejected_24h": sum(day.get(a, (0, 0))[0] for a in REJECTED),
+        "lyrics_looked": looked,  # files the Lyrics job looked at (none yet: no figure)
         "lyrics": lyrics,  # files with lyrics: from LRCLIB or their own
         "synced": synced,
     }

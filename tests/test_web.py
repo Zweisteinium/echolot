@@ -33,7 +33,7 @@ def test_healthz(client: TestClient) -> None:
 
 def test_overview(client: TestClient) -> None:
     html = client.get("/stats").text
-    assert 'hx-get="/jobs/now"' in html  # the jobs' line in the sidebar
+    assert 'hx-get="/jobs/now"' in html and ">With lyrics</div>" not in html  # (no file looked at for lyrics)
     assert '<button type="button" popovertarget="add-music"' in html and "Record from Spotify" in html  # Add music
     assert "Quality by list" in html and "Playlist A" in html and 'href="/lists/spotify:playlist:BBB222"' in html
     assert "no playlist" in html and 'data-remember="lists-spotify">' in html  # folded at first
@@ -798,6 +798,7 @@ def test_a_songs_panel(client: TestClient, settings: Settings) -> None:
             (file,),
         )
     con.close()
+    assert ">With lyrics</div>" in client.get("/library").text  # the figure, once the Lyrics job looked
     panel = client.get("/song", params={"key": "spotify:s1"}, headers={"HX-Request": "true"}).text
     assert '<h2 id="song-panel-title">First Song</h2>' in panel and "<html" not in panel
     assert 'href="/lists/spotify%3Alikes%3A1">Liked Songs</a> <span class="muted small">#1</span>' in panel
