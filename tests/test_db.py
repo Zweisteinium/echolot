@@ -1,5 +1,7 @@
 """The database schema (db.py): created at the current version, older ones migrated step by step."""
 
+import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -249,3 +251,57 @@ def test_the_list_songs_get_their_times(tmp_path: Path) -> None:
     snapshots = dict(con.execute("SELECT key, snapshot FROM lists"))
     assert snapshots["spotify:playlist:P"] is None and snapshots["soundcloud:me/likes"] == "x"
     con.close()
+
+
+def test_a_schema_change_backs_the_database_up_first(tmp_path) -> None:
+    """Before its schema changes the database is copied into backups/ (an update by `docker compose pull`
+    gets one too), once per version within an hour; the newest ten of these are kept, other files stay."""
+    import time
+
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = db.connect(path)
+    con.execute("DROP TABLE lyrics")
+    con.execute(f"PRAGMA user_version = {db.VERSION - 1}")
+    con.close()
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    (backups / "echolot-hand-made.db").write_text("kept")
+    for n in range(12):
+        old = backups / f"echolot-202601{n + 10:02d}-120000-v40.db"
+        old.write_text("old")
+        os.utime(old, (time.time() - 86400 * (20 - n), time.time() - 86400 * (20 - n)))
+    db.init(path)
+    made = sorted(p.name for p in backups.glob(f"echolot-*-v{db.VERSION - 1}.db"))
+    assert (
+        len(made) == 1
+        and sqlite3.connect(backups / made[0]).execute("PRAGMA user_version").fetchone()[0] == db.VERSION - 1
+    )
+    assert (backups / "echolot-hand-made.db").exists() and len(list(backups.glob("echolot-2026*-v40.db"))) == 9
+    con = db.connect(path)
+    con.execute(f"PRAGMA user_version = {db.VERSION - 1}")
+    con.execute("DROP TABLE lyrics")
+    con.close()
+    db.init(path)
+    assert len(list(backups.glob(f"echolot-*-v{db.VERSION - 1}.db"))) == 1  # one this hour already
+
+
+def test_a_failed_backup_leaves_nothing_that_passes_as_one(tmp_path, monkeypatch) -> None:
+    """A copy that fails (a full disk) leaves no file of the backups' name: the next start, finding none this
+    hour, tries again instead of migrating with half a copy."""
+    path = tmp_path / "echolot.db"
+    db.init(path)
+    con = sqlite3.connect(path)
+
+    class Full(sqlite3.Connection):
+        def execute(self, sql, *args):
+            if sql.startswith("VACUUM INTO"):
+                Path(args[0][0]).write_bytes(b"half")
+                raise sqlite3.OperationalError("database or disk is full")
+            return super().execute(sql, *args)
+
+    full = sqlite3.connect(path, factory=Full)
+    with pytest.raises(sqlite3.OperationalError):
+        db.backup(full, path, 47)
+    assert not list((tmp_path / "backups").iterdir())
+    assert db.backup(con, path, 47) is not None

@@ -3,6 +3,7 @@ where players read it; a file's own lyrics stay."""
 
 import os
 import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -114,6 +115,32 @@ def test_lyrics_are_embedded_where_players_read_them(tmp_path: Path, ext: str) -
     assert audio.read_lyrics(tmp_path / "nothing.flac") is None
 
 
+@pytest.mark.parametrize("ext", ["flac", "mp3", "m4a", "opus"])
+def test_lyrics_move_no_audio_in_place(tmp_path: Path, ext: str) -> None:
+    """Lyrics that fit the file's padding are written in place; ones that do not go into a copy that replaces
+    the file whole (a crash mid-write leaves the old file). Either way the audio stays as it was."""
+    from mutagen import File
+
+    p = tmp_path / f"song.{ext}"
+    shutil.copy(AUDIO / f"silence.{ext}", p)
+    if ext != "mp3":
+        File(p).save(padding=lambda info: 0)  # no room: the lyrics need a copy
+    before, inode = audio_frames(p), p.stat().st_ino
+    long_text = "\n".join(f"[00:{n:02d}.00] line {n}" for n in range(60))
+    assert audio.write_lyrics(p, long_text) and audio.read_lyrics(p) == long_text
+    assert audio_frames(p) == before and not list(tmp_path.glob(".*"))
+    replaced = p.stat().st_ino
+    assert ext == "mp3" or replaced != inode  # (an MP3 without ID3 is never rewritten in place: no padding)
+    assert audio.write_lyrics(p, "short") and audio.read_lyrics(p) == "short"
+    assert p.stat().st_ino == replaced and audio_frames(p) == before  # fits the padding left: in place
+
+
+def audio_frames(p: Path) -> bytes:
+    """The decoded audio, to compare."""
+    cmd = ["ffmpeg", "-v", "quiet", "-i", str(p), "-map", "0:a", "-f", "s16le", "-"]
+    return subprocess.run(cmd, capture_output=True, check=True).stdout
+
+
 @pytest.fixture
 def library(settings: Settings) -> Settings:
     """First Song as a real MP3 (filed an hour ago), scanned and matched."""
@@ -205,3 +232,90 @@ def test_a_new_file_waits_and_lrclib_failing_ends_the_run(library: Settings, mon
     con = db.connect(library.db_path)
     assert not con.execute("SELECT 1 FROM lyrics").fetchone()
     con.close()
+
+
+def test_a_band_is_credited_whole_and_the_release_album_comes_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ "Above" is not "Above & Beyond" (a name a band starts with); of two fitting entries of a title the one
+    on the song's own album wins over a synced one of another album (an artist's two "Intro"s)."""
+    band = SONG | {"artist": "Above & Beyond", "artists": '["Above & Beyond"]'}
+    assert lyrics.credited(band, "Above & Beyond feat. Zoë Johnston") and not lyrics.credited(band, "Above")
+    assert lyrics.credited({"artist": "A & B", "artists": None}, "A, B")  # one string naming both: both credited
+    other = entry(2, albumName="The Bends", syncedLyrics="[00:10.00] another intro")
+    own = entry(3, plainLyrics="the album's intro")
+    monkeypatch.setattr(lrclib, "get", lambda *a: None)
+    monkeypatch.setattr(lrclib, "search", lambda artist, title: [other, own])
+    found = lyrics.find(SONG, 239.0)
+    assert found and found.source == "lrclib:3"
+
+
+def test_close_matches_and_files_to_confirm_get_no_lyrics(library: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file taken as a close match is another version: the song's names would find the wrong lyrics. A file
+    filed as probable waits until Review confirms it is the song."""
+    monkeypatch.setattr(job, "QUIET", 0)
+    monkeypatch.setattr(lyrics, "find", lambda *a, **k: pytest.fail("not asked"))
+    con = db.connect(library.db_path)
+    with con:
+        con.execute("UPDATE songs SET close_match = 1 WHERE file IS NOT NULL")
+    con.close()
+    assert run_job(library)[0] == "nothing to do"
+    con = db.connect(library.db_path)
+    with con:
+        con.execute("UPDATE songs SET close_match = 0")
+        path = con.execute("SELECT file FROM songs WHERE file IS NOT NULL").fetchone()[0]
+        con.execute(
+            "INSERT INTO events (ts, action, path, song, matched) VALUES ('2026-11-26T10:00:00', 'new', ?, "
+            "'spotify:s1', 'probable')",
+            (path,),
+        )
+    con.close()
+    assert run_job(library)[0] == "nothing to do"
+    con = db.connect(library.db_path)
+    with con:
+        con.execute("DELETE FROM events")
+    con.close()
+    monkeypatch.setattr(lyrics, "find", lambda *a, **k: None)
+    assert run_job(library)[0] == "1 none on LRCLIB"  # confirmed: asked
+
+
+def test_an_unwritable_file_is_noted_and_a_replaced_one_waits(
+    library: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A file whose lyrics cannot be written is not asked about at every run; one that filing replaced while
+    LRCLIB was asked gets nothing (the lyrics were for the old one's length)."""
+    p = library.library_dir / "Artist A" / "Artist A - First Song.mp3"
+    monkeypatch.setattr(job, "QUIET", 0)
+    asked: list[str] = []
+
+    def find(song, length, album=None):
+        asked.append(song["key"])
+        return lyrics.Lyrics("synced", SYNCED, "lrclib:7")
+
+    monkeypatch.setattr(lyrics, "find", find)
+    monkeypatch.setattr(audio, "write_lyrics", lambda path, text: False)
+    assert run_job(library)[0] == "1 unreadable"
+    assert run_job(library)[0] == "nothing to do" and len(asked) == 1
+    con = db.connect(library.db_path)
+    with con:
+        con.execute("DELETE FROM lyrics")
+    con.close()
+
+    def replaced(song, length, album=None):
+        asked.append(song["key"])
+        p.write_bytes(p.read_bytes() + b"\0")  # filing put another file there meanwhile
+        return lyrics.Lyrics("synced", SYNCED, "lrclib:7")
+
+    monkeypatch.setattr(lyrics, "find", replaced)
+    monkeypatch.setattr(audio, "write_lyrics", lambda path, text: pytest.fail("not written"))
+    assert run_job(library)[0] == "nothing to do" and len(asked) == 2
+
+
+def test_a_cut_connection_is_lrclib_failing(monkeypatch: pytest.MonkeyPatch) -> None:
+    import http.client
+
+    def cut(*a, **k):
+        raise http.client.IncompleteRead(b"")
+
+    monkeypatch.setattr(lrclib.urllib.request, "urlopen", cut)
+    monkeypatch.setattr(lrclib, "SPACING", 0)
+    with pytest.raises(lrclib.LrclibError):
+        lrclib.search("Radiohead", "Creep")

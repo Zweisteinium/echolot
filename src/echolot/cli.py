@@ -39,6 +39,26 @@ def _user(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _library(args: argparse.Namespace, settings: Settings) -> int:
+    """`library rescan`: the scan the library job makes, at once; --accept-missing takes one that sees far
+    fewer files than the last (refused otherwise: a library half mounted)."""
+    from echolot import db
+    from echolot.library import catalog
+
+    if settings.library_dir is None:
+        print("No library configured (ECHOLOT_LIBRARY_DIR).")
+        return 1
+    con = db.connect(settings.db_path)
+    try:
+        print(catalog.refresh(con, settings.library_dir, accept=args.accept_missing))
+    except RuntimeError as e:
+        print(e)
+        return 1
+    finally:
+        con.close()
+    return 0
+
+
 def _tags(args: argparse.Namespace, settings: Settings) -> int:
     """`tags normalize`, with the jobs paused and idle (they write the same files). Old tags go to
     <data>/tag-backups/normalize-<time>.jsonl, the report beside it; conflicts go to review."""
@@ -215,6 +235,12 @@ def main(argv: list[str] | None = None) -> int:
     norm.add_argument("--dry-run", action="store_true", help="report what would change, write nothing")
     norm.add_argument("--limit", type=int, default=0, help="only the first N files")
 
+    library = commands.add_parser("library", help="the music library")
+    library_actions = library.add_subparsers(dest="action", required=True)
+    rescan = library_actions.add_parser("rescan", help="scan the music folder now")
+    accept = "take a scan that sees far fewer files than the last one"
+    rescan.add_argument("--accept-missing", action="store_true", help=accept)
+
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -225,7 +251,8 @@ def main(argv: list[str] | None = None) -> int:
         from echolot import db
 
         db.init(settings.db_path)
-        handler = {"user": _user, "config": _config, "secret": _secret, "jobs": _jobs, "tags": _tags}[args.command]
+        handlers = {"user": _user, "config": _config, "secret": _secret, "jobs": _jobs, "tags": _tags}
+        handler = (handlers | {"library": _library})[args.command]
         return handler(args, settings)
 
     import logging

@@ -94,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings, app.state.worker = settings, worker
     app.state.vault, app.state.throttle = secrets, auth.Throttle()
     app.middleware("http")(access.authenticate)
+    app.middleware("http")(access.secure_headers)
     # added last so it wraps everything; Starlette skips audio, images, streams and ranges
     app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
     app.mount("/static", Assets(directory=HERE / "static"), name="static")

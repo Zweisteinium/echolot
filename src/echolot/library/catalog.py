@@ -199,9 +199,15 @@ def _estimates(con: sqlite3.Connection) -> dict[str, str]:
 Known = dict[str, tuple[int, int, float, int]]  # path -> (size, mtime, duration, kbps)
 
 
-def scan(con: sqlite3.Connection, root: Path, known: Known | None = None) -> str:
+SHRINK = 0.5  # a walk seeing fewer than this share of the last scan's files (of at least SHRINK_FROM) is refused
+SHRINK_FROM = 100
+
+
+def scan(con: sqlite3.Connection, root: Path, known: Known | None = None, accept: bool = False) -> str:
     """Bring the files table up to date, probing only new or changed files; `known` may supply their duration
-    and bitrate (size and mtime must match)."""
+    and bitrate (size and mtime must match). A walk that sees no files, or far fewer than the last one (a
+    library not or half mounted), changes nothing: its songs would lose their files, their hearts and
+    playlist places, and be searched again. `accept`: a real deletion of that many (echolot library rescan)."""
     if not root.is_dir():
         raise FileNotFoundError(f"library not found: {root}")
     rows = {r[0]: (r[1], r[2]) for r in con.execute("SELECT path, size, mtime FROM files")}
@@ -230,6 +236,9 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None) -> str
             changed.append((rel, size, mtime, duration, kbps))
     if rows and not seen:
         raise RuntimeError(f"no audio files under {root} (not mounted?), keeping the last scan")
+    if not accept and len(rows) >= SHRINK_FROM and len(seen) < SHRINK * len(rows):
+        found = f"only {len(seen)} of the last scan's {len(rows)} audio files under {root} (not all mounted?)"
+        raise RuntimeError(f"{found}, keeping the last scan; gone for good: echolot library rescan --accept-missing")
     gone = rows.keys() - seen
     with con:
         con.executemany(
@@ -265,6 +274,6 @@ def match_songs(con: sqlite3.Connection) -> str:
     return f"{have} of {len(songs)} songs in the library"
 
 
-def refresh(con: sqlite3.Connection, root: Path) -> str:
-    """Rescan the library and match the songs to files."""
-    return f"{scan(con, root)}; {match_songs(con)}"
+def refresh(con: sqlite3.Connection, root: Path, accept: bool = False) -> str:
+    """Rescan the library and match the songs to files (`accept`: scan)."""
+    return f"{scan(con, root, accept=accept)}; {match_songs(con)}"

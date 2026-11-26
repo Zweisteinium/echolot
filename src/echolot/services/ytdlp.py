@@ -23,6 +23,10 @@ NETRC_DAYS = 2  # a netrc file older than this goes (its token lasted a day)
 SC_FORMATS = "download/http_aac_256/hls_aac_256/hls_aac_160k/http_mp3_1_0/hls_mp3_1_0/bestaudio/best"
 
 
+class SearchFailed(RuntimeError):
+    """A search that failed (a bot check, a block, no network): not the same as one without results."""
+
+
 class YtDlp:
     def __init__(self, private: Path, sc_token: str | None = None) -> None:
         """private: a directory only Echolot reads, for the netrc file (one per token: accounts run side by
@@ -136,9 +140,12 @@ class YtDlp:
     # ------------------------------------------------------------ search fallback
 
     def search(self, query: str, site: str, stop: threading.Event) -> list[dict[str, Any]]:
-        """Up to 5 results: [{url, title, uploader, duration}], site youtube or soundcloud."""
+        """Up to 5 results: [{url, title, uploader, duration}], site youtube or soundcloud. SearchFailed when
+        yt-dlp failed without any (a bot check, a block, no network)."""
         prefix = "ytsearch5:" if site == "youtube" else "scsearch5:"
         r = self.run(["--flat-playlist", "-j", prefix + query], stop, 300)
+        if r.returncode != 0 and not r.stdout.strip():
+            raise SearchFailed(f"{site} search failed: {(r.stderr.strip().splitlines() or ['no answer'])[-1][:200]}")
         out = []
         for line in r.stdout.splitlines():
             try:

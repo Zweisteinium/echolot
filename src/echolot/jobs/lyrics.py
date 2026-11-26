@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from echolot.library import audio, catalog, filing, lyrics
+from echolot.library import audio, catalog, filing, lyrics, review
 from echolot.services import lrclib
 
 if TYPE_CHECKING:
@@ -30,7 +30,8 @@ def run(run: "Run") -> str:
     try:
         with con:
             con.execute("DELETE FROM lyrics WHERE path NOT IN (SELECT path FROM files)")
-        todo = run.todo(due(con), lambda r: r["path"])[:PER_RUN]
+        confirm = {i.event["path"] for i in review.items(con, run.paths.music)["filed"]}  # may be another song
+        todo = run.todo([r for r in due(con) if r["path"] not in confirm], lambda r: r["path"])[:PER_RUN]
         counts: Counter[str] = Counter()
         failed = 0
         for n, row in enumerate(todo, 1):
@@ -54,8 +55,9 @@ def run(run: "Run") -> str:
 
 
 def due(con: sqlite3.Connection) -> list[sqlite3.Row]:
-    """The files to look at, the newest first: never looked at, changed since, or without lyrics on LRCLIB a
-    while ago. One song per file (a Spotify one first: its names and album are the release's)."""
+    """The files to look at, the newest first: never looked at, changed since, or without lyrics on LRCLIB (or
+    unreadable) a while ago. One song per file (a Spotify one first: its names and album are the release's),
+    never one that took the file as a close match (another version: its names would find the wrong lyrics)."""
     again = (datetime.date.today() - AGAIN).isoformat()
     kinds = " OR ".join(f"lower(f.path) LIKE '%.{k}'" for k in KINDS)
     rows = con.execute(
@@ -63,8 +65,8 @@ def due(con: sqlite3.Connection) -> list[sqlite3.Row]:
         "s.artist_alias, r.album AS own_album, l.state, l.size AS seen_size, l.mtime AS seen_mtime "
         "FROM files f JOIN songs s ON s.file = f.path LEFT JOIN song_releases r ON r.song_key = s.key "
         "LEFT JOIN lyrics l ON l.path = f.path "
-        f"WHERE ({kinds}) AND s.service != ? AND f.duration > 0 "
-        "AND (l.path IS NULL OR l.size != f.size OR l.mtime != f.mtime OR (l.state = 'none' AND l.checked < ?)) "
+        f"WHERE ({kinds}) AND s.service != ? AND f.duration > 0 AND NOT s.close_match AND (l.path IS NULL "
+        "OR l.size != f.size OR l.mtime != f.mtime OR (l.state IN ('none', 'unreadable') AND l.checked < ?)) "
         "ORDER BY f.mtime DESC, s.service != 'spotify', s.key",
         (catalog.LOCAL, again),
     ).fetchall()
@@ -91,6 +93,7 @@ def _one(run: "Run", con: sqlite3.Connection, row: sqlite3.Row) -> str:
         return "waits"  # done; the library's rescan has not seen the change yet
     have = audio.read_lyrics(path)
     if have is None:
+        _note(con, row, "unreadable", "", path)  # (not asked again each run; when it changes, or in a while)
         return "unreadable"
     if have:  # its own, or the ones Echolot wrote (a retag changed the file since)
         state = row["state"] if row["state"] in WRITTEN else "own"
@@ -103,12 +106,23 @@ def _one(run: "Run", con: sqlite3.Connection, row: sqlite3.Row) -> str:
     if found is None or found.kind == "instrumental":
         _note(con, row, found.kind if found else "none", found.source if found else "", path)
         return found.kind if found else "none"
-    with filing.LOCK:
+    with filing.LOCK:  # (filing may have put another file there since: its length was not the one asked for)
+        if _size_mtime(path) != now:
+            return "waits"
         written = audio.write_lyrics(path, found.text)
     if not written:
+        _note(con, row, "unreadable", "", path)
         return "unreadable"
     _note(con, row, found.kind, found.source, path)
     return found.kind
+
+
+def _size_mtime(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_size, int(st.st_mtime)
 
 
 def _note(con: sqlite3.Connection, row: sqlite3.Row, state: str, source: str | None, path: Path) -> None:

@@ -2,6 +2,7 @@
 as Echolot. Several entries may share a song, each with its own length: `get` answers the one of that length
 (within 2 s), `search` all of a title. Entries are anyone's: library/lyrics checks each before it is used."""
 
+import http.client
 import json
 import time
 import urllib.error
@@ -34,8 +35,8 @@ def _get(path: str, params: dict[str, Any]) -> Any:
         if e.code == 404:
             return None
         raise LrclibError(f"LRCLIB: HTTP {e.code}") from e
-    except (OSError, ValueError) as e:
-        raise LrclibError(f"LRCLIB not reachable: {e}") from e
+    except (OSError, ValueError, http.client.HTTPException) as e:  # (a cut connection: IncompleteRead)
+        raise LrclibError(f"LRCLIB not reachable: {e!r}") from e
     finally:
         _last["at"] = time.monotonic()
 

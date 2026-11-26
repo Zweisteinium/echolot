@@ -22,6 +22,7 @@ from echolot.services import lrclib
 LENGTH = 2.0  # s: an entry further from the file's length is of another recording (LRCLIB's own tolerance)
 _STAMP = re.compile(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
 _CREDIT = re.compile(r"\s*[,;/&]\s*|\s+(?:x|feat\.?|ft\.?|featuring|with|vs\.?|and|und|y|e|et)\s+", re.I)
+_FEAT = re.compile(r"\s*[,;/]\s*|\s+(?:x|feat\.?|ft\.?|featuring|with|vs\.?)\s+", re.I)  # "&" kept: one name
 _TOPIC = re.compile(r"\s+-\s+topic$", re.I)  # YouTube's channel of an artist: "Reinier Zonneveld - Topic"
 _HEADER = re.compile(r"^(?:writers?\s*(?:\(s\))?|written by|composers?|lyrics by|songwriters?|miscellaneous)\b", re.I)
 _PLACEHOLDER = re.compile(r"^[\s\[\(]*(?:instrumental|instrumentale?|no lyrics|♪+)[\s\]\)]*$", re.I)
@@ -50,7 +51,13 @@ def find(song: Mapping[str, Any], length: float, album: str | None = None) -> Ly
         if entry and fits(song, entry, length) is None and (found := _lyrics(song, entry)):
             return found
     entries = [e for e in lrclib.search(song["artist"], loose) if fits(song, e, length) is None]
-    entries.sort(key=lambda e: (not (e.get("syncedLyrics") or "").strip(), abs(float(e["duration"]) - length)))
+    release = rules.title_key(album or song["album"] or "")
+
+    def order(e: Mapping[str, Any]) -> tuple:  # the release's own album first, then synced, then the nearest
+        elsewhere = bool(release) and rules.title_key(e.get("albumName") or "") != release
+        return elsewhere, not (e.get("syncedLyrics") or "").strip(), abs(float(e["duration"]) - length)
+
+    entries.sort(key=order)
     return next((found for e in entries if (found := _lyrics(song, e))), None)
 
 
@@ -72,12 +79,13 @@ def fits(song: Mapping[str, Any], entry: Mapping[str, Any], length: float) -> st
 
 def credited(song: Mapping[str, Any], credit: str) -> bool:
     """One of the names `credit` lists ("A, B", "A & B", "A feat. B") is one of the song's artists (or its
-    English name)."""
-    names = [song["artist"], *json.loads(song["artists"] or "[]"), dict(song).get("artist_alias") or ""]
-    own = {k for n in names for k in rules.artist_keys(n)}
+    English name), whole: "Above" is not "Above & Beyond". A song's name that is several ("A & B" as one
+    string) counts when the credit lists all of them."""
+    names = [n for n in (song["artist"], *json.loads(song["artists"] or "[]"), dict(song).get("artist_alias")) if n]
     credit = _TOPIC.sub("", credit)
-    listed = {rules.artist_key(credit)} | {rules.artist_key(n) for n in _CREDIT.split(credit)}
-    return bool(own & (listed - {""}))
+    listed = {rules.artist_key(n) for n in [credit, *_CREDIT.split(credit), *_FEAT.split(credit)]} - {""}
+    parts = [{rules.artist_key(p) for p in _CREDIT.split(n)} - {""} for n in names]
+    return bool({rules.artist_key(n) for n in names} & listed) or any(len(p) > 1 and p <= listed for p in parts)
 
 
 def same_title(a: str, b: str) -> bool:

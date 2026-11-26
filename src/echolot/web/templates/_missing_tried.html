@@ -24,7 +24,7 @@
   {% set f = (s.fallback or {}).get(site) %}
   {% if f %}
   <dt>{{ label }}</dt>
-  <dd>{{ s.last_fallback|ago }}: {{ found(f) }}
+  <dd>{% if f.failed %}<span class="warn-text" title="{{ f.failed }}">search failed</span> {{ s.last_fallback|ago }}, tried again a day later{% else %}{{ s.last_fallback|ago }}: {{ found(f) }}{% endif %}
     {% for name, action, detail in f.tried %}<div class="muted item"><span class="name" title="{{ name }}">{{ name }}</span>: {{ outcome(action, detail) }}</div>{% endfor %}
     {% set n = s.fallback.near %}{% if n and n[0] == site %}<div class="item">{% if n[3] == 'mismatch' %}Kept for review{% else %}Tried{% endif %}: <span class="name" title="{{ n[1] }}">{{ n[1] }}</span> ({{ n[2]|mmss }}){% if n[3] != 'mismatch' %}: {{ outcome(n[3], n[4]) }}{% endif %}</div>{% endif %}
   </dd>

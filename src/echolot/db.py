@@ -1,6 +1,8 @@
 """SQLite database: the schema (its version: PRAGMA user_version) and the migration steps (13 onwards)."""
 
+import re
 import sqlite3
+import time
 from pathlib import Path
 
 VERSION = 48
@@ -123,7 +125,7 @@ CREATE TABLE song_releases (       -- a song's own release on Spotify (jobs/cove
 CREATE TABLE lyrics (               -- the library files' lyrics (jobs/lyrics)
     path TEXT PRIMARY KEY,          -- files.path
     song_key TEXT NOT NULL,         -- the song they were looked up as
-    state TEXT NOT NULL,            -- synced, plain, instrumental (written from LRCLIB), own (the file had some), none
+    state TEXT NOT NULL,            -- synced, plain, instrumental (from LRCLIB), own (the file had some), none, unreadable
     source TEXT NOT NULL DEFAULT '',-- lrclib:<entry id>
     size INTEGER NOT NULL,          -- the file's size and mtime then (changed since: looked at again)
     mtime INTEGER NOT NULL,
@@ -609,10 +611,39 @@ def init(path: Path) -> None:
             version = VERSION
         elif not 12 <= version <= VERSION:
             raise RuntimeError(f"{path} has database schema {version}; this Echolot needs {VERSION}")
+        if version < VERSION:
+            backup(con, path, version)
         for step in range(version + 1, VERSION + 1):
             con.executescript(f"BEGIN; {'; '.join(MIGRATIONS[step])}; PRAGMA user_version = {step}; COMMIT;")
     finally:
         con.close()
+
+
+BACKUPS = 10  # the newest schema backups kept (backup); older ones of that name go
+_BACKUP = re.compile(r"echolot-\d{8}-\d{6}-v\d+\.db")  # backup's names (deploy.sh writes the same); others stay
+
+
+def backup(con: sqlite3.Connection, path: Path, version: int) -> Path | None:
+    """A copy of the database before its schema changes, in backups/ beside it (as deploy.sh makes one, so
+    an update by `docker compose pull` gets one too); none if one of this version is less than an hour old.
+    The newest BACKUPS of these are kept."""
+    folder = path.parent / "backups"
+    folder.mkdir(exist_ok=True)
+    recent = [p for p in folder.glob(f"echolot-*-v{version}.db") if time.time() - p.stat().st_mtime < 3600]
+    if recent:
+        return None
+    dest = folder / f"echolot-{time.strftime('%Y%m%d-%H%M%S')}-v{version}.db"
+    partial = dest.with_name(dest.name + ".partial")  # (a failed copy, a full disk, never passes as recent)
+    try:
+        con.execute("VACUUM INTO ?", (str(partial),))
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    partial.replace(dest)
+    ours = sorted((p for p in folder.iterdir() if _BACKUP.fullmatch(p.name)), key=lambda p: p.stat().st_mtime)
+    for old in ours[:-BACKUPS]:
+        old.unlink()
+    return dest
 
 
 def get_meta(con: sqlite3.Connection, key: str, default: str = "") -> str:

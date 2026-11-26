@@ -602,9 +602,10 @@ def _confirm(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
     p = run.paths.tracks / d["path"]
     if not p.is_file():
         return "file gone"
-    if (tags := tagging.for_file(con, d["path"], p)) and tagging.differs(p, tags):
-        tagging.write(p, tags)
-        return "kept, tagged as the song"
+    with filing.LOCK:  # (the lyrics and covers jobs write the library's files too)
+        if (tags := tagging.for_file(con, d["path"], p)) and tagging.differs(p, tags):
+            tagging.write(p, tags)
+            return "kept, tagged as the song"
     return "kept"
 
 

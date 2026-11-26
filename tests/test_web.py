@@ -742,3 +742,10 @@ def test_messages_are_toasts(settings: Settings, login: Callable[..., TestClient
     assert '<div class="toast ok" role="status" data-toast>Saved for tim.</div>' in page and 'class="flash' not in page
     wrong = TestClient(create_app(settings)).post("/login", data={"name": "owner", "password": "nope"}).text
     assert '<div class="toast error" role="alert" data-toast>Wrong user name or password.</div>' in wrong
+
+
+def test_answers_carry_the_security_headers(client: TestClient) -> None:
+    for url in ("/library", "/login", "/static/style.css"):
+        r = client.get(url)
+        assert r.headers["x-content-type-options"] == "nosniff" and r.headers["x-frame-options"] == "DENY", url
+        assert r.headers["referrer-policy"] == "same-origin", url

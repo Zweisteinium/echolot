@@ -203,3 +203,20 @@ def test_a_song_seems_wiped_only_once_searched_everywhere(con) -> None:
         con.execute("UPDATE attempts SET tries = 4 WHERE song_key = ?", (key,))
     after = tiers()
     assert after["gone"] == before["gone"] + 1 and after["missing"] == before["missing"] - 1
+
+
+def test_a_library_half_gone_is_not_taken(con, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A scan that sees far fewer files than the last one (a library half mounted) changes nothing, unless
+    told the files are gone for good (echolot library rescan --accept-missing)."""
+    monkeypatch.setattr(catalog, "SHRINK_FROM", 2)
+    lib = settings.library_dir
+    before = con.execute("SELECT count(*) FROM files").fetchone()[0]
+    assert before == 3
+    for gone in ("Artist A/Artist A - First Song.mp3", "Artist B/Artist B - Second Song.flac"):
+        (lib / gone).unlink()
+    with pytest.raises(RuntimeError, match="only 1 of the last scan's 3 audio files"):
+        catalog.refresh(con, lib)
+    assert con.execute("SELECT count(*) FROM files").fetchone()[0] == 3
+    assert con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]  # kept its file
+    assert catalog.refresh(con, lib, accept=True).startswith("1 files")
+    assert not con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]

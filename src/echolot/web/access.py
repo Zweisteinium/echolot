@@ -133,6 +133,20 @@ def _identify(request: Request) -> tuple[auth.User | None, str, str, bool]:
         con.close()
 
 
+SECURE_HEADERS = {  # every answer: no type sniffing, never in another site's frame, no address to other sites
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+}
+
+
+async def secure_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    response = await call_next(request)
+    for name, value in SECURE_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 async def authenticate(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     user, via, csrf, public = await run_in_threadpool(_identify, request)
     request.state.user, request.state.via, request.state.csrf, request.state.public = user, via, csrf, public

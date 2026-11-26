@@ -284,6 +284,9 @@ lists and settings in one file for a backup or a second install). `.env` only ha
 - **Users** are Navidrome's accounts; Navidrome admins are admins here too, and **Users** gives others
   more rights. Locked out: `docker compose exec echolot echolot user admin <name>`.
 - **Backups:** `deploy/data/` and your music folder. Stop Echolot first for a clean copy of its database.
+- **A music folder half gone** (a disk or share not mounted) is not taken as deleted: the library job fails
+  and keeps the last scan until the files are back. Removed that many files on purpose:
+  `docker compose exec echolot echolot library rescan --accept-missing`.
 - **Limits:** Soulseek allows about 34 searches every 220 seconds, so a long list takes a while.
 - **Updates:** read the release notes, then:
 

@@ -557,7 +557,45 @@ def read_lyrics(path: Path) -> str | None:
 
 def write_lyrics(path: Path, text: str) -> bool:
     """Embed lyrics (LRC lines or plain text) where Navidrome and other players read them: LYRICS (FLAC, Ogg,
-    Opus), USLT (MP3), ©lyr (M4A); True if they read back as written."""
+    Opus), USLT (MP3), ©lyr (M4A); True if they read back as written. In place only where the tags fit the
+    file's padding (no audio moves); else into a copy that replaces the file whole, so a crash or a full disk
+    mid-write never leaves half a file."""
+    mp3 = path.suffix.lower() == ".mp3"
+    try:
+        try:
+            if not _put_lyrics(path, text, _in_padding, mp3):
+                return False
+        except _Grows:
+            spare = path.with_name(f".{path.name}.lyrics-tmp")  # (no audio name: scans pass it by)
+            try:
+                shutil.copy2(path, spare)
+                if not _put_lyrics(spare, text, None, mp3) or read_lyrics(spare) != text.strip():
+                    return False
+                with spare.open("rb+") as f:
+                    os.fsync(f.fileno())
+                spare.replace(path)
+            finally:
+                spare.unlink(missing_ok=True)
+    except Exception as e:
+        log.warning("lyrics of %s not written: %s", path, e)
+        return False
+    return read_lyrics(path) == text.strip()
+
+
+class _Grows(Exception):
+    """The tags outgrow the file's padding: saving them in place would move its audio."""
+
+
+def _in_padding(info) -> int:
+    """mutagen's padding function for a save in place: keep the padding left, or refuse (before writing)."""
+    if info.padding < 0:
+        raise _Grows
+    return info.padding
+
+
+def _put_lyrics(path: Path, text: str, padding, mp3: bool) -> bool:
+    """Set and save the lyrics tag (write_lyrics) with mutagen's `padding` function; False: not a kind with
+    one. `mp3`: an MP3 (its copy has another suffix)."""
     from mutagen import File
     from mutagen.flac import FLAC
     from mutagen.id3 import ID3, USLT, ID3NoHeaderError
@@ -565,29 +603,25 @@ def write_lyrics(path: Path, text: str) -> bool:
     from mutagen.oggopus import OggOpus
     from mutagen.oggvorbis import OggVorbis
 
-    try:
-        a = File(path)
-        if isinstance(a, FLAC | OggOpus | OggVorbis):
-            a["LYRICS"] = [text]
-            a.save()
-        elif isinstance(a, MP4):
-            if a.tags is None:
-                a.add_tags()
-            a.tags["\xa9lyr"] = [text]
-            a.save()
-        elif path.suffix.lower() == ".mp3":
-            try:
-                t = ID3(path)
-            except ID3NoHeaderError:
-                t = ID3()
-            t.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=text)])
-            t.save(path)
-        else:
-            return False
-    except Exception as e:
-        log.warning("lyrics of %s not written: %s", path, e)
+    a = File(path)
+    if isinstance(a, FLAC | OggOpus | OggVorbis):
+        a["LYRICS"] = [text]
+        a.save(padding=padding)
+    elif isinstance(a, MP4):
+        if a.tags is None:
+            a.add_tags()
+        a.tags["\xa9lyr"] = [text]
+        a.save(padding=padding)
+    elif mp3:
+        try:
+            t = ID3(path)
+        except ID3NoHeaderError:
+            t = ID3()
+        t.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=text)])
+        t.save(path, padding=padding)
+    else:
         return False
-    return read_lyrics(path) == text.strip()
+    return True
 
 
 def has_picture(path: Path) -> bool:

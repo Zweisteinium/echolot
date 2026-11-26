@@ -1,5 +1,6 @@
 """Getting songs through the Soulseek daemon (acquire.py), against a fake daemon, with real filing."""
 
+import json
 import threading
 import time
 import wave
@@ -241,6 +242,34 @@ def test_upgrade_replaces_the_lossy_copy(run: Run) -> None:
     con.close()
     assert paths == ["Artist A/Artist A - First Song.flac"]
     assert list(run.paths.inbox("replaced").rglob("*.mp3"))
+
+
+def test_an_upgrade_unlike_the_copy_waits_in_review(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A FLAC whose names say it is the song, but which the release's audio did not confirm and which sounds
+    unlike the library's copy (another recording by identity.alike), waits in Review; the copy stays. One
+    as alike as the same recording replaces it."""
+    FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
+    con = run.connect()
+    with con:
+        con.execute("UPDATE files SET duration = 201 WHERE path = 'Artist A/Artist A - First Song.mp3'")
+    con.close()
+    monkeypatch.setattr(acquire.identity, "alike", lambda a, b: 0.61)
+    assert "1 upgrade" not in acquire.upgrade(run)
+    assert (run.paths.tracks / "Artist A/Artist A - First Song.mp3").exists()
+    con = run.connect()
+    action, audio_note = con.execute("SELECT action, audio FROM events ORDER BY id DESC LIMIT 1").fetchone()
+    con.close()
+    assert action == "confirm" and "unlike your copy (0.61)" in audio_note
+
+
+def test_an_upgrade_alike_the_copy_replaces_it(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    FakeDaemon.files["First Song"] = [("u1", "Music\\Artist A\\Artist A - First Song.flac", 201, "ok")]
+    con = run.connect()
+    with con:
+        con.execute("UPDATE files SET duration = 201 WHERE path = 'Artist A/Artist A - First Song.mp3'")
+    con.close()
+    monkeypatch.setattr(acquire.identity, "alike", lambda a, b: 0.93)  # the same recording
+    assert "1 upgrade" in acquire.upgrade(run)
 
 
 def test_a_song_another_run_searches_is_left_to_it(run: Run) -> None:
@@ -672,6 +701,77 @@ def test_the_fallback_takes_new_misses_first_and_the_upgrade_waits(run: Run, mon
     assert tries == 1 and not acquire.due(tries, last, *acquire.UPGRADE_WAIT, time.time())
 
 
+def test_a_failing_search_is_no_try(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A site whose search fails (YouTube's bot check) is left out for the rest of the run, SoundCloud asked all
+    the same; such a try is due again a day later, not a week. With both failing the run ends, and waits for its
+    schedule (no resume, which would ask both again at once)."""
+
+    class Walled(FakeYtDlp):
+        def search(self, query: str, site: str, stop: threading.Event) -> list[dict]:
+            self.queries.append(f"{site}: {query}")
+            if site in self.walled:
+                raise acquire.ytdlp.SearchFailed(f"{site} search failed: Sign in to confirm you're not a bot")
+            return []
+
+    for n in range(3):
+        add_missing(run, f"spotify:w{n}", f"Walled {n}", tries=1)
+    ydl = Walled({}, {})
+    ydl.walled = {"youtube"}
+    monkeypatch.setattr(acquire.ytdlp, "YtDlp", lambda *a, **k: ydl)
+    run.trigger = "manual"
+    acquire.fallback(run)
+    youtube = [q for q in ydl.queries if q.startswith("youtube")]
+    soundcloud = [q for q in ydl.queries if q.startswith("soundcloud")]
+    assert len(youtube) == 1 and len(soundcloud) >= 3  # benched after its first failure, the other site on
+    con = run.connect()
+    rows = con.execute(
+        "SELECT last_fallback, fallback_result FROM attempts WHERE song_key LIKE 'spotify:w%'"
+    ).fetchall()
+    con.close()
+    assert rows and all(r["last_fallback"] for r in rows)
+    assert all(json.loads(r["fallback_result"])["youtube"]["failed"] for r in rows)
+    scheduled = Run(BY_NAME["fallback"], run.settings, run.vault, "schedule")
+    scheduled.stop = threading.Event()
+    assert acquire.fallback(scheduled) == "none due"  # not before a day
+    con = run.connect()
+    with con:
+        con.execute("UPDATE attempts SET last_fallback = last_fallback - 86400 - 60 WHERE song_key LIKE 'spotify:w%'")
+    con.close()
+    ydl.queries.clear()
+    acquire.fallback(scheduled)
+    assert len([q for q in ydl.queries if q.startswith("soundcloud")]) >= 3  # a day later: due again
+    ydl.queries.clear()
+    ydl.walled = {"youtube", "soundcloud"}
+    again = Run(BY_NAME["fallback"], run.settings, run.vault, "manual")
+    again.stop = threading.Event()
+    acquire.fallback(again)
+    assert len(ydl.queries) == 2 and again.left == 0  # one song: both fail, the rest waits for the schedule
+    assert any("searches fail" in line for _, line in again.log)
+
+
+def test_a_song_that_breaks_the_fallback_waits_its_week(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An error in one song's search fails the run, but the song is stamped: the next run starts with the
+    others instead of failing on it again."""
+    for n in range(2):
+        add_missing(run, f"spotify:b{n}", f"Broken {n}", tries=1)
+    searched: list[str] = []
+
+    def one_song(run_, con, ydl, want, tries, strict, listed=None, down=None):
+        searched.append(want.key)
+        if len(searched) == 1:
+            raise OSError("disk full")
+        return "not found", {}
+
+    monkeypatch.setattr(acquire, "_fallback_song", one_song)
+    monkeypatch.setattr(acquire.ytdlp, "YtDlp", lambda *a, **k: None)
+    with pytest.raises(OSError):
+        acquire.fallback(run)
+    again = Run(BY_NAME["fallback"], run.settings, run.vault, "schedule")
+    again.stop = threading.Event()
+    acquire.fallback(again)
+    assert len(searched) > 1 and searched.count(searched[0]) == 1  # the others, not the broken one again
+
+
 def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     """A manual search that gives way resumes without the songs already handled and counts on, so every
     song is searched exactly once."""
@@ -679,7 +779,7 @@ def test_a_search_by_hand_that_gives_way_goes_on_where_it_was(run: Run, monkeypa
         add_missing(run, f"spotify:m{n}", f"Missing {n}", tries=1)
     searched: list[str] = []
 
-    def one_song(run_, con, ydl, want, tries, strict, listed=None):
+    def one_song(run_, con, ydl, want, tries, strict, listed=None, down=None):
         searched.append(want.key)
         if len(searched) == 2:
             run_.give_way.set()  # a more urgent job of the home connection is due

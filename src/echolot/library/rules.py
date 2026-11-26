@@ -64,6 +64,10 @@ VERSION_WORDS = {
     "nightcore", "reverb", "cover", "karaoke", "vip", "bootleg", "mashup", "rework", "flip",
     "remake", "reprise", "unplugged", "demo", "acapella", "orchestral", "piano", "lofi", "8d",
     "medley", "tribute", "dub", "megamix", "pt", "ii", "iii", "iv",
+    # other recordings and treatments that keep a song's length: an a cappella ("A Cappella", "Acappella"),
+    # the isolated vocals, a stripped or session or concert take, an outtake, a bass-boosted or slowed copy
+    "cappella", "capella", "acappella", "accapella", "isolated", "stripped", "session", "sessions", "concert",
+    "outtake", "rehearsal", "boosted", "refix", "daycore", "chopped", "screwed", "drumless",
 }  # fmt: skip
 # a bracket starting with one names a version, never a catalog number or id ("[Mashup 2019]", not "[HAK003]")
 _NO_VERSION = "(?!" + "|".join(sorted(VERSION_WORDS | {"edit", "mix", "version"})) + ")"
@@ -247,6 +251,8 @@ def identify(
     if c := probable(title, readings["tags"] + readings["file name"], known, want):
         if credited:
             return "probable", f"probable: '{c}' credits the song's own artist, length within {tol:.0f} s"
+        if extra := added(title, c, known):  # (Tiny Desk), (Vocals Only): maybe another take, a listener tells
+            return "probable", f"probable: '{c}' has the core title, but adds '{extra[0]}'; length within {tol:.0f} s"
         return "probable", f"probable: '{c}' {CORE_TITLE}, length within {tol:.0f} s"
     return None, (
         f"title '{title}': no reading of tag '{tag_title}' or file name '{file_name}' "
@@ -359,8 +365,14 @@ def segments(title: str | None) -> tuple[str, list[str]]:
 
 
 def _vwords(s: str) -> list[str]:
-    """Words of s, 'part' as 'pt' (as title_key does)."""
-    return ["pt" if w == "part" else w for w in words(s).split()]
+    """Words of s, 'part' as 'pt' (as title_key does), "lo fi" as 'lofi'."""
+    out: list[str] = []
+    for w in words(s).split():
+        if w == "fi" and out and out[-1] == "lo":
+            out[-1] = "lofi"
+        else:
+            out.append("pt" if w == "part" else w)
+    return out
 
 
 def _named(segs: list[str], known: set[str]) -> set[str]:
@@ -415,6 +427,23 @@ def other_version(title: str, names: list[str], artist_words_: set[str], own: It
         ):
             return name
     return None
+
+
+_CREDIT_SEG = re.compile(r"(?:feat|ft|featuring|prod|with)\b", re.I)
+
+
+def added(title: str, name: str, known: set[str]) -> list[str]:
+    """The segments of `name` (a reading of a download with the requested core title) that add words the
+    request lacks, neither plain (PLAIN_WORDS, numbers), a credit (feat., prod.) nor the song's artist
+    (`known`): "Tiny Desk", "Vocals Only". A match that adds them is no core-title match (CORE_TITLE)."""
+    want = set(_vwords(title))
+    out = []
+    for seg in segments(name)[1]:
+        if _CREDIT_SEG.match(seg.strip()):
+            continue
+        if [w for w in _vwords(seg) if w not in want | PLAIN_WORDS | known and not w.isdigit()]:
+            out.append(seg)
+    return out
 
 
 def probable(title: str, names: list[str], artist_words_: set[str], own: Iterable[str] = ()) -> str | None:
