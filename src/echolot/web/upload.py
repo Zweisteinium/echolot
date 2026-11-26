@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from echolot.library import filing, origin, review, upload
+from echolot.library import filing, origin, recordings, review, upload
 from echolot.services import catalogs
 from echolot.settings import options
 from echolot.web import stats, wishes
@@ -74,7 +74,7 @@ def yours(found: Found, songs: dict[str, Any]) -> Any:
     (upload.guess); None when it is none of them (or the audio was not compared)."""
     if found.release is None or found.release.verdict != "released":
         return None
-    same = [s for s in songs.values() if found.isrc and (s["isrc"] or "").replace("-", "").upper() == found.isrc]
+    same = [s for s in songs.values() if found.isrc and recordings.isrc_key(s["isrc"]) == found.isrc]
     if same:
         return max(same, key=upload.needs)
     r = found.release.result

@@ -404,28 +404,42 @@ def test_only_a_navidrome_admin_or_the_service_password_moves_navidrome(
 def test_the_first_navidrome_admin_is_offered_as_the_service_account(
     app, fake_navidrome: dict[str, bool], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Without a service account a Navidrome admin's login is offered for it: one click, no password again."""
+    """Without a service account a Navidrome admin's login is offered for it: one click, no password again.
+    Skip, a logout or a service account set meanwhile drop the offer; a user who is no admin can't take it."""
     from echolot.services import navidrome
 
+    offer = "Your Navidrome account"
     monkeypatch.setattr(navidrome.Service, "users", lambda self: [])
     fake_navidrome["Boss"] = True
-    client = TestClient(app)
-    assert log_in(client, "anna") == 303
-    assert "Use your Navidrome account" not in client.get("/", headers=HTML).text  # not a Navidrome admin
-    client = TestClient(app)
-    assert log_in(client, "Boss") == 303
-    html = client.get("/", headers=HTML).text
-    assert "Use your Navidrome account" in html and "Use Boss" in html
+
+    def boss() -> TestClient:
+        client = TestClient(app)
+        assert log_in(client, "Boss") == 303
+        con = db.connect(app.state.settings.db_path)
+        try:
+            client.headers["X-CSRF-Token"] = con.execute("SELECT csrf FROM sessions ORDER BY rowid DESC").fetchone()[0]
+        finally:
+            con.close()
+        return client
+
+    anna = TestClient(app)
+    assert log_in(anna, "anna") == 303
+    assert offer not in anna.get("/", headers=HTML).text  # not a Navidrome admin
+    client = boss()
+    assert offer in client.get("/", headers=HTML).text
+    client.post("/settings/service/mine", data={"answer": "no"}, follow_redirects=False)
+    assert offer not in client.get("/", headers=HTML).text  # skipped
+    client = boss()
+    client.post("/logout", follow_redirects=False)
+    assert app.state.service_offers == {}
+    client = boss()
+    r = client.post("/settings/service/mine", data={"answer": "yes", "next": "/missing"}, follow_redirects=False)
+    assert r.headers["location"].startswith("/missing?ok=Done.")
     con = db.connect(app.state.settings.db_path)
     try:
-        client.headers["X-CSRF-Token"] = con.execute("SELECT csrf FROM sessions ORDER BY rowid DESC").fetchone()[0]
-        r = client.post("/settings/service/mine", data={"answer": "yes", "next": "/missing"}, follow_redirects=False)
-        assert r.headers["location"].startswith("/missing?ok=Done.")
         assert options.get(con, options.Navidrome).service_user == "Boss"
         assert app.state.vault.get(con, navidrome.SERVICE_PASSWORD) == PASSWORD
     finally:
         con.close()
-    assert "Use your Navidrome account" not in client.get("/", headers=HTML).text
-    client = TestClient(app)
-    assert log_in(client, "Boss") == 303
-    assert "Use your Navidrome account" not in client.get("/", headers=HTML).text  # there is one now
+    assert offer not in client.get("/", headers=HTML).text
+    assert offer not in boss().get("/", headers=HTML).text  # there is one now

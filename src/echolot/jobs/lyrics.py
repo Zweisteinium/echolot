@@ -23,6 +23,7 @@ AGAIN = datetime.timedelta(days=30)
 QUIET = 600  # s
 FAILURES = 3
 WRITTEN = ("synced", "plain")  # states of lyrics Echolot wrote
+ANSWERS = (*WRITTEN, "instrumental", "none")  # what LRCLIB answered
 
 
 def run(run: "Run") -> str:
@@ -39,9 +40,16 @@ def run(run: "Run") -> str:
                 run.left = 0 if run.stop.is_set() else len(todo) - n + 1
                 break
             run.say(f"{run.of(n, len(todo))}: {row['path']}", n - 1, len(todo))
-            outcome = _one(run, con, row)
+            try:
+                outcome = _one(run, con, row)
+            except OSError as e:  # (audio.write_lyrics: a full or read-only disk)
+                run.note(f"The library can't be written ({e.strerror}): the rest waits for the next run")
+                break
             counts[outcome] += 1
-            failed = failed + 1 if outcome == "failed" else 0
+            if outcome == "failed":
+                failed += 1
+            elif outcome in ANSWERS:
+                failed = 0
             if outcome in WRITTEN:
                 run.note(f"{row['path']}: {outcome} lyrics")
             if failed >= FAILURES:
@@ -78,42 +86,35 @@ def _one(run: "Run", con: sqlite3.Connection, row: sqlite3.Row) -> str:
     """Look at one file; what came of it (synced, plain, instrumental, none, own, kept, failed, or why it
     waits)."""
     path = run.paths.tracks / row["path"]
-    try:
-        st = path.stat()
-    except OSError:
+    now = _size_mtime(path)
+    if now is None:
         return "gone"
-    if time.time() - st.st_mtime < QUIET:
-        return "waits"
-    now, seen, listed = (
-        (st.st_size, int(st.st_mtime)),
-        (row["seen_size"], row["seen_mtime"]),
-        (row["size"], row["mtime"]),
-    )
-    if row["state"] is not None and listed != seen == now:
-        return "waits"  # done; the library's rescan has not seen the change yet
+    if time.time() - now[1] < QUIET or now != (row["size"], row["mtime"]):
+        return "waits"  # being filed or tagged, or changed since the library's last scan (Echolot's lyrics too)
     have = audio.read_lyrics(path)
     if have is None:
-        _note(con, row, "unreadable", "", path)  # (not asked again each run; when it changes, or in a while)
+        _note(con, row, "unreadable", "", now)  # (not asked again each run; when it changes, or in a while)
         return "unreadable"
     if have:  # its own, or the ones Echolot wrote (a retag changed the file since)
         state = row["state"] if row["state"] in WRITTEN else "own"
-        _note(con, row, state, None, path)
+        _note(con, row, state, None, now)
         return "kept" if state in WRITTEN else "own"
     try:
         found = lyrics.find(row, row["duration"], row["own_album"])
     except lrclib.LrclibError:
         return "failed"
     if found is None or found.kind == "instrumental":
-        _note(con, row, found.kind if found else "none", found.source if found else "", path)
+        _note(con, row, found.kind if found else "none", found.source if found else "", now)
         return found.kind if found else "none"
     with filing.LOCK:  # (filing may have put another file there since: its length was not the one asked for)
         if _size_mtime(path) != now:
             return "waits"
         written = audio.write_lyrics(path, found.text)
-    if not written:
-        _note(con, row, "unreadable", "", path)
+        after = _size_mtime(path)
+    if not written or after is None:
+        _note(con, row, "unreadable", "", now)
         return "unreadable"
-    _note(con, row, found.kind, found.source, path)
+    _note(con, row, found.kind, found.source, after)
     return found.kind
 
 
@@ -125,16 +126,16 @@ def _size_mtime(path: Path) -> tuple[int, int] | None:
     return st.st_size, int(st.st_mtime)
 
 
-def _note(con: sqlite3.Connection, row: sqlite3.Row, state: str, source: str | None, path: Path) -> None:
-    """Store what came of a file, with its size and mtime now (`source` None: the one stored stays)."""
-    st, today = path.stat(), datetime.date.today().isoformat()
+def _note(con: sqlite3.Connection, row: sqlite3.Row, state: str, source: str | None, seen: tuple[int, int]) -> None:
+    """Store what came of a file, with the size and mtime it had (`source` None: the one stored stays)."""
+    today = datetime.date.today().isoformat()
     with con:
         con.execute(
             "INSERT INTO lyrics (path, song_key, state, source, size, mtime, checked) VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (path) DO UPDATE SET song_key = excluded.song_key, state = excluded.state, "
             "source = coalesce(?, lyrics.source), size = excluded.size, mtime = excluded.mtime, "
             "checked = excluded.checked",
-            (row["path"], row["key"], state, source or "", st.st_size, int(st.st_mtime), today, source),
+            (row["path"], row["key"], state, source or "", *seen, today, source),
         )
 
 

@@ -161,7 +161,8 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     tiers_sql = f"SELECT {_TIER}, count(*), sum(f.quality = 'fake') FROM files f WHERE {files_of} GROUP BY 1"
     tiered = con.execute(tiers_sql, args).fetchall()
     found = "count(*), coalesce(sum(state IN ('synced', 'plain', 'own')), 0), coalesce(sum(state = 'synced'), 0)"
-    looked, lyrics, synced = con.execute(f"SELECT {found} FROM lyrics WHERE {files_of}", args).fetchone()
+    on_file = f"path IN (SELECT path FROM files) AND {files_of}"  # (rows of gone files go at the next Lyrics run)
+    looked, lyrics, synced = con.execute(f"SELECT {found} FROM lyrics WHERE {on_file}", args).fetchone()
     by_tier, file_fakes = {r[0]: r[1] for r in tiered}, sum(r[2] or 0 for r in tiered)
     counts = "count(*), count(file), count(DISTINCT file), coalesce(sum(file IS NOT NULL AND close_match), 0)"
     wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted s WHERE {mine}", args).fetchone()
@@ -169,11 +170,6 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     mine_events, _ = _mine(uid, "song")
     sql = f"SELECT action, count(*), sum(bytes) FROM events WHERE ts >= ? AND {mine_events} GROUP BY action"
     day = {action: (n, b or 0) for action, n, b in con.execute(sql, (since, *args))}
-    not_found = con.execute(
-        "SELECT count(*) FROM wanted s JOIN attempts a ON a.song_key = s.key "
-        f"WHERE s.file IS NULL AND a.tries >= 1 AND {mine}",
-        args,
-    ).fetchone()[0]
     sums = f"{_TIER_SUMS}, coalesce(sum(f.quality = 'fake'), 0) AS fakes, coalesce(sum(s.file IS NULL AND {_WIPED}), 0) AS gone"
     songs = con.execute(
         f"SELECT count(*) AS songs, count(s.file) AS have, {sums} FROM wanted s LEFT JOIN files f ON f.path = s.file "
@@ -181,12 +177,12 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         args,
     ).fetchone()
     theirs = "1" if uid is None else "l.key IN (SELECT key FROM sources WHERE user_id = ? AND enabled)"
+    missing = f"count(DISTINCT CASE WHEN s.file IS NULL THEN {_RECORDING} END)"  # (as the lists count them)
     services = {
-        r[0]: {"songs": r[1], "missing": r[1] - r[2]}
+        r[0]: {"songs": r[1], "missing": r[2]}
         for r in con.execute(
-            f"SELECT {GROUP} AS grp, count(DISTINCT s.key), count(DISTINCT CASE WHEN s.file IS NOT NULL "
-            "THEN s.key END) FROM lists l JOIN list_songs ls ON ls.list_key = l.key "
-            f"JOIN songs s ON s.key = ls.song_key WHERE {theirs} GROUP BY grp",
+            f"SELECT {GROUP} AS grp, count(DISTINCT s.key), {missing} FROM lists l JOIN list_songs ls "
+            f"ON ls.list_key = l.key JOIN songs s ON s.key = ls.song_key WHERE {theirs} GROUP BY grp",
             args,
         )
     }
@@ -206,7 +202,6 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "wanted": wanted,
         "have": have,
         "close": close,  # of 'have': covered by a close match
-        "not_found": not_found,
         "added_24h": sum(day.get(a, (0, 0))[0] for a in ADDED),
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
         "rejected_24h": sum(day.get(a, (0, 0))[0] for a in REJECTED),
@@ -251,8 +246,11 @@ _BEST = (
     f"coalesce(sum({_OWN} AND (f.quality = 'lossless' OR {_HELD} OR {_ORIGINAL} OR {_THE_ONLY} "
     f"OR (s.key LIKE 'spotify:%' AND {_GONE}))), 0) AS best"
 )
-# searched everywhere in vain: Soulseek at its loosest (acquire.LOOSEN), YouTube and SoundCloud too
-_SEARCHED_OUT = "s.key IN (SELECT song_key FROM attempts WHERE tries >= 4 AND last_fallback > 0)"
+# searched everywhere in vain: Soulseek at its loosest (acquire.LOOSEN), YouTube and SoundCloud too (not cut short)
+_SEARCHED_OUT = (
+    "s.key IN (SELECT song_key FROM attempts WHERE tries >= 4 AND last_fallback > 0 "
+    "AND coalesce(fallback_result, '') NOT LIKE '%\"failed\":%')"
+)
 # gone from Spotify (or Spotify has nothing better) and searched out: left out of the Best share
 # (an unreleased song whose file is gone: nothing searches it, there is no other copy)
 _WIPED = f"((({_GONE} OR {_HELD}) AND {_SEARCHED_OUT}) OR {_THE_ONLY})"
@@ -374,7 +372,7 @@ def same_as(songs: list[Row]) -> dict[int, int]:
     first: dict[str, int] = {}
     out = {}
     for s in songs:
-        isrc = (s["isrc"] or "").replace("-", "").upper()
+        isrc = recordings.isrc_key(s["isrc"])
         marks = [m for m in (f"key:{s['key']}", s["file"] and f"file:{s['file']}", isrc and f"isrc:{isrc}") if m]
         if (seen := next((first[m] for m in marks if m in first), None)) is not None:
             out[s["position"]] = seen
@@ -445,7 +443,7 @@ def missing(
 def upload_songs(con: Connection, uid: int | None = None, key: str | None = None) -> list[Row]:
     """The songs an uploaded file can be (`key`: only that one), with their copy (quality, kbps, a fake
     FLAC's source, close match, shared: other songs with that file); not the unreleased songs (their file is
-    the song). Shares are counted in one pass: songs.file has no index."""
+    the song). Shares are counted in one pass."""
     mine, args = _mine(uid)
     one = " AND s.key = ?" if key is not None else ""
     return con.execute(

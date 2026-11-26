@@ -37,17 +37,7 @@
     <thead><tr><th>When</th><th>Change</th><th>Song</th><th>Details</th></tr></thead>
     <tbody id="change-rows">
     {% for c in entries %}
-    {% set label = labels.get(c.change, (c.change, '')) %}
-    <tr>
-      <td class="muted small nowrap" title="{{ c.ts }}">{{ c.ts|ago }}</td>
-      <td><span class="pill{{ ' ' ~ label[1] ~ '-pill' if label[1] }}">{{ label[0]|sentence }}</span></td>
-      <td class="lead-cell">{% if c.song_key %}{{ song_link(c.song_key, c.url, (c.artist or '?') ~ ' – ' ~ (c.title or '?')) }}{% else %}<span class="muted">the list itself</span>{% endif %}</td>
-      <td class="small">
-        {%- if c.list_title %}<span class="muted">{{ c.list_title }}</span>{% endif %}
-        {%- if c.change in ('replaced', 're-uploaded') and c.new_title %} · now {{ c.new_artist }} – {{ c.new_title }}{% endif %}
-        {%- if c.change == 'removed' %} · {{ c.detail or 'why: the next check tells' }}{% elif c.change == 'unreadable' and c.detail %} · {{ c.detail }}{% endif %}
-        {%- if c.song_key and c.change not in ('added',) %} · {% if c.file %}<span class="ok-text">your file stays</span>{% else %}<span class="muted">no file</span>{% endif %}{% endif %}</td>
-    </tr>
+    {% include "_change_row.html" %}
     {% else %}
     <tr><td colspan="4" class="muted">{% if q %}No change matches “{{ q }}”.{% else %}Every song played at every check so far.{% endif %}</td></tr>
     {% endfor %}

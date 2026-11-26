@@ -144,7 +144,7 @@ class YtDlp:
         yt-dlp failed without any (a bot check, a block, no network)."""
         prefix = "ytsearch5:" if site == "youtube" else "scsearch5:"
         r = self.run(["--flat-playlist", "-j", prefix + query], stop, 300)
-        if r.returncode != 0 and not r.stdout.strip():
+        if r.returncode != 0 and not r.stdout.strip() and not stop.is_set():
             raise SearchFailed(f"{site} search failed: {(r.stderr.strip().splitlines() or ['no answer'])[-1][:200]}")
         out = []
         for line in r.stdout.splitlines():

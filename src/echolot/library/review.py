@@ -84,8 +84,13 @@ class Item:
         """(artist, title, another artist) of the download by its tags; another artist when they name none of
         the song's artists (a video's artist tag is often its channel, its title then 'Artist - Title').
         Without tags, or with the song's own (Echolot tagged an accepted file): the name it came as."""
-        e, st = self.event, self.file.stat()
-        artist, title = _credit(self.file, st.st_mtime_ns, st.st_size)
+        e = self.event
+        try:
+            st = self.file.stat()
+        except OSError:  # (taken or purged meanwhile)
+            artist, title = "", ""
+        else:
+            artist, title = _credit(self.file, st.st_mtime_ns, st.st_size)
         if not title or (artist, title) == (e["artist"], e["title"]):
             return "", (e["found"] or e["file_name"] or "–").strip(), False
         credited = artist + (" / " + title.partition(" - ")[0] if " - " in title else "")

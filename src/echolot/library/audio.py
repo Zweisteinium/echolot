@@ -15,6 +15,7 @@ prepare(), which every download goes through:
 
 import base64
 import datetime
+import errno
 import hashlib
 import json
 import logging
@@ -530,14 +531,14 @@ def write_tags(path: Path, **values: str) -> None:
 LYRICS_TAGS = ("lyrics", "unsyncedlyrics", "unsynced lyrics", "syncedlyrics")  # Vorbis comments players read
 
 
-def read_lyrics(path: Path) -> str | None:
+def read_lyrics(path: Path, kind: type | None = None) -> str | None:
     """The file's embedded lyrics ('' if none; None if it cannot be read): Vorbis comments (LYRICS and
-    kin), ID3 USLT or SYLT, MP4 ©lyr."""
+    kin), ID3 USLT or SYLT, MP4 ©lyr. `kind`: mutagen's class for it (else sniffed)."""
     from mutagen import File
     from mutagen.mp4 import MP4
 
     try:
-        a = File(path)
+        a = kind(path) if kind else File(path)
         if a is None:
             return None
         t = a.tags
@@ -559,23 +560,32 @@ def write_lyrics(path: Path, text: str) -> bool:
     """Embed lyrics (LRC lines or plain text) where Navidrome and other players read them: LYRICS (FLAC, Ogg,
     Opus), USLT (MP3), ©lyr (M4A); True if they read back as written. In place only where the tags fit the
     file's padding (no audio moves); else into a copy that replaces the file whole, so a crash or a full disk
-    mid-write never leaves half a file."""
-    mp3 = path.suffix.lower() == ".mp3"
+    mid-write never leaves half a file. A full or read-only disk raises OSError: no file's fault."""
+    from mutagen import File
+
     try:
+        kind = type(File(path))  # (the copy's name doesn't tell: sniffed, a FLAC behind an ID3 tag looks like MP3)
         try:
-            if not _put_lyrics(path, text, _in_padding, mp3):
+            if not _put_lyrics(path, kind, text, _in_padding):
                 return False
         except _Grows:
             spare = path.with_name(f".{path.name}.lyrics-tmp")  # (no audio name: scans pass it by)
+            if shutil.disk_usage(path.parent).free < 2 * path.stat().st_size:
+                raise OSError(errno.ENOSPC, "too little space for a copy", str(path.parent)) from None
             try:
                 shutil.copy2(path, spare)
-                if not _put_lyrics(spare, text, None, mp3) or read_lyrics(spare) != text.strip():
+                if not _put_lyrics(spare, kind, text, None) or read_lyrics(spare, kind) != text.strip():
                     return False
                 with spare.open("rb+") as f:
                     os.fsync(f.fileno())
                 spare.replace(path)
             finally:
                 spare.unlink(missing_ok=True)
+    except OSError as e:
+        if e.errno in (errno.ENOSPC, errno.EROFS, errno.EDQUOT):
+            raise
+        log.warning("lyrics of %s not written: %s", path, e)
+        return False
     except Exception as e:
         log.warning("lyrics of %s not written: %s", path, e)
         return False
@@ -593,34 +603,30 @@ def _in_padding(info) -> int:
     return info.padding
 
 
-def _put_lyrics(path: Path, text: str, padding, mp3: bool) -> bool:
-    """Set and save the lyrics tag (write_lyrics) with mutagen's `padding` function; False: not a kind with
-    one. `mp3`: an MP3 (its copy has another suffix)."""
-    from mutagen import File
+def _put_lyrics(path: Path, kind: type, text: str, padding) -> bool:
+    """Set and save the lyrics tag (write_lyrics) of a file of mutagen's `kind` with its `padding` function;
+    False: not a kind with one."""
     from mutagen.flac import FLAC
-    from mutagen.id3 import ID3, USLT, ID3NoHeaderError
+    from mutagen.id3 import USLT
+    from mutagen.mp3 import MP3
     from mutagen.mp4 import MP4
     from mutagen.oggopus import OggOpus
     from mutagen.oggvorbis import OggVorbis
 
-    a = File(path)
-    if isinstance(a, FLAC | OggOpus | OggVorbis):
-        a["LYRICS"] = [text]
-        a.save(padding=padding)
-    elif isinstance(a, MP4):
-        if a.tags is None:
-            a.add_tags()
-        a.tags["\xa9lyr"] = [text]
-        a.save(padding=padding)
-    elif mp3:
-        try:
-            t = ID3(path)
-        except ID3NoHeaderError:
-            t = ID3()
-        t.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=text)])
-        t.save(path, padding=padding)
-    else:
+    if kind not in (FLAC, OggOpus, OggVorbis, MP4, MP3):
         return False
+    a = kind(path)
+    if padding and isinstance(a, OggOpus) and getattr(a.tags, "_pad_data", b""):
+        raise _Grows  # (mutagen keeps that data and skips the padding function: the packet would grow in place)
+    if a.tags is None:
+        a.add_tags()
+    if isinstance(a, MP4):
+        a.tags["\xa9lyr"] = [text]
+    elif isinstance(a, MP3):
+        a.tags.setall("USLT", [USLT(encoding=3, lang="und", desc="", text=text)])
+    else:
+        a["LYRICS"] = [text]
+    a.save(padding=padding)
     return True
 
 

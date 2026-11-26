@@ -21,6 +21,7 @@ services:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_DAEMON_DIR: /daemon
       ECHOLOT_NAVIDROME_URL: ${NAVIDROME_URL:-http://navidrome:4533}  # its accounts log in to Echolot
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}  # a reverse proxy in front: its address
       TZ: ${TZ:-UTC}
     volumes:
       - ./data/echolot:/data              # database, settings, encrypted secrets
@@ -33,7 +34,7 @@ services:
     restart: unless-stopped
 
   sockseek:                               # searches and downloads on Soulseek for Echolot (port 5031, not published)
-    image: lordlayer/echolot-sockseek:febfba1  # Sockseek 3.0.6, tested. Or build it: build: ./sockseek
+    image: lordlayer/echolot-sockseek:febfba1-2  # Sockseek 3.0.6, tested. Or build it: build: ./sockseek
     user: *user
     init: true
     environment:

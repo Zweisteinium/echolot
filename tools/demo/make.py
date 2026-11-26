@@ -2,14 +2,14 @@
 recorded (scenes.py), the video composed and encoded (video.py), and a sheet of stills to look over. STORYBOARD.md
 says what it must show and how to fix a scene after Echolot changed.
 
-    uv run --with playwright==1.64.1 --with pillow python tools/demo/make.py [options]
+    uv run --with playwright==1.65.2 --with pillow==11.3.0 python tools/demo/make.py [options]
 
-    --work DIR       where everything goes (default ~/.cache/echolot-demo)
+    --work DIR       where everything goes (default ~/.cache/echolot-demo; new, or one this made)
     --audit DB       first check the demo against a real Echolot database (audit.py, read only)
     --only a,b       record only these scenes (the others' frames from the last run are reused)
     --publish        copy the WebP to docs/echolot.webp
 
-Needs ffmpeg and Playwright's Chromium (once: uv run --with playwright==1.64.1 playwright install
+Needs ffmpeg and Playwright's Chromium (once: uv run --with playwright==1.65.2 playwright install
 chromium-headless-shell). The scenes change the demo (the upload imports, the review decides), so every run
 builds it anew."""
 
@@ -30,6 +30,7 @@ from scenes import FRAME, HIDE, SCALE, SCENES, VIEW  # noqa: E402
 
 ROOT = HERE.parent.parent
 PORT = 8497
+MARK = ".echolot-demo"  # in a work folder this made: one it may empty
 FPS = 30
 UPLOAD = [
     ("Rednex", "Cotton Eye Joe", 237),
@@ -81,6 +82,8 @@ def upload_files(work: Path) -> None:
 def serve(work: Path) -> subprocess.Popen:
     proc = subprocess.Popen([sys.executable, str(HERE / "serve.py"), str(work), str(PORT)], cwd=ROOT)
     for _ in range(120):
+        if proc.poll() is not None:
+            raise SystemExit(f"the demo instance did not start (is port {PORT} taken?)")
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{PORT}/healthz", timeout=1)
             return proc
@@ -141,7 +144,10 @@ def main() -> None:
     ap.add_argument("--publish", action="store_true")
     args = ap.parse_args()
     work = args.work.resolve()
+    if work.exists() and any(work.iterdir()) and not (work / MARK).exists():
+        raise SystemExit(f"{work} has files this did not make: name an empty or new folder")
     work.mkdir(parents=True, exist_ok=True)
+    (work / MARK).touch()  # (everything below is rebuilt at will)
     for old in ("data", "music"):
         shutil.rmtree(work / old, ignore_errors=True)
     run(str(HERE / "data.py"), str(work))

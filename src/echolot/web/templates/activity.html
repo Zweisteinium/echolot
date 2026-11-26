@@ -5,9 +5,9 @@
 <div class="page-head">
   <div class="page-title"><h1>History</h1><p class="lead">What Echolot added to the library and what it turned down.</p></div>
   <div class="actions"><nav class="tabs" aria-label="Show">
-      <a href="/activity" data-label="All" {% if not kind %}aria-current="page"{% endif %}>All</a>
-      <a href="/activity?kind=added" data-label="Added" {% if kind == 'added' %}aria-current="page"{% endif %}>Added</a>
-      <a href="/activity?kind=rejected" data-label="Rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
+      <a href="/activity" {% if not kind %}aria-current="page"{% endif %}>All</a>
+      <a href="/activity?kind=added" {% if kind == 'added' %}aria-current="page"{% endif %}>Added</a>
+      <a href="/activity?kind=rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
     </nav></div>
 </div>
 <section class="card">

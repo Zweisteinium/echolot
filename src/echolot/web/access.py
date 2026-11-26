@@ -22,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from echolot import db
 from echolot.services import navidrome
 from echolot.settings import auth, options, sources
-from echolot.web.common import DB, page
+from echolot.web.common import DB, page, safe_next
 
 log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
@@ -196,10 +196,6 @@ async def allowed(request: Request) -> None:
     )
 
 
-def _safe_next(target: str) -> str:
-    return target if target.startswith("/") and not target.startswith("//") else "/"
-
-
 def set_session_cookie(request: Request, response: Response, con: sqlite3.Connection, user: auth.User) -> None:
     days = options.get(con, options.Auth).session_days
     token = auth.create_session(con, user, days)
@@ -210,7 +206,7 @@ def set_session_cookie(request: Request, response: Response, con: sqlite3.Connec
 @router.get("/login", response_class=HTMLResponse, response_model=None)
 def login_page(request: Request, con: DB, next: str = "/") -> Response:
     if getattr(request.state, "user", None):
-        return RedirectResponse(_safe_next(next), status_code=303)
+        return RedirectResponse(safe_next(next), status_code=303)
     return _login_page(request, con, 200, next=next)
 
 
@@ -257,7 +253,7 @@ def login(
     if user.admin and navidrome_admin and not request.app.state.vault.get(con, navidrome.SERVICE_PASSWORD):
         request.app.state.service_offers[user.id] = (account, password)  # in memory until answered (admin.py)
     throttle.passed(client)
-    response = RedirectResponse(_safe_next(next), status_code=303)
+    response = RedirectResponse(safe_next(next), status_code=303)
     set_session_cookie(request, response, con, user)
     return response
 

@@ -403,12 +403,8 @@ def unsearched(con: sqlite3.Connection) -> set[str]:
     filed = f"SELECT 1 FROM events e JOIN files f ON f.path = e.path WHERE e.song = s.key AND e.action IN ({found})"
     sql = f"SELECT key, isrc FROM songs s WHERE (file IS NOT NULL AND NOT close_match) OR EXISTS ({filed})"
     have = con.execute(sql, tuple(FOUND)).fetchall()
-    keys, isrcs = {r["key"] for r in have}, {_isrc(r["isrc"]) for r in have} - {""}
-    return {r["key"] for r in new if r["key"] not in keys and _isrc(r["isrc"]) not in isrcs}
-
-
-def _isrc(isrc: str | None) -> str:
-    return (isrc or "").replace("-", "").upper()
+    keys, isrcs = {r["key"] for r in have}, {recordings.isrc_key(r["isrc"]) for r in have} - {""}
+    return {r["key"] for r in new if r["key"] not in keys and recordings.isrc_key(r["isrc"]) not in isrcs}
 
 
 def _search(run: "Run", songs: list[sqlite3.Row], purpose: str, new: bool = False) -> str:
@@ -546,7 +542,7 @@ def _unlike_copy(
     when it is alike, or the copy could not be read (no evidence). Such a FLAC waits in Review instead of
     replacing the copy on its names alone. Not asked when the release's audio has spoken (same, or other:
     filing rejects it), as it costs two fingerprints."""
-    if heard.verdict:
+    if heard.verdict or prepared.fake:  # (filing discards a fake FLAC anyway)
         return ""
     row = con.execute("SELECT file FROM songs WHERE key = ?", (want.key,)).fetchone()
     if not row or not row[0]:
@@ -718,8 +714,8 @@ def _upgrade(run: "Run", everything: bool) -> str:
     now, seen, songs = time.time(), set(), []
     by_hand = everything or run.trigger == "manual"  # Run now: whatever their wait (the batch still counts)
     for r in rows:
-        if r["service"] == "soundcloud" and r["key"] in waits:
-            continue  # its FLAC waits for your answer
+        if r["key"] in waits:
+            continue  # a FLAC of it waits for your answer
         if r["file"] not in seen and (by_hand or due(r["tries"], r["last_try"], *UPGRADE_WAIT, now)):
             seen.add(r["file"])
             songs.append(r)
@@ -734,7 +730,8 @@ def _upgrade(run: "Run", everything: bool) -> str:
 
 def fallback(run: "Run") -> str:
     """Songs Soulseek did not find, and SoundCloud songs SoundCloud hands out to nobody: YouTube, then
-    SoundCloud (_fallback_song), each song at most once a week, the ones never tried first."""
+    SoundCloud (_fallback_song), each song at most once a week (a day after a failing site cut it short), the
+    ones never tried first."""
     now = int(time.time())
     week, day = (now + 1, now + 1) if run.trigger == "manual" else (now - 7 * 86400, now - RETRY)  # Run now: all
     con = run.connect()
@@ -757,7 +754,7 @@ def fallback(run: "Run") -> str:
         return "none due"
     ydl = ytdlp.YtDlp(run.data / "ytdlp", token)
     added = kept = linked = 0
-    down: set[str] = set()  # sites whose search failed this run: left out, and their songs not stamped
+    down: set[str] = set()  # sites whose search failed this run: left out for the rest of it
     for n, row in enumerate(songs, 1):
         if run.stop.is_set() or run.give_way.is_set():
             run.left = 0 if run.stop.is_set() else len(songs) - n + 1
@@ -780,14 +777,16 @@ def fallback(run: "Run") -> str:
                 raise
             finally:
                 track(run, want.key, None)
+            if run.stop.is_set():
+                break  # (stopped mid-search: the report is not what the sites said)
             whole = not any(isinstance(v, dict) and v.get("failed") for v in report.values())
             done = whole or action in FOUND or action == "mismatch"
             _stamp_fallback(con, want.key, report)  # cut short: its failed site makes it due in a day
         finally:
             con.close()
+        run.handled.add(want.key)
         if not done:
             continue  # a search a failing site cut short: tried again a day later
-        run.handled.add(want.key)
         added += action in ("new", "upgrade")
         linked += action == "linked"
         kept += action == "mismatch"
@@ -799,11 +798,12 @@ def fallback(run: "Run") -> str:
         f"{added} of {len(songs)} songs found"
         + (f", {linked} in the library under other names" if linked else "")
         + (f", {kept} of another length kept for review" if kept else "")
+        + (f"; {' and '.join(SITES[s] for s in SITES if s in down)} search failed" if down else "")
         + (f"; gave way, {run.left} left" if run.left else "")
     )
 
 
-SITES = ("youtube", "soundcloud")  # the fallback's sites, in order
+SITES = {"youtube": "YouTube", "soundcloud": "SoundCloud"}  # the fallback's sites, in order
 RETRY = 86400  # a fallback try a failing site cut short is due again a day later, not a week
 # the due cutoff (args: a day's, a week's): a day for a try cut short (a site's "failed" in its report)
 CUT_SHORT = "CASE WHEN a.fallback_result LIKE '%\"failed\":%' THEN ? ELSE ? END"
@@ -892,7 +892,7 @@ def _fallback_song(
     before = filing.rejected_before(con, want.key)
     report: dict = {}
     others = []  # (how far off, site, result): the song by name, another length
-    own = _video(ydl, listed, run.stop) if listed else None
+    own = _video(ydl, listed, run.stop) if listed and "youtube" not in down else None
     named = own | {"title": f"{want.artist} - {want.title}", "uploader": want.artist} if own else {}
     if (
         own

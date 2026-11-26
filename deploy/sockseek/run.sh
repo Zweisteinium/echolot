@@ -1,11 +1,12 @@
 #!/bin/sh
-# Runs the Sockseek daemon for Echolot and restarts it when its login (daemon.conf, written by Echolot's
-# Accounts page) or its listen port (listen-port: a VPN's forwarded port, written by gluetun in vpn.yaml)
-# changes; the daemon reads both only at its start. Without a login it waits.
+# Runs the Sockseek daemon for Echolot and restarts it when its login (daemon.conf, written by Echolot) or its
+# listen port (listen-port: a VPN's forwarded port, written by gluetun in vpn.yaml) changes; the daemon reads
+# both only at its start. Without a login it waits.
 # Watchdog: a daemon that stays disconnected from Soulseek for 15 minutes is restarted. After a server
 # outage Sockseek's reconnect can fail for good: its old listener still holds the listen port, so every
 # login fails with "Failed to start listening". A fresh daemon reports state None (it logs in with the
-# next search), so an idle one is never restarted.
+# next search), so an idle one is never restarted. Behind the VPN (vpn.yaml), a restarted gluetun leaves this
+# container in a network of nothing but lo: it exits, so Docker starts it again in gluetun's new one.
 conf=/daemon/daemon.conf
 portfile=/daemon/listen-port
 status=http://127.0.0.1:5031/api/server/status
@@ -13,7 +14,7 @@ pid=""
 trap '[ -n "$pid" ] && kill "$pid" 2>/dev/null; exit 0' TERM INT
 state() { cat "$conf" "$portfile" 2>/dev/null | cksum; }
 while :; do
-  if [ ! -s "$conf" ]; then sleep 15; continue; fi  # no account yet
+  if [ ! -s "$conf" ]; then sleep 15 & wait $!; continue; fi  # no account yet (wait: a stop ends it at once)
   set -- daemon -c "$conf" --server-ip 0.0.0.0 --server-port 5031 -o /music/inbox/soulseek
   port=$(tr -dc 0-9 < "$portfile" 2>/dev/null)
   [ -n "$port" ] && set -- "$@" --listen-port "$port"
@@ -22,7 +23,12 @@ while :; do
   pid=$!
   down=0  # seconds disconnected from Soulseek
   while kill -0 "$pid" 2>/dev/null; do
-    sleep 15
+    sleep 15 & wait $!
+    if [ "$(ls /sys/class/net)" = lo ]; then
+      echo "run.sh: the network is gone (the VPN restarted), exiting to be started again"
+      kill "$pid"; wait "$pid"
+      exit 1
+    fi
     if [ "$(state)" != "$seen" ]; then
       echo "run.sh: login or listen port changed, restarting the daemon"
       kill "$pid"; wait "$pid"
@@ -36,5 +42,5 @@ while :; do
     fi
   done
   pid=""
-  sleep 5
+  sleep 5 & wait $!
 done

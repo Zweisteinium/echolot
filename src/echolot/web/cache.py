@@ -68,7 +68,8 @@ def clear() -> None:
     global _generation, _timer
     with _lock:
         _generation += 1
-        _dropped.update({key: v[2] for key, v in _values.items()})
+        if WARM:
+            _dropped.update({key: v[2] for key, v in list(_values.items())})  # (a renew may add one meanwhile)
         _values.clear()
         if _timer is not None:
             _timer.cancel()

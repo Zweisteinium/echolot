@@ -129,8 +129,7 @@ def sources_page(request: Request, con: DB) -> HTMLResponse:
     from echolot.web.accounts import connections
 
     followed = collections.Counter(x.service for x in sources.user_lists(con, request.state.user.id))
-    uid = stats.scope(request.state.user)
-    lists = cache.get(con, stats.lists, uid)  # the count, and Add music's Record
+    lists = cache.get(con, stats.lists, request.state.user.id)  # the count, and Add music's Record: your own
     return page(request, "sources.html", nav="playlists", followed=followed, lists=lists, **connections(request, con))
 
 

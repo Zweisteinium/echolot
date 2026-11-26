@@ -26,7 +26,7 @@
     <div class="value">{{ o.rejected_24h|num }}</div>
     <div class="sub">downloads that were not the song</div>
   </a>
-  {% if o.lyrics_looked %}<div class="kpi tip" tabindex="0" role="button" title="Lyrics from LRCLIB, or the file's own. Checked so they surely are the song's.">
+  {% if o.lyrics_looked %}<div class="kpi tip" tabindex="0" role="button" title="Files with lyrics: their own, or lyrics from LRCLIB checked to surely be the song's.">
     <div class="label">With lyrics</div>
     <div class="value">{{ pct(o.lyrics, o.files) }} %</div>
     <div class="sub">{{ o.lyrics|num }} files · {{ o.synced|num }} synced</div>

@@ -73,6 +73,7 @@ RIGHT = [
     ("CAPO", "Run Run Run (feat. Yung Kafa & Kücük Efendi) - Remix",
      "CAPO - RUN RUN RUN feat. YUNG KAFA & KÜCÜK EFENDI (prod. von Jurijgold & Falconi) [Official Remix]"),
     ("Linkin Park", "BURN IT DOWN", "BURN IT DOWN (Official Music Video) [4K Upgrade] - Linkin Park"),
+    ("Capella", "U Got 2 Let The Music", "U Got 2 Let The Music - Capella"),  # a version word in the artist's name
     ("Frank Ocean", "In My Room", "Frank Ocean - In My Room (Lyric Video)"),
     ("Mark Terre", "Raindrops (H369) - H369 Remix", "Raindrops (H369 Remix)"),
     ("Tream", "HERZBLATT (AUA AUA) - OsTEKKe & Zombic Remix", "Tream x Mia Julia - HERZBLATT (ZOMBIC x OSTEKKE REMIX)"),
@@ -99,6 +100,7 @@ WRONG = [
     ("Liquid Soul", "Levitate", "Levitate (OxiDaksi Remix)"),
     ("Some Artist", "Fire", "Fire II"),
     ("Some Artist", "Tale", "Tale Pt. 2"),
+    ("Some Artist", "Song", "Song (A Cappella)"),
 ]
 
 

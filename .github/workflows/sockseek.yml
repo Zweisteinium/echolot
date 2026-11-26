@@ -1,7 +1,7 @@
 name: Sockseek image
 
 # The Sockseek daemon of deploy/compose.yaml (deploy/sockseek): built and tested on every change, pushed to
-# Docker Hub from main or by hand (Run workflow), tagged with the Sockseek commit it is built from.
+# Docker Hub from main or by hand (Run workflow) under the TAG in its Dockerfile, once: a published tag stays.
 on:
   push:
     branches: [main, dev, "feat/**", "fix/**"]
@@ -20,7 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: tag
-        run: echo "tag=$(sed -n 's/^ARG SOCKSEEK_COMMIT=\(.\{7\}\).*/\1/p' deploy/sockseek/Dockerfile | head -1)" >> "$GITHUB_OUTPUT"
+        run: |
+          tag=$(sed -n 's/^ARG TAG=//p' deploy/sockseek/Dockerfile)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$IMAGE:$tag" > /dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: docker/setup-qemu-action@v4 # arm64's runtime stage (the .NET build cross-compiles)
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
@@ -33,18 +38,18 @@ jobs:
           cache-to: type=gha,scope=sockseek,mode=max
       - name: The daemon answers
         run: |
-          docker run --rm --entrypoint sh sockseek:ci -c 'test -x /usr/bin/sockseek && test -r /run.sh'
+          docker run --rm --entrypoint sh sockseek:ci -c 'test "$(id -u)" = 1000 && test -x /usr/bin/sockseek && sh -n /run.sh'
           docker run -d --name sockseek --entrypoint sockseek -p 5031:5031 sockseek:ci \
             daemon --server-ip 0.0.0.0 --server-port 5031 -o /tmp/out
           for _ in $(seq 30); do curl -fsS http://127.0.0.1:5031/api/server/status && exit 0; sleep 1; done
           docker logs sockseek
           exit 1
-      - if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      - if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && steps.tag.outputs.published != 'true'
         uses: docker/login-action@v4
         with:
           username: lordlayer
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      - if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && steps.tag.outputs.published != 'true'
         uses: docker/build-push-action@v7
         with:
           context: deploy/sockseek

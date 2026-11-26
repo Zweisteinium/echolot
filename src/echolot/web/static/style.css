@@ -1,4 +1,4 @@
-/* Echolot. Sections: tokens, base, layout, components, tables, quality scale, charts, pages, small screens.
+/* Echolot. Sections: tokens, base, layout, components, tables, quality scale, pages, small screens.
 
    Three separate colour jobs, never mixed:
    - accent: links, focus, the primary button, the current page (blue, with teal beside it in gradients)
@@ -98,7 +98,6 @@ kbd { font: var(--fs-xs) ui-monospace, monospace; border: 1px solid var(--border
 h1 { font-size: var(--fs-xl); margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 h2 { font-size: var(--fs-lg); margin: 0 0 0.75rem; font-weight: 600; }
 h3 { font-size: var(--fs-md); font-weight: 600; }
-h2.spaced { margin-top: 1.5rem; }
 h1 .count, h2 .count { color: var(--muted); font-weight: 400; margin-left: 0.25rem; }
 
 .muted { color: var(--muted); }
@@ -212,7 +211,7 @@ a.service:hover { background: color-mix(in srgb, var(--text) 6%, transparent); c
 /* a page's head: its title (and count) with a lead under it, its actions on the right */
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem 1.5rem; flex-wrap: wrap; }
 .page-title { display: grid; gap: 0.3rem; min-width: 0; flex: 1 1 22rem; }
-.page-title h1 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 0.5rem; min-height: var(--h); align-items: center; }
+.page-title h1 { display: flex; flex-wrap: wrap; gap: 0 0.5rem; min-height: var(--h); align-items: center; overflow-wrap: anywhere; }
 .page-title h1 .count { margin: 0; }
 .page-title .lead, .page-title .intro { margin: 0; }
 .page-head > .actions { min-height: var(--h); }
@@ -221,7 +220,7 @@ a.service:hover { background: color-mix(in srgb, var(--text) 6%, transparent); c
 .stack { display: grid; gap: 0.75rem; }
 .stack label { display: grid; gap: 0.25rem; font-weight: 500; }
 .narrow-form { max-width: 24rem; }
-.crumb { justify-self: start; margin-bottom: -0.5rem; font-size: var(--fs-sm); color: var(--muted); }
+.crumb { justify-self: start; margin-bottom: -0.4rem; font-size: var(--fs-sm); color: var(--muted); }
 .crumb:hover { color: var(--accent); text-decoration: none; }
 
 /* ------------------------------------------------------------------ components */
@@ -243,7 +242,7 @@ h1, h2, h3 { text-wrap: balance; }
 .lead { color: var(--muted); margin: 0.25rem 0 0.75rem; }
 
 /* badges: one size; the tone says how it is, the words what */
-.pill, .job-state, .tab-count { display: inline-flex; align-items: center; gap: 0.3rem; height: 1.25rem; padding: 0 0.5rem;
+.pill, .job-state { display: inline-flex; align-items: center; gap: 0.3rem; height: 1.25rem; padding: 0 0.5rem;
   border-radius: 999px; font-size: var(--fs-xs); font-weight: 500; line-height: 1; white-space: nowrap; vertical-align: 1px;
   color: var(--muted); background: var(--track); }
 .pill.ok-pill, .job-state.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
@@ -257,11 +256,6 @@ a.pill:hover { filter: brightness(1.12); }
 /* a row's badges at its right end, so they line up from row to row whatever the name's length */
 .end { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
 
-.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: 0.5;
-  margin-right: 0.45rem; vertical-align: 1px; }
-.dot.on, .dot.ok { background: var(--ok); opacity: 1; }
-.dot.wait { background: var(--warn); opacity: 1; }
-.dot.err { background: var(--bad); opacity: 1; }
 /* Playlists: a service's account */
 .connection { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
 .connection > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); list-style-position: inside; }
@@ -291,7 +285,7 @@ a.pill:hover { filter: brightness(1.12); }
 .pop-menu > button b { font-weight: 500; }
 .pop-menu > button b + span { color: var(--muted); font-size: var(--fs-sm); font-weight: 400; text-wrap: balance; }
 
-/* jobs (History · Jobs): a card per task on the page background; its steps in auto-fit columns that wrap */
+/* jobs: a card per task on the page background; its steps in auto-fit columns that wrap */
 .jobs-page { min-width: 0; padding: 0 0.1rem; }
 .job-list { display: grid; gap: 0.9rem; }
 .job-list[hidden] { display: none; }
@@ -306,11 +300,6 @@ a.pill:hover { filter: brightness(1.12); }
 .job-top h3 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
 .job-status { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem 0.5rem; }
 .job-next { color: var(--muted); font-size: var(--fs-xs); }
-.job-state { display: inline-flex; align-items: center; padding: 0 0.5rem; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600;
-  color: var(--muted); background: var(--track); }
-.job-state.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.job-state.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-.job-state.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
 .job-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin-left: auto; }
 .job-actions form { margin: 0; }
 .job-actions button .icon { vertical-align: -2px; }
@@ -424,7 +413,7 @@ details.group table { margin-bottom: 0.75rem; }
 
 /* forms and buttons: one height (--h) for fields, buttons and segmented controls; --h-sm where they sit in a row
    of text, --h-lg for the search and the login */
-form.options, form.add, .row-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.row-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
 .row-form { gap: 0.5rem; }
 form.spaced { margin-top: 0.75rem; }
 .grow { flex: 1; min-width: 220px; }
@@ -451,7 +440,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
 textarea { width: 100%; font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--bg);
   padding: 0.75rem; tab-size: 2; }
-button, a.button {
+button, a.button, label.button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -470,14 +459,13 @@ button, a.button {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, filter 0.15s;
 }
-button:hover, a.button:hover, select:hover { border-color: color-mix(in srgb, var(--muted) 60%, var(--border));
+button:hover, a.button:hover, label.button:hover, select:hover { border-color: color-mix(in srgb, var(--muted) 60%, var(--border));
   background: color-mix(in srgb, var(--track) 50%, var(--surface)); text-decoration: none; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 :is(button, a.button).primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 :is(button, a.button).primary:hover { background: var(--accent); filter: brightness(1.08); }
 button.danger { color: var(--bad); }
 button.danger:hover { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--surface)); }
-:is(button, a.button).sm { height: var(--h-sm); padding: 0 0.6rem; font-size: var(--fs-sm); }
 a.button .icon { color: var(--muted); }
 a.button.primary .icon { color: inherit; }
 /* buttons drawn as text or an icon alone: no box, their own size (classes only, so their own rules win) */
@@ -516,8 +504,8 @@ input[type="file"]::file-selector-button:hover { border-color: var(--muted); }
   color: var(--text); background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 0.08); }
 :is(.seg, .segmented) label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 .seg .icon { vertical-align: -2px; }
-.seg.sm, .segmented.small-seg { height: var(--h-sm); }
-.seg.sm label, .segmented.small-seg label { padding: 0 0.6rem; font-size: var(--fs-xs); }
+.segmented.small-seg { height: var(--h-sm); }
+.segmented.small-seg label { padding: 0 0.6rem; font-size: var(--fs-xs); }
 .view-switch { width: 100%; }
 .view-switch button { flex: 1; }
 
@@ -533,10 +521,6 @@ table.rows { width: 100%; border-collapse: collapse; }
 .rows tr.missing td { background: color-mix(in srgb, var(--q-missing) 7%, transparent); }
 .rows tr.missing:hover td { background: color-mix(in srgb, var(--q-missing) 11%, transparent); }
 .rows tr.same td { opacity: 0.55; }  /* a recording's second entry in a list */
-.rows tr.sub td { border-top: none; padding-top: 0; }
-.rows tr.group th { padding-top: 1rem; font-size: var(--fs-sm); font-weight: 600; color: var(--text);
-  border-bottom: 1px solid var(--border); }
-.rows tbody:first-of-type tr.group th { padding-top: 0.4rem; }
 /* song names link to their source in ink, blue under the pointer: a page of blue links reads as noise */
 table.songs td a:not(.pill, .chip), table.missing td a:not(.pill, .chip), .rows td.lead-cell > a { color: var(--text); }
 table.songs td a:not(.pill, .chip):hover, table.missing td a:not(.pill, .chip):hover, .rows td.lead-cell > a:hover { color: var(--accent); }
@@ -657,7 +641,6 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .growth .also-top { stop-color: var(--chart-d); stop-opacity: 0.22; }
 .growth .also-bottom { stop-color: var(--chart-d); stop-opacity: 0; }
 .growth .end.also, .growth .mark.also { background: var(--chart-d); }
-.growth .end.also::after { background: var(--chart-d); }
 .growth .line-a { stop-color: var(--chart-a); } .growth .line-b { stop-color: var(--chart-b); } .growth .line-c { stop-color: var(--chart-c); }
 .growth .y { position: absolute; left: 0; width: 3rem; text-align: right; transform: translateY(-50%); font-size: var(--fs-xs);
   color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
@@ -692,7 +675,7 @@ table.lists td:first-child { overflow: hidden; text-overflow: ellipsis; white-sp
 .stacked .edge { fill: none; stroke: var(--q); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .stacked .edge.q-lossless { stroke-width: 2.5; }
 .stacked .grid { stroke: color-mix(in srgb, var(--surface) 55%, transparent); }
-.stacked .end, .stacked .end::after, .stacked .mark { background: var(--q-lossless); }
+.stacked .end, .stacked .mark { background: var(--q-lossless); }
 .growth .tip-when { display: block; margin-bottom: 0.25rem; }
 .growth .tip-row { display: flex; align-items: center; gap: 0.45rem; color: var(--text); line-height: 1.5; }
 .growth .tip-row .tip-count { margin-left: auto; padding-left: 1rem; color: var(--muted); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
@@ -725,11 +708,10 @@ a.kpi { transition: background 0.15s; }
 a.kpi:hover { text-decoration: none; background: color-mix(in srgb, var(--track) 60%, var(--surface)); }
 a.kpi:hover .label { color: var(--accent); }
 .kpi .value { font-size: var(--fs-2xl); font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
-.kpi .value.bad-text { color: var(--bad); }
-.kpi .value.warn-text { color: var(--warn); }
 .kpi .sub { color: var(--muted); font-size: var(--fs-sm); }
 @media (max-width: 1100px) {
-  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }  /* 3 + 3, never 5 + 1 */
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }  /* two by two, an odd last one across */
+  .kpi:last-child:nth-child(odd) { grid-column: span 2; }
   .stats-main { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
   .growth .plot { height: 230px; }
   .quality-side { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 1.1rem; }
@@ -763,7 +745,7 @@ a.kpi:hover .label { color: var(--accent); }
 .offer > div:first-of-type { flex: 1 1 22rem; }
 .offer h2 { margin: 0 0 0.25rem; font-size: var(--fs-lg); }
 .offer p { margin: 0; }
-.offer-actions { display: flex; gap: 0.5rem; }
+.offer-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 details.more-settings { margin-top: 1.1rem; }
 details.more-settings > summary { margin: 0; }
 /* a file chosen by a button (the import): the field hidden inside the label */
@@ -776,9 +758,6 @@ ol.steps li::marker { color: var(--muted); font-weight: 600; }
 ol.steps form { margin-top: 0.5rem; }
 
 /* sources */
-.mode-legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; margin: 0; }
-.mode-legend span { display: inline-flex; align-items: center; }  /* (no gap: it would part "Songs" from its colon) */
-.mode-legend span .icon { margin-right: 0.3rem; }
 .kind-filter { margin-top: 0.25rem; }
 .kind-filter .n { opacity: 0.7; font-weight: 400; margin-left: 0.15rem; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.9rem; margin-top: 0.75rem; }
@@ -1117,11 +1096,6 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-summary { margin: 0.6rem 0 0; padding-left: 1.1rem; display: grid; gap: 0.15rem; }
 .record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.85rem; }
 .record-actions button { display: inline-flex; align-items: center; gap: 0.35rem; }
-a.button { display: inline-block; font-size: var(--fs-sm); font-weight: 500; padding: 0.36rem 0.85rem; color: var(--text);
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
-a.button:hover { text-decoration: none; border-color: var(--muted); }
-a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-a.button.primary:hover { filter: brightness(1.08); }
 .recorders .rename { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
 .recorders .rename input { width: min(13rem, 40vw); }
 .connect-recorder h1 { display: flex; align-items: center; gap: 0.5rem; }
@@ -1131,7 +1105,6 @@ a.button.primary:hover { filter: brightness(1.08); }
 @media (max-width: 720px) {
   .field { grid-template-columns: minmax(0, 1fr); }
   .card { padding: 0.9rem 1rem; }
-  .schedule td:first-child { min-width: 9rem; }
   .hide-narrow { display: none; }
   .show-narrow { display: block; }
   table.missing td.tried { min-width: 10rem; }
@@ -1178,7 +1151,6 @@ a.button.primary:hover { filter: brightness(1.08); }
 .discover-search .spinner { position: absolute; right: 0.9rem; top: 50%; width: 1rem; height: 1rem; margin-top: -0.5rem; border-radius: 50%;
   border: 2px solid var(--border); border-top-color: var(--accent); opacity: 0; transition: opacity 0.2s; animation: spin 0.8s linear infinite; }
 .discover-search.htmx-request .spinner { opacity: 1; }
-@keyframes spin { to { transform: rotate(360deg); } }
 /* Search: the songs of your lists it names, above the catalogues' results */
 .own-results { margin: 0 0 1rem; padding: 0.6rem 0.85rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--track) 45%, var(--surface)); }
@@ -1209,8 +1181,6 @@ a.chip:hover { text-decoration: none; }
 .discover-sources { display: inline-flex; gap: 0.35rem; }
 .discover-sources a { color: var(--muted); line-height: 0; }
 .discover-sources a:hover { color: var(--accent); }
-.pill.accent-pill { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.pill .icon { vertical-align: -2px; }
 .discover-get { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.65rem; border-radius: 999px; color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: transparent; }
 .discover-get:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
@@ -1314,9 +1284,8 @@ dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
 .how-body { margin-top: 0.4rem; padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); background: var(--track);
   color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; text-wrap: pretty; }
 
-/* small screens: a tab bar at the bottom; .row-blocks tables become blocks */
+/* small screens: tighter job cards; .row-blocks tables become blocks */
 @media (max-width: 720px) {
-  body { padding-bottom: calc(4.4rem + env(safe-area-inset-bottom)); }
   .job { padding: 0.8rem; }
   .job-tiles { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
   .job-tiles { column-gap: 1.4rem; }
@@ -1324,12 +1293,11 @@ dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
   .step-foot { flex-wrap: wrap; }
   .step-rule { flex-basis: 100%; }
   .job-tiles > .step:only-child .step-rule { flex-basis: 0; }  /* still one line */
-  .job-side { grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem 0.75rem; }
+  .job-side { grid-template-columns: minmax(0, 1fr); gap: 0.4rem; }
+  .job-actions { margin-left: 0; }
   .job-status { grid-row: 2; grid-column: 1 / -1; }
   details.group > summary > .muted { white-space: normal; }
   .card-head { gap: 0.6rem; }
-  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .kpi:last-child:nth-child(odd) { grid-column: span 2; }
 
   /* the Library's lists: a block per list */
   table.lists, table.lists tbody { display: block; table-layout: auto; }
@@ -1368,8 +1336,6 @@ dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
   .rows td, .rows th { padding-left: 0.35rem; padding-right: 0.35rem; }
   .pill { white-space: normal; }
 }
-.crumb { justify-self: start; margin-bottom: -0.4rem; font-size: var(--fs-sm); color: var(--muted); }
-.crumb:hover { color: var(--accent); text-decoration: none; }
 /* an Unreleased list's page: a song's handle, edit and remove; its order dragged by the handle */
 .song-actions .icon-button { padding: 0.25rem; }
 .drag-handle { cursor: grab; touch-action: none; }
@@ -1476,7 +1442,9 @@ label.check input { flex: none; }
     gap: 0.2rem; height: 3.25rem; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted);
     font-size: var(--fs-xs); font-weight: 500; line-height: 1.1; }
   .tabbar a:hover { text-decoration: none; }
-  .tabbar a[aria-current], .tabbar button[aria-expanded="true"] { color: var(--accent); }
+  .tabbar a[aria-current], .tabbar button.here, .tabbar button[aria-expanded="true"] { color: var(--accent); }
+  .player { bottom: calc(4.4rem + env(safe-area-inset-bottom)); }
+  body.with-player main { padding-bottom: calc(9.5rem + env(safe-area-inset-bottom)); }
   .tabbar a[aria-current]::before { content: ""; position: absolute; top: -0.3rem; left: 28%; right: 28%; height: 2px;
     border-radius: 0 0 2px 2px; background: var(--brand); }
   .tabbar .nav-count { position: absolute; top: 0.1rem; left: calc(50% + 0.4rem); min-width: 1.1rem; padding: 0 0.25rem;

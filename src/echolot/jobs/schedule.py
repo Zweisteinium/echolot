@@ -59,7 +59,7 @@ JOBS = [
             "Searches YouTube and SoundCloud for songs Soulseek lacks.",
             "Tries the song's own video, the release's audio on YouTube, a YouTube search, then SoundCloud. The "
             "first result that passes the checks is filed. One of another length waits in Review. Each song at most "
-            "once a week. The result is lossy, so FLAC upgrade keeps looking.", priority=2),
+            "once a week, or a day later when a site failed. The result is lossy, so FLAC upgrade keeps looking.", priority=2),
     JobInfo("sweep", "Missing songs", "soulseek", ["20:00", "sat,sun 15:00"], 360,
             "Searches Soulseek again for songs found nowhere.",
             "Runs at Soulseek's busiest hours. Each song daily, weekly after 7 misses. After 2 misses the search "

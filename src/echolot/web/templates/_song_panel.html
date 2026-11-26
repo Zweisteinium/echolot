@@ -24,7 +24,7 @@
     {% set PLAYS = {'taken_down': 'taken down: plays nowhere', 'blocked': 'not in your country', 'gone': 'gone', 'preview': 'a 30 s preview only', 'replaced': 'plays as another release'} %}
     {% if s.availability and s.availability.state in PLAYS %}<dt>At its source</dt><dd>{{ PLAYS[s.availability.state] }}{% if s.availability.since %} <span class="muted small">since {{ s.availability.since }}</span>{% endif %}</dd>{% endif %}
     {% if s.isrc %}<dt>ISRC</dt><dd class="small">{{ s.isrc }}</dd>{% endif %}
-    {% if s.file %}<dt>Lyrics</dt><dd>{% if s.lyrics %}{{ lyric_states.get(s.lyrics.state, s.lyrics.state) }}{% else %}<span class="muted">not looked for yet</span>{% endif %}</dd>{% endif %}
+    {% if s.file and s.lyrics %}<dt>Lyrics</dt><dd>{{ lyric_states.get(s.lyrics.state, s.lyrics.state) }}</dd>{% endif %}
   </dl>
   {% if s.lyrics_text %}
   <details class="song-lyrics"><summary>Lyrics</summary><pre>{{ s.lyrics_text }}</pre></details>

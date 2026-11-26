@@ -84,21 +84,22 @@ def link_isrc(con: sqlite3.Connection, paths: Paths) -> int:
     return n
 
 
+def isrc_key(isrc: str | None) -> str:
+    """An ISRC as compared ('' for none): services write it with or without dashes, in either case."""
+    return (isrc or "").replace("-", "").upper()
+
+
 def twins(rows: list[sqlite3.Row]) -> dict[str, str]:
     """{twin's key: the key standing for it} of missing songs (key, isrc, tries) sharing an ISRC (Spotify lists
     a release twice): the one searched most, then the first key, stands for them and alone is searched and
     shown; once it has a file, link_isrc links the twins to it."""
     first: dict[str, sqlite3.Row] = {}
     for r in rows:
-        if isrc := (r["isrc"] or "").replace("-", "").upper():
+        if isrc := isrc_key(r["isrc"]):
             b = first.get(isrc)
             if b is None or (r["tries"] or 0, b["key"]) > (b["tries"] or 0, r["key"]):
                 first[isrc] = r
-    return {
-        r["key"]: s["key"]
-        for r in rows
-        if (s := first.get((r["isrc"] or "").replace("-", "").upper())) is not None and s is not r
-    }
+    return {r["key"]: s["key"] for r in rows if (s := first.get(isrc_key(r["isrc"]))) is not None and s is not r}
 
 
 def in_library(con: sqlite3.Connection, paths: Paths, want: Want, index: Index) -> catalog.Entry | None:

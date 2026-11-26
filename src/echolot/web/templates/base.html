@@ -190,22 +190,32 @@
     });
     document.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") hideTip();
-      else if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches?.(".tip")) { ev.preventDefault(); showTip(ev.target); }
+      else if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches?.(".tip:not(a)")) { ev.preventDefault(); showTip(ev.target); }
     });
     addEventListener("scroll", hideTip, { passive: true });
     // the sidebar: folded to a rail by its button (remembered); on phones More opens it as a sheet
+    const railState = () => {
+      const button = document.querySelector("[data-rail]"), folded = document.documentElement.classList.contains("rail");
+      button?.setAttribute("aria-expanded", String(!folded));
+      button?.setAttribute("aria-label", folded ? "Unfold the menu" : "Fold the menu");
+      button?.setAttribute("title", folded ? "Unfold the menu" : "Fold the menu");
+    };
+    railState();
+    const sheet = (open) => {  // focus goes into the sheet, and back to More when it closes
+      const more = document.querySelector("[data-sheet]");
+      document.documentElement.classList.toggle("nav-open", open);
+      more?.setAttribute("aria-expanded", String(open));
+      (open ? document.querySelector("#sidebar a") : more)?.focus();
+    };
     document.addEventListener("click", (e) => {
       if (e.target.closest("[data-rail]")) {
         const rail = document.documentElement.classList.toggle("rail");
         try { localStorage.setItem("echolot:rail", rail ? "1" : "0"); } catch (err) {}
+        railState();
         return;
       }
       const more = e.target.closest("[data-sheet]");
-      if (more || e.target.closest("[data-sheet-close]")) {
-        const open = !!more && !document.documentElement.classList.contains("nav-open");
-        document.documentElement.classList.toggle("nav-open", open);
-        document.querySelector("[data-sheet]")?.setAttribute("aria-expanded", String(open));
-      }
+      if (more || e.target.closest("[data-sheet-close]")) sheet(!!more && !document.documentElement.classList.contains("nav-open"));
     });
     // menus under their button (popovers like Add music): placed when they open, below the button or above it
     // near the window's bottom, its right edges level; scrolling closes them
@@ -226,9 +236,7 @@
     }, true);
     addEventListener("scroll", () => document.querySelectorAll(".pop-menu:popover-open").forEach((m) => m.hidePopover()), { passive: true });
     document.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape" || !document.documentElement.classList.contains("nav-open")) return;
-      document.documentElement.classList.remove("nav-open");
-      document.querySelector("[data-sheet]")?.setAttribute("aria-expanded", "false");
+      if (e.key === "Escape" && document.documentElement.classList.contains("nav-open")) sheet(false);
     });
     document.addEventListener("DOMContentLoaded", () => {
       Idiomorph.defaults.callbacks.beforeAttributeUpdated = (name, el) =>

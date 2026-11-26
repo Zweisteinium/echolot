@@ -1,4 +1,4 @@
-"""Jobs: the page (History · Jobs, polled by htmx), the Library page's status pill, start/stop/pause, JSON."""
+"""Jobs: the page (polled by htmx), the sidebar's jobs line, start/stop/pause, JSON."""
 
 import sqlite3
 from datetime import datetime
@@ -96,7 +96,7 @@ def jobs_page(request: Request, con: DB) -> HTMLResponse:
 
 @router.get("/jobs/now", response_class=HTMLResponse, include_in_schema=False)
 def jobs_now(request: Request, con: DB) -> HTMLResponse:
-    """The Library page's jobs pill."""
+    """The sidebar's jobs line."""
     return page(request, "_jobs_now.html", **status(request, con))
 
 

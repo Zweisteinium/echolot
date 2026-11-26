@@ -229,7 +229,7 @@ def write_conf(folder: Path, user: str, password: str) -> None:
     the file changes (deploy/sockseek/run.sh)."""
     folder.mkdir(parents=True, exist_ok=True)
     text = (
-        "# Written by Echolot (Accounts page): the Soulseek account the Sockseek daemon logs in with.\n"
+        "# Written by Echolot (Server settings): the Soulseek account the Sockseek daemon logs in with.\n"
         f"user = {user}\npass = {password}\n"
     )
     tmp = folder / f".{CONF}.tmp"

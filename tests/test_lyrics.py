@@ -1,6 +1,7 @@
 """Lyrics (library/lyrics, jobs/lyrics): only an LRCLIB entry that surely is the song's counts, embedded
 where players read it; a file's own lyrics stay."""
 
+import errno
 import os
 import shutil
 import subprocess
@@ -134,6 +135,32 @@ def test_lyrics_move_no_audio_in_place(tmp_path: Path, ext: str) -> None:
     assert ext == "mp3" or replaced != inode  # (an MP3 without ID3 is never rewritten in place: no padding)
     assert audio.write_lyrics(p, "short") and audio.read_lyrics(p) == "short"
     assert p.stat().st_ino == replaced and audio_frames(p) == before  # fits the padding left: in place
+
+
+def test_lyrics_need_room_for_their_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A full disk is no fault of the file: it raises, so the job ends instead of marking file after file."""
+    from mutagen import File
+
+    p = tmp_path / "song.flac"
+    shutil.copy(AUDIO / "silence.flac", p)
+    File(p).save(padding=lambda info: 0)
+    monkeypatch.setattr(audio.shutil, "disk_usage", lambda path: shutil._ntuple_diskusage(10**9, 10**9, 0))
+    with pytest.raises(OSError):
+        audio.write_lyrics(p, SYNCED * 20)
+    assert audio.read_lyrics(p) == "" and not list(tmp_path.glob(".*"))
+
+
+def test_a_flac_behind_an_id3_tag_gets_lyrics_through_a_copy(tmp_path: Path) -> None:
+    from mutagen import File
+    from mutagen.id3 import ID3, TIT2
+
+    p = tmp_path / "song.flac"
+    shutil.copy(AUDIO / "silence.flac", p)
+    File(p).save(padding=lambda info: 0)
+    tag = ID3()
+    tag.add(TIT2(encoding=3, text="a tagger's leftover"))
+    tag.save(p)
+    assert audio.write_lyrics(p, SYNCED * 20) and audio.read_lyrics(p) == (SYNCED * 20).strip()
 
 
 def audio_frames(p: Path) -> bytes:
@@ -320,3 +347,20 @@ def test_a_cut_connection_is_lrclib_failing(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(lrclib, "SPACING", 0)
     with pytest.raises(lrclib.LrclibError):
         lrclib.search("Radiohead", "Creep")
+
+
+def test_a_full_disk_ends_the_run_and_marks_nothing(library: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(job, "QUIET", 0)
+    monkeypatch.setattr(lyrics, "find", lambda *a, **k: lyrics.Lyrics("synced", SYNCED, "lrclib:7"))
+
+    def full(path: Path, text: str) -> bool:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(audio, "write_lyrics", full)
+    message, run = run_job(library)
+    assert message == "nothing to do" and "No space left on device" in run.log[-1][1]
+    con = db.connect(library.db_path)
+    try:
+        assert con.execute("SELECT count(*) FROM lyrics").fetchone()[0] == 0  # asked again once there is room
+    finally:
+        con.close()

@@ -420,7 +420,7 @@ def other_version(title: str, names: list[str], artist_words_: set[str], own: It
             core
             and title_key(c_head) == core
             and (
-                (set(_vwords(c)) & VERSION_WORDS) - want_all
+                (set(_vwords(c)) & VERSION_WORDS) - want_all - artist_words_
                 or _named(c_tail, want_all | artist_words_)
                 or not same_feat(c, title)
             )

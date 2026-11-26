@@ -51,7 +51,8 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
         "ALTER TABLE review_decisions DROP COLUMN user_id; ALTER TABLE review_decisions DROP COLUMN overridden; "
         "ALTER TABLE events DROP COLUMN url; "
         "ALTER TABLE events DROP COLUMN compared; ALTER TABLE events DROP COLUMN peer_bytes; DROP TABLE users; "
-        f"CREATE TABLE users ({V12_USERS}); DROP TABLE availability; DROP TABLE changes; PRAGMA user_version = 12;"
+        f"CREATE TABLE users ({V12_USERS}); DROP TABLE availability; DROP TABLE changes; DROP TABLE lyrics; "
+        "PRAGMA user_version = 12;"
     )
     con.close()
     db.init(path)
@@ -65,6 +66,7 @@ def test_version_12_is_migrated(tmp_path: Path) -> None:
     assert "master" in columns(con, "lossy_sourced") and "verdict" in columns(con, "lossy_checks")
     assert {"pages", "tier"} <= columns(con, "files") and "site" in columns(con, "free_links")
     assert "kind" in columns(con, "origins")
+    assert {"path", "song_key", "state", "source", "size", "mtime", "checked"} <= columns(con, "lyrics")
     assert {"events_path", "events_song"} <= {r[1] for r in con.execute("PRAGMA index_list(events)")}
     assert {"songs_file", "songs_stem"} <= {r[1] for r in con.execute("PRAGMA index_list(songs)")}
     plan = " ".join(

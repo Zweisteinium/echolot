@@ -15,7 +15,7 @@ from echolot.services import discogs, navidrome
 from echolot.settings import configfile, options
 from echolot.settings.sources import ConfigError
 from echolot.web import accounts
-from echolot.web.common import DB, back, page
+from echolot.web.common import DB, back, page, safe_next
 
 router = APIRouter()
 
@@ -141,6 +141,7 @@ def settings_access(
     if service_password:
         with con:
             request.app.state.vault.set(con, navidrome.SERVICE_PASSWORD, service_password)
+        request.app.state.service_offers.clear()  # (no one needs them now: nor their passwords)
     problem = _service_state(request, con)
     if problem:
         return back("/settings", error=f"Saved. The service account does not work yet: {problem}")
@@ -153,12 +154,11 @@ def settings_service_mine(
 ) -> RedirectResponse:
     """The answer to the offer after a Navidrome admin's login: their own account as the service account. Echolot
     kept the password in memory since that login, so nobody types it twice."""
-    offer = request.app.state.service_offers.pop(request.state.user.id, None)
-    target = next if next.startswith("/") and not next.startswith("//") else "/"
+    offer, target = request.app.state.service_offers.pop(request.state.user.id, None), safe_next(next)
     if answer != "yes":
         return back(target)
     if offer is None:
-        return back("/settings", error="Echolot has restarted since your login. Enter the account here.")
+        return back("/settings", error="That offer has expired. Enter the account here.")
     vault = request.app.state.vault
     if vault.get(con, navidrome.SERVICE_PASSWORD):
         return back(target, ok="Another admin has set the service account already.")
@@ -218,11 +218,11 @@ async def config_import_preview(
     if not text.strip():
         return back("/settings", error="Choose an echolot.yml to import.")
     try:
-        diff = configfile.preview(con, text, request.state.user.navidrome_admin)
+        diff, error = configfile.preview(con, text, request.state.user.navidrome_admin), ""
     except ConfigError as err:
-        return page(request, "config_import.html", 400, nav="settings", text=text, diff="",
-                    error=f"Not imported: {err}")  # fmt: skip
-    return page(request, "config_import.html", nav="settings", text=text, diff=diff)
+        diff, error = "", f"Not imported: {err}"
+    context = {"nav": "settings", "text": text, "diff": diff, "error": error}  # (the page asks the database: a thread)
+    return await run_in_threadpool(page, request, "config_import.html", 400 if error else 200, **context)
 
 
 @router.post("/settings/config/import/apply", include_in_schema=False)

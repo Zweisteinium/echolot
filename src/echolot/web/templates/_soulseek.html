@@ -1,13 +1,15 @@
-{# the Soulseek card; polled while the daemon is not ready #}
+{# the Soulseek card; its state is polled while the daemon is not ready (the rest stays: a form being filled in) #}
 {% from "_icons.html" import icon %}
 {% from "_macros.html" import how %}
-<section class="card account" id="soulseek-client" {% if not s.soulseek.ready and s.soulseek.backend != 'slskd' %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
+<section class="card account" id="soulseek-client">
   <div class="section-head">
     <h2 class="group-name">{{ icon('soulseek', 20) }} Soulseek</h2>
+    <span id="soulseek-state" {% if not s.soulseek.ready and s.soulseek.backend != 'slskd' %}hx-get="/accounts/soulseek" hx-trigger="every 10s" hx-select="#soulseek-state" hx-swap="outerHTML"{% endif %}>
     {% if s.soulseek.ready %}<span class="pill ok-pill">Logged in as {{ s.soulseek.user }}</span>
     {% elif not s.soulseek.reachable %}<span class="pill bad-pill">Daemon not reachable</span>
     {% elif s.soulseek.user and s.soulseek.state in ('', 'None') %}<span class="pill">Logs in with the next search</span>
     {% elif s.soulseek.user %}<span class="pill warn-pill">{{ s.soulseek.state|sentence }}</span>{% else %}<span class="pill">No account</span>{% endif %}
+    </span>
   </div>
   {% set via_slskd = s.soulseek.backend == 'slskd' %}
   {% if via_slskd %}

@@ -2,11 +2,11 @@
 <form class="card offer" method="post" action="/settings/service/mine">{{ csrf_input }}
   <input type="hidden" name="next" value="{{ request.url.path }}">
   <div>
-    <h2>Use your Navidrome account for Echolot?</h2>
-    <p class="muted">Echolot needs a Navidrome admin to see the users and give each playlist its owner. You can change it in Server settings.</p>
+    <h2>Your Navidrome account</h2>
+    <p class="muted">Echolot can use it to see the users and give each playlist its owner.</p>
   </div>
   <div class="offer-actions">
-    <button name="answer" value="no">Not now</button>
-    <button class="primary" name="answer" value="yes">Use {{ service_offer }}</button>
+    <button name="answer" value="no">Skip</button>
+    <button class="primary" name="answer" value="yes">Use my account</button>
   </div>
 </form>

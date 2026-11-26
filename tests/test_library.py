@@ -80,7 +80,7 @@ def test_missing_and_overview(con) -> None:
     only = stats.missing(con, "spotify:playlist:BBB222")
     assert [(r["key"], r["tries"], r["in_lists"]) for r in only] == [("spotify:s3", 3, "Liked Songs #3 · Renamed #1")]
     o = stats.overview(con)
-    assert (o["files"], o["wanted"], o["have"], o["not_found"]) == (3, 5, 3, 1)
+    assert (o["files"], o["wanted"], o["have"]) == (3, 5, 3)
     assert [(r["key"], r["songs"], r["have"]) for r in stats.lists(con)][:2] == [
         ("spotify:likes:1", 3, 2),
         ("spotify:playlist:AAA111", 1, 1),

@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 CALLBACK = "/accounts/spotify/callback"
 STATE = "spotify_login_state"  # meta "<prefix>:<uid>": '<state> <unix time> <redirect URI>'
-ONLINE_SECONDS = 600  # the Library page's line renews its cached status after this
+ONLINE_SECONDS = 600  # the sidebar's services renew their cached status after this
 LOW_DISK = 20 * 2**30
 
 
@@ -111,6 +111,8 @@ def _spotify_status(state: Any, uid: int) -> dict[str, Any]:
         creds = spotify.Credentials.load(con, state.vault, uid)
         sp.update(app=creds.app, connected=creds.connected, client_id=creds.client_id)
         if creds.connected:
+            if (until := spotify.resting_until(con)) > time.time():
+                raise spotify.SpotifyResting(until)  # (me() would answer from its cache meanwhile)
             me = spotify.Spotify(con, state.vault, uid).me()
             sp.update(name=me.get("display_name") or me.get("id"), error=None)
     except spotify.SpotifyResting as e:  # the login is fine: Spotify asked to wait (no login error)
@@ -159,7 +161,7 @@ def connections(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
 
 @router.get("/accounts/line", response_class=HTMLResponse)
 def connection_line(request: Request, con: DB) -> HTMLResponse:
-    """The Library page's connection line and free disk space."""
+    """The sidebar's services and free disk space."""
     folder = request.app.state.settings.library_dir
     free = shutil.disk_usage(folder).free if folder and folder.is_dir() else None
     return page(request, "_connections.html", s=status(request, con, cached=True), free=free, low_disk=LOW_DISK)
@@ -312,10 +314,13 @@ def soulseek_account(
     folder = request.app.state.settings.daemon_dir
     if folder is None:
         return back("/settings#soulseek-client", error="Set ECHOLOT_DAEMON_DIR first.")
+    try:
+        soulseek.write_conf(folder, user, password)  # (first: one Echolot can't write leaves the settings as they were)
+    except OSError as e:
+        return back("/settings#soulseek-client", error=f"Not saved: Echolot can't write {folder} ({e.strerror}).")
     with con:
         options.update(con, options.Soulseek, user=user)
         vault.set(con, "soulseek.password", password)
-    soulseek.write_conf(folder, user, password)
     return back("/settings#soulseek-client", ok="Soulseek account saved. The daemon logs in with it in a moment.")
 
 

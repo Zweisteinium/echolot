@@ -30,4 +30,5 @@ services:
     network_mode: service:gluetun
     depends_on:
       gluetun:
-        condition: service_started
+        condition: service_healthy
+        restart: true                     # gluetun recreated: this one joins its new network (run.sh: restarted)

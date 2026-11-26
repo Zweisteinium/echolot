@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from echolot.library import catalog, filing, history, origin, recording, unreleased
-from echolot.services import soundcloud, spotify
 from echolot.settings import options
 from echolot.web import cache, charts, discogs, stats
 from echolot.web.common import DB, back, page
@@ -26,10 +25,7 @@ def old_overview(request: Request) -> RedirectResponse:
 @router.get("/library", response_class=HTMLResponse)
 def overview(request: Request, con: DB) -> HTMLResponse:
     uid = stats.scope(request.state.user)
-    o, vault = cache.get(con, stats.overview, uid), request.app.state.vault
-    connected = vault.has(con, spotify.refresh_name(request.state.user.id)) or vault.has(
-        con, soundcloud.token_name(request.state.user.id)
-    )
+    o = cache.get(con, stats.overview, uid)
     lists = cache.get(con, stats.lists, uid)  # Quality by list
     record = any(r["service"] == "spotify" for r in lists)  # Add music: Record
     rings = {
@@ -46,10 +42,8 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         best=best,
         best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
         tier_hints=stats.TIER_HINTS,
-        connected=connected,
         record=record,
         lists=lists,
-        tabs=cache.get(con, library_tabs, uid),
     )
 
 

@@ -42,12 +42,13 @@ You need:
 - For Spotify lists, one Premium account to create Echolot's Spotify app with. Up to five people can use it.
 
 Navidrome comes with it, or use your own. Everyone logs in to Echolot with their Navidrome account.
+Soulseek shows your IP address to other users. To hide it behind a VPN, set that up first (see Setups).
 
 ```sh
 mkdir echolot && cd echolot
 curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/compose.yaml
 curl -fsSL https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/.env.example -o .env
-nano .env    # set MUSIC to your music folder
+nano .env    # set MUSIC to your music folder, and PUID and PGID to yours (id -u, id -g)
 mkdir -p data/echolot data/sockseek data/navidrome
 docker compose up -d
 ```
@@ -68,7 +69,7 @@ development.
 |---|---|
 | Review | Doubtful downloads with a player and the reason, answered with a click or a key. |
 | Missing | The songs not found yet, and those that seem wiped off the internet. A file you upload goes through the same checks. |
-| Unreleased music | A friend's tracks or an edit deleted everywhere, kept exactly as uploaded, in lists of their own. |
+| Unreleased music | A friend's songs or an edit deleted everywhere, kept exactly as uploaded, in lists of their own. |
 | Buy | Lossy SoundCloud songs whose page links to Bandcamp, with the price. Free downloads come in by themselves. |
 | Lyrics | From [LRCLIB](https://lrclib.net), synced where available, only when they surely belong to the song. |
 | Statistics | Growth over time and quality by file, song and list. Prometheus metrics and an API. |
@@ -133,10 +134,9 @@ folders can go into the same Navidrome.
 <details>
 <summary><b>Soulseek through a VPN</b></summary>
 
-Soulseek peers see your IP address. Get `vpn.yaml` next to `compose.yaml`
-(`curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/vpn.yaml`), fill in the VPN lines in `.env` and start with
-`docker compose -f compose.yaml -f vpn.yaml up -d`. [gluetun](https://github.com/qdm12/gluetun) then
-carries the Soulseek traffic. YouTube and SoundCloud stay on your own connection, as they don't like VPNs.
+Soulseek peers see your IP address. Put `vpn.yaml` next to `compose.yaml`
+(`curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/vpn.yaml`), fill in the VPN lines and `COMPOSE_FILE` in `.env`, and
+start as usual. [gluetun](https://github.com/qdm12/gluetun) then carries the Soulseek traffic. YouTube and SoundCloud stay on your own connection, as they don't like VPNs.
 With a provider that forwards a port, peers behind a firewall can send to you too.
 </details>
 
@@ -158,9 +158,9 @@ unused.
 <details>
 <summary><b>Behind a reverse proxy</b></summary>
 
-Add `FORWARDED_ALLOW_IPS` with the proxy's address to Echolot's `environment` in `compose.yaml`, so it
-trusts the proxy's headers. Over https, the Spotify login comes back to Echolot by itself. Over plain http
-you paste one address back, and the Playlists page shows where.
+Set `FORWARDED_ALLOW_IPS` in `.env` to the proxy's address, so Echolot trusts the proxy's headers. Over
+https, the Spotify login comes back to Echolot by itself. Over plain http you paste one address back, and the
+Playlists page shows where.
 </details>
 
 <details>
@@ -269,7 +269,7 @@ the basics:
 - **Updates:** read the release notes, then:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/compose.yaml    # or change the versions in yours
+curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/compose.yaml    # or, if you changed yours, the versions in it
 docker compose pull
 docker compose up -d
 ```

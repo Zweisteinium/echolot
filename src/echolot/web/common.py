@@ -23,12 +23,13 @@ def get_db(request: Request) -> Iterator[Connection]:
     try:
         yield con
     finally:
-        if con.total_changes:
-            cache.clear()
+        changed = con.total_changes
         con.close()
+        if changed:
+            cache.clear()
 
 
-DB = Annotated[Connection, Depends(get_db)]
+DB = Annotated[Connection, Depends(get_db, scope="function")]  # (closed before the response: the next page is fresh)
 
 
 def page(request: Request, template: str, status_code: int = 200, **context: Any) -> HTMLResponse:
@@ -58,9 +59,10 @@ def nav_counts(request: Request, user: Any) -> dict[str, int | None]:
     library = request.app.state.settings.library_dir
     con = db.connect(request.app.state.settings.db_path)
     try:
-        counts: dict[str, int | None] = dict(cache.get(con, pages.library_tabs, stats.scope(user)))
+        uid = stats.scope(user)
+        counts: dict[str, int | None] = dict(cache.get(con, pages.library_tabs, uid))
         if library is not None and user.can("review"):
-            waiting = cache.get(con, review.waiting_count, library.parent, None if user.everyone else user.id)
+            waiting = cache.get(con, review.waiting_count, library.parent, uid)
             counts["review"] = waiting
         return counts
     finally:
@@ -81,6 +83,11 @@ class Assets(StaticFiles):
         if b"v=" in scope.get("query_string", b"") and response.status_code == 200:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
+
+
+def safe_next(target: str) -> str:
+    """A path on this site to go on to, or / (never another site's address)."""
+    return target if target.startswith("/") and not target.startswith("//") else "/"
 
 
 def back(path: str, **message: str) -> RedirectResponse:

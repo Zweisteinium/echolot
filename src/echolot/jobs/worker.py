@@ -114,13 +114,14 @@ def upkeep(run: Run) -> str:
                 log.info("Navidrome's users: %s", e)
         if adopted := sources.adopt(con):
             parts.append(f"adopted: {adopted}")
+        scanned = catalog.scan(con, run.paths.tracks)  # first: a library half gone stops here, before decisions act
         if applied := review.apply_due(run, con):
             parts.append(f"review: {'; '.join(applied)}")
         if compared := review.compare_open(con, run.paths.music):
             parts.append(f"{compared} review items compared with your copy")
         if merged := recordings.merge_edits(con, run.paths):
             parts.append(f"other edits: {'; '.join(merged)}")
-        parts.append(catalog.refresh(con, run.paths.tracks))
+        parts.append(f"{scanned}; {catalog.match_songs(con)}")
         if linked := recordings.link_isrc(con, run.paths):
             catalog.match_songs(con)
             parts.append(f"{linked} linked by ISRC")
