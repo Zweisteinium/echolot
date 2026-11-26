@@ -1,71 +1,78 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.svg">
-    <img src="docs/banner-light.svg" alt="Echolot: your music archive, in the best quality there is" width="100%">
+    <img src="docs/banner-light.svg" alt="Echolot: your eternal music archive, in the best quality there is" width="100%">
   </picture>
 </p>
 
-Echolot builds an archive of the music you listen to, on your own server. It follows your playlists and
-likes on Spotify, SoundCloud and YouTube, finds every song in the best quality available, makes sure it is
-the right recording and keeps it as a plain audio file. A song stays in your archive when it disappears
-from the service.
+Echolot turns your playlists and likes on Spotify, SoundCloud and YouTube into an eternal music archive on
+your own server. Every song as the right recording, in the best quality it can find.
 
-Through [Navidrome](https://www.navidrome.org) and any Subsonic app, the same archive is what you listen to
-every day.
+It is made for people who want a clean library they can rely on. Echolot would rather leave a song missing
+than file a wrong one, a fake FLAC or a broken file.
 
 <p align="center">
-  <img src="docs/echolot.webp" alt="Echolot: the library's growth, a list with every song's file and quality, files uploaded and checked one by one, a download to review" width="100%">
+  <img src="docs/echolot.webp" alt="Echolot: the library's growth and quality, the quality of each list, a list's songs with their files, three files uploaded and checked, a download to review, the jobs at work" width="100%">
 </p>
 
-## Why Echolot
+## What it does
 
-Finding a file is the easy part. Echolot puts its effort into making sure it is the right file, and the
-best one, so the archive holds up for years.
+- **Follows your lists.** Spotify playlists and liked songs, SoundCloud likes and sets, YouTube playlists.
+  New songs arrive within minutes.
+- **Finds every song.** On Soulseek, YouTube and SoundCloud, FLAC first. It also gets free downloads from
+  Bandcamp and Hypeddit, takes files you upload, and can record songs from Spotify with
+  [Mitschnitt](https://github.com/Zweisteinium/mitschnitt).
+- **Checks every file.** Artist, title, version and length have to match, and the audio is compared with the
+  official release. Fake FLACs and damaged files are caught. When Echolot is unsure, you decide on the Review
+  page.
+- **Gets better over time.** A lossy copy is replaced as soon as a genuine FLAC turns up.
+- **Keeps what disappears.** Songs taken down on Spotify or SoundCloud stay in your library.
+- **Plays everywhere.** Every list becomes a playlist in [Navidrome](https://www.navidrome.org), with your likes
+  and the lyrics, for each user. Any Subsonic app plays it on your phone or computer.
 
-**The right recording.** A download has to match the song's artist, title, version and length. Its audio
-is then compared with the official release, so a live take, a remix or a cover under the right name does
-not get in. When Echolot is unsure, it asks you on the Review page. A missing song is better than a wrong
-one.
+Echolot does not recommend music. Keep your streaming service for finding new songs. For the ones you already
+know, Echolot covers everyday listening.
 
-**The best copy there is.** Echolot looks for FLAC on Soulseek first and falls back to YouTube and
-SoundCloud. A lossy copy is replaced as soon as a genuine FLAC turns up, and only by the same
-recording. A FLAC made from an MP3 is recognised by two independent checks and counts as lossy.
+## Get started
 
-**Nothing gets lost.** Songs that are taken down, greyed out or uploaded again at the source stay in your
-library, and the Availability page shows what changed. Files are never overwritten. A replaced file is
-kept for 30 days.
+You need:
 
-**Plain files you own.** One file per song in `tracks/Artist/Artist - Title.flac`, however many lists
-hold it. Tags and cover come from the song's own release, and lyrics are embedded. Any player can read
-them, with or without Echolot.
+- Docker with Compose.
+- Room for the music: a song in FLAC takes about 30 MB, so 10,000 songs take about 300 GB.
+- For Spotify lists, one Premium account to create Echolot's Spotify app with. Up to five people can use it.
 
-## For everyday listening
+Navidrome comes with it, or use your own. Everyone logs in to Echolot with their Navidrome account.
 
-New songs arrive a few minutes after you add them to a list, and every list becomes a playlist in
-Navidrome, in the same order, for each user. Feishin, Symfonium or any other Subsonic app then plays the
-whole archive on your phone, your computer or in the car. Songs you like on Spotify or SoundCloud are
-hearted in Navidrome too.
+```sh
+git clone https://github.com/Zweisteinium/echolot
+cd echolot/deploy
+cp .env.example .env    # then set MUSIC to your music folder
+mkdir -p data/echolot data/sockseek data/navidrome
+docker compose up -d
+```
 
-For the music you already know, that covers day-to-day listening. Echolot does not help you find new
-music: there are no recommendations, no radio and no charts. Keep your streaming service for discovering.
-Echolot keeps what you find.
+Create the first account in Navidrome at `http://<host>:4533`, then log in to Echolot at `http://<host>:8490`
+with it.
 
-## Features
+> **Status:** beta. Echolot runs every day on a library of over 15,000 songs. Expect the odd rough edge until 1.0.
+
+---
+
+The rest of this page goes into detail: accounts, other setups, how Echolot decides, configuration and
+development.
+
+## More features
 
 | Feature | What it does |
 |---|---|
-| **Lists** | Spotify playlists and liked songs, SoundCloud likes and sets, YouTube playlists. Your own, or any public list by its link. |
-| **Sources** | Soulseek through the bundled daemon or [slskd](https://github.com/slskd/slskd), then YouTube and SoundCloud. Free Bandcamp downloads and free download pages that a SoundCloud song links to. |
-| **Quality** | FLAC first, later upgrades for lossy songs, two checks against fake FLAC. Hi-res files become 44.1 or 48 kHz unless you keep them as they are. |
-| **Review** | Doubtful downloads with a player and the reason, answered with a click or a key. |
-| **Missing** | The songs not found yet, and those that seem wiped off the internet. A file you have yourself can be uploaded and goes through the same checks. |
-| **Lyrics** | From [LRCLIB](https://lrclib.net), synced where available, only when they surely belong to the song. |
-| **Unreleased music** | A friend's tracks or an edit deleted everywhere, kept exactly as uploaded, in lists of their own. |
-| **Recording** | With [Mitschnitt](https://github.com/Zweisteinium/mitschnitt) on your PC, the songs you lack are recorded from Spotify bit for bit, checked and filed. |
-| **Statistics** | Growth over time, quality by file, by song and by list. Prometheus metrics and an API. |
-| **Users** | Everyone logs in with their Navidrome account and gets their own lists, playlists and hearts. |
-| **Buy** | Lossy SoundCloud songs whose page links to Bandcamp or a free download, with the price or the link. |
-| **Discogs** | Optional. The releases of your songs that Discogs lacks, with what to submit for them. |
+| Review | Doubtful downloads with a player and the reason, answered with a click or a key. |
+| Missing | The songs not found yet, and those that seem wiped off the internet. A file you upload goes through the same checks. |
+| Unreleased music | A friend's tracks or an edit deleted everywhere, kept exactly as uploaded, in lists of their own. |
+| Buy | Lossy SoundCloud songs whose page links to Bandcamp, with the price. Free downloads come in by themselves. |
+| Lyrics | From [LRCLIB](https://lrclib.net), synced where available, only when they surely belong to the song. |
+| Statistics | Growth over time and quality by file, song and list. Prometheus metrics and an API. |
+| Users | Everyone logs in with their Navidrome account and gets their own lists, playlists and likes. |
+| Discogs | Optional. The releases of your songs that Discogs lacks, with what to submit for them. |
 
 ## What it doesn't do
 
@@ -74,50 +81,8 @@ Echolot keeps what you find.
 - It keeps songs, not albums.
 - It doesn't break copy protection.
 
-If you are after discovery and album management, [SoulSync](https://github.com/Nezreka/SoulSync) does much
-of what Echolot does and more. The two run fine side by side.
-
-> **Status:** beta. Echolot runs every day on a library of over 15,000 songs. Expect the odd rough edge
-> until 1.0.
-
-## Quick start
-
-You need Docker with Compose. Spotify needs a Premium account, because Spotify only runs developer apps of
-Premium users. Soulseek needs no sign-up.
-
-**1. Get the files**
-
-```sh
-git clone https://github.com/Zweisteinium/echolot
-cd echolot/deploy
-cp .env.example .env
-```
-
-**2. Set your music folder.** In `.env`, set `MUSIC` to a folder you own, empty or new. Check `PUID`, `PGID`
-and `TZ` too.
-
-**3. Start**
-
-```sh
-mkdir -p data/echolot data/sockseek data/navidrome
-docker compose up -d
-```
-
-The first start builds the Soulseek daemon, which takes a few minutes.
-
-**4. Log in**
-
-1. Open Navidrome at `http://<host>:4533` and create its admin account first. Echolot's users are
-   Navidrome's users.
-2. Open Echolot at `http://<host>:8490` and log in with that account.
-3. Open **Server settings** from the menu under your name and enter the same account under **Access**.
-
-**5. Connect and choose**
-
-1. In **Server settings**, pick a name for the Soulseek account.
-2. **Playlists** walks you through connecting Spotify and SoundCloud. Then choose the lists to follow.
-
-The first songs arrive within minutes. Listen in Navidrome or any Subsonic app.
+If you are after discovery and album management, [SoulSync](https://github.com/Nezreka/SoulSync) does much of
+what Echolot does and more. The two run fine side by side.
 
 ## Accounts
 
@@ -131,11 +96,6 @@ limits.
 
 **SoundCloud.** SoundCloud hands out no app keys, so Echolot uses your browser's login token. The Playlists
 page shows where to find it. After you log out of SoundCloud in that browser, paste a new one.
-
-**Soulseek.** Nothing to register. Pick a name and a password, and the first login creates the account.
-There is no password recovery, so keep both. A name can only be online in one client at a time. Many
-people on Soulseek don't share with accounts that share nothing. The bundled daemon shares nothing, slskd
-does (see below).
 
 **YouTube.** Nothing to connect. Follow a playlist by its link.
 
@@ -375,9 +335,10 @@ the release and pushes `lordlayer/echolot` to Docker Hub for both platforms.
 
 ## Credits
 
-Echolot uses [lossprint](https://github.com/maxdjohnson/lossprint) to tell a FLAC made from an MP3, AAC or
-Opus file from a genuine one. After a lot of research and testing, it is by far the best tool for this that
-I have found. Check it out.
+- [Sockseek](https://github.com/fiso64/sockseek) by fiso64 searches and downloads on Soulseek for Echolot.
+- [lossprint](https://github.com/maxdjohnson/lossprint) tells a FLAC made from an MP3, AAC or Opus file from a
+  genuine one. After a lot of research and testing, it is by far the best tool for this that I have found.
+- [Navidrome](https://www.navidrome.org) plays the library, and its accounts are Echolot's.
 
 ## Fair use
 
