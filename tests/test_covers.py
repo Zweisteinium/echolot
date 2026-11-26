@@ -77,7 +77,7 @@ def test_the_covers_run(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> 
         os.utime(f, (time.time() - 3600, time.time() - 3600))
     run_all = Run(BY_NAME["covers_all"], settings, Vault.from_env(settings.data_dir, {}), "manual")
     run_all.stop = threading.Event()
-    assert covers.run_all(run_all) == "2 already the song's" and len(asked) == 2  # Replace all: every file again
+    assert covers.run_all(run_all) == "2 right already" and len(asked) == 2  # Replace all: every file again
     asked.clear()
     assert covers.run(run) == "nothing to do" and asked == []  # and noted done again
 

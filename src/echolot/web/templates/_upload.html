@@ -2,7 +2,7 @@
 <div class="upload"{% if step == 'pick' %} data-batch="{{ batch }}" data-song="{{ song.key if song else '' }}"{% endif %}>
 {% if step == 'pick' %}
   <h2>Upload {{ 'a file for ' ~ song.artist ~ ' – ' ~ song.title if song else 'files' }}</h2>
-  <p class="muted small">Files you got elsewhere (bought, or from another tool): for missing songs, better copies of songs you have, or released songs on none of your lists (they go into Echolot · Wished). Each file is checked the moment you add it; you decide what is imported.</p>
+  <p class="muted small">Files you bought or got elsewhere: missing songs, better copies, or songs on none of your lists. Each file is checked as you add it. You decide what is imported.</p>
   <label class="drop">
     <input type="file" multiple accept="audio/*,.flac,.mp3,.m4a,.opus,.ogg,.wav,.aiff,.aif" data-files>
     <span class="drop-text"><b>Choose files</b> or drop them here</span>
@@ -16,14 +16,14 @@
       <tbody data-rows></tbody>
     </table>
     </div>
-    <p class="muted small" data-table hidden>Each file becomes the song shown, whatever its names or length (as Perfect match in review); for a song you have, it replaces your copy (kept 30 days in <code>inbox/replaced</code>). Leave out a file with ×.</p>
+    <p class="muted small" data-table hidden>Each file becomes the song shown, whatever its names or length. For a song you have, it replaces your copy, which is kept 30 days in <code>inbox/replaced</code>. Leave a file out with ×.</p>
     <div class="dialog-actions">
       <div class="upload-progress" data-progress hidden role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="label"><span data-progress-text></span><b data-progress-pct>0 %</b></div>
         <div class="bar"><span></span></div>
       </div>
       <span class="muted small busy" hidden>Importing…</span>
-      <label class="force small" data-force-all hidden title="Replace your copies with these files even where they are not better (yours are kept 30 days in inbox/replaced)"><input type="checkbox"> Replace all</label>
+      <label class="force small" data-force-all hidden title="Replace your copies even where these files are not better. Yours are kept 30 days in inbox/replaced."><input type="checkbox"> Replace all</label>
       <button type="button" data-close>Cancel</button>
       <button class="primary" data-import disabled>Import</button>
     </div>

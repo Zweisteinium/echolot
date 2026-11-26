@@ -22,7 +22,7 @@
     </div>
   </div>
   {% if not s.from_store %}
-  <p class="flash error small">No release on Beatport found. Discogs takes a download only with its source (a store or a free download page) in the submission notes: find it on Bandcamp or another store first. Below only what Spotify and your library know.</p>
+  <p class="flash error small">No release found on Beatport. Discogs takes a download only with its source, a store or a free download page, in the notes. Find it on Bandcamp or another store first. Below is what Spotify and your library know.</p>
   {% endif %}
   <div class="dc-fields">
     {% for name in s.artists %}{{ field('artist-' ~ loop.index, 'Artists' if loop.first else '', name, 'one artist per row; Discogs may know several of a name: pick the right one, Name (2)' if loop.first else '') }}{% endfor %}
@@ -31,24 +31,24 @@
       <div class="dc-label">Label, catalog number<span class="hint">{% if s.from_store %}type Label{% else %}as the store page names them{% endif %}</span></div>
       <div class="dc-value dc-stack">
         {% if s.label %}<span>{{ copy('label', s.label) }} <span class="muted small">catalog number</span> {{ copy('catno', s.catno) }}</span>
-        {% else %}<span class="muted small">No label on the store page, or only a distributor (DistroKid, TuneCore, CD Baby): {{ copy('self', s.self_released) }} with catalog number {{ copy('catno', 'none') }}</span>{% endif %}
+        {% else %}<span class="muted small">No label, or only a distributor like DistroKid: {{ copy('self', s.self_released) }} with catalog number {{ copy('catno', 'none') }}</span>{% endif %}
       </div>
     </div>
     <div class="dc-field">
-      <div class="dc-label">Format<span class="hint">each file type is its own release on Discogs: one submission per type, the one you downloaded</span></div>
+      <div class="dc-label">Format<span class="hint">Each file type is its own release on Discogs, so submit the one you downloaded</span></div>
       <div class="dc-value dc-stack">
-        <span><b>File</b> · <b>FLAC</b> · Qty {{ copy('qty', s.qty) }} <span class="muted small">(the number of files)</span></span>
-        {% if s.formats %}<span class="small">Beatport sells it as {{ s.formats|join(', ') }}: FLAC is the one to enter first. The others are a submission each, later: <b>WAV</b>, <b>AIFF</b> without free text; <b>MP3</b> with free text {{ copy('kbps', '320 kbps') }}</span>
-        {% else %}<span class="small">FLAC if the store sells it, else the type it sells: <b>WAV</b>, <b>AIFF</b> without free text; <b>MP3</b> with its bitrate as free text, e.g. {{ copy('kbps', '320 kbps') }}</span>{% endif %}
-        {% if s.description %}<span class="small">Description: <b>{{ s.description }}</b> <span class="muted">(as the release calls itself)</span></span>{% endif %}
+        <span><b>File</b> · <b>FLAC</b> · Qty {{ copy('qty', s.qty) }} <span class="muted small">the number of files</span></span>
+        {% if s.formats %}<span class="small">Beatport sells it as {{ s.formats|join(', ') }}. Enter FLAC first, the others later, one submission each. <b>WAV</b> and <b>AIFF</b> take no free text, <b>MP3</b> takes {{ copy('kbps', '320 kbps') }}.</span>
+        {% else %}<span class="small">FLAC if the store sells it, else the type it sells. <b>WAV</b> and <b>AIFF</b> take no free text, <b>MP3</b> takes its bitrate, like {{ copy('kbps', '320 kbps') }}.</span>{% endif %}
+        {% if s.description %}<span class="small">Description: <b>{{ s.description }}</b> <span class="muted">as the release calls itself</span></span>{% endif %}
       </div>
     </div>
     {{ field('released', 'Released', s.released) }}
     <div class="dc-field">
-      <div class="dc-label">Genres, styles<span class="hint">styles appear once a genre is ticked; only Discogs' styles are offered</span></div>
+      <div class="dc-label">Genres, styles<span class="hint">Styles appear once a genre is ticked</span></div>
       <div class="dc-value dc-stack">
         {% if s.genres %}<span>{% for g in s.genres %}<b>{{ g }}</b>{{ ', ' if not loop.last }}{% endfor %}{% for st in s.styles %} · {{ copy('style-' ~ loop.index, st) }}{% endfor %}</span>{% else %}<span class="muted">none known</span>{% endif %}
-        {% if s.store_genre or s.your_genre %}<span class="muted small">{% if s.your_genre %}your genre: {{ s.your_genre }}{% endif %}{% if s.your_genre and s.store_genre %} · {% endif %}{% if s.store_genre %}Beatport: {{ s.store_genre }}{% endif %}{% if not s.styles %} (no Discogs style){% endif %}. A genre Discogs lacks (Neo Rave, Tekk) has no place in the release: not in its notes either.</span>{% endif %}
+        {% if s.store_genre or s.your_genre %}<span class="muted small">{% if s.your_genre %}your genre: {{ s.your_genre }}{% endif %}{% if s.your_genre and s.store_genre %} · {% endif %}{% if s.store_genre %}Beatport: {{ s.store_genre }}{% endif %}{% if not s.styles %}, no Discogs style{% endif %}. A genre Discogs lacks, like Tekk, goes nowhere, not even in the notes.</span>{% endif %}
       </div>
     </div>
   </div>
@@ -67,7 +67,7 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="muted small">Track artists only where they differ from the release's; a remixer as the credit Remix on its track.</p>
+  <p class="muted small">Track artists only where they differ from the release's. A remixer goes in as the credit Remix on its track.</p>
   {% else %}
   <p class="muted small">Not known without the store's release: your library has {{ a.songs|length }} of its {{ a.tracks or '?' }} tracks.</p>
   {% endif %}
@@ -78,15 +78,15 @@
     <summary>Optional, and what stays empty</summary>
     <div class="dc-fields">
       {{ field('barcode', 'Barcode', s.barcode, 'type Barcode; only when the store page or your download shows it (the UPC of this store release)') }}
-      <div class="dc-field"><div class="dc-label">Country</div><div class="dc-value muted small">Worldwide when the store sells it in every country; else empty</div></div>
-      <div class="dc-field"><div class="dc-label">ISRC</div><div class="dc-value muted small">left out: only from the files you downloaded, per track (description: its position)</div></div>
-      <div class="dc-field"><div class="dc-label">Notes</div><div class="dc-value muted small">empty unless the release itself says something (its text on the store page)</div></div>
+      <div class="dc-field"><div class="dc-label">Country</div><div class="dc-value muted small">Worldwide when the store sells it everywhere, else empty</div></div>
+      <div class="dc-field"><div class="dc-label">ISRC</div><div class="dc-value muted small">only from the files you downloaded, per track</div></div>
+      <div class="dc-field"><div class="dc-label">Notes</div><div class="dc-value muted small">empty, unless the store page has a text of the release</div></div>
     </div>
   </details>
   <div class="dialog-actions">
     <a class="small dc-link" href="{{ s.search }}" target="_blank" rel="noopener">Search Discogs ↗</a>
     {% if s.url %}<a class="small dc-link" href="{{ s.url }}" target="_blank" rel="noopener">Beatport page ↗</a>{% endif %}
-    {% if s.cover %}<a class="small dc-link" href="{{ s.cover }}" target="_blank" rel="noopener" title="The store's cover: Discogs' image rules decide whether it may be used">Cover ↗</a>{% endif %}
+    {% if s.cover %}<a class="small dc-link" href="{{ s.cover }}" target="_blank" rel="noopener" title="The store's cover. Discogs' image rules decide whether it may be used.">Cover ↗</a>{% endif %}
     <button type="button" data-close>Close</button>
     <a class="button primary" href="{{ add }}" target="_blank" rel="noopener">Add on Discogs ↗</a>
   </div>

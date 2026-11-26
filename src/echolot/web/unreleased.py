@@ -137,7 +137,7 @@ def _row(request: Request, con: DB, batch: str, f: upload.File, names: songs.Nam
     if named and not (found and (found.release or found.failed)) and not twins and not lost:
         labels.append(("Not released", "ok", "No release with its audio (Deezer), nothing like it in your library"))
     if named and likely == KEEP and songs.taken(con, paths, n):
-        detail = "An unreleased song has these names already: put what differs into the title, e.g. (Custom Edit)"
+        detail = "An unreleased song has these names already. Put what differs into the title, like (Custom Edit)."
         labels.append(("Name taken", "bad", detail))
     labels += upload.file_notes(f) if not f.error else []
     checks = upload.release_checks(found.release) if found and found.release else []
@@ -155,7 +155,7 @@ def upload_file(request: Request, con: DB, batch: str, file: Annotated[UploadFil
     try:
         f = upload.add(uploads._paths(request), batch, file.filename or "", file.file, keep_hires=True)
     except ValueError as e:
-        raise HTTPException(404, "That upload is gone (imported, cancelled, or older than a day).") from e
+        raise HTTPException(404, "That upload is gone: imported, cancelled or older than a day.") from e
     artist, title = upload.names(f)
     return _row(request, con, batch, f, songs.Names(artist, title, ""))
 
@@ -204,9 +204,9 @@ def _import(
         raise HTTPException(403, "That song is not one of yours.")
     names = [songs.file_name(names) for names in local.values()]  # (refused before anything is filed)
     if twice := next((name for name in names if names.count(name) > 1), None):
-        raise HTTPException(400, f"Two files would both be {twice}: give one of them another title.")
+        raise HTTPException(400, f"Two files would both be {twice}. Give one of them another title.")
     if len(set(replaced.values())) < len(replaced):
-        raise HTTPException(400, "Two files would replace the same song's file: leave one of them out.")
+        raise HTTPException(400, "Two files would replace the same song's file. Leave one of them out.")
     key, out = "", []
     if local:
         try:
@@ -214,7 +214,7 @@ def _import(
         except songs.Refused as e:
             raise HTTPException(400, str(e)) from e
         if not songs.owns(con, uid, key):
-            raise HTTPException(403, "That is not one of your Unreleased lists (any more).")
+            raise HTTPException(403, "That is no longer one of your Unreleased lists.")
         out = [songs.add(con, paths, by_n[n], names, key, note, cover) for n, names in sorted(local.items())]
     filed = any(k for _, k in out)
     out += [
@@ -295,8 +295,8 @@ def delete_list(request: Request, con: DB, key: str, songs_to: Annotated[str, Fo
         return back("/library", ok="List deleted.")
     what = f"{n} song{'s' if n != 1 else ''}"
     if songs_to == songs.DROP:
-        return back("/library", ok=f"List deleted with {what}; their files are kept 30 days in inbox/replaced.")
-    return back(f"/lists/{songs_to}", ok=f"List deleted; its {what} moved here.")
+        return back("/library", ok=f"List deleted with {what}. Their files are kept 30 days in inbox/replaced.")
+    return back(f"/lists/{songs_to}", ok=f"List deleted. Its {what} moved here.")
 
 
 @router.post("/unreleased/{key}/remove")
@@ -306,7 +306,7 @@ def remove_song(request: Request, con: DB, key: str, song: Annotated[str, Form()
     except songs.Refused as e:
         return _refused(key, e)
     request.app.state.worker.trigger("library")
-    return back(f"/lists/{key}", ok="Taken out of this list; it stays on your other ones.")
+    return back(f"/lists/{key}", ok="Taken out of this list. It stays on your other lists.")
 
 
 @router.post("/unreleased/{key}/song")
@@ -317,7 +317,7 @@ def song_action(
     one), delete (the song)."""
     uid = _user(request)
     if key not in songs.in_lists(con, uid, song):
-        return _refused(key, songs.Refused("That song is not on this list (any more)."))
+        return _refused(key, songs.Refused("That song is no longer on this list."))
     try:
         if to.startswith("move:"):
             songs.move(con, uid, key, song, to[5:])
@@ -327,10 +327,10 @@ def song_action(
             done = "Added to that list too."
         elif to == "remove":
             songs.remove(con, uid, key, song)
-            done = "Taken out of this list; it stays on your other ones."
+            done = "Taken out of this list. It stays on your other lists."
         elif to == songs.DROP:
             name = songs.delete_song(con, uploads._paths(request), uid, song)
-            done = f"{name} deleted; its file is kept 30 days in inbox/replaced."
+            done = f"{name} deleted. Its file is kept 30 days in inbox/replaced."
         else:
             raise songs.Refused("Choose what to do with it.")
     except songs.Refused as e:

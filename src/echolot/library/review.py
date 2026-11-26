@@ -250,6 +250,13 @@ def waiting(con: sqlite3.Connection, music_dir: Path, key: str | None = None) ->
     return {rules.norm_key(i.event["song"]) for i in items(con, music_dir, key=key)["kept"] if i.event["song"]}
 
 
+def waiting_count(con: sqlite3.Connection, music_dir: Path, uid: int | None = None) -> int:
+    """The songs on the review page with a download no decision was made on yet: the navigation's count.
+    Grouped as groups() does, without its sorting (likelihood reads the files' tags)."""
+    open_ = [(k, i.event) for k, rows in items(con, music_dir, uid).items() for i in rows if not i.decision]
+    return len({(k, e["song"] or f"event {e['id']}") for k, e in open_})
+
+
 TAKE = ("ok", "accept", "close")  # decisions that give the song a file
 
 

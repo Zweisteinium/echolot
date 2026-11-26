@@ -330,8 +330,8 @@ def test_upload_unreleased_songs(settings: Settings, login: Callable[..., TestCl
     assert "/song/edit?song=" in page and "data-drag" in page and "data-alone title=" in page  # (no other list)
     assert 'name="show" value="on" checked' in page  # (a playlist in the music server)
     assert "Open on" not in page and "Felix - Night Drive.mp3" in page
-    library = client.get("/library").text
-    assert "Echolot" in library and ">unreleased</span>" in library and "Upload unreleased" in library
+    library = client.get("/library").text  # Quality by list
+    assert "Echolot" in library and ">Unreleased</span>" in library and "Upload unreleased" in library
     assert client.post(f"/unreleased/{key}/rename", data={"name": "Felix"}, follow_redirects=False).status_code == 303
     r = client.post(f"/unreleased/{key}/delete", follow_redirects=False)
     assert r.status_code == 303 and "error=Choose" in r.headers["location"]  # (where its songs go, or not)
@@ -441,7 +441,7 @@ def test_only_its_owner_manages_an_unreleased_list(settings: Settings, login: Ca
     assert client.post("/account/view", data={"view": "everyone"}, follow_redirects=False).status_code == 303
     page = client.get(f"/lists/{key}").text
     assert "From Felix" in page and "Felix - Night Drive.mp3" in page
-    assert "/rename" not in page and "/delete" not in page and "/song" not in page and "Upload" not in page
+    assert "/rename" not in page and "/delete" not in page and "/song/edit" not in page and "Upload" not in page
 
 
 def test_up_to_ten_lists(settings: Settings, login: Callable[..., TestClient]) -> None:

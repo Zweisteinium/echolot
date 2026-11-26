@@ -1,5 +1,6 @@
 """Template filters: numbers, sizes, times, schedules, prices, job lines."""
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -93,7 +94,23 @@ def price(amount: float | None, currency: str = "", free: bool = False) -> str:
     return CURRENCIES.get(currency, "{} " + currency).format(f"{amount:.2f}").strip()
 
 
+_SCORE = re.compile(r"\((0\.\d{2})\)")  # an audio comparison's score in a reason: "differs from the release (0.62)"
+
+
+def scores(text: str | None) -> str:
+    """A reason with its audio scores as shares: "(0.62)" -> "(62 % alike)"."""
+    return _SCORE.sub(lambda m: f"({round(float(m.group(1)) * 100)} % alike)", text or "")
+
+
+def sentence(text: str | None) -> str:
+    """A badge's text in sentence case: its first letter capital, the rest as it is ("fake FLAC": "Fake FLAC")."""
+    return text[:1].upper() + text[1:] if text else ""
+
+
 FILTERS = {"num": num, "size": size, "ago": ago, "until": until, "mmss": mmss, "minutes": minutes, "source": source}
+FILTERS["sentence"] = sentence
+FILTERS["scores"] = scores
+FILTERS["fromjson"] = lambda text: json.loads(text) if text else []
 FILTERS["span"] = span
 FILTERS["price"] = price
 
@@ -107,6 +124,7 @@ OUTCOMES = {  # a song outcome in a job's line -> (icon, tone); the word is the 
     "failed": ("close", "bad"),
     "bad file": ("block", "bad"),
 }
+SAID = {"upgrade": "upgraded"}  # an outcome's word where the action's name reads wrong after a count
 _COUNT = re.compile(r"(\d+)(?: of (\d+))?(?: ([a-z][a-z0-9 '’()-]*))?")  # "43 lists", "163 of 200 songs"
 
 
@@ -125,7 +143,7 @@ def _fact(part: str) -> Fact | None:
     if not (m := _COUNT.fullmatch(part)) or not (m[2] or m[3]):
         return None
     icon, tone = OUTCOMES.get(m[3] or "", ("", ""))
-    return Fact(int(m[1]), int(m[2]) if m[2] else None, m[3] or "", icon, tone)
+    return Fact(int(m[1]), int(m[2]) if m[2] else None, SAID.get(m[3] or "", m[3] or ""), icon, tone)
 
 
 def facts(line: str | None, step: str = "") -> list[Fact]:
@@ -133,7 +151,8 @@ def facts(line: str | None, step: str = "") -> list[Fact]:
     two outcomes. Clauses split at "; ", head and rest at ": "; a part is counts only if every ", " piece is
     one (song names stay text). A leading head equal to the step name is dropped (the tile shows it)."""
     out = []
-    for clause in (line or "").split("; "):
+    line = (line or "").replace("gave way, ", "made way for a more urgent job, ")  # (the jobs' own word for it)
+    for clause in line.split("; "):
         head, colon, rest = clause.partition(": ")
         for part in (head, rest) if colon else (head,):
             pieces = [_fact(p) for p in part.split(", ")]

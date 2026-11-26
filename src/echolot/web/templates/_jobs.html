@@ -10,7 +10,7 @@
   {%- if f.n is none %}<span class="fact-text" title="{{ f.label }}">{{ f.label }}</span>
   {%- else %}<span class="fact{{ ' zero' if f.n == 0 and f.of is none }}"><b>{{ f.n|num }}</b>{% if f.of is not none %}<i>/{{ f.of|num }}</i>{% endif %}{% if f.label %} <span>{{ f.label }}</span>{% endif %}</span>{% endif %}
   {%- endfor %}
-  {%- if outcomes %}<span class="outcomes">{% for f in outcomes %}<span class="outcome {{ f.tone }}" title="{{ f.n|num }} {{ f.label }}">{{ icon(f.icon, 14) }}<b>{{ f.n|num }}</b><span class="sr-only"> {{ f.label }}</span></span>{% endfor %}</span>{% endif -%}
+  {%- if outcomes %}<span class="outcomes">{% for f in outcomes %}<span class="outcome {{ f.tone }}" title="{{ f.n|num }} {{ f.label }}">{{ icon(f.icon, 14) }}<b>{{ f.n|num }}</b> <span class="outcome-label">{{ f.label }}</span></span>{% endfor %}</span>{% endif -%}
 </div>
 {%- endmacro %}
 {% macro step_tile(s, named) -%}
@@ -19,9 +19,9 @@
 <div class="step{{ ' live' if run }}{{ ' bad' if failed }}">
   {% if named %}<div class="step-name">{% if STEP_ICONS.get(s.job.name) %}{{ icon(STEP_ICONS[s.job.name], 12) }}{% endif %}<span>{{ steps[s.job.name] or s.job.label }}</span></div>{% endif %}
   {% if run %}
-  {% if s.stopping %}<span class="fact-text warn-text">stopping: the songs in progress end first</span>
-  {% elif run.give_way.is_set() %}<span class="fact-text warn-text">{{ 'pausing' if paused else 'giving way' }}: ends after its songs in progress</span>{% endif %}
-  {% if user.admin %}{{ show(run.progress or 'starting …', steps[s.job.name]) }}{# progress may name another user's song #}
+  {% if s.stopping %}<span class="fact-text warn-text">stops after the songs in progress</span>
+  {% elif run.give_way.is_set() %}<span class="fact-text warn-text">{{ 'pauses' if paused else 'makes way for a more urgent job' }} after the songs in progress</span>{% endif %}
+  {% if user.admin %}{{ show(run.progress or 'starting…', steps[s.job.name]) }}{# progress may name another user's song #}
   {% if s.songs %}<ul class="step-songs" aria-label="Searched now">{% for x in s.songs %}<li title="{{ x.name }}">{{ icon('search', 12) }}<span>{{ x.name }}</span></li>{% endfor %}</ul>{% endif %}
   {% elif run.total %}<div class="job-facts"><span class="fact"><b>{{ run.done|num }}</b><i>/{{ run.total|num }}</i></span></div>
   {% else %}<span class="fact-text">running</span>{% endif %}
@@ -41,11 +41,11 @@
 {% set names = t.running|map(attribute='job.name')|join(',') -%}
 {% set failed = t.last and t.last.last.ok == 0 and not t.running -%}
 {% set stopping = t.running|selectattr('stopping')|list -%}
-{% if t.running %}{% set state, style = ('Stopping', 'warn') if stopping else ('Running', 'ok') %}
+{% if t.running %}{% set state, style = ('Stopping', 'warn') if stopping else ('Running', 'run') %}
 {% elif t.waiting %}{% set state, style = ('Starting' if t.waiting.starting else 'Due'), 'warn' %}
-{% elif paused and t.next %}{% set state, style = 'Paused', 'muted' %}
+{% elif paused and t.next %}{% set state, style = 'Paused', 'idle' %}
 {% elif failed %}{% set state, style = 'Failed', 'bad' %}
-{% else %}{% set state, style = 'Idle', 'muted' %}{% endif -%}
+{% else %}{% set state, style = 'Idle', 'idle' %}{% endif -%}
 <article class="job {{ style }}">
   <div class="job-side">
     <div class="job-top">
@@ -53,7 +53,7 @@
       <button type="button" class="info-toggle" data-info="job-about-{{ task.name }}" aria-controls="job-about-{{ task.name }}" aria-expanded="false" aria-label="What {{ task.label }} does" title="What it does">{{ icon('info', 16) }}</button>
     </div>
     <div class="job-status">
-      <span class="job-state {{ style }}">{% if t.running and not stopping %}<span class="dot on"></span>{% endif %}{{ state }}</span>
+      <span class="job-state {{ style }}">{% if t.running and not stopping %}<span class="echo" aria-hidden="true"><i></i><i></i><i></i></span>{% endif %}{{ state }}</span>
       {% if not t.running and t.next %}{% set due = t.next|until %}<span class="job-next">{{ 'next when resumed' if paused else due if due == 'due now' else 'next ' ~ due }}</span>{% endif %}
     </div>
     <div class="job-actions">
@@ -90,21 +90,21 @@
 </article>
 {%- endmacro %}
 <div id="jobs" hx-get="/jobs" hx-trigger="every {{ '1s' if changing else '3s' if running else '30s' }}[document.visibilityState === 'visible']" hx-swap="morph">
-  <div class="card-head">
-    <h1>Jobs {% if paused %}<span class="pill bad-pill">paused</span>{% endif %}</h1>
+  <div class="page-head">
+    <div class="page-title"><h1>Jobs {% if paused %}<span class="pill bad-pill">Paused</span>{% endif %}</h1>
+      <p class="lead">Echolot runs these on their schedule. {{ icon('info', 13) }} tells what each one does.</p></div>
     {% if user.admin %}
-    <form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}
-      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule, running ones end after their songs in progress; a job started by hand still runs">Pause all</button>{% endif %}
-    </form>
+    <div class="actions"><form method="post" action="/jobs/pause" hx-post="/jobs/pause" hx-target="#jobs" hx-swap="morph">{{ csrf_input }}
+      {% if paused %}<button class="primary">Resume</button>{% else %}<input type="hidden" name="paused" value="1"><button title="No job starts on its schedule. Running ones end after their songs in progress.">Pause all</button>{% endif %}
+    </form></div>
     {% endif %}
   </div>
-  <p class="lead">Echolot does these by itself on their schedule; {{ icon('info', 13) }} tells what each one does.</p>
   <div class="job-list">
     {% for t in tasks if not t.task.maintenance %}{{ job_card(t) }}{% endfor %}
   </div>
   {% set kept = tasks|selectattr('task.maintenance')|list %}
   <h2 class="job-group">Maintenance</h2>
-  <p class="job-group-lead">Keeps the library in order on their own schedule; nothing to do here unless something fails.</p>
+  <p class="job-group-lead">These keep the library in order. Nothing to do unless one fails.</p>
   <div class="job-list maintenance">
     {% for t in kept %}{{ job_card(t) }}{% endfor %}
   </div>

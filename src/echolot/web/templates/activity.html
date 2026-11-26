@@ -1,24 +1,28 @@
 {% extends "base.html" %}
 {% from "_macros.html" import facts, quality, song_link %}
-{% block title %}Activity · Echolot{% endblock %}
+{% block title %}History · Echolot{% endblock %}
 {% block content %}
-{% from "_subnav.html" import history %}{{ history('activity') }}
-<section class="card">
-  <div class="card-head">
-    <h1>Activity</h1>
-    <nav class="tabs">
+<div class="page-head">
+  <div class="page-title"><h1>History</h1><p class="lead">What Echolot added to the library and what it turned down.</p></div>
+  <div class="actions"><nav class="tabs" aria-label="Show">
       <a href="/activity" data-label="All" {% if not kind %}aria-current="page"{% endif %}>All</a>
       <a href="/activity?kind=added" data-label="Added" {% if kind == 'added' %}aria-current="page"{% endif %}>Added</a>
       <a href="/activity?kind=rejected" data-label="Rejected" {% if kind == 'rejected' %}aria-current="page"{% endif %}>Rejected</a>
-    </nav>
-  </div>
+    </nav></div>
+</div>
+<section class="card">
+  <form class="list-filter" role="search" action="/activity" hx-get="/activity" hx-target="#activity-rows" hx-select="#activity-rows" hx-swap="outerHTML"
+        hx-trigger="input changed delay:300ms from:input[type=search], submit" hx-replace-url="true" hx-sync="this:replace">
+    {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}" placeholder="Find in the history: artist, title or file" aria-label="Find in the history" autocomplete="off">
+  </form>
   <table class="rows activity row-blocks">
     <thead><tr><th>When</th><th>Event</th><th>Song</th><th>Details</th></tr></thead>
-    <tbody>
+    <tbody id="activity-rows">
     {% for a in entries %}
     <tr>
       <td class="muted small nowrap" title="{{ a.ts }}">{{ a.ts|ago }}</td>
-      <td><span class="pill{{ ' ' ~ a.style ~ '-pill' if a.style }}">{{ a.label }}</span></td>
+      <td><span class="pill{{ ' ' ~ a.style ~ '-pill' if a.style }}">{{ a.label|sentence }}</span></td>
       <td class="lead-cell">{{ song_link(a.key, a.url, a.song) }}
         {%- if a.origin %}<div class="origin" title="{{ a.origin.all }}">{{ (a.origin.who or a.origin.group|source) if user.everyone else a.origin.group|source }} · {{ a.origin.title }}</div>{% endif %}</td>
       <td><div class="facts"{% if a.title %} title="{{ a.title }}"{% endif %}>
@@ -26,11 +30,11 @@
           {%- if a.was_bytes and a.bytes %}<span>{{ a.was_bytes|size }} → {{ a.bytes|size }}</span>{% endif %}
         {%- elif a.quality %}{{ facts(a.source, a.seconds, a.diff, a.quality[0], a.quality[1], a.bytes) }}
         {%- else %}{{ facts(a.source) }}{% endif %}
-        {%- if a.tag %}<span class="pill{{ ' ' ~ a.tag[1] ~ '-pill' if a.tag[1] }}">{{ a.tag[0] }}</span>{% endif %}
+        {%- if a.tag %}<span class="pill{{ ' ' ~ a.tag[1] ~ '-pill' if a.tag[1] }}">{{ a.tag[0]|sentence }}</span>{% endif %}
         {%- if a.note %}<span class="note">{{ a.note }}</span>{% endif %}</div></td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="muted">No activity yet.</td></tr>
+    <tr><td colspan="4" class="muted">{% if q %}Nothing in the history matches “{{ q }}”.{% else %}Nothing happened yet.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

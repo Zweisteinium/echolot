@@ -2,6 +2,7 @@
 events) or None (everyone's), see scope."""
 
 import json
+import re
 from datetime import datetime, timedelta
 from sqlite3 import Connection, Row
 from typing import Any
@@ -10,7 +11,7 @@ from echolot import db
 from echolot.jobs import acquire, bandcamp
 from echolot.jobs.availability import UNPLAYABLE
 from echolot.jobs.lists import GREYED_OUT, NOT_ON_SOUNDCLOUD
-from echolot.library import catalog, origin, recording, recordings, review, unreleased
+from echolot.library import audio, catalog, origin, recording, recordings, review, rules, unreleased
 from echolot.library.filing import Paths
 from echolot.web import cache
 
@@ -25,11 +26,12 @@ def _limits(i: int) -> str:
 
 
 TIER_HINTS = {  # hover texts of the rings' legends
-    "lossless": "Genuine FLAC: lossless, not made from a lossy file",
-    "lossy-high": f"{_limits(0)}: as good as the original for nearly everyone",
-    "lossy-mid": f"{_limits(1)}, below high: good, though not quite the original",
-    "lossy-low": "Below medium: audibly lossy",
-    "missing": "Not in the library yet",
+    "lossless": "Genuine FLAC, not made from a lossy file.",
+    "lossy-high": f"{_limits(0)}. As good as the original for nearly everyone.",
+    "lossy-mid": f"{_limits(1)}. Good, not quite the original.",
+    "lossy-low": "Below medium. Audibly lossy.",
+    "missing": "Not in the library yet, still searched for.",
+    "gone": "Gone from Spotify, and searched for everywhere in vain: Soulseek at its loosest, YouTube and SoundCloud.",
 }
 MINE = (  # a user's songs: on the lists they follow
     "SELECT ls.song_key FROM list_songs ls JOIN sources src ON src.key = ls.list_key "
@@ -52,6 +54,101 @@ def _their_lists(uid: int | None) -> tuple[str, tuple]:
     return (f" AND ls.list_key IN ({_FOLLOWS})", (uid,)) if uid is not None else ("", ())
 
 
+def _song_words(con: Connection, uid: int | None) -> list[tuple[str, str]]:
+    """(the words of a song's artists and title, folded; its key) for each song of the (user's) lists: what
+    find searches, shared by every search (web/cache)."""
+    mine, args = _mine(uid)
+    rows = con.execute(f"SELECT s.key, s.artist, s.artists, s.title, s.artist_alias FROM wanted s WHERE {mine}", args)
+    out = []
+    for r in rows:
+        names = [r["artist"], *json.loads(r["artists"] or "[]"), r["artist_alias"] or "", r["title"]]
+        out.append((rules.words(" ".join(names)), r["key"]))
+    return out
+
+
+def find(con: Connection, query: str, uid: int | None = None, limit: int = 8) -> list[dict[str, Any]]:
+    """The songs of the (user's) lists whose artists and title hold every word of `query` (any case and
+    accents), those in the library first: the Search page's "On your lists", with a list of each."""
+    words = rules.words(query).split()
+    if not words:
+        return []
+    keys = [key for text, key in cache.get(con, _song_words, uid) if all(f" {w}" in text for w in words)]
+    if not keys:
+        return []
+    marks = ", ".join("?" * len(keys[:400]))
+    theirs, list_args = _their_lists(uid)
+    first_list = (
+        "SELECT l.key || char(9) || coalesce(l.title, l.key) FROM list_songs ls JOIN lists l ON l.key = ls.list_key "
+        f"WHERE ls.song_key = s.key{theirs} ORDER BY l.position LIMIT 1"
+    )
+    sql = (
+        f"SELECT s.key, s.artist, s.title, s.length, s.file, f.quality, f.kbps, ({first_list}) AS place "
+        f"FROM songs s LEFT JOIN files f ON f.path = s.file WHERE s.key IN ({marks}) "
+        "ORDER BY s.file IS NULL, lower(s.artist), lower(s.title) LIMIT ?"
+    )
+    out = []
+    for r in con.execute(sql, (*list_args, *keys[:400], limit)):
+        list_key, _, list_title = (r["place"] or "").partition("\t")
+        out.append(dict(r) | {"list_key": list_key, "list_title": list_title, "more": len(keys) > limit})
+    return out
+
+
+_LRC_STAMP = re.compile(r"^(?:\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+\s?")
+LYRICS_STATES = {  # jobs/lyrics' states, as the song panel says them
+    "synced": "synced lyrics from LRCLIB",
+    "plain": "lyrics from LRCLIB",
+    "instrumental": "an instrumental, says LRCLIB",
+    "own": "lyrics its file came with",
+    "none": "none on LRCLIB yet, asked again monthly",
+    "unreadable": "its file could not be read or written",
+}
+
+
+def song(con: Connection, key: str, uid: int | None = None, paths: Paths | None = None) -> dict[str, Any] | None:
+    """Everything about a song for its panel: names, file and quality, the (user's) lists with its place,
+    lyrics (their text read from the file), availability, the latest events, and for a missing song what the
+    searches tried; None if it is no song of the user's."""
+    mine, args = _mine(uid)
+    row = con.execute(
+        f"SELECT s.*, {db.play_url()} AS play, f.quality, f.kbps, f.size, f.duration AS file_length "
+        f"FROM songs s LEFT JOIN files f ON f.path = s.file WHERE s.key = ? AND {mine}",
+        (key, *args),
+    ).fetchone()
+    if row is None:
+        return None
+    theirs, list_args = _their_lists(uid)
+    lists = con.execute(
+        "SELECT l.key, coalesce(l.title, l.key) AS title, l.service, ls.position FROM list_songs ls "
+        f"JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = ?{theirs} ORDER BY l.position, ls.position",
+        (key, *list_args),
+    ).fetchall()
+    lyric = con.execute("SELECT * FROM lyrics WHERE path = ?", (row["file"],)).fetchone() if row["file"] else None
+    text = ""
+    if lyric and lyric["state"] in ("synced", "plain", "own") and paths is not None:
+        raw = audio.read_lyrics(paths.tracks / row["file"]) or ""
+        text = "\n".join(_LRC_STAMP.sub("", line) for line in raw.splitlines()).strip()
+    latest = "SELECT ts, action, source, reason, path FROM events WHERE song = ? ORDER BY id DESC LIMIT 8"
+    events = con.execute(latest, (key,)).fetchall()
+    avail = con.execute("SELECT state, since, detail FROM availability WHERE song_key = ?", (key,)).fetchone()
+    tried = None if row["file"] else next(iter(missing(con, None, paths, uid, song=key)), None)
+    out = dict(row) | {"lists": lists, "lyrics": lyric, "lyrics_text": text, "events": events}
+    return out | {"availability": avail, "tried": tried}
+
+
+def filter_songs(songs: list[dict[str, Any]], query: str, show: str = "") -> list[dict[str, Any]]:
+    """A list's songs whose artist or title hold every word of `query` at a word's start (any case and
+    accents); `show` missing: without a file, lossy: a file that is no genuine FLAC."""
+    words = rules.words(query).split()
+    kept = []
+    for s in songs:
+        if (show == "missing" and s["file"]) or (show == "lossy" and (not s["file"] or s["quality"] == "lossless")):
+            continue
+        if words and not all(f" {w}" in rules.words(f"{s['artist']} {s['title']}") for w in words):
+            continue
+        kept.append(s)
+    return kept
+
+
 ADDED = ("new", "upgrade")
 REJECTED = ("wrong-song", "mismatch", "damaged")
 
@@ -63,6 +160,8 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
     files, size = con.execute(f"SELECT count(*), coalesce(sum(size), 0) FROM files WHERE {files_of}", args).fetchone()
     tiers_sql = f"SELECT {_TIER}, count(*), sum(f.quality = 'fake') FROM files f WHERE {files_of} GROUP BY 1"
     tiered = con.execute(tiers_sql, args).fetchall()
+    found = "coalesce(sum(state IN ('synced', 'plain', 'own')), 0), coalesce(sum(state = 'synced'), 0)"
+    lyrics, synced = con.execute(f"SELECT {found} FROM lyrics WHERE {files_of}", args).fetchone()
     by_tier, file_fakes = {r[0]: r[1] for r in tiered}, sum(r[2] or 0 for r in tiered)
     counts = "count(*), count(file), count(DISTINCT file), coalesce(sum(file IS NOT NULL AND close_match), 0)"
     wanted, have, in_lists, close = con.execute(f"SELECT {counts} FROM wanted s WHERE {mine}", args).fetchone()
@@ -75,10 +174,10 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         f"WHERE s.file IS NULL AND a.tries >= 1 AND {mine}",
         args,
     ).fetchone()[0]
+    sums = f"{_TIER_SUMS}, coalesce(sum(f.quality = 'fake'), 0) AS fakes, coalesce(sum(s.file IS NULL AND {_WIPED}), 0) AS gone"
     songs = con.execute(
-        f"SELECT count(*) AS songs, count(s.file) AS have, {_TIER_SUMS}, coalesce(sum(f.quality = 'fake'), 0) AS fakes "
-        "FROM wanted s "
-        f"LEFT JOIN files f ON f.path = s.file WHERE {mine}",
+        f"SELECT count(*) AS songs, count(s.file) AS have, {sums} FROM wanted s LEFT JOIN files f ON f.path = s.file "
+        f"LEFT JOIN availability av ON av.song_key = s.key WHERE {mine}",
         args,
     ).fetchone()
     theirs = "1" if uid is None else "l.key IN (SELECT key FROM sources WHERE user_id = ? AND enabled)"
@@ -96,7 +195,7 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "library_files": library[0],  # always the whole library
         "library_size": library[1],
         "services": services,  # distinct songs and missing ones per group of lists (GROUP)
-        "song_tiers": tier_counts(songs),  # the ring's Songs (with the missing)
+        "song_tiers": _with_gone(tier_counts(songs), songs["gone"]),  # the ring's Songs (the missing in two)
         "song_fakes": songs["fakes"],  # fake FLACs among them (counted in their source's tier)
         "files": files,
         "in_lists": in_lists,  # distinct files of the wanted songs (one file can be several songs)
@@ -111,6 +210,8 @@ def overview(con: Connection, uid: int | None = None) -> dict[str, Any]:
         "added_24h": sum(day.get(a, (0, 0))[0] for a in ADDED),
         "added_bytes_24h": sum(day.get(a, (0, 0))[1] for a in ADDED),
         "rejected_24h": sum(day.get(a, (0, 0))[0] for a in REJECTED),
+        "lyrics": lyrics,  # files with lyrics: from LRCLIB or their own
+        "synced": synced,
     }
 
 
@@ -121,6 +222,12 @@ def tier_counts(row: Row | dict) -> list[tuple[str, str, int]]:
     """(tier, label, songs) of a row with a column per tier, 'songs' and 'have'."""
     counts = [(k, label, row[k] or 0) for k, label in catalog.TIERS]
     return [*counts, ("missing", "Missing", (row["songs"] or 0) - (row["have"] or 0))]
+
+
+def _with_gone(tiers: list[tuple[str, str, int]], gone: int) -> list[tuple[str, str, int]]:
+    """tier_counts with the missing songs in two, as BEST_TIERS: still searched for, and gone everywhere."""
+    *have, (_, _, missing) = tiers
+    return [*have, (*BEST_TIERS[2][:2], missing - gone), (*BEST_TIERS[3][:2], gone)]
 
 
 def tiers_of(songs: list[Row]) -> list[tuple[str, str, int]]:
@@ -152,20 +259,10 @@ _UNOBTAINABLE = f"coalesce(sum(NOT {_OWN} AND {_WIPED}), 0) AS unobtainable"
 
 
 BEST_TIERS = [  # (key, label, hover text), best first
-    (
-        "best",
-        "At their best",
-        "genuine lossless, or the best copy there is: the artist's own release, Spotify has nothing better, or "
-        "no longer plays it",
-    ),
-    ("better", "Could be better", "lossy (a fake FLAC too), a close match, or Spotify played another song lately"),
-    ("missing", "Missing · still searching", "not in the library yet: searched for (or about to be)"),
-    (
-        "gone",
-        "Missing · seems wiped off the internet :(",
-        "gone from Spotify (greyed out, taken down) and searched in vain at Soulseek's loosest, on YouTube and "
-        "SoundCloud",
-    ),
+    ("best", "At their best", "Genuine FLAC, or the best copy there is."),
+    ("better", "Could be better", "Lossy, a fake FLAC, or a close match."),
+    ("missing", "Missing · still searching", TIER_HINTS["missing"]),
+    ("gone", "Missing · seems wiped off the internet :(", TIER_HINTS["gone"]),
 ]
 
 
@@ -286,17 +383,15 @@ def same_as(songs: list[Row]) -> dict[int, int]:
 
 
 UNAVAILABLE = {
-    GREYED_OUT: "Spotify no longer plays it (withdrawn or not in your country); it is searched first.",
-    NOT_ON_SOUNDCLOUD: "SoundCloud hands this upload out to nobody (a label release); YouTube and SoundCloud "
-    "search for other uploads.",
-    unreleased.UNAVAILABLE: "An unreleased song you uploaded: its file is gone from the library and nothing "
-    "searches for it. Upload it again (Upload unreleased) if you still have it.",
+    GREYED_OUT: "Spotify no longer plays it. It is searched first.",
+    NOT_ON_SOUNDCLOUD: "SoundCloud gives this upload to nobody. Other uploads are searched.",
+    unreleased.UNAVAILABLE: "Its file is gone, and nothing searches for unreleased songs. Upload it again.",
 }
 
 
 NOTES = {  # -> (text, style, hover text)
-    "drm": ("DRM on SoundCloud", "bad", "It fits, but SoundCloud serves it encrypted only (a label release)."),
-    "stalled": ("stalls at peers", "warn", "Soulseek users have it, but none started the transfer. It is tried again."),
+    "drm": ("DRM on SoundCloud", "bad", "It fits, but SoundCloud only serves it encrypted."),
+    "stalled": ("stalls at peers", "warn", "Soulseek users have it, but no transfer started. It is tried again."),
 }
 
 
@@ -316,13 +411,13 @@ def missing(
         args.append(song)
     rows = con.execute(
         f"SELECT s.key, s.service, s.artist, s.title, s.length, s.unavailable, {db.play_url()} AS url, s.isrc, "
-        "s.file, s.close_match, NULL AS quality, (SELECT state FROM availability WHERE song_key = s.key) AS state, "
-        "a.tries, a.last_try, a.last_fallback, a.result, a.fallback_result, "
+        "s.file, s.close_match, NULL AS quality, av.state, a.tries, a.last_try, a.last_fallback, a.result, "
+        f"a.fallback_result, {_WIPED} AS wiped, "
         "(SELECT group_concat(place, ' · ') FROM (SELECT l.title || ' #' || (ls.position + 1) AS place "
         f" FROM list_songs ls JOIN lists l ON l.key = ls.list_key WHERE ls.song_key = s.key{theirs} "
         " ORDER BY l.position, ls.position)) AS in_lists "
-        f"FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key WHERE {where} "
-        "ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
+        "FROM wanted s LEFT JOIN attempts a ON a.song_key = s.key LEFT JOIN availability av ON av.song_key = s.key "
+        f"WHERE {where} ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE",
         args,
     ).fetchall()
     twins = recordings.twins(rows)  # one recording listed twice: one row with both places
@@ -402,7 +497,7 @@ def _tried(r: Row, rejected: list[Row], waits: set[str]) -> dict[str, Any]:
 EVENT_FILTERS = {"added": ADDED, "rejected": REJECTED}
 
 
-EVENTS = {  # action -> (label on the Activity page, pill style)
+EVENTS = {  # action -> (label on the History page, pill style)
     "new": ("Added", "ok"),
     "upgrade": ("Upgraded", "ok"),
     "wrong-song": ("Rejected", "bad"),
@@ -425,17 +520,29 @@ UPGRADED = "replaced by "
 SAME_AUDIO = "the same audio as "
 
 
-def activity(con: Connection, kind: str = "", limit: int = 300, uid: int | None = None) -> list[dict[str, Any]]:
-    """The latest events as Activity entries. An upgrade and the file it replaced are one entry (from -> to),
-    as are a link and the same-audio file it replaced."""
+def _words_like(columns: str, query: str) -> tuple[str, tuple]:
+    """(SQL condition, args): `columns` (an SQL expression) holds every word of `query`, any case (% and _
+    are the characters themselves)."""
+    words = [re.sub(r"([\\%_])", r"\\\1", w) for w in query.lower().split()]
+    return "".join(f" AND lower({columns}) LIKE ? ESCAPE '\\'" for _ in words), tuple(f"%{w}%" for w in words)
+
+
+def activity(
+    con: Connection, kind: str = "", limit: int = 300, uid: int | None = None, query: str = ""
+) -> list[dict[str, Any]]:
+    """The latest events as History entries. An upgrade and the file it replaced are one entry (from -> to),
+    as are a link and the same-audio file it replaced. `query`: those whose artist, title or file hold every
+    word of it, from all of them."""
     actions = (*EVENT_FILTERS[kind], "retired") if kind in EVENT_FILTERS else None
     where, args = _mine(uid, "e.song")
     if uid is not None:  # a replaced file's event has no song: fetched to pair it with its upgrade
         where = f"({where} OR (e.action = 'retired' AND e.song IS NULL))"
     if actions:
         where += f" AND e.action IN ({', '.join('?' * len(actions))})"
-    sql = f"SELECT e.*, {db.play_url()} AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song WHERE {where} "
-    rows = con.execute(f"{sql} ORDER BY e.id DESC LIMIT ?", (*args, *(actions or ()), 2 * limit)).fetchall()
+    named, named_args = _words_like("coalesce(e.artist, '') || ' ' || coalesce(e.title, '') || ' ' || e.path", query)
+    sql = f"SELECT e.*, {db.play_url()} AS song_url FROM events e LEFT JOIN songs s ON s.key = e.song WHERE {where}"
+    found = (*args, *(actions or ()), *named_args, 2 * limit)
+    rows = con.execute(f"{sql}{named} ORDER BY e.id DESC LIMIT ?", found).fetchall()
     replaced = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(UPGRADED)}
     partners = {e["id"]: was for e in rows if e["action"] == "upgrade" and (was := _replaced(e, replaced))}
     merged = {r["id"]: r for r in rows if r["action"] == "retired" and (r["reason"] or "").startswith(SAME_AUDIO)}
@@ -527,7 +634,7 @@ def _entry(e: Row) -> dict[str, Any]:
     elif action in (*REJECTED, "confirm"):
         wanted = e["wanted_seconds"]
         entry["diff"] = e["seconds"] - wanted if action == "mismatch" and wanted and e["seconds"] else None
-        entry["tag"] = ("FLAC for a SoundCloud song", "warn") if action == "confirm" else (_why(action, reason), "bad")
+        entry["tag"] = ("FLAC for a SoundCloud song", "warn") if action == "confirm" else (why(action, reason), "bad")
         entry["note"] = f"“{(e['found'] or e['file_name'] or '').strip()}”" if e["found"] or e["file_name"] else ""
     else:
         entry["quality"] = None if action in ("retired", "renamed", "linked") else entry["quality"]
@@ -535,7 +642,7 @@ def _entry(e: Row) -> dict[str, Any]:
     return entry
 
 
-def _why(action: str, reason: str) -> str:
+def why(action: str, reason: str) -> str:
     """A rejection's reason in a few words (the full one is the hover text)."""
     if action == "mismatch":
         return "another length"
@@ -553,6 +660,23 @@ def _why(action: str, reason: str) -> str:
     return reason.split(" (", 1)[0][:50] or "not the song"
 
 
+def plainly(reason: str) -> str:
+    """A download's reason for Review in plain words, its likeness kept ("(0.62)", shown as "62 % alike");
+    the matcher's own words are the hover text."""
+    score = m[0] if (m := re.search(r"\(\d\.\d+\)", reason)) else ""
+    for test, said in (
+        ("audio differs" in reason, f"the audio differs from the release {score}".strip()),
+        ("marked wrong" in reason, "you answered No match to it before"),
+        ("probable matches need a review" in reason, "very probably the song, for you to confirm"),
+        (reason.startswith(("title ", "artist ")) or "reading of tag" in reason, "its names differ"),
+        ("another version" in reason or "lacks the version" in reason, "another version"),
+        (reason.startswith(("damaged FLAC", "cut-off FLAC")), "a damaged file"),
+    ):
+        if test:
+            return said
+    return reason
+
+
 def _readable(action: str, reason: str) -> str:
     text = reason.split(" (was ", 1)[0].removeprefix("back in review: ")
     for wrong in ("no match in review", "marked wrong in review"):
@@ -566,7 +690,7 @@ def _readable(action: str, reason: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-# ---------------------------------------------------------------- Changes page
+# ---------------------------------------------------------------- Availability and Changes pages
 
 CHANGES = {  # change -> (label, pill style)
     "added": ("Added", "ok"),
@@ -602,14 +726,18 @@ def unavailable_now(con: Connection, uid: int | None = None) -> tuple[list[Row],
     return rows, con.execute(sql, args).fetchone()[0]
 
 
-def changes(con: Connection, uid: int | None = None, kind: str = "", limit: int = 500) -> list[Row]:
-    """The latest changes; a user's: of their songs or in their lists."""
+def changes(con: Connection, uid: int | None = None, kind: str = "", limit: int = 500, query: str = "") -> list[Row]:
+    """The latest changes; a user's: of their songs or in their lists. `query`: those whose song's artist and
+    title or list hold every word of it."""
     where, args = "1", ()
     if uid is not None:
         where, args = f"(c.song_key IN ({MINE}) OR c.list_key IN ({_FOLLOWS}))", (uid, uid)
     if kinds := CHANGE_FILTERS.get(kind):
         where += f" AND c.change IN ({', '.join('?' * len(kinds))})"
         args = (*args, *kinds)
+    names = "coalesce(s.artist, '') || ' ' || coalesce(s.title, '') || ' ' || coalesce(l.title, '')"
+    named, named_args = _words_like(names, query)
+    where, args = where + named, (*args, *named_args)
     return con.execute(
         f"SELECT c.*, s.artist, s.title, s.service, {db.play_url()} AS url, s.file, l.title AS list_title, "
         "r.artist AS new_artist, r.title AS new_title FROM changes c LEFT JOIN songs s ON s.key = c.song_key "

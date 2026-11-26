@@ -41,4 +41,4 @@ async def users_save(request: Request, con: DB, user_id: int) -> RedirectRespons
 @router.post("/users/{user_id}/logout")
 def users_logout(con: DB, user_id: int, name: Annotated[str, Form()] = "") -> RedirectResponse:
     n = auth.end_sessions(con, user_id)
-    return back("/users", ok=f"{name or 'The user'}: {n} login(s) ended.")
+    return back("/users", ok=f"{name or 'The user'}: {n} {'login' if n == 1 else 'logins'} ended.")

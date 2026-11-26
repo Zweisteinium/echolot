@@ -311,7 +311,7 @@ def gates(run: "Run") -> str:
     done = f"{len(run.handled)} gates: {got} filed"
     done += f", {review} in Review" if review else ""
     done += f", {waiting} need an email" if waiting else ""
-    done += f", {nothing} gave nothing" if nothing else ""
+    done += f", {nothing} without a file" if nothing else ""
     return done + (f"; gave way, {run.left} left" if run.left else "")
 
 

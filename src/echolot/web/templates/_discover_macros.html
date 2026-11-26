@@ -7,7 +7,7 @@
 {%- endmacro %}
 {# Get, or the state (wishes.state: new, wished, here) #}
 {% macro get_action(sid, state) -%}
-{% if state == 'new' %}<button type="button" class="discover-get" hx-post="/discover/{{ sid }}/get" hx-swap="outerHTML" title="Fetch it into your library and your playlist “Echolot · Wished”">{{ icon('download', 15) }}<span>Get</span></button>
-{%- elif state == 'wished' %}<span class="pill accent-pill" title="Echolot is fetching it: see Wished below">On its way</span>
+{% if state == 'new' %}<button type="button" class="discover-get" hx-post="/discover/{{ sid }}/get" hx-swap="outerHTML" title="Get it into your library and your playlist “Echolot · Wished”">{{ icon('download', 15) }}<span>Get</span></button>
+{%- elif state == 'wished' %}<span class="pill accent-pill" title="Being fetched, see Wished below">On its way</span>
 {%- else %}<span class="pill ok-pill">{{ icon('check', 13) }} In your library</span>{% endif %}
 {%- endmacro %}

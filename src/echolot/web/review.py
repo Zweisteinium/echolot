@@ -73,7 +73,9 @@ def review_decide(request: Request, con: DB, event_id: int, decision: Field, nam
     except ConfigError as e:
         return _answer(request, con, event_id, error=str(e), name=name)
     song, label = f"{item.event['artist']} – {item.event['title']}", review.LABELS[decision]
-    return _answer(request, con, event_id, ok=f"{song}: {label}. Applied within a few minutes (Revert until then).")
+    return _answer(
+        request, con, event_id, ok=f"{song}: {label}. Applied in a few minutes, Revert takes it back until then."
+    )
 
 
 @router.post("/review/{event_id}/discard-all")
@@ -104,7 +106,7 @@ def review_audio(request: Request, con: DB, event_id: int) -> FileResponse:
     _own(request, con, event_id)
     item = review.find(con, music_dir(request), event_id)
     if item is None:
-        raise HTTPException(404, "not up for review")
+        raise HTTPException(404, "Not up for review.")
     return FileResponse(item.file)
 
 
@@ -129,7 +131,7 @@ def close_search(request: Request, con: DB, key: str) -> Response:
         return back("/missing", error="That song is not linked to a close match.")
     review.search_again(con, key)
     catalog.match_songs(con)
-    return back("/missing", ok=f"{song['artist']} – {song['title']}: searched again for the perfect match.")
+    return back("/missing", ok=f"{song['artist']} – {song['title']}: searching again for the song itself.")
 
 
 @router.post("/songs/{key:path}/close-remove")
@@ -143,4 +145,4 @@ def close_remove(request: Request, con: DB, key: str) -> Response:
     except ConfigError as e:
         return back("/missing", error=str(e))
     catalog.match_songs(con)
-    return back("/missing", ok=f"{gone} removed (kept 30 days in inbox/replaced); the song is searched again.")
+    return back("/missing", ok=f"{gone} removed, kept 30 days in inbox/replaced. The song is searched again.")

@@ -208,7 +208,7 @@ def test_csrf(app, login: Callable[..., TestClient]) -> None:
     client = login(app)
     token = client.headers.pop("X-CSRF-Token")
     r = client.post("/jobs/pause", data={"paused": "1"})
-    assert r.status_code == 403 and "CSRF" in r.text
+    assert r.status_code == 403 and "out of date" in r.text
     r = client.post("/jobs/pause", data={"paused": "1", "csrf_token": "wrong"})
     assert r.status_code == 403
     r = client.post("/jobs/pause", data={"paused": "1", "csrf_token": token}, follow_redirects=False)
@@ -280,7 +280,7 @@ def test_navidrome_settings(app, login: Callable[..., TestClient], monkeypatch: 
     monkeypatch.setattr(navidrome.Service, "users", lambda self: [{"id": "nd-tester", "userName": "tester"}])
     data = {"session_days": 30, "navidrome_url": "http://nd:4533", "service_user": "admin", "service_password": "s3"}
     r = client.post("/settings/access", data=data)
-    assert "the service account works" in r.text and 'value="s3"' not in r.text and ">s3<" not in r.text
+    assert "The service account works" in r.text and 'value="s3"' not in r.text and ">s3<" not in r.text
     con = db.connect(app.state.settings.db_path)
     assert app.state.vault.get(con, navidrome.SERVICE_PASSWORD) == "s3"
     assert options.get(con, options.Navidrome).url == "http://nd:4533"

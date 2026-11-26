@@ -119,7 +119,7 @@ def api_jobs(request: Request, con: DB) -> dict:
 def run_job(request: Request, con: DB, name: str) -> Response:
     """Start a job now (also while jobs are paused)."""
     if not request.app.state.worker.trigger(name):
-        raise HTTPException(404, "no such job")
+        raise HTTPException(404, "No such job.")
     return answer(request, con, f"{schedule.BY_NAME[name].label} starts in a moment.")
 
 
@@ -128,7 +128,7 @@ def start_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Resp
     """A task's button: start its jobs (comma-separated) once their resources are free."""
     jobs = [n for n in names.split(",") if n in schedule.TASK_OF]
     if not jobs or not all(request.app.state.worker.trigger(n) for n in jobs):
-        raise HTTPException(404, "no such job")
+        raise HTTPException(404, "No such job.")
     return answer(request, con, f"{schedule.TASK_OF[jobs[0]].label} starts in a moment.")
 
 
@@ -142,7 +142,7 @@ OWN = {  # the Run permission's buttons -> (job, only the user's songs)
 def own_jobs(request: Request, con: DB, what: Annotated[str, Form()]) -> Response:
     """Check the lists now, or search the user's missing songs now (ignoring their wait)."""
     if what not in OWN:
-        raise HTTPException(404, "no such run")
+        raise HTTPException(404, "No such run.")
     uid = request.state.user.id
     for name, theirs in OWN[what]:
         request.app.state.worker.trigger(name, only=uid if theirs else None)
@@ -155,7 +155,7 @@ def stop_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Respo
     """A task's Stop: running jobs end after their songs in progress."""
     stopped = [n for n in names.split(",") if request.app.state.worker.cancel(n)]
     if not stopped:
-        raise HTTPException(404, "not running")
+        raise HTTPException(404, "Not running.")
     return answer(request, con, "Stopping.")
 
 
@@ -163,7 +163,7 @@ def stop_jobs(request: Request, con: DB, names: Annotated[str, Form()]) -> Respo
 def cancel_job(request: Request, con: DB, name: str) -> Response:
     """Stop a running job (songs in progress end as they are)."""
     if not request.app.state.worker.cancel(name):
-        raise HTTPException(404, "not running")
+        raise HTTPException(404, "Not running.")
     return answer(request, con, "Stopping.")
 
 

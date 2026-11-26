@@ -3,18 +3,20 @@
 {% set STATES = {
   'listed': ('ok-pill', 'on Discogs', 'Discogs lists it as a download (format File)'),
   'digital': ('warn-pill', 'no download', 'Discogs lists it only in other formats (vinyl, CD): the download version is missing'),
-  'missing': ('bad-pill', 'missing', 'Discogs does not list it'),
+  'missing': ('bad-pill', 'not on Discogs', 'Discogs does not list it'),
 } %}
 {% from "_macros.html" import how %}
 {% block content %}
-{% from "_subnav.html" import library %}{{ library('discogs', tabs) }}
+{% if not on %}
+<div class="page-head"><div class="page-title"><h1>Discogs</h1></div></div>
 <section class="card discogs">
-  {% if not on %}
-  <h1>Discogs</h1>
-  <p class="muted">Off. {% if user.admin %}Turn it on in the <a href="/settings#discogs">server settings</a>, with a Discogs token: Echolot then finds the releases of your library songs that Discogs lacks, and what to submit for them.{% else %}An admin can turn it on in the server settings.{% endif %}</p>
-  {% else %}
-  <div class="card-head">
-    <h1>Discogs <span class="count">{{ entries|length|num }}</span></h1>
+  <p class="muted">Off. {% if user.admin %}Turn it on with a Discogs token in the <a href="/settings#discogs">server settings</a>. Echolot then finds the releases of your songs that Discogs lacks, and what to submit for them.{% else %}An admin can turn it on in the server settings.{% endif %}</p>
+</section>
+{% else %}
+<div class="page-head">
+  <div class="page-title"><h1>Discogs <span class="count">{{ entries|length|num }}</span></h1>
+    {% call how('discogs', 'Releases of your songs that Discogs does not list as a download.') %}Discogs takes only releases sold or given away as downloads, not streaming-only ones. So the suggestion comes from the release on Beatport. Click a release for what to enter in Discogs' form. Genres are your songs' genres in Navidrome.{% if last and last.finished %} Last check {{ last.finished|ago }}: <span class="{{ 'bad-text' if not last.ok or (last.message or '').startswith('stopped') }}">{{ last.message or 'done' }}</span>.{% endif %}{% endcall %}</div>
+  <div class="actions">
     <form method="get" action="/discogs" class="discogs-filters">
       <select name="list" onchange="this.form.submit()" aria-label="List">
         <option value="">All lists</option>
@@ -32,7 +34,9 @@
       <noscript><button>Show</button></noscript>
     </form>
   </div>
-  {% call how('discogs', 'Releases of your library songs that Discogs does not list as a download.') %}Discogs takes only releases sold or given away as downloads, not streaming-only ones, so the suggestion comes from the release on Beatport. Click a release for what to enter in Discogs' form. Genres are your songs' genres in Navidrome.{% if last and last.finished %} Last check {{ last.finished|ago }}: <span class="{{ 'bad-text' if not last.ok or (last.message or '').startswith('stopped') }}">{{ last.message or 'done' }}</span>.{% endif %}{% endcall %}
+</div>
+<section class="card discogs">
+
   {% if user.admin %}
   <form method="post" action="/discogs/check" class="discogs-check" onsubmit="return confirm('Check asks Discogs once per release of the list (about one a second) and Beatport for each one Discogs lacks (two pages, 2 seconds apart). Check now?')">{{ csrf_input }}
     <select name="list" aria-label="List to check" required>
@@ -54,17 +58,17 @@
         <td class="lead-cell"><span class="release-title">{{ a.title }}</span>{% if a.songs|length > 1 %} <span class="muted small">· {{ a.songs|length }} songs</span>{% endif %}</td>
         <td class="hide-narrow muted small nowrap">{{ a.released }}</td>
         <td class="hide-narrow small">{{ r.genre }}</td>
-        <td><span class="pill {{ pill[0] }}" title="{{ pill[2] }}">{{ pill[1] }}</span></td>
+        <td><span class="pill {{ pill[0] }}" title="{{ pill[2] }}">{{ pill[1]|sentence }}</span></td>
         <td class="small">{% if store %}{{ store.catno or 'no cat. no.' }} <span class="muted">· {{ store.label }}</span>{% elif store is none %}<span class="muted">not looked at</span>{% else %}<span class="muted">not found</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p class="muted">{% if lists %}Nothing here{{ ' with these filters' if selected.list or selected.genre else '' }}{% if not last %}: no list checked yet{% endif %}.{% else %}No library songs from Spotify lists yet.{% endif %}</p>
-  {% endif %}
+  <p class="muted">{% if lists %}Nothing here{{ ' with these filters' if selected.list or selected.genre else '' }}.{% if not last %} No list was checked yet.{% endif %}{% else %}No songs from Spotify lists in the library yet.{% endif %}</p>
   {% endif %}
 </section>
+{% endif %}
 <dialog id="discogs" class="modal discogs-dialog" aria-label="What to submit to Discogs"><div id="discogs-body"></div></dialog>
 <script>
   (() => {

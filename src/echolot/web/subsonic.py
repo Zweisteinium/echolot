@@ -106,7 +106,7 @@ def _xml(tag: str, value: dict[str, Any]) -> str:
 
 
 WRONG_LOGIN = (40, "Wrong user name or password.")
-NOT_FOUND = (70, "Echolot does not know this song (any more): search it again.")
+NOT_FOUND = (70, "Echolot no longer knows this song. Search for it again.")
 
 
 # ---------------------------------------------------------------- Navidrome

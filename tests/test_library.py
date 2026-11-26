@@ -175,15 +175,12 @@ def test_the_rings_count_files_and_songs(con) -> None:
     o = stats.overview(con)
     assert [k for k, _, _ in o["tiers"]] == ["lossless", "lossy-high", "lossy-mid", "lossy-low"]
     assert sum(n for _, _, n in o["tiers"]) == o["files"] and o["file_fakes"] == 1
-    assert dict((k, n) for k, _, n in o["song_tiers"])["missing"] == o["wanted"] - o["have"]
+    counts = dict((k, n) for k, _, n in o["song_tiers"])  # the missing in two: still searched for, gone
+    assert counts["missing"] + counts["gone"] == o["wanted"] - o["have"]
     assert sum(n for _, _, n in o["song_tiers"]) == o["wanted"] and o["song_fakes"] >= 1
     labels = [label for _, label, _ in stats.best_tiers(con)]
-    assert labels == [
-        "At their best",
-        "Could be better",
-        "Missing · still searching",
-        "Missing · seems wiped off the internet :(",
-    ]
+    missing = ["Missing · still searching", "Missing · seems wiped off the internet :("]
+    assert labels == ["At their best", "Could be better", *missing]
 
 
 def test_a_song_seems_wiped_only_once_searched_everywhere(con) -> None:

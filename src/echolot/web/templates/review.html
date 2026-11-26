@@ -3,42 +3,46 @@
 {% from "_macros.html" import how %}
 {% block title %}Review · Echolot{% endblock %}
 {% block content %}
+<div class="page-head">
+  <div class="title-row"><h1>Review</h1><span class="keys-hint muted small" title="J and K move between downloads. Space plays the marked one. P, C and N answer: Perfect, Close, No match.">keys: <kbd>J</kbd> <kbd>K</kbd> move · <kbd>Space</kbd> play · <kbd>P</kbd> <kbd>C</kbd> <kbd>N</kbd> answer</span></div>
+  <div class="volume" title="The player's volume, for every download on this page">
+    <button type="button" class="icon-button" data-mute aria-label="Mute"><span>{{ icon('volume', 18) }}</span><span hidden>{{ icon('volume-off', 18) }}</span></button>
+    <input type="range" min="0" max="100" step="1" value="100" data-volume aria-label="Volume">
+    <span class="volume-value small muted">100 %</span>
+  </div>
+</div>
+{% if songs.filed %}
 <section class="card">
   <div class="card-head">
-    <h1>Please confirm <span class="count">{{ songs.filed|length|num }}</span></h1>
-    <div class="volume" title="The player's volume, for every download on this page">
-      <button type="button" class="icon-button" data-mute aria-label="Mute"><span>{{ icon('volume', 18) }}</span><span hidden>{{ icon('volume-off', 18) }}</span></button>
-      <input type="range" min="0" max="100" step="1" value="100" data-volume aria-label="Volume">
-      <span class="volume-value small muted">100 %</span>
-    </div>
+    <h2>Please confirm <span class="count">{{ songs.filed|length|num }}</span></h2>
   </div>
-  <p class="lead small">Very probably the right song, and already in your library. Give it a last listen; if you do nothing, it stays.</p>
+  <p class="lead small">Very probably the right song, already in your library. Give it a last listen. If you do nothing, it stays.</p>
   <div class="review-list">
-    {% for g in songs.filed %}{% include "_review_group.html" %}
-    {% else %}<p class="muted">Nothing to confirm.</p>{% endfor %}
+    {% for g in songs.filed %}{% include "_review_group.html" %}{% endfor %}
   </div>
 </section>
+{% endif %}
 
 <section class="card">
   <div class="card-head">
-    <h1>Worth a look <span class="count">{{ songs.kept|length|num }}</span></h1>
+    <h2>Worth a look <span class="count">{{ songs.kept|length|num }}</span></h2>
     {% if items.kept|length > songs.kept|length %}<span class="muted small">{{ items.kept|length|num }} downloads</span>{% endif %}
   </div>
-  {% call how('review-look', 'Downloads that failed the automatic check, so they are not in your library and the search goes on.') %}They are kept for 30 days in case one is what you want. Also here: genuine FLACs of songs you have lossy; <em>Perfect match</em> replaces your copy, <em>Close match</em> keeps both.{% endcall %}
+  {% call how('review-look', 'Downloads that failed the automatic check. The search for the song goes on.') %}They are kept 30 days in case one is what you want. FLACs of songs you have lossy wait here too: <em>Perfect match</em> replaces your copy, <em>Close match</em> keeps both.{% endcall %}
   <div class="review-list">
     {% for g in songs.kept %}{% include "_review_group.html" %}
-    {% else %}<p class="muted">Nothing to look at.</p>{% endfor %}
+    {% else %}<p class="muted">All clear, nothing to look at. Downloads that fail the automatic check come here.</p>{% endfor %}
   </div>
-  {% if hidden %}<p class="muted small">{{ hidden|num }} more kept download{{ 's' if hidden != 1 }} in <code>inbox/review</code> {{ 'is' if hidden == 1 else 'are' }} no longer up for review: {{ 'its' if hidden == 1 else 'their' }} song was found since, {{ 'it is' if hidden == 1 else 'they are' }} far off in length, or {{ 'it misses' if hidden == 1 else 'they miss' }} the title with no word of it in the name or with other audio. They are deleted 30 days after the download.</p>{% endif %}
+  {% if hidden %}<p class="muted small">{{ hidden|num }} more download{{ 's' if hidden != 1 }} in <code>inbox/review</code> {{ 'is' if hidden == 1 else 'are' }} no longer up for review: found since, far off in length, or naming another title. Deleted after 30 days.</p>{% endif %}
 </section>
 
 {% if user.admin %}
 <section class="card">
   <div class="card-head">
     <h2>Decisions by others <span class="count">{{ others|length|num }}</span></h2>
-    <span class="muted small">the last 30 days, of users who are no admins</span>
+    <span class="muted small">last 30 days, by users who are not admins</span>
   </div>
-  {% call how('review-decisions', 'A song is often on several users\' lists, so their decision changes the library for everyone.') %}<em>Take back</em> undoes one: a decision not applied yet is dropped; a Perfect or Close match goes back to Please confirm; a No match is lifted (a file it removed comes back while <code>replaced/</code> still has it, else the song is searched again).{% endcall %}
+  {% call how('review-decisions', 'Their decisions change the library for everyone who has the song.') %}<em>Take back</em> undoes a decision. A Perfect or Close match goes back to Please confirm. A No match is lifted, and its file comes back while <code>replaced/</code> still has it.{% endcall %}
   {% if others %}
   <table class="rows">
     <thead><tr><th>Song</th><th>Decision</th><th>By</th><th>When</th><th>Result</th><th></th></tr></thead>
@@ -63,10 +67,54 @@
     <dt>Perfect match</dt>
     <dd>It is the song. The file is named and tagged as the song in your list.</dd>
     <dt>Close match</dt>
-    <dd>Another version you take for the song, such as an extended mix or a live take. The file keeps the name it really has (you can edit it), so what you play and share is labelled right. Your song counts as covered and is no longer searched; <a href="/missing#close">Missing</a> lists these and can search for the perfect match again.</dd>
+    <dd>Another version you take for the song, like an extended mix or a live take. The file keeps its real name, which you can edit. The song counts as covered. <a href="/missing#close">Missing</a> lists these and can search again.</dd>
     <dt>No match</dt>
     <dd>Not the song. The file goes, this download is never taken for the song again, and the song is searched again.</dd>
   </dl>
-  {% call how('review-cards', 'All downloads of a song are on one card, the likeliest first (the audio check, the artist, the length).') %}Taking one as a Perfect or Close match discards the others. A decision is applied by the Library job within a few minutes; until then <em>Revert</em> takes it back.{% endcall %}
+  {% call how('review-cards', 'A song\'s downloads share one card, the likeliest first.') %}Taking one as a Perfect or Close match discards the others. Decisions apply within a few minutes. Until then, <em>Revert</em> takes one back.{% endcall %}
 </section>
+<script>
+  // keys (not while typing): J and K move between the open downloads on view, Space plays the one marked, P, C
+  // and N answer it (Perfect, Close, No match). A first press only marks one, so a key never answers a download
+  // that was not marked on screen. After an answer the mark goes on with the next open one.
+  (() => {
+    const open = () => [...document.querySelectorAll(".download:not(.settled)")].filter((r) => !r.closest("details:not([open])"));
+    const KEYS = ["j", "k", "p", "c", "n", " "];
+    let at = null, place = 0, answered = false;
+    const mark = (row) => {
+      document.querySelectorAll(".download.kbd").forEach((r) => r.classList.remove("kbd"));
+      at = row || null;
+      if (!at) return;
+      at.classList.add("kbd");
+      at.scrollIntoView({ block: "nearest" });
+      place = open().indexOf(at);
+    };
+    const gone = () => !at || !document.contains(at) || !open().includes(at);
+    const ANSWERS = { p: "Perfect match", c: "Close match", n: "No match" };
+    document.addEventListener("keydown", (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest("input, textarea, select, [contenteditable]")) return;
+      const key = e.key.toLowerCase();
+      if (!KEYS.includes(key) || (key === " " && e.target.closest("button, a, summary"))) return;
+      const rows = open();
+      if (!rows.length) return;
+      e.preventDefault();
+      if (gone()) return mark(rows[Math.min(place, rows.length - 1)]);  // the first press only marks
+      const i = rows.indexOf(at);
+      if (key === "j") mark(rows[Math.min(i + 1, rows.length - 1)]);
+      else if (key === "k") mark(rows[Math.max(i - 1, 0)]);
+      else if (key === " ") at.querySelector("[data-play]")?.click();
+      else {
+        const button = [...at.querySelectorAll(".review-actions button")].find((b) => b.textContent.trim() === ANSWERS[key]);
+        if (button) { answered = true; button.click(); }
+      }
+    });
+    // the answered card is swapped: mark the next open download on view, so the next key acts on what is seen
+    document.body.addEventListener("htmx:afterSettle", () => {
+      if (!answered || !gone()) return;
+      answered = false;
+      const rows = open();
+      mark(rows.length ? rows[Math.min(place, rows.length - 1)] : null);
+    });
+  })();
+</script>
 {% endblock %}

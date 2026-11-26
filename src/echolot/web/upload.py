@@ -47,7 +47,7 @@ def _batch(request: Request, batch: str) -> list[upload.File]:
     except ValueError:
         found = []
     if not found:
-        raise HTTPException(404, "That upload is gone (imported, cancelled, or older than a day).")
+        raise HTTPException(404, "That upload is gone: imported, cancelled or older than a day.")
     return found
 
 
@@ -92,7 +92,7 @@ def find_release(
     try:
         out.release = upload.release(f, artist, title, lambda q: catalogs.deezer(q, RESULTS), loose)
     except catalogs.CatalogError as e:
-        out.failed = f"The release check could not ask Deezer ({e}); check again later."
+        out.failed = f"The release check could not ask Deezer ({e}). Check again later."
         return out
     if out.release is not None:
         out.isrc = _isrc(out.release) if out.release.verdict == "released" else None
@@ -121,7 +121,7 @@ def wish_files(request: Request, con: sqlite3.Connection, wished: dict[int, str]
     user, chosen, lines, seen = request.state.user, {}, [], {}
     for n, sid in sorted(wished.items()):
         if (song := wishes.song(con, sid)) is None:
-            raise HTTPException(404, "Echolot does not know that release (any more): check the file again.")
+            raise HTTPException(404, "Echolot no longer knows that release. Check the file again.")
         if sid in seen:
             lines.append((f"{song['artist']} – {song['title']}: not imported twice (file {seen[sid]} is it)", None))
             continue
@@ -151,7 +151,7 @@ def upload_file(
     try:
         f = upload.add(_paths(request), batch, file.filename or "", file.file, keep_hires)
     except ValueError as e:
-        raise HTTPException(404, "That upload is gone (imported, cancelled, or older than a day).") from e
+        raise HTTPException(404, "That upload is gone: imported, cancelled or older than a day.") from e
     songs = _songs(request, con)
     key = upload.tagged(con, f, songs) or (song if song in songs else upload.guess(f, list(songs.values())))
     match = songs.get(key or "") if not f.error else None

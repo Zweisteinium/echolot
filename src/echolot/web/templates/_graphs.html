@@ -12,9 +12,10 @@
   {% set g = growth[key] %}
   <div class="growth-panel" data-panel="{{ key }}"{% if key != show %} hidden{% endif %}>
     {% if g %}
+    {% if key in ('songs', 'size') and o.scoped %}<div class="side-label">The whole library, everyone's songs</div>{% endif %}
     <div class="headline">
       <span class="figure">{{ g.now }}</span>{% if key == 'quality' %}<span class="figure-unit">FLAC</span>{% endif %}
-      <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span>{% if g.week %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% endif %}{% if key in ('songs', 'size') and o.scoped %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap">the whole library</span>{% endif %}</span>
+      <span class="deltas"><span class="nowrap"><span class="delta{{ ' down' if g.total[0] != '+' }}">{{ g.total }}</span> since {{ g.since }}</span>{% if g.week %} <span class="sep" aria-hidden="true">·</span> <span class="nowrap"><span class="delta{{ ' down' if g.week[0] != '+' }}">{{ g.week }}</span> in 7 days</span>{% endif %}</span>
     </div>
     {% endif %}
   </div>
@@ -32,9 +33,9 @@
     {% elif g %}
     {{ growth_chart(g, 'graph-' ~ key, 'Growth of ' ~ what ~ ' since ' ~ g.since ~ ': ' ~ g.total ~ ', now ' ~ g.now) }}
     {% elif window.range == 'all' and not window.zoomed %}
-    <p class="muted growth-empty">The graph of {{ what }} starts with the first hourly snapshot.</p>
+    <p class="muted growth-empty">The graph starts with the first hourly snapshot.</p>
     {% else %}
-    <p class="muted growth-empty">No figures of {{ what }} in this stretch of time.</p>
+    <p class="muted growth-empty">No data for this period.</p>
     {% endif %}
   </div>
   {% endfor %}

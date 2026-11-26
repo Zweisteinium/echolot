@@ -185,14 +185,12 @@ def spotify_app(
 ) -> RedirectResponse:
     client_id, client_secret, market = client_id.strip(), client_secret.strip(), market.strip().upper()
     if market and len(market) != 2:
-        return back("/playlists#spotify", error="The country is its two letters, e.g. DE or US.")
+        return back("/playlists#spotify", error="Enter the country as two letters, like DE or US.")
     if len(client_id) != 32:
         return back("/playlists#spotify", error="The client ID is the 32 characters under the app's name.")
     vault = request.app.state.vault
     if not client_secret and not vault.get(con, spotify.SECRET):
-        return back(
-            "/playlists#spotify", error="Paste the client secret too (the app's Settings, 'View client secret')."
-        )
+        return back("/playlists#spotify", error="Paste the client secret too. It is in the app's Settings.")
     with con:
         options.update(con, options.Spotify, client_id=client_id)
         if market:
@@ -209,8 +207,8 @@ def spotify_market(con: DB, market: Annotated[str, Form()]) -> RedirectResponse:
         with con:
             options.update(con, options.Spotify, market=market.strip().upper())
     except options.OptionsError:
-        return back("/playlists#spotify", error="The country is its two letters, e.g. DE or US.")
-    return back("/playlists#spotify", ok="Country saved; the next availability check asks its catalogue.")
+        return back("/playlists#spotify", error="Enter the country as two letters, like DE or US.")
+    return back("/playlists#spotify", ok="Country saved. The next availability check asks there.")
 
 
 @router.post("/accounts/spotify/login")
@@ -231,8 +229,8 @@ def _finish_login(request: Request, con: sqlite3.Connection, query: dict[str, li
     code, state, uid = (query.get("code") or [""])[0], (query.get("state") or [""])[0], request.state.user.id
     expected, started, redirect = ([*db.get_meta(con, f"{STATE}:{uid}").split(" "), "", ""])[:3]
     if not code or not state or state != expected or not redirect or time.time() - int(started or 0) > 1800:
-        return back("/playlists#spotify", error="That is not the address of the last Spotify login (or it is older "
-                                       "than 30 min). Click 'Connect Spotify' again.")  # fmt: skip
+        return back("/playlists#spotify", error="That is not the address of the last Spotify login, "
+                                       "or it is older than 30 min. Click Connect Spotify again.")  # fmt: skip
     try:
         spotify.exchange(con, request.app.state.vault, code, redirect, uid)  # the URI the login used
     except spotify.SpotifyError as e:
@@ -252,7 +250,7 @@ def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> Red
     """The URL the browser showed after the login (it could not open 127.0.0.1)."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url.strip()).query)
     if not query.get("code") and not query.get("error"):
-        return back("/playlists#spotify", error="Paste the whole address from the address bar (it contains ?code=...).")
+        return back("/playlists#spotify", error="Paste the whole address from the address bar. It contains ?code=.")
     return _finish_login(request, con, query)
 
 
@@ -287,7 +285,7 @@ def soundcloud_token(
         else:  # a refresh token of an earlier login no longer fits
             vault.delete(con, soundcloud.refresh_name(uid))
         con.execute("UPDATE users SET soundcloud_user = ? WHERE id = ?", (me["user"], uid))
-    renews = " Echolot renews its token each day." if refresh else ""
+    renews = " Echolot renews the login every day." if refresh else ""
     return back("/playlists#soundcloud", ok=f"SoundCloud connected as {me['name']}.{renews}")
 
 
@@ -313,12 +311,12 @@ def soulseek_account(
         return back("/settings#soulseek-client", error="Soulseek needs a user name and a password.")
     folder = request.app.state.settings.daemon_dir
     if folder is None:
-        return back("/settings#soulseek-client", error="No daemon directory configured (ECHOLOT_DAEMON_DIR).")
+        return back("/settings#soulseek-client", error="Set ECHOLOT_DAEMON_DIR first.")
     with con:
         options.update(con, options.Soulseek, user=user)
         vault.set(con, "soulseek.password", password)
     soulseek.write_conf(folder, user, password)
-    return back("/settings#soulseek-client", ok="Soulseek account saved; the daemon logs in with it in a moment.")
+    return back("/settings#soulseek-client", ok="Soulseek account saved. The daemon logs in with it in a moment.")
 
 
 @router.post("/accounts/soulseek/backend")

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ s.title }} · Echolot{% endblock %}
+{% block content %}
+<a class="crumb" href="/library">← Library</a>
+{% set standalone = true %}<section class="card">{% include "_song_panel.html" %}</section>
+{% endblock %}

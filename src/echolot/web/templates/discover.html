@@ -3,16 +3,15 @@
 {% block title %}Search · Echolot{% endblock %}
 {% block body_class %} class="with-player"{% endblock %}
 {% block content %}
+<div class="page-head"><div class="page-title"><h1>Search</h1><p class="lead">Find any song, or paste a link to a list or a song.</p></div></div>
 <section class="card discover">
-  <h1>Search</h1>
-  <p class="muted">Find a song in Deezer, Apple Music and SoundCloud at once, play it, and get it. Or paste a link: a playlist to follow, or a song.</p>
   <form method="get" action="/" class="discover-search" role="search">
     <span class="search-icon" aria-hidden="true">{{ icon('search', 20) }}</span>
-    <input type="search" name="q" value="{{ q }}" placeholder="Artist, title, or a link" aria-label="Search songs, or paste a link" autocomplete="off" autofocus
-           hx-get="/discover/results" hx-trigger="input changed delay:450ms, search" hx-target="#discover-results" hx-sync="this:replace" hx-indicator=".discover-search"
-           hx-push-url="false">
+    <input type="search" name="q" value="{{ q }}" placeholder="Artist, title, or a link" aria-label="Search songs or paste a link" autocomplete="off" autofocus
+           hx-get="/discover/results" hx-trigger="input changed delay:450ms, search" hx-target="#discover-results" hx-sync="this:replace" hx-indicator=".discover-search">
     <span class="spinner" aria-hidden="true"></span>
   </form>
+  <div id="discover-own" hx-get="/discover/own" hx-trigger="input changed delay:150ms from:input[name=q], search from:input[name=q]" hx-include="input[name=q]" hx-sync="this:replace">{% include "_discover_own.html" %}</div>
   <div id="discover-results" aria-live="polite">{% include "_discover_results.html" %}</div>
 </section>
 {% include "_discover_wished.html" %}
@@ -21,7 +20,7 @@
   <button type="button" class="player-toggle" aria-label="Pause"><span class="when-paused">{{ icon('play', 20) }}</span><span class="when-playing">{{ icon('pause', 20) }}</span></button>
   <div class="player-body">
     <div class="player-line"><span class="player-title"></span><span class="muted player-artist"></span></div>
-    <div class="player-bar" title="Jump"><span></span></div>
+    <div class="player-bar" title="Jump to"><span></span></div>
   </div>
   <span class="num muted small player-time">0:00</span>
   <a class="player-source" target="_blank" rel="noopener">{% for s in ('deezer', 'apple', 'soundcloud') %}<span class="src-{{ s }}">{{ icon(s, 16) }}</span>{% endfor %}</a>

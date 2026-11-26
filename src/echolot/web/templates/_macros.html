@@ -14,14 +14,18 @@
 <th class="hide-narrow">Artist</th><th>Title</th><th class="num hide-narrow">Length</th>
 {%- endmacro %}
 
+{% macro song_more(key, title) -%}
+&#8288;<button type="button" class="icon-button song-more" hx-get="/song?key={{ key|urlencode }}" hx-target="#song-panel-body" title="About this song" aria-label="About {{ title }}">{{ icon('more', 16) }}</button>
+{%- endmacro %}
+
 {% macro song_cells(s, mark='') -%}
 <td class="hide-narrow">{{ s.artist }}</td>
-      <td>{{ song_link(s.key, s.url, s.title) }}{{ mark }}<div class="show-narrow muted small">{{ s.artist }} <span class="nowrap">· {{ s.length|mmss }}</span></div></td>
+      <td>{{ song_link(s.key, s.url, s.title) }}{{ mark }}{{ song_more(s.key, s.title) }}<div class="show-narrow muted small">{{ s.artist }} <span class="nowrap">· {{ s.length|mmss }}</span></div></td>
       <td class="num muted hide-narrow">{{ s.length|mmss }}</td>
 {%- endmacro %}
 
 {% macro quality(key, kbps=None, label=None) -%}
-<span class="chip q-{{ key }}"><span class="swatch" aria-hidden="true"></span>{{ label or ('FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else 'missing' if key == 'missing' else (kbps ~ ' kbps') if kbps else 'lossy') }}</span>
+<span class="chip q-{{ key }}"><span class="swatch" aria-hidden="true"></span>{{ (label or ('FLAC' if key == 'lossless' else 'fake FLAC' if key == 'fake' else 'missing' if key == 'missing' else (kbps ~ ' kbps') if kbps else 'lossy'))|sentence }}</span>
 {%- endmacro %}
 
 {# a download's facts: source · length (± s off the wanted song) · quality · size #}
@@ -58,16 +62,16 @@
 {# why a song is not offered for recording (recording.marks); with `can`, best and original are buttons
    to try again. The word joiner keeps the mark on the title's last line #}
 {% macro song_mark(key, m, can) -%}
-{%- if m and m.kind == 'best' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to try recording it again." aria-label="{{ m.why }}; try again"
+{%- if m and m.kind == 'best' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to try recording it again." aria-label="{{ m.why }}. Try again."
   hx-post="/songs/{{ key|urlencode }}/spotify-again" hx-swap="outerHTML" hx-confirm="Offer this song for recording again?">{{ icon('info', 13) }}</button>
-{%- elif m and m.kind == 'original' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to search for a better copy again." aria-label="{{ m.why }}; search again"
+{%- elif m and m.kind == 'original' and can %}&#8288;<button type="button" class="icon-button spotify-best" title="{{ m.why }}. Click to search for a better copy again." aria-label="{{ m.why }}. Search again."
   hx-post="/songs/{{ key|urlencode }}/origin-again" hx-swap="outerHTML" hx-confirm="Search for a better copy of this song again?">{{ icon('info', 13) }}</button>
-{%- elif m %}&#8288;<span class="spotify-best" title="{{ m.why }}" aria-label="{{ m.why }}">{{ icon('clock' if m.kind == 'lately' else 'info', 13) }}</span>
+{%- elif m %}&#8288;<span class="spotify-best tip" tabindex="0" role="button" title="{{ m.why }}" aria-label="{{ m.why }}">{{ icon('clock' if m.kind == 'lately' else 'info', 13) }}</span>
 {%- endif %}
 {%- endmacro %}
 
 {% macro bandcamp(o) -%}
-{%- if o and (o.price is not none or o.free) %}<a class="pill accent-pill" href="{{ o.url }}" target="_blank" rel="noopener" title="Lossless (FLAC) on Bandcamp: {{ o.artist }} – {{ o.title }}{{ ', a free download' if o.free }}">Bandcamp{% set p = o.price|price(o.currency, o.free) %}{{ ' ' ~ p if p }}</a>{% endif %}
+{%- if o and (o.price is not none or o.free) %}<a class="pill accent-pill" href="{{ o.url }}" target="_blank" rel="noopener" title="FLAC on Bandcamp{{ ', free' if o.free }}: {{ o.artist }} – {{ o.title }}">Bandcamp{% set p = o.price|price(o.currency, o.free) %}{{ ' ' ~ p if p }}</a>{% endif %}
 {%- endmacro %}
 
 {# a free download a SoundCloud page links to (services/free_links): fetched by Echolot, or a gate
@@ -79,4 +83,17 @@
 {# a lead line, the rest folded under "How it works" (remembered: base.html, data-remember) #}
 {% macro how(id, lead) -%}
 <div class="intro"><p class="lead">{{ lead }}</p><details class="how" data-remember="how-{{ id }}"><summary>How it works</summary><div class="how-body">{{ caller() }}</div></details></div>
+{%- endmacro %}
+
+
+{# the Add music menu (Library, Playlists): files for songs, unreleased songs, a recording with Mitschnitt.
+   Its dialogs: _upload_dialog.html and _record.html on the page #}
+{% macro add_music(record) -%}
+{% from "_icons.html" import icon %}
+<button type="button" popovertarget="add-music" aria-haspopup="true">{{ icon('add', 16) }} Add music</button>
+<div class="pop-menu" id="add-music" popover aria-label="Add music">
+  <button type="button" hx-get="/missing/upload" hx-target="#upload-body" popovertarget="add-music" popovertargetaction="hide">{{ icon('upload', 18) }}<span><b>Upload files</b><span>Missing songs or better copies</span></span></button>
+  <button type="button" hx-get="/unreleased/upload" hx-target="#upload-body" popovertarget="add-music" popovertargetaction="hide">{{ icon('upload', 18) }}<span><b>Upload unreleased</b><span>Music that exists nowhere else</span></span></button>
+  {% if record %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" popovertarget="add-music" popovertargetaction="hide">{{ icon('record', 18) }}<span><b>Record from Spotify</b><span>With Mitschnitt on your PC, bit-exact</span></span></button>{% endif %}
+</div>
 {%- endmacro %}

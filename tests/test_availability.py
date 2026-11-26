@@ -302,8 +302,8 @@ def test_another_release_by_its_isrc(run: Run, login: Callable[..., TestClient])
     assert 'data-app="spotify:track:s2"' in page  # plays nowhere: its own
 
 
-def test_the_changes_page(settings: Settings, login: Callable[..., TestClient]) -> None:
-    """A user sees their songs' changes and their lists'; the owner's other songs not."""
+def test_the_availability_and_changes_pages(settings: Settings, login: Callable[..., TestClient]) -> None:
+    """A user sees their songs' availability and their lists' changes; the owner's other songs not."""
     app = create_app(settings)
     con = db.connect(settings.db_path)
     uid = auth.logged_in(con, "timon", "nd-timon", False).id
@@ -316,11 +316,13 @@ def test_the_changes_page(settings: Settings, login: Callable[..., TestClient]) 
         con.execute(change, ("2026-10-01T00:00:00", "spotify:s3", "spotify:likes:1", "taken_down"))
         con.execute(change, ("2026-10-02T00:00:00", "spotify:s2", "spotify:playlist:AAA111", "removed"))
     con.close()
-    owner = login(app).get("/changes").text
+    owner = login(app).get("/availability").text
     assert "Taken down" in owner and "Gone Song" in owner and 'playable <span class="count">2</span>' in owner
     assert "2026-10-01</td>" in owner and ">unknown</span>" in owner  # since when it was so: not known
-    timon = login(app, "timon", admin=False).get("/changes").text
-    assert "Gone Song" not in timon and "Second Song" in timon  # removed from timon's list
+    assert "Second Song" not in owner  # a list's change: on Changes
+    timon = login(app, "timon", admin=False)
+    assert "Gone Song" not in timon.get("/availability").text and "Gone Song" not in timon.get("/changes").text
+    assert "Second Song" in timon.get("/changes").text  # removed from timon's list
 
 
 def test_another_release_under_other_names(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

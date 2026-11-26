@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from echolot.jobs import schedule
 from echolot.services import discogs, navidrome
@@ -19,16 +20,27 @@ from echolot.web.common import DB, back, page
 router = APIRouter()
 
 
-def _settings_page(request: Request, con: sqlite3.Connection) -> HTMLResponse:
-    rules = schedule.rules(con)
+def _settings_page(
+    request: Request, con: sqlite3.Connection, typed: dict[str, str] | None = None, error: str = "", bad: str = ""
+) -> HTMLResponse:
+    """The settings; after a refused save (`typed`: the form as sent, `error`, `bad`: the field at fault) with
+    what was typed, the error by its card and the field focused, so nothing has to be typed again."""
+    rules, typed = schedule.rules(con), typed or {}
+    when = {n: typed.get(n, schedule.when_text(rules[n])) for n in schedule.BY_NAME}
+    soulseek, files = options.get(con, options.Soulseek).model_dump(), options.get(con, options.Files).model_dump()
+    soulseek |= {k: typed[k] for k in soulseek if k in typed}
+    files |= {"gate_email": typed.get("gate_email", ""), "keep_hires": typed.get("keep_hires") == "1"} if typed else {}
     return page(
         request,
         "settings.html",
         nav="settings",
-        tasks=[(t, [(schedule.BY_NAME[n], schedule.when_text(rules[n])) for n in t.jobs]) for t in schedule.TASKS],
+        status_code=422 if error else 200,
+        form_error=error,
+        bad=bad,
+        tasks=[(t, [(schedule.BY_NAME[n], when[n]) for n in t.jobs]) for t in schedule.TASKS],
         settings=request.app.state.settings,
-        soulseek=options.get(con, options.Soulseek),
-        files=options.get(con, options.Files),
+        soulseek=soulseek,
+        files=files,
         metrics=options.get(con, options.Metrics),
         auth_options=options.get(con, options.Auth),
         navidrome=options.get(con, options.Navidrome),
@@ -48,14 +60,16 @@ def settings_page(request: Request, con: DB) -> HTMLResponse:
 
 
 @router.post("/settings", include_in_schema=False)
-async def settings_save(request: Request, con: DB) -> RedirectResponse:
+async def settings_save(request: Request, con: DB) -> Response:
     form = await request.form()  # one field per job
+    typed, bad = {k: str(v) for k, v in form.items() if k != "csrf_token"}, ""
     try:
-        values = {
-            j.name: schedule.parse_when(str(form[j.name]), j)
-            for j in schedule.JOBS
-            if j.name in form and j.name in schedule.TASK_OF
-        }
+        values = {}
+        for j in schedule.JOBS:
+            if j.name in form and j.name in schedule.TASK_OF:
+                bad = j.name
+                values[j.name] = schedule.parse_when(typed[j.name], j)
+        bad = ""
         soulseek = options.validate(options.Soulseek, {
             **options.get(con, options.Soulseek).model_dump(),
             **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},
@@ -67,8 +81,8 @@ async def settings_save(request: Request, con: DB) -> RedirectResponse:
             schedule.store(con, values)
             options.put(con, soulseek)
             options.put(con, files)
-    except (ConfigError, options.OptionsError) as err:
-        return back("/settings", error=str(err))
+    except (ConfigError, options.OptionsError) as err:  # (the page asks the services: not on the event loop)
+        return await run_in_threadpool(_settings_page, request, con, typed, str(err), bad)
     return back("/settings", ok="Settings saved.")
 
 
@@ -116,7 +130,7 @@ def settings_access(
     if not url and not os.environ.get("ECHOLOT_NAVIDROME_URL"):
         return back("/settings", error="Not saved: without Navidrome's address nobody could log in.")
     if url and url != options.get(con, options.Navidrome).url and not navidrome.reachable(url):
-        return back("/settings", error=f"Not saved: Navidrome does not answer at {url} (logins would fail).")
+        return back("/settings", error=f"Not saved: Navidrome does not answer at {url}, so logins would fail.")
     try:
         with con:
             options.update(con, options.Auth, session_days=session_days)
@@ -130,7 +144,7 @@ def settings_access(
     problem = _service_state(request, con)
     if problem:
         return back("/settings", error=f"Saved. The service account does not work yet: {problem}")
-    return back("/settings", ok="Access settings saved; the service account works.")
+    return back("/settings", ok="Access settings saved. The service account works.")
 
 
 @router.post("/settings/discogs", include_in_schema=False)

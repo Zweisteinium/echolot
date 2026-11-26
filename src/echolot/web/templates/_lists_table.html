@@ -1,0 +1,70 @@
+{# Library: the followed lists by service, each with its quality, filtered by name. A service's group starts
+   folded to its summary line (opened ones are remembered: base.html, data-remember) #}
+{% from "_macros.html" import qbar, share %}
+<section class="card" data-lists>
+  <div class="card-head"><h2>Quality by list <span class="count">{{ lists|length|num }}</span></h2>
+    {% if lists|length > 8 %}<input type="search" data-list-filter placeholder="Find a list" aria-label="Find a list" autocomplete="off">{% endif %}</div>
+  {% set groups = lists|groupby('grp') %}
+  {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube', 'echolot'] %}
+  {% for svc in order + (by_service|reject('in', order)|list) if svc in by_service %}
+  {% set group = by_service[svc] %}
+  {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
+  <details class="group" data-remember="lists-{{ svc }}">
+    <summary>
+      <span class="group-name">{{ icon(svc) }} {{ svc|source }}</span>
+      <span class="end"><span class="muted small">{{ t.songs|num }} songs{% if t.missing %} · <span class="bad-text">{{ t.missing|num }} missing</span>{% endif %}</span>
+      <span class="pill">{{ group|length }} list{{ 's' if group|length != 1 }}</span></span>
+    </summary>
+    <table class="rows lists">
+      <colgroup><col><col class="c-num"><col class="c-bar"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
+      <thead><tr><th>List</th><th class="num">Songs</th><th>Quality</th><th class="num">FLAC</th><th class="num" title="Songs at the best quality there is. Songs no source offers are left out.">Best</th><th class="num" title="Songs of the list not in the library yet">Missing</th></tr></thead>
+      <tbody>
+      {% for l in group %}
+      {% set m = l.missing %}
+      <tr data-title="{{ l.title }}">
+        <td class="name">{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">not read yet</span>{% endif %}{% if l.service == 'local' %} <span class="pill" title="Uploaded by you, never searched or upgraded">Unreleased</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="Songs only, no playlist in the music server">no playlist</span>{% endif %}{% if not o.scoped and l.owners %} <span class="muted small" title="Who follows it">· {{ l.owners }}</span>{% endif %}</td>
+        <td class="num" data-label="Songs">{{ l.songs|num }}</td>
+        <td class="bar">{{ qbar(tier_counts(l)) }}</td>
+        <td class="num muted" data-label="FLAC">{{ share(l.lossless, l.songs) }}</td>
+        <td class="num muted" data-label="Best" title="{{ l.best|num }} of {{ (l.songs - l.unobtainable)|num }} songs that can be had">{{ share(l.best, l.songs - l.unobtainable) }}</td>
+        <td class="num" data-label="Missing">{% if m %}<a class="bad-text" href="/missing?list={{ l.key|urlencode }}">{{ m|num }}</a>{% else %}<span class="muted">–</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% else %}
+  <p class="muted">No lists followed yet. Choose some under <a href="/playlists">Playlists</a>.</p>
+  {% endfor %}
+</section>
+
+<script>
+  // the lists' filter: rows whose title holds every word typed (any case); a service without one folds away.
+  // A group opened for it closes again when the filter is cleared, and is not remembered open (data-filtered).
+  (() => {
+    const box = document.querySelector("[data-list-filter]");
+    if (!box) return;
+    const card = box.closest("[data-lists]");
+    box.addEventListener("input", () => {
+      const words = box.value.toLowerCase().split(/\s+/).filter(Boolean);
+      for (const group of card.querySelectorAll("details.group")) {
+        let shown = 0;
+        for (const row of group.querySelectorAll("tbody tr")) {
+          const name = (row.dataset.title || "").toLowerCase();
+          row.hidden = !words.every((w) => name.includes(w));
+          shown += !row.hidden;
+        }
+        group.hidden = words.length > 0 && !shown;
+        if (words.length) {
+          if (!("was" in group.dataset)) group.dataset.was = group.open ? "open" : "closed";
+          group.setAttribute("data-filtered", "");
+          if (shown) group.open = true;
+        } else if ("was" in group.dataset) {
+          group.open = group.dataset.was === "open";
+          delete group.dataset.was;
+          group.removeAttribute("data-filtered");
+        }
+      }
+    });
+  })();
+</script>

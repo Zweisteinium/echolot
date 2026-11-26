@@ -15,9 +15,9 @@
     {% endif %}
   </td>
   <td class="upload-facts">
-    {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text }}</span>{% endfor %}
+    {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text|sentence }}</span>{% endfor %}
     {% if checks %}<div class="checks small">
-      <span></span><span class="head" title="The same recording from 80 %, another song about 55 %">Fingerprint</span><span class="head" title="Sample by sample: the same master and mix from 90 %, another master or mix lower, another song near 0">Waveform</span>
+      <span></span><span class="head" title="The same recording from 80 %. Another song is about 55 %.">Fingerprint</span><span class="head" title="Sample by sample. The same master and mix from 90 %, another master or mix lower, another song near 0.">Waveform</span>
       {% for name, what, scores, note in checks %}<span class="ref" title="{{ what }}">{{ name }}</span>
       {% if note %}<span class="none">{{ note }}</span>{% else %}{% for s in scores %}{% if s %}<span class="score {{ s[1] }}-text" title="{{ s[2] }}">{{ s[0] }}</span>{% else %}<span class="score muted" title="Not known">–</span>{% endif %}{% endfor %}{% endif %}
       {% endfor %}

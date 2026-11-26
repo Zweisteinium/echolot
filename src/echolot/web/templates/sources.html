@@ -3,30 +3,37 @@
 {% macro loading(n) %}<div class="cards skeleton" aria-busy="true" aria-label="Loading">{% for _ in range(n) %}<div class="src-card"><div class="cover"></div><div class="body"><span class="line"></span><span class="line short"></span><span class="line tall"></span></div></div>{% endfor %}</div>{% endmacro %}
 {% block title %}Playlists · Echolot{% endblock %}
 {% block content %}
-<section class="card intro">
-  <h1>Playlists</h1>
-  <p class="lead">The lists Echolot follows: yours on Spotify and SoundCloud, or anyone's by its link. Looking for a single song? <a href="/">Search</a> for it. For each list choose:</p>
-  <p class="mode-legend">
-    <span>{{ use('songs') }} <b>Songs</b>: downloaded into the library</span>
-    <span>{{ use('playlist') }} <b>Playlist</b>: the songs, and the list as a playlist in your music server</span>
-    <span><b>Off</b>: not followed; nothing is deleted</span>
-  </p>
-</section>
-
+{% from "_macros.html" import add_music, how %}
+{% set can_upload = user.can('upload') %}
+<div class="page-head">
+  <div class="page-title"><h1>Playlists <span class="count">{{ lists|length|num }}</span></h1>
+    {% call how('playlists', 'The lists Echolot follows. For a single song, use Search.') %}<b>Songs only</b>: its songs go into the library. <b>Songs and playlist</b>: they also make a playlist in the music server. <b>Off</b>: not followed. Nothing is deleted.{% endcall %}</div>
+  <div class="actions">
+    {% if can_upload %}{{ add_music(lists|selectattr('service', 'equalto', 'spotify')|list) }}{% endif %}
+  </div>
+</div>
+<form method="post" action="/sources/add" class="follow-bar" id="follow">{{ csrf_input }}
+  <span class="follow-icon" aria-hidden="true">{{ icon('link', 18) }}</span>
+  <input type="url" name="url" required value="{{ request.query_params.get('url', '') }}" placeholder="Follow a list by its link: a Spotify playlist, a SoundCloud set or likes page, a YouTube playlist" aria-label="A list's link"{% if request.query_params.get('url') %} aria-invalid="true" autofocus{% endif %}>
+  <span class="seg" role="radiogroup" aria-label="Follow as">
+    <label title="Its songs go into the library"><input type="radio" name="mode" value="songs"> {{ use('songs', 13) }} Songs only</label>
+    <label title="Its songs go into the library and make a playlist in the music server"><input type="radio" name="mode" value="playlist" checked> {{ use('playlist', 13) }} Songs and playlist</label>
+  </span>
+  <button class="primary">Follow</button>
+</form>
 {{ sprite(['songs', 'playlist']) }}
 {% for service, label, what in (('spotify', 'Spotify', 'playlists and liked songs'), ('soundcloud', 'SoundCloud', 'likes and sets')) %}
 {% set a = s[service] %}{% set ok = a.connected and not a.error %}
 <section class="card" id="{{ service }}">
   <details class="group" data-remember="playlists-{{ service }}" open>
     <summary><h2 class="group-name">{{ icon(service, 20) }} {{ label }}</h2>
-      <span class="muted small">your {{ what }}</span>
-      {% if followed[service] %}<span class="pill">{{ followed[service] }} followed</span>{% endif %}
-      {% if ok %}<span class="pill ok-pill" title="Connected">{{ icon('check', 13) }} {{ a.name }}</span>
-      {% elif a.error %}<span class="pill bad-pill">not working</span>{% else %}<span class="pill">not connected</span>{% endif %}</summary>
+      <span class="end">{% if followed[service] %}<span class="pill">{{ followed[service] }} followed</span>{% endif %}
+      {% if ok %}<span class="pill ok-pill" title="Connected as {{ a.name }}">{{ icon('check', 13) }} Connected</span>
+      {% elif a.error %}<span class="pill bad-pill">Not working</span>{% else %}<span class="pill">Not connected</span>{% endif %}</span></summary>
     {% if ok %}
     <div hx-get="/sources/found/{{ service }}" hx-trigger="load" hx-swap="outerHTML">{{ loading(6) }}</div>
     <details class="connection" data-remember="connection-{{ service }}">
-      <summary>{{ label }} account <span class="muted">· connected as {{ a.name }}</span></summary>
+      <summary>Account <span class="muted">· {{ a.name }}</span></summary>
       <div class="connection-body account">{% include "_account_" ~ service ~ ".html" %}</div>
     </details>
     {% else %}
@@ -41,18 +48,10 @@
 
 <section class="card" id="link">
   <details class="group" data-remember="sources-manual" open>
-    <summary><h2 class="group-name">By link</h2>
-      <span class="muted small">anyone's public Spotify playlist, SoundCloud set or likes page, or a YouTube playlist; no account needed</span></summary>
-    <form method="post" action="/sources/add" class="add">{{ csrf_input }}
-      <input type="url" name="url" required placeholder="https://open.spotify.com/playlist/…, https://soundcloud.com/…/sets/… or https://www.youtube.com/playlist?list=…" aria-label="Link" class="grow">
-      <span class="seg" role="radiogroup" aria-label="Follow as">
-        <label title="Songs into the library"><input type="radio" name="mode" value="songs"> {{ use('songs', 13) }} Songs</label>
-        <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> {{ use('playlist', 13) }} Playlist</label>
-      </span>
-      <button class="primary">Follow</button>
-    </form>
+    <summary><h2 class="group-name">{{ icon('link', 20) }} By link</h2></summary>
     <div hx-get="/sources/other" hx-trigger="load" hx-swap="outerHTML">{{ loading(2) }}</div>
   </details>
 </section>
 
+{% if can_upload %}{% include "_record.html" %}{% include "_upload_dialog.html" %}{% endif %}
 {% endblock %}

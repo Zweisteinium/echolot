@@ -26,7 +26,7 @@ from echolot.services import catalogs, spotify, ytdlp
 from echolot.services import soundcloud as sc_api
 from echolot.settings import options, sources
 from echolot.settings.sources import ConfigError
-from echolot.web import wishes
+from echolot.web import stats, wishes
 from echolot.web.common import DB, page
 
 router = APIRouter(include_in_schema=False)
@@ -103,13 +103,27 @@ def discover_redirect(request: Request) -> RedirectResponse:
 
 @router.get("/", response_class=HTMLResponse)
 def discover_page(request: Request, con: DB, q: Annotated[str, Query()] = "") -> HTMLResponse:
-    wished = _wished(request, con)
-    return page(request, "discover.html", nav="search", q=q, **{**wished, **_answer(request, con, q)})
+    wished, own = _wished(request, con), _own(request, con, q)
+    return page(request, "discover.html", nav="search", q=q, own=own, **{**wished, **_answer(request, con, q)})
 
 
 @router.get("/discover/results", response_class=HTMLResponse)
 def discover_results(request: Request, con: DB, q: Annotated[str, Query()] = "") -> HTMLResponse:
-    return page(request, "_discover_results.html", q=q, **_answer(request, con, q))
+    """The catalogues' results. The address bar shows the search page with the query (reload, share)."""
+    response = page(request, "_discover_results.html", q=q, **_answer(request, con, q))
+    response.headers["HX-Replace-Url"] = "/?" + urllib.parse.urlencode({"q": q.strip()}) if q.strip() else "/"
+    return response
+
+
+@router.get("/discover/own", response_class=HTMLResponse)
+def discover_own(request: Request, con: DB, q: Annotated[str, Query()] = "") -> HTMLResponse:
+    """The songs of the user's lists the search names, at once (the catalogues take seconds)."""
+    return page(request, "_discover_own.html", q=q, own=_own(request, con, q))
+
+
+def _own(request: Request, con: DB, q: str) -> list[dict]:
+    q = q.strip()
+    return [] if len(q) < MIN_LENGTH or LINK.match(q) else stats.find(con, q, stats.scope(request.state.user))
 
 
 NAMES = {"deezer": "Deezer", "apple": "Apple Music", "soundcloud": "SoundCloud"}
@@ -206,7 +220,7 @@ def play(hits: Sequence[Hit | dict[str, Any]]) -> dict[str, str] | None:
 def get_song(request: Request, con: DB, sid: str) -> HTMLResponse:
     """Get: the user wishes the song; it is searched at once and goes into their "Echolot · Wished"."""
     if (song := wishes.song(con, sid)) is None:
-        raise HTTPException(404, "Echolot does not know this song (any more): search it again.")
+        raise HTTPException(404, "Echolot no longer knows this song. Search for it again.")
     wishes.like(con, request.state.user, sid, song, True, "on the Discover page")
     wishes.wish(request, con, request.state.user)
     response = page(request, "_discover_get.html", sid=sid, state="wished")
@@ -262,7 +276,7 @@ def _wished(request: Request, con: sqlite3.Connection) -> dict[str, Any]:
         elif tries:
             status = f"Not found yet · searched {tries}× · again later"
         else:
-            status = "Waiting for its search"
+            status = "Not searched yet"
         wished.append(
             {
                 **d,

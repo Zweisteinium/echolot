@@ -58,7 +58,7 @@ def _same_page(request: Request) -> str:
 @router.post("/account/sessions/end-others")
 def end_other_sessions(request: Request, con: DB) -> RedirectResponse:
     n = auth.end_other_sessions(con, request.state.user, request.cookies.get(auth.COOKIE, ""))
-    return back("/account", ok=f"{n} other login(s) ended.")
+    return back("/account", ok=f"{n} other {'login' if n == 1 else 'logins'} ended.")
 
 
 @router.post("/account/tokens", response_class=HTMLResponse)

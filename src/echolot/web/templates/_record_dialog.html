@@ -4,7 +4,7 @@
 <form method="post" action="/recordings" class="record-form">{{ csrf_input }}
   {% if lst %}<input type="hidden" name="list" value="{{ lst.key }}">{% endif %}
   <h2><span class="record-dot">{{ icon('record', 18) }}</span> Record {{ '“' ~ lst.title ~ '”' if lst else 'all your Spotify lists' }}</h2>
-  <p class="muted small">Mitschnitt plays each song in Spotify on your PC, records it bit-exact and puts it into your library: the worst first, each song once.</p>
+  <p class="muted small">Mitschnitt plays each song in Spotify on your PC and records it, bit-exact, into your library. The worst copies first, each song once.</p>
   {% if nothing %}
   <p class="flash ok">Nothing to record{{ ': ' ~ left_out|join(', ') if left_out }}.</p>
   {% else %}
@@ -23,7 +23,7 @@
   {% if note %}<p class="flash ok">{{ note }}</p>{% endif %}
   {% if played_other %}{% set n = played_other|length %}{% set songs = n ~ ' song' ~ ('s' if n != 1 else '') %}
   <div class="record-again small">
-    <p class="muted">{{ songs }} left out for {{ skip_days }} days: Spotify played another song for {{ 'them' if n != 1 else 'it' }}, at times only a glitch of the Spotify app.
+    <p class="muted">{{ songs }} left out for {{ skip_days }} days. Spotify played another song for {{ 'them' if n != 1 else 'it' }}, sometimes just a glitch of the app.
       <button type="button" class="link" hx-post="/recordings/again" hx-target="#record-body" hx-confirm="This makes {{ songs }} available for recording again. If Spotify plays another song for one again, it is left out again.">Offer {{ 'them' if n != 1 else 'it' }} again</button></p>
     <details><summary>Show {{ 'the songs' if n != 1 else 'the song' }}</summary>
       <ul>{% for s in played_other %}<li>{{ s.artist }} – {{ s.title }} <span class="muted">· {{ s.when[:10] }}</span></li>{% endfor %}</ul>
@@ -39,10 +39,10 @@
     </label>
   </div>
   {% else %}
-  <p class="flash">No device yet: <a href="/account#recorders">connect Mitschnitt</a> on your Windows PC first.</p>
+  <p class="flash">No device yet. <a href="/account#recorders">Connect Mitschnitt</a> on your PC first.</p>
   {% endif %}
   <div class="dialog-actions">
-    {% if not nothing %}<a class="small record-file" data-export="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}" href="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}below=lossless" title="For Mitschnitt without a connection: Import queue">{{ icon('download', 15) }} As a file</a>{% endif %}
+    {% if not nothing %}<a class="small record-file" data-export="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}" href="/api/recorder/export?{{ ('list=' ~ lst.key|urlencode ~ '&') if lst }}below=lossless" title="For Mitschnitt without a connection, with Import queue">{{ icon('download', 15) }} As a file</a>{% endif %}
     <button type="button" data-close>Cancel</button>
     <button class="primary"{{ ' disabled' if nothing or not devices }}>Record</button>
   </div>

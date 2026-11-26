@@ -214,7 +214,6 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None, accept
     known = known or {}
     seen: set[str] = set()
     changed: list[tuple[str, int, int, float, int]] = []
-    probed = 0
     for folder in sorted(root.iterdir()):
         if not folder.is_dir() or folder.name.startswith("."):
             continue
@@ -232,7 +231,6 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None, accept
                 duration, kbps = k[2], k[3]
             else:
                 duration, kbps = probe(p)
-                probed += 1
             changed.append((rel, size, mtime, duration, kbps))
     if rows and not seen:
         raise RuntimeError(f"no audio files under {root} (not mounted?), keeping the last scan")
@@ -248,7 +246,7 @@ def scan(con: sqlite3.Connection, root: Path, known: Known | None = None, accept
             changed,
         )
         con.executemany("DELETE FROM files WHERE path = ?", [(p,) for p in gone])
-    return f"{len(seen)} files, {len(changed)} new or changed ({probed} probed), {len(gone)} gone"
+    return f"{len(seen)} files, {len(changed)} new or changed, {len(gone)} gone"
 
 
 def match_songs(con: sqlite3.Connection) -> str:

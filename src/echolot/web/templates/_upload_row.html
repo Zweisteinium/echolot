@@ -8,23 +8,23 @@
     {% if song %}<input type="hidden" name="song_{{ f.n }}" value="{{ song.key }}"{% if not go %} disabled{% endif %}>
     <div class="name">{{ song.artist }} – {{ song.title }}</div>
     <div class="muted small">{% if not song.file %}missing{% elif song.close_match %}covered by a close match: <span title="{{ song.file }}">{{ song.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span>{% else %}you have it: {{ quality(song.quality, song.kbps) }}{% endif %}</div>
-    {% if froms %}<label class="small upload-from" title="Where you got this file: the artist's own release (a free download, bought) is the best there is, even an MP3; it leaves the Buy list and is not searched for anything better">From <select name="from_{{ f.n }}">{% for c in froms %}<option value="{{ c.value }}"{% if c.value == likely %} selected{% endif %}>{{ c.label }}</option>{% endfor %}</select></label>{% endif %}
+    {% if froms %}<label class="small upload-from" title="Where you got this file. The artist's own release, bought or free, is the best there is, even as an MP3. It leaves the Buy list and no better copy is searched.">From <select name="from_{{ f.n }}">{% for c in froms %}<option value="{{ c.value }}"{% if c.value == likely %} selected{% endif %}>{{ c.label }}</option>{% endfor %}</select></label>{% endif %}
     {% if go and song.close_match %}{% if song.shared %}<span class="muted small" title="Another song has that file">the close match stays: another song has it</span>
-    {% else %}<label class="force small" title="Take the close match out of the library (kept 30 days in inbox/replaced); left unticked it stays a file of its own"><input type="checkbox" name="remove_{{ f.n }}" value="1"> Remove the close match</label>{% endif %}{% endif %}
-    {% if not go and not f.error and different %}<label class="force small" title="It sounds like another recording than the release's preview or your copy; import it as this song all the same{{ ' (your copy is kept 30 days in inbox/replaced)' if song.file }}"><input type="checkbox" data-force> {{ 'Replace anyway' if song.file else 'Import anyway' }}</label>
-    {% elif not go and song.file and not f.error %}<label class="force small" title="Replace your copy with this file even though it is not better (yours is kept 30 days in inbox/replaced)"><input type="checkbox" data-force> Replace anyway</label>{% endif %}
+    {% else %}<label class="force small" title="Take the close match out of the library, kept 30 days in inbox/replaced. Unticked, it stays a file of its own."><input type="checkbox" name="remove_{{ f.n }}" value="1"> Remove the close match</label>{% endif %}{% endif %}
+    {% if not go and not f.error and different %}<label class="force small" title="It sounds like another recording than the release's preview or your copy. Import it as this song all the same.{{ ' Your copy is kept 30 days in inbox/replaced.' if song.file }}"><input type="checkbox" data-force> {{ 'Replace anyway' if song.file else 'Import anyway' }}</label>
+    {% elif not go and song.file and not f.error %}<label class="force small" title="Replace your copy even though this file is not better. Yours is kept 30 days in inbox/replaced."><input type="checkbox" data-force> Replace anyway</label>{% endif %}
     {% elif found and found.release %}{% set r, sure = found.release.result, found.release.verdict == 'released' %}
     <input type="hidden" name="song_{{ f.n }}" value="wish:{{ found.sid }}"{% if not sure %} disabled{% endif %}>
     <div class="name">{{ r.artist }} – {{ r.title }}</div>
-    <div class="muted small" title="A released song on none of your lists: it goes into your Echolot · Wished, as a song you get on the Search page">{% for part in [r.album, r.year] if part %}{{ part }} · {% endfor %}into Echolot · Wished</div>
-    {% if not sure %}<label class="force small" title="Import it as this song all the same (into your Echolot · Wished)"><input type="checkbox" data-take> Import as this song</label>{% endif %}
+    <div class="muted small" title="A released song on none of your lists. It goes into your playlist Echolot · Wished.">{% for part in [r.album, r.year] if part %}{{ part }} · {% endfor %}into Echolot · Wished</div>
+    {% if not sure %}<label class="force small" title="Import it as this song all the same, into Echolot · Wished."><input type="checkbox" data-take> Import as this song</label>{% endif %}
     {% else %}<span class="muted">not imported</span>{% endif %}
   </td>
   <td class="upload-facts">
-    {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text }}</span>{% endfor %}
+    {% for text, style, detail in labels %}<span class="pill {{ style }}-pill" title="{{ detail }}">{{ text|sentence }}</span>{% endfor %}
     {% if not f.error %}<span class="small">{{ quality(f.tier, f.kbps) }}</span>{% endif %}
     {% if checks %}<div class="checks small">
-      {% if '' in checks|map(attribute=3)|list %}<span></span><span class="head" title="The same recording from 80 %, another song about 55 %">Fingerprint</span><span class="head" title="Sample by sample: the same master and mix from 90 %, another master or mix lower, another song near 0">Waveform</span>{% endif %}
+      {% if '' in checks|map(attribute=3)|list %}<span></span><span class="head" title="The same recording from 80 %. Another song is about 55 %.">Fingerprint</span><span class="head" title="Sample by sample. The same master and mix from 90 %, another master or mix lower, another song near 0.">Waveform</span>{% endif %}
       {% for name, what, scores, note in checks %}<span class="ref" title="{{ what }}">{{ name }}</span>
       {% if note %}<span class="none">{{ note }}</span>{% else %}{% for s in scores %}{% if s %}<span class="score {{ s[1] }}-text" title="{{ s[2] }}">{{ s[0] }}</span>{% else %}<span class="score muted" title="Not known">–</span>{% endif %}{% endfor %}{% endif %}
       {% endfor %}

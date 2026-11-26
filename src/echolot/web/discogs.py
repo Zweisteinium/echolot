@@ -63,11 +63,9 @@ def _store(row: sqlite3.Row) -> dict[str, Any] | None:
 def discogs_page(
     request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "", genre: str = "", show: str = "todo"
 ) -> HTMLResponse:
-    from echolot.web.pages import library_tabs  # pages imports this module
-
     uid = stats.scope(request.state.user)
     if not _on(con):
-        return page(request, "discogs.html", nav="discogs", on=False, tabs=cache.get(con, library_tabs, uid))
+        return page(request, "discogs.html", nav="discogs", on=False)
     albums, rows = _rows(con, uid)
     _, states, need_store = SHOW.get(show, SHOW["todo"])
     lists: dict[str, list] = {}  # list key -> [title, releases, looked at]
@@ -92,7 +90,6 @@ def discogs_page(
         "discogs.html",
         nav="discogs",
         on=True,
-        tabs=cache.get(con, library_tabs, uid),
         entries=entries,
         lists=sorted(lists.items(), key=lambda kv: kv[1][0].lower()),
         genres=genres,
@@ -117,16 +114,16 @@ def discogs_check(
         db.set_meta(con, job.REQUEST, json.dumps({"list": list_key, "again": again}))
     if not request.app.state.worker.trigger("discogs"):
         return back(where, error="The check could not start.")
-    return back(where, ok="The check starts in a moment; reload the page in a few minutes.")
+    return back(where, ok="The check starts in a moment. Reload the page in a few minutes.")
 
 
 @router.get("/discogs/release", response_class=HTMLResponse)
 def discogs_release(request: Request, con: DB, album: str) -> HTMLResponse:
     if not _on(con):
-        raise HTTPException(404, "Discogs is off")
+        raise HTTPException(404, "Discogs is off.")
     albums, rows = _rows(con, stats.scope(request.state.user))
     if album not in albums or album not in rows:
-        raise HTTPException(404, "no such release")
+        raise HTTPException(404, "No such release.")
     a, row = albums[album], rows[album]
     found = json.loads(row["found"]) if row["found"] else None
     return page(request, "_discogs_release.html", a=a, row=row, found=found, s=suggestion(a, row), add=ADD)

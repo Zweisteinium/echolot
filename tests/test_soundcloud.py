@@ -189,11 +189,11 @@ def test_connecting_with_the_refresh_token_renews_at_once(
         data={"token": f"OAuth {jwt(hours(20))}", "refresh": " refresh-0 "},
         follow_redirects=False,
     )
-    assert "renews+its+token" in r.headers["location"] and server.asked[0]["refresh_token"] == "refresh-0"
+    assert "renews+the+login" in r.headers["location"] and server.asked[0]["refresh_token"] == "refresh-0"
     con, vault = db.connect(settings.db_path), app.state.vault
     try:
         assert vault.get(con, soundcloud.refresh_name(OWNER)) == "refresh-1"
-        assert "renews its token itself each day" in client.get("/playlists").text
+        assert "renews its login every day" in client.get("/playlists").text
         r = client.post(
             "/accounts/soundcloud", data={"token": jwt(hours(20)), "refresh": "used-up"}, follow_redirects=False
         )
@@ -202,6 +202,6 @@ def test_connecting_with_the_refresh_token_renews_at_once(
         client.post("/accounts/soundcloud", data={"token": jwt(hours(20))})
         assert not vault.has(con, soundcloud.refresh_name(OWNER))
         html = client.get("/playlists").text
-        assert "renews its token itself" not in html and "Paste the refresh token with it" in html
+        assert "renews its login" not in html and "Paste the refresh token with it" in html
     finally:
         con.close()

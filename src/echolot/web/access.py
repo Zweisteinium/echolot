@@ -56,11 +56,13 @@ USER: set[tuple[str, str]] = {  # (method, route path) any logged-in user may us
     ("POST", "/sources/add"),
     ("GET", "/missing"),
     ("GET", "/missing/tried"),
+    ("GET", "/song"),
     ("GET", "/buy"),
     ("GET", "/discogs"),
     ("GET", "/discogs/release"),
     ("GET", "/discover"),
     ("GET", "/discover/results"),
+    ("GET", "/discover/own"),
     ("GET", "/discover/wished"),
     ("POST", "/discover/{sid}/get"),
     ("POST", "/discover/{sid}/forget"),
@@ -69,6 +71,7 @@ USER: set[tuple[str, str]] = {  # (method, route path) any logged-in user may us
     ("GET", "/accounts/line"),
     ("GET", "/jobs"),
     ("GET", "/changes"),
+    ("GET", "/availability"),
 }
 PERMITTED: dict[tuple[str, str], str] = {  # (method, route path) -> permission (auth.PERMISSIONS)
     ("GET", "/review"): "review",
@@ -172,7 +175,7 @@ async def csrf_protect(request: Request) -> None:
         value = form.get("csrf_token")
         token = value if isinstance(value, str) else None
     if not token or not hmac.compare_digest(token, request.state.csrf):
-        raise HTTPException(403, "The page was out of date (CSRF check). Reload it and try again.")
+        raise HTTPException(403, "The page was out of date. Reload it and try again.")
 
 
 async def allowed(request: Request) -> None:
@@ -188,7 +191,9 @@ async def allowed(request: Request) -> None:
     need = PERMITTED.get(key)
     if need and user.can(need):
         return
-    raise HTTPException(403, f"That needs the {need} permission." if need else "That is for admins.")
+    raise HTTPException(
+        403, f"That needs the {need} permission: an admin can give it under Users." if need else "That is for admins."
+    )
 
 
 def _safe_next(target: str) -> str:

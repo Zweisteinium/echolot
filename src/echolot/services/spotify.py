@@ -105,9 +105,7 @@ class SpotifyResting(SpotifyError):
         self.until = until
         form = "%H:%M" if until - time.time() < 20 * 3600 else "%d.%m. %H:%M"
         self.when = time.strftime(form, time.localtime(until))  # the wait's end, as the pages show it
-        super().__init__(
-            f"Spotify asked Echolot to wait until {self.when} (too many requests); nothing is asked before then."
-        )
+        super().__init__(f"Spotify asked Echolot to wait until {self.when} after too many requests.")
 
 
 EMBED = "https://open.spotify.com/embed/playlist/"

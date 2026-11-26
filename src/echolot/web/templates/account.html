@@ -2,19 +2,20 @@
 {% extends "base.html" %}
 {% block title %}Account · Echolot{% endblock %}
 {% block content %}
+<div class="page-head">
+  <div class="page-title"><h1>Your account</h1><p class="lead">You log in as {{ user.name }} with your Navidrome account. Change its password in Navidrome.</p></div>
+  <div class="actions"><form method="post" action="/account/sessions/end-others">{{ csrf_input }}
+    <button>Log out everywhere else</button>
+  </form></div>
+</div>
 <section class="card">
-  <h1>{{ user.name }}</h1>
-  <p class="muted">You log in with your Navidrome account; its password is changed in Navidrome.</p>
   {% if user.admin %}
   <p><strong>Admin</strong>: you may do everything here, for everyone. The pages show
-    <strong>{{ 'everyone\'s' if user.view == 'everyone' else 'your own' }}</strong> lists and songs (the switch at the top).</p>
+    <strong>{{ 'everyone\'s' if user.view == 'everyone' else 'your own' }}</strong> lists and songs. The switch in the sidebar changes that.</p>
   {% else %}
   <p>You manage your own accounts and lists.{% if user.permissions %} You may also:{% endif %}</p>
   {% if user.permissions %}<ul>{% for p, label in permissions.items() if p in user.permissions %}<li>{{ label }}</li>{% endfor %}</ul>{% endif %}
   {% endif %}
-  <form method="post" action="/account/sessions/end-others">{{ csrf_input }}
-    <button>Log out everywhere else</button>
-  </form>
 </section>
 
 {% if user.can('upload') %}
@@ -23,7 +24,7 @@
     <h2>Recorders</h2>
     <a class="button primary" href="mitschnitt://connect?url={{ base|urlencode }}">Connect Mitschnitt</a>
   </div>
-  {% call how('recorders', 'Mitschnitt on your Windows PC records songs from Spotify bit-exact and puts them into your library: choose what under Record, on a Spotify list or under Library.') %}Your devices are yours alone: nobody else here sees them or records on them. In Mitschnitt, <em>Connect Echolot</em> with the address <code>{{ base }}</code> works too.{% endcall %}
+  {% call how('recorders', 'Mitschnitt on your Windows or Linux PC records songs from Spotify, bit-exact, into your library.') %}Choose what to record with Record on a Spotify list. Your devices are yours alone: nobody else sees them or records on them. In Mitschnitt, <em>Connect Echolot</em> with the address <code>{{ base }}</code> works too.{% endcall %}
   {% if devices %}
   <table class="rows recorders">
     <thead><tr><th>Device</th><th>Status</th><th class="hide-narrow">App</th><th class="hide-narrow">Connected</th><th></th></tr></thead>
@@ -64,7 +65,7 @@
     {% endfor %}
   </table>
   <form method="post" action="/account/tokens" class="row-form">{{ csrf_input }}
-    <input type="text" name="name" placeholder="what uses it, e.g. grafana" aria-label="Token name" required maxlength="64">
+    <input type="text" name="name" placeholder="what uses it, like grafana" aria-label="Token name" required maxlength="64">
     <button>Create token</button>
   </form>
 </section>

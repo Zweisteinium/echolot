@@ -1,29 +1,52 @@
 {% extends "base.html" %}
-{% from "_macros.html" import qbar, share %}
+{% from "_macros.html" import add_music, qbar, share %}
 {% from "_icons.html" import icon %}
 {% from "_chart.html" import donut_chart %}
 {% block title %}Library · Echolot{% endblock %}
 {% block content %}
-{% set missing = o.wanted - o.have %}
-{% from "_subnav.html" import library %}
-<div class="page-top">
-  {{ library('overview', tabs) }}
-  <div class="status-row"><div class="connections" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div><span hx-get="/jobs/now" hx-trigger="load" hx-swap="outerHTML"></span></div>
+<div class="page-head">
+  <div class="page-title"><h1>{{ 'Your library' if o.scoped else 'Library' }}</h1><p class="lead">How complete and how good your music is.</p></div>
+  {% if user.can('upload') %}<div class="actions">{{ add_music(record) }}</div>{% endif %}
 </div>
 {% if user.can('upload') %}<div id="recording" hx-get="/recordings/panel" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
-<section class="card stats" data-stats>
-  <div class="card-head">
-    <h2>{{ 'Your library' if o.scoped else 'Library' }}</h2>
+{% set unlisted = o.files - o.in_lists %}
+<section class="kpis" aria-label="Key figures">
+  <div class="kpi{{ ' tip' if o.close }}"{% if o.close %} tabindex="0" role="button" title="{{ o.close|num }} {{ 'is a close match' if o.close == 1 else 'are close matches' }}: another version you accepted in Review."{% endif %}>
+    <div class="label">Lists complete</div>
+    <div class="value">{{ pct(o.have, o.wanted) }} %</div>
+    <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs{% if o.close %} · {{ o.close|num }} close match{{ 'es' if o.close != 1 }}{% endif %}</div>
   </div>
+  <a class="kpi" href="/activity?kind=added">
+    <div class="label">Added in 24 h</div>
+    <div class="value">{{ o.added_24h|num }}</div>
+    <div class="sub">songs · {{ o.added_bytes_24h|size }}</div>
+  </a>
+  <a class="kpi" href="/activity?kind=rejected">
+    <div class="label">Rejected in 24 h</div>
+    <div class="value">{{ o.rejected_24h|num }}</div>
+    <div class="sub">downloads that were not the song</div>
+  </a>
+  <div class="kpi tip" tabindex="0" role="button" title="Lyrics from LRCLIB, or the file's own. Checked so they surely are the song's.">
+    <div class="label">With lyrics</div>
+    <div class="value">{{ pct(o.lyrics, o.files) }} %</div>
+    <div class="sub">{{ o.lyrics|num }} files · {{ o.synced|num }} synced</div>
+  </div>
+  <div class="kpi tip" tabindex="0" role="button" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists. A song listed twice is one file.{% if unlisted %} {{ unlisted|num }} files are on no list anymore.{% endif %}">
+    <div class="label">{{ 'Your files' if o.scoped else 'Files' }}</div>
+    <div class="value">{{ o.files|num }}</div>
+    <div class="sub">{{ o.size|size }}{% if o.scoped %} · of {{ o.library_files|num }} in the library{% endif %}</div>
+  </div>
+</section>
+<section class="card stats" data-stats>
   <div class="stats-main">
     <div class="growth-panels loading graphs-wait" id="graphs" data-graphs data-range=""><p class="muted growth-empty" data-graphs-note>Loading the graphs…</p></div>
     <div class="quality-side" data-rings>
       <div class="side-head">
         <div class="side-label">Quality</div>
         <div class="segmented small-seg" role="radiogroup" aria-label="The ring shows">
-          <label title="The files in the music folder by quality"><input type="radio" name="ring" value="files" checked> Files</label>
-          <label title="The songs on the lists by the quality of their copy, and the songs missing"><input type="radio" name="ring" value="songs"> Songs</label>
-          <label title="The songs on the lists by how near they are to the best quality there is"><input type="radio" name="ring" value="best"> Best possible</label>
+          <label title="Files in the music folder, by quality"><input type="radio" name="ring" value="files" checked> Files</label>
+          <label title="Songs on the lists, by the quality of their file"><input type="radio" name="ring" value="songs"> Songs</label>
+          <label title="Songs on the lists, by how close they are to the best there is"><input type="radio" name="ring" value="best"> Best possible</label>
         </div>
       </div>
       <div class="rings">
@@ -42,7 +65,7 @@
           {% endfor %}
           </tbody>
         </table>
-        <p class="muted small ring-note">{% if view == 'files' %}The {{ ring.total|num }} files {{ 'your songs have' if o.scoped else 'in the music folder' }}{% else %}The {{ ring.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists{% endif %}{% if fakes %}; {{ fakes|num }} of the lossy ones are FLACs made from lossy files, counted by their source{% endif %}.</p>
+        <p class="muted small ring-note">{% if view == 'files' %}{{ ring.total|num }} files {{ 'of your songs' if o.scoped else 'in the music folder' }}.{% else %}{{ ring.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists.{% endif %}{% if fakes %} {{ fakes|num }} fake FLAC{{ 's' if fakes != 1 }} counted as lossy.{% endif %}</p>
       </div>
       {% endfor %}
       {% set obtainable = rings.best.total - best[-1][2] %}
@@ -51,7 +74,7 @@
         <table class="legend-table">
           <tbody>
           {% for k, label, n in best %}
-          <tr class="q-{{ k }}{{ ' dim' if not n }}" title="{{ best_hints[k]|capitalize }}">
+          <tr class="q-{{ k }}{{ ' dim' if not n }}" title="{{ best_hints[k] }}">
             <td class="sw"><span class="swatch" aria-hidden="true"></span></td>
             <td>{{ label }}</td>
             <td class="num">{{ n|num }}</td>
@@ -60,37 +83,9 @@
           {% endfor %}
           </tbody>
         </table>
-        <p class="muted small ring-note">The {{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists; the shares leave out those that seem wiped off the internet, as the lists' Best column does.</p>
+        <p class="muted small ring-note">{{ rings.best.total|num }} songs on {{ 'your' if o.scoped else 'the' }} lists. The shares leave out the songs that seem wiped off the internet.</p>
       </div>
       </div>
-    </div>
-  </div>
-  {% set unlisted = o.files - o.in_lists %}
-  <div class="kpis">
-    <div class="kpi"{% if o.close %} title="{{ o.close|num }} of them {{ 'is' if o.close == 1 else 'are' }} covered by a close match: another version you took for the song in review (Missing lists them)."{% endif %}>
-      <div class="label">Lists complete</div>
-      <div class="value">{{ pct(o.have, o.wanted) }} %</div>
-      <div class="sub">{{ o.have|num }} of {{ o.wanted|num }} songs{% if o.close %} · {{ o.close|num }} close match{{ 'es' if o.close != 1 }}{% endif %}</div>
-    </div>
-    <a class="kpi" href="/missing">
-      <div class="label">Missing</div>
-      <div class="value{{ ' bad-text' if missing }}">{{ missing|num }}</div>
-      <div class="sub">{{ o.not_found|num }} searched, not found yet</div>
-    </a>
-    <a class="kpi" href="/activity?kind=added">
-      <div class="label">Added in 24 h</div>
-      <div class="value">{{ o.added_24h|num }}</div>
-      <div class="sub">songs · {{ o.added_bytes_24h|size }}</div>
-    </a>
-    <a class="kpi" href="/activity?kind=rejected">
-      <div class="label">Rejected in 24 h</div>
-      <div class="value">{{ o.rejected_24h|num }}</div>
-      <div class="sub">downloads that were not the song</div>
-    </a>
-    <div class="kpi" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists: a recording that is in them more than once (on Spotify and on SoundCloud, or as several releases) is one file.{% if unlisted %} {{ unlisted|num }} are in no followed list any more.{% endif %}">
-      <div class="label">{{ 'Your files' if o.scoped else 'Files' }}</div>
-      <div class="value">{{ o.files|num }}</div>
-      <div class="sub">{{ o.size|size }}{% if o.scoped %} · of {{ o.library_files|num }} in the library{% endif %}</div>
     </div>
   </div>
 </section>
@@ -219,48 +214,6 @@
   })();
 </script>
 
-<section class="card">
-  <div class="card-head">
-    <h2>{{ "Your lists" if o.scoped else "Lists" }} <span class="count">{{ lists|length }}</span></h2>
-    <div class="actions">
-      {% if user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, better copies of songs you have, or released songs on none of your lists (into Echolot · Wished)">{{ icon('upload', 14) }} Upload files</button>
-      <button type="button" hx-get="/unreleased/upload" hx-target="#upload-body" title="Music that exists nowhere else (a friend's own tracks, customs deleted everywhere), into your Unreleased lists: kept as uploaded, never searched or upgraded">{{ icon('upload', 14) }} Upload unreleased</button>{% endif %}
-      {% if user.can('upload') and lists|selectattr('service', 'equalto', 'spotify')|list %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" title="Record songs of all your Spotify lists with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
-    </div>
-  </div>
-  {% set groups = lists|groupby('grp') %}
-  {% set by_service, order = dict(groups), ['spotify', 'soundcloud', 'youtube', 'echolot'] %}
-  {% for svc in order + (by_service|reject('in', order)|list) if svc in by_service %}
-  {% set group = by_service[svc] %}
-  {% set t = o.services.get(svc, {'songs': 0, 'missing': 0}) %}
-  <details class="group" data-remember="lists-{{ svc }}" open>
-    <summary>
-      <span class="group-name">{{ icon(svc) }} {{ svc|source }}</span>
-      <span class="pill">{{ group|length }} list{{ 's' if group|length != 1 }}</span>
-      <span class="muted small">{{ t.songs|num }} songs{% if t.missing %} · <span class="bad-text">{{ t.missing|num }} missing</span>{% endif %}</span>
-    </summary>
-    <table class="rows lists">
-      <colgroup><col><col class="c-num"><col class="c-bar"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
-      <thead><tr><th>List</th><th class="num">Songs</th><th>Quality</th><th class="num">FLAC</th><th class="num" title="Songs at the best quality there is: genuine FLAC, or a copy of a song Spotify has nothing better of or no longer plays (marked in the list). Missing songs not available at their source (greyed out or taken down on Spotify, DRM on SoundCloud) are left out.">Best</th><th class="num" title="Its songs not in the library yet: a song listed twice counts once, one on several lists in each (the Missing page lists it once)">Missing</th></tr></thead>
-      <tbody>
-      {% for l in group %}
-      {% set m = l.missing %}
-      <tr>
-        <td class="name">{% if l.fetched %}<a href="/lists/{{ l.key }}">{{ l.title }}</a>{% else %}{{ l.title }} <span class="muted small">waiting for the first sync</span>{% endif %}{% if l.service == 'local' %} <span class="pill" title="Unreleased songs you uploaded: kept as they are, never searched or upgraded">unreleased</span>{% endif %}{% if not l.playlist %} <span class="muted small" title="songs only, no playlist in the music server">no playlist</span>{% endif %}{% if not o.scoped and l.owners %} <span class="muted small" title="who follows it">· {{ l.owners }}</span>{% endif %}</td>
-        <td class="num" data-label="Songs">{{ l.songs|num }}</td>
-        <td class="bar">{{ qbar(tier_counts(l)) }}</td>
-        <td class="num muted" data-label="FLAC">{{ share(l.lossless, l.songs) }}</td>
-        <td class="num muted" data-label="Best" title="{{ l.best|num }} of {{ (l.songs - l.unobtainable)|num }} songs that can be had">{{ share(l.best, l.songs - l.unobtainable) }}</td>
-        <td class="num" data-label="Missing">{% if m %}<a class="bad-text" href="/missing?list={{ l.key|urlencode }}">{{ m|num }}</a>{% else %}<span class="muted">–</span>{% endif %}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </details>
-  {% else %}
-  <p class="muted">No lists yet. <a href="/playlists">Choose the lists to follow</a>{% if not connected %}, after connecting your Spotify or SoundCloud there{% endif %}.</p>
-  {% endfor %}
-</section>
-
+{% include "_lists_table.html" %}
 {% if user.can('upload') %}{% include "_record.html" %}{% include "_upload_dialog.html" %}{% endif %}
 {% endblock %}

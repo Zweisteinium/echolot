@@ -37,7 +37,7 @@ def connect_page(
 ) -> HTMLResponse:
     """The approval page for a device's connection request."""
     if not redirect.startswith(REDIRECT) or not challenge:
-        raise HTTPException(400, "This link does not come from Mitschnitt: start connecting in the app.")
+        raise HTTPException(400, "This link does not come from Mitschnitt. Start connecting in the app.")
     ask = {"name": recording._name(name), "app": app[:80], "challenge": challenge, "state": state, "redirect": redirect}
     return page(request, "recorders_connect.html", nav="account", ask=ask, step="ask")
 
@@ -87,7 +87,7 @@ def device_disconnect(request: Request, con: DB, recorder_id: int) -> RedirectRe
     except recording.RecordingError as e:
         return back("/account#recorders", error=str(e))
     recording.disconnect(con, recorder_id)
-    return back("/account#recorders", ok="Device disconnected: it can no longer record for you.")
+    return back("/account#recorders", ok="Device disconnected. It can no longer record for you.")
 
 
 # ---------------------------------------------------------------- recording (browser)
@@ -211,10 +211,10 @@ def device_of(request: Request, con: DB) -> sqlite3.Row:
     """The request's device (401 without a valid token; 403 when its user may no longer upload)."""
     row = recording.by_token(con, _token(request))
     if row is None:
-        raise HTTPException(401, "Unknown or revoked recorder token: connect the device again.")
+        raise HTTPException(401, "Unknown or revoked token. Connect the device again.")
     user = auth.get_user(con, row["user_name"])
     if user is None or not user.can("upload"):
-        raise HTTPException(403, "This device's user may no longer put files into the library (upload permission).")
+        raise HTTPException(403, "This device's user may no longer upload files.")
     return row
 
 

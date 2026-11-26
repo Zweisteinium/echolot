@@ -134,25 +134,27 @@ def parse_url(url: str) -> tuple[str, str]:
     if m := re.search(r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?playlist/|spotify:playlist:)(\w+)", url):
         return "spotify", f"https://open.spotify.com/playlist/{m.group(1)}"
     if re.search(r"open\.spotify\.com/collection/tracks", url):
-        raise ConfigError("That is your Liked Songs: switch on Spotify likes instead.")
+        raise ConfigError("That is your Liked Songs. Follow them under Playlists, Spotify.")
     parsed = urllib.parse.urlparse(url if "://" in url else "https://" + url)
     if parsed.hostname in ("soundcloud.com", "www.soundcloud.com", "m.soundcloud.com"):
         parts = [p for p in parsed.path.split("/") if p]
         if (len(parts) >= 3 and parts[1] == "sets") or (len(parts) == 2 and parts[1] == "likes"):
             return "soundcloud", "https://soundcloud.com/" + "/".join(parts[:3])
-        raise ConfigError("SoundCloud: use a set (…/<user>/sets/<name>) or a likes page (…/<user>/likes).")
+        raise ConfigError("Paste a SoundCloud set or likes page.")
     if parsed.hostname == "on.soundcloud.com":
-        raise ConfigError("Short on.soundcloud.com links can't be resolved: open it and copy the full URL.")
+        raise ConfigError("Short SoundCloud links can't be read. Open it and copy the full address.")
     if parsed.hostname in YOUTUBE_HOSTS:
         pid = (urllib.parse.parse_qs(parsed.query).get("list") or [""])[0]
         if not re.fullmatch(r"[A-Za-z0-9_-]{2,64}", pid):
-            raise ConfigError("YouTube: use a playlist link (…/playlist?list=…, or a video link with &list=).")
+            raise ConfigError("Paste a YouTube playlist link.")
         if account_list := youtube.ACCOUNT_LISTS.get(pid):
-            raise ConfigError(f"YouTube: {account_list} can only be read with your account (not supported).")
+            raise ConfigError(f"{account_list} is private to your YouTube account and can't be read.")
         if pid.startswith("RD"):
-            raise ConfigError("YouTube: a Mix is made anew for each listener; follow a playlist instead.")
+            raise ConfigError("A YouTube Mix changes for every listener. Follow a playlist instead.")
         return "youtube", f"https://www.youtube.com/playlist?list={pid}"
-    raise ConfigError("Not a Spotify playlist, SoundCloud set/likes or YouTube playlist URL.")
+    raise ConfigError(
+        "Not a list link. Paste a Spotify playlist, a SoundCloud set or likes page, or a YouTube playlist."
+    )
 
 
 YOUTUBE_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be")
@@ -436,7 +438,7 @@ def add_list(con: sqlite3.Connection, user_id: int, url: str, title: str = "", p
 def set_playlist(con: sqlite3.Connection, user_id: int, key: str, playlist: bool) -> None:
     """Also show the list as a playlist in the music server, or not."""
     if not con.execute("SELECT 1 FROM sources WHERE user_id = ? AND key = ?", (user_id, key)).fetchone():
-        raise ConfigError("You don't follow that list (any more).")
+        raise ConfigError("You don't follow that list.")
     sql = "UPDATE sources SET playlist = ? WHERE user_id = ? AND key = ?"
     _change(con, user_id, lambda: con.execute(sql, (int(playlist), user_id, key)))
 
@@ -445,7 +447,7 @@ def remove_list(con: sqlite3.Connection, user_id: int, key: str) -> None:
     """Unfollow a list; not one Echolot keeps itself (OWN: Wished, the Unreleased lists have their own ways)."""
     sql = f"SELECT 1 FROM sources WHERE user_id = ? AND key = ? AND likes = 0 AND service NOT IN ({', '.join('?' * len(OWN))})"
     if not con.execute(sql, (user_id, key, *OWN)).fetchone():
-        raise ConfigError("You don't follow that list (any more).")
+        raise ConfigError("You don't follow that list.")
     _change(con, user_id, lambda: con.execute("DELETE FROM sources WHERE user_id = ? AND key = ?", (user_id, key)))
 
 

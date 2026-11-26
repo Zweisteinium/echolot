@@ -1,11 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Import configuration · Echolot{% endblock %}
 {% block content %}
+<a class="crumb" href="/settings">← Server settings</a>
+<div class="page-head"><div class="page-title"><h1>Import configuration</h1></div></div>
 <section class="card">
-  <div class="card-head">
-    <h1>Import configuration</h1>
-    <a href="/settings">Back to Settings</a>
-  </div>
   {% if diff %}
   <p class="muted small">What the import changes: lines with <code>-</code> are the current configuration, lines with <code>+</code> the imported one. Nothing is stored until you confirm.</p>
   <pre class="diff">{{ diff }}</pre>

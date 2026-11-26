@@ -1,0 +1,18 @@
+{# the songs of the user's lists a search names (stats.find), shown at once above the catalogues' results -#}
+{% from "_macros.html" import quality -%}
+{% if own %}
+<section class="own-results" aria-label="On your lists">
+  <h2 class="own-head">On your lists</h2>
+  <ul class="own-list">
+    {% for s in own %}
+    <li>
+      <span class="own-song"><a href="/song?key={{ s.key|urlencode }}" hx-get="/song?key={{ s.key|urlencode }}" hx-target="#song-panel-body" hx-push-url="false"><b>{{ s.title }}</b></a> <span class="muted">{{ s.artist }}</span></span>
+      <span class="own-facts">{% if s.file %}{{ quality(s.quality, s.kbps) }}{% else %}<a href="/missing" class="chip q-missing"><span class="swatch" aria-hidden="true"></span>missing</a>{% endif %}
+        <span class="muted small num">{{ s.length|mmss }}</span>
+        {% if s.list_key %}<a class="small" href="/lists/{{ s.list_key|urlencode }}">{{ s.list_title }}</a>{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if own[0].more %}<p class="muted small">More on your lists: add a word.</p>{% endif %}
+</section>
+{% endif %}

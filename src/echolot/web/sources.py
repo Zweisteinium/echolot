@@ -27,10 +27,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(include_in_schema=False)
 MODES = ("off", "songs", "playlist")
 KINDS = (("own", "Yours"), ("collab", "Collaborative"), ("other", "By others"))
-NOT_READABLE = (
-    "Spotify doesn't hand out this playlist's songs (its rules for private apps cover only your own and "
-    "collaborative playlists). Copy them into a playlist of yours (select all, Add to playlist)."
-)
+NOT_READABLE = "Spotify withholds this playlist from private apps. Copy its songs into a playlist of yours."
 FRESH_SECONDS = 300
 _found: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}  # (service, user) -> (when, cards)
 _fetching: collections.defaultdict[tuple[str, int], threading.Lock] = collections.defaultdict(threading.Lock)
@@ -132,7 +129,9 @@ def sources_page(request: Request, con: DB) -> HTMLResponse:
     from echolot.web.accounts import connections
 
     followed = collections.Counter(x.service for x in sources.user_lists(con, request.state.user.id))
-    return page(request, "sources.html", nav="playlists", followed=followed, **connections(request, con))
+    uid = stats.scope(request.state.user)
+    lists = cache.get(con, stats.lists, uid)  # the count, and Add music's Record
+    return page(request, "sources.html", nav="playlists", followed=followed, lists=lists, **connections(request, con))
 
 
 @router.get("/sources/found/{service}", response_class=HTMLResponse)
@@ -262,8 +261,8 @@ def add(
         service, canonical = sources.parse_url(url)
         name, image = _preview(con, request, service, canonical)
         key = sources.add_list(con, request.state.user.id, canonical, "", mode != "songs")
-    except ConfigError as e:
-        return back("/playlists", error=str(e))
+    except ConfigError as e:  # the link stays in its field, the field in view
+        return back("/playlists#follow", error=str(e), url=url)
     lists.sync_table(con)
     with con:
         con.execute("UPDATE lists SET title = ?, cover_url = ? WHERE key = ? AND NOT fetched", (name, image, key))

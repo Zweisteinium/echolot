@@ -37,10 +37,32 @@ def page(request: Request, template: str, status_code: int = 200, **context: Any
     context.setdefault("error", request.query_params.get("error", ""))
     csrf = getattr(request.state, "csrf", "")
     context.setdefault("user", getattr(request.state, "user", None))
+    if not template.startswith("_"):  # a whole page (fragments start with _): the navigation's counts
+        context.setdefault("nav_counts", nav_counts(request, context["user"]))
     context["csrf_token"] = csrf
     context["csrf_input"] = Markup(f'<input type="hidden" name="csrf_token" value="{escape(csrf)}">')
     templates = request.app.state.templates
     return templates.TemplateResponse(request, template, context, status_code=status_code)
+
+
+def nav_counts(request: Request, user: Any) -> dict[str, int | None]:
+    """The sidebar's counts, shared by all pages (web/cache): Missing, Buy, Discogs (None while it is off) and the
+    songs waiting in Review."""
+    if user is None:
+        return {}
+    from echolot.library import review
+    from echolot.web import pages, stats
+
+    library = request.app.state.settings.library_dir
+    con = db.connect(request.app.state.settings.db_path)
+    try:
+        counts: dict[str, int | None] = dict(cache.get(con, pages.library_tabs, stats.scope(user)))
+        if library is not None and user.can("review"):
+            waiting = cache.get(con, review.waiting_count, library.parent, None if user.everyone else user.id)
+            counts["review"] = waiting
+        return counts
+    finally:
+        con.close()
 
 
 def asset_urls(folder: Path) -> Callable[[str], str]:

@@ -9,18 +9,18 @@
 {% if i.kind == 'filed' -%}
 {% set note = [e.reason|replace('back in review: ', 'Back for a check: ') if e.action == 'recheck', e.audio]|select|join(' · ') -%}
 {% set HELP = {
-  'ok': 'It is the song: the file stays as it is.',
-  'close': 'Another version you take for the song: the file gets the name you give it and covers the song.',
-  'wrong': 'Not the song: the file goes, this download is never taken again, and the song is searched again.',
+  'ok': 'It is the song. The file stays.',
+  'close': 'Another version, taken for the song under the name you give it.',
+  'wrong': 'Not the song. The file goes and the song is searched again.',
 } -%}
 {% else -%}
-{% set confirm_why = 'A FLAC for a SoundCloud song: only you can tell whether it is the song' if (e.song or '').startswith('soundcloud:') else 'A FLAC that sounds unlike your copy: only you can tell whether it is the song' -%}
-{% set why = confirm_why if e.action == 'confirm' else ('Not the song' if e.action == 'wrong-song' else 'Another length') ~ ': ' ~ (e.reason or ('length ' ~ (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss))) -%}
+{% set confirm_why = 'A FLAC for a SoundCloud song, only you can tell' if (e.song or '').startswith('soundcloud:') else 'A FLAC that sounds unlike your copy' -%}
+{% set why = confirm_why if e.action == 'confirm' else ('Not the song' if e.action == 'wrong-song' else 'Another length') ~ ': ' ~ (plainly(e.reason) if e.reason else (e.seconds|mmss) ~ ', wanted ' ~ (i.length|mmss)) -%}
 {% set note = why ~ (' · ' ~ e.audio if e.audio and e.audio not in (e.reason or '') else '') -%}
 {% set HELP = {
-  'accept': ('It is the song: the FLAC replaces your lossy copy.' if e.song_file else 'It is the song: it is filed and tagged as the song.') ~ ' The other downloads go.',
-  'close': 'Another version you take for the song: it is filed under the name you give it and covers the song' ~ ('; your lossy copy stays as a file of its own.' if e.song_file else '.') ~ ' The other downloads go.',
-  'discard': 'Not the song: it is deleted and this download is never taken for the song again.',
+  'accept': ('It is the song. The FLAC replaces your copy.' if e.song_file else 'It is the song. It is filed as the song.') ~ ' The other downloads go.',
+  'close': 'Another version, filed under the name you give it.' ~ (' Your copy stays too.' if e.song_file else '') ~ ' The other downloads go.',
+  'discard': 'Not the song. It is deleted and never taken again.',
 } -%}
 {% endif -%}
 <li class="download{{ ' settled' if not open }}" data-event="{{ e.id }}">
@@ -28,10 +28,10 @@
     <span class="when-paused">{{ icon('play', 16) }}</span><span class="when-playing">{{ icon('pause', 16) }}</span></button>
   <div class="download-body">
     <div class="download-name">{% if d_artist %}<span{% if other %} class="warn-text" title="None of the wanted song's artists"{% endif %}>{{ d_artist }}</span> – {% endif %}{{ d_title }}
-      {%- if i.performance %} <span class="pill" title="The piece as the song, played by others: none of the song's performers is named, and the audio is not the release's">another performance</span>{% endif %}</div>
+      {%- if i.performance %} <span class="pill" title="The piece as the song, played by others: none of the song's performers is named, and the audio is not the release's">Another performance</span>{% endif %}</div>
     <div class="seek" title="Jump to"><span class="seek-done"></span></div>
     <div class="facts">{{ facts(e.source, e.seconds, i.length_diff, i.quality, e.kbps, e.bytes) }}<span class="play-time"></span></div>
-    {% if note %}<div class="download-why">{{ note }}</div>{% endif %}
+    {% if note %}<div class="download-why"{% if e.reason and plainly(e.reason) != e.reason %} title="{{ e.reason|scores }}"{% endif %}>{{ note|scores }}</div>{% endif %}
     {% if e.compared %}<div class="download-why" title="Each 5 s piece compared with the other file, aligned on its own">{{ 'Against your copy' if i.kind == 'kept' else 'Against the file it replaced' }}: {{ e.compared }}</div>{% endif %}
     {% if open and 'close' in dict(i.choices) %}
     <div class="close-line" id="close-line-{{ e.id }}"{% if not failed %} hidden{% endif %}>

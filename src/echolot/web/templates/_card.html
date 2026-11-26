@@ -1,5 +1,5 @@
 {% from "_icons.html" import use %}
-{% set MODES = (('off', 'Off', 'Not followed'), ('songs', 'Songs', 'Songs into the library'), ('playlist', 'Playlist', 'Songs into the library, and a playlist in your music server')) %}
+{% set MODES = (('off', 'Off', 'Not followed'), ('songs', 'Songs only', 'Its songs go into the library'), ('playlist', 'Songs and playlist', 'Its songs go into the library and make a playlist in the music server')) %}
 <article class="src-card{{ ' on' if c.mode != 'off' }}" id="card-{{ c.key|replace(':', '-')|replace('/', '-') }}"{% if c.kind %} data-kind="{{ c.kind }}"{% endif %}>
   <div class="cover">{% if c.image %}<img src="{{ c.image }}" alt="" loading="lazy" decoding="async" onload="this.classList.add('shown')">{% else %}<span class="no-cover" aria-hidden="true">♫</span>{% endif %}</div>
   <div class="body">
@@ -9,7 +9,7 @@
     {% if c.note %}<p class="small warn-text">{{ c.note }}</p>{% endif %}
     <form method="post" action="/sources/follow" hx-post="/sources/follow" hx-trigger="change" hx-target="closest article" hx-swap="outerHTML">{{ csrf_input }}
       {% for k in ('key', 'service', 'url') %}<input type="hidden" name="{{ k }}" value="{{ c[k] }}">{% endfor %}
-      <span class="seg" role="radiogroup" aria-label="Follow {{ c.name }}">
+      <span class="seg modes" role="radiogroup" aria-label="Follow {{ c.name }}">
         {% for value, label, tip in MODES %}
         <label title="{{ tip }}"><input type="radio" name="mode" value="{{ value }}" {% if c.mode == value %}checked{% endif %}> {% if value != 'off' %}{{ use(value, 13) }} {% endif %}{{ label }}</label>
         {% endfor %}

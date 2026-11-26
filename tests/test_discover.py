@@ -136,7 +136,9 @@ def test_the_page(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
     page._resting.clear()
     client = login(create_app(settings), "timon", admin=False)
     assert 'hx-get="/discover/results"' in client.get("/discover").text
-    html = client.get("/discover/results", params={"q": "first song"}).text
+    r = client.get("/discover/results", params={"q": "first song"})
+    html = r.text
+    assert r.headers["HX-Replace-Url"] == "/?q=first+song"  # the address bar keeps the search page
     assert "In your library" in html and "Apple Music did not answer" in html
     assert html.count("<li class=") == 1  # Deezer's and SoundCloud's hit: one song
     assert 'href="https://www.deezer.com/t/1"' in html and 'href="https://soundcloud.com/a/first"' in html
@@ -147,7 +149,7 @@ def test_the_page(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
     client.get("/discover/results", params={"q": "First  Song"})
     client.get("/discover/results", params={"q": "first song"})
     assert len(asked) == 3  # every source answered: kept (the same query, any case or spacing)
-    assert "A little more" in client.get("/discover/results", params={"q": "x"}).text
+    assert "Type a few more letters" in client.get("/discover/results", params={"q": "x"}).text
 
 
 def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,7 +236,7 @@ def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.Monkey
     detail = client.get("/rest/getSong.view", params={**who, "id": sid}).json()["subsonic-response"]
     assert detail["song"]["album"] == "On its way · Deezer · 30 s preview"
     mine = login(client.app, "owner").get("/discover").text
-    assert "Wished" in mine and "Waiting for its search" in mine
+    assert "Wished" in mine and "Not searched yet" in mine
     with con:
         con.execute("UPDATE songs SET file = 'New Artist/New Artist - New Song.flac' WHERE key = ?", (key,))
     detail = client.get("/rest/getSong.view", params={**who, "id": sid}).json()["subsonic-response"]
@@ -252,7 +254,7 @@ def test_a_players_search_and_hearts(settings, login, monkeypatch: pytest.Monkey
     client.get("/rest/unstar.view", params={**who, "id": sid})
     assert not con.execute("SELECT 1 FROM list_songs WHERE list_key = 'discover:wished:1'").fetchone()
     con.close()
-    assert "Waiting for its search" not in login(client.app, "owner").get("/discover").text
+    assert "Not searched yet" not in login(client.app, "owner").get("/discover").text
     gone = client.get("/rest/getSong", params={**who, "f": "", "id": "ex-0000"})
     assert 'code="70"' in gone.text and gone.text.startswith("<?xml")  # XML when not asked for JSON
 
@@ -288,7 +290,7 @@ def test_get_on_the_page_and_the_wished_progress(settings, login, monkeypatch: p
     assert triggered == ["search_new", "library"]
     key = "discover:" + sid.removeprefix("ex-")
     wished = client.get("/discover/wished").text
-    assert "Waiting for its search" in wished and "every 2s" in wished  # on its way: the list asks again
+    assert "Not searched yet" in wished and "every 2s" in wished  # on its way: the list asks again
 
     run = types.SimpleNamespace(fetching={key: {"stage": "downloading", "done": 50, "total": 200}})
     monkeypatch.setattr(client.app.state.worker, "state", lambda: ({"search_new": run}, set()))
@@ -336,7 +338,7 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
     assert "From your link: <b>Artist Z – Track Z</b>" in html and "Track Z" in html
     assert asked == ["https://soundcloud.com/artist-z/track-z"]
     monkeypatch.setattr(page, "_track", lambda request, con, url: None)
-    assert "Paste a playlist link" in client.get("/discover/results", params={"q": "https://example.com/x"}).text
+    assert "Not a list link" in client.get("/discover/results", params={"q": "https://example.com/x"}).text
     old_new = (
         ("/discover?q=x", "/?q=x"),
         ("/sources", "/playlists"),
@@ -347,10 +349,9 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
         r = client.get(old, follow_redirects=False)
         assert (r.status_code, r.headers["location"]) == (301, new), old
     nav = client.get("/missing").text
-    assert all(f'data-label="{n}"' in nav for n in ("Search", "Playlists", "Library", "Review", "History"))
-    assert (
-        'href="/library" data-label="Library" aria-current="page"' in nav and '<a class="crumb" href="/library">' in nav
-    )  # under Library, back to it
+    pages = ("Search", "Playlists", "Library", "Review", "Missing", "Jobs", "History", "Changes", "Availability")
+    assert all(f'<span class="label">{n}</span>' in nav for n in pages)  # the sidebar
+    assert '<a href="/missing" aria-current="page" title="Missing' in nav and 'class="tabbar"' in nav  # (phones)
     assert ">Server settings</a>" in nav and "Inbox" not in nav and "Stats" not in nav
     account = client.get("/account").text
     assert 'id="recorders"' in account and 'id="tokens"' in account and 'aria-label="Your account"' not in account
@@ -360,3 +361,23 @@ def test_search_takes_links_and_the_menu(settings, login, monkeypatch: pytest.Mo
     playlists = client.get("/playlists").text
     assert "Connect Spotify" in playlists and 'id="soundcloud"' in playlists and "By link" in playlists
     assert 'id="soulseek-client"' in client.get("/settings").text
+
+
+def test_search_names_the_songs_of_your_lists_at_once(settings, login) -> None:
+    """Search shows the songs of the user's lists it names first, without asking the catalogues: any case
+    and accents, every word at a word's start, the library's first; a missing one is marked, each links its
+    list."""
+    from echolot.web import create_app
+
+    client = login(create_app(settings))
+    html = client.get("/discover/own", params={"q": "artist a FIRST"}).text
+    assert "On your lists" in html and "<b>First Song</b>" in html and "FLAC" not in html  # (a fake file: mp3)
+    assert 'href="/lists/spotify%3Alikes%3A1">Liked Songs</a>' in html
+    gone = client.get("/discover/own", params={"q": "gone"}).text
+    assert "<b>Gone Song</b>" in gone and "missing</a>" in gone
+    assert "On your lists" not in client.get("/discover/own", params={"q": "irst"}).text  # not inside a word
+    assert "On your lists" not in client.get("/discover/own", params={"q": "https://open.spotify.com/x"}).text
+    other = login(create_app(settings), "tim", admin=False)
+    assert "On your lists" not in other.get("/discover/own", params={"q": "first"}).text  # not tim's lists
+    page = client.get("/", params={"q": "first song"}).text
+    assert page.index("On your lists") < page.index('id="discover-results"')

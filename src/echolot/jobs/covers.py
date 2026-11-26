@@ -323,7 +323,7 @@ def run(run: "Run") -> str:
     try:
         covers = Covers(con, run)
         todo = run.todo([r[0] for r in con.execute("SELECT path FROM files ORDER BY path") if r[0] not in done], str)
-        counts = {"replaced": 0, "already the song's": 0, "without a song or cover": 0, "failed": 0, "retagged": 0}
+        counts = {"replaced": 0, "right already": 0, "no cover found": 0, "failed": 0, "retagged": 0}
         with done_list.open("a", encoding="utf-8") as log_done:
             for n, rel in enumerate(todo, 1):
                 if run.stop.is_set() or run.give_way.is_set():
@@ -332,7 +332,7 @@ def run(run: "Run") -> str:
                 run.say(f"{run.of(n, len(todo))}: {rel}", n - 1, len(todo))
                 try:
                     outcome = _one(run, con, covers, rel, backups)
-                    if outcome not in ("failed", "changed lately") and _retag(run, con, rel, backups):
+                    if outcome not in ("failed", "just changed") and _retag(run, con, rel, backups):
                         counts["retagged"] += 1
                 except Exception:  # one file's trouble (a cut-off download, a tag mutagen can't read) ends no run
                     log.exception("cover of %s", rel)
@@ -341,7 +341,7 @@ def run(run: "Run") -> str:
                     run.note(f"{rel}: {outcome}")
                 counts[outcome] = counts.get(outcome, 0) + 1
                 run.handled.add(rel)
-                if outcome not in ("failed", "changed lately"):
+                if outcome not in ("failed", "just changed"):
                     log_done.write(rel + "\n")
                     log_done.flush()
     finally:
@@ -378,19 +378,19 @@ def _one(run: "Run", con: sqlite3.Connection, covers: Covers, rel: str, backups:
     path = run.paths.tracks / rel
     song = tagging.lead(con, rel)
     if song is None or path.suffix.lower().lstrip(".") not in KINDS or not path.is_file():
-        return "without a song or cover"
+        return "no cover found"
     if time.time() - path.stat().st_mtime < 600:
-        return "changed lately"  # just filed or retagged: the next run
+        return "just changed"  # just filed or retagged: the next run
     try:
         jpg = covers.of(song)
     except (spotify.SpotifyError, sc_api.SoundCloudError, OSError) as e:
         log.info("cover of %s: %s", rel, e)
         return "failed"
     if not jpg:
-        return "without a song or cover"
+        return "no cover found"
     old = audio.picture(path)
     if old == jpg or keeps(old, jpg):
-        return "already the song's"
+        return "right already"
     if old:
         backup = backups / f"{rel}.{'png' if old[:4] == b'\x89PNG' else 'jpg'}"
         backup.parent.mkdir(parents=True, exist_ok=True)

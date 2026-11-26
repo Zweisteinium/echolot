@@ -24,8 +24,8 @@
     {%- elif session.state == 'paused' and session.recording %}Pausing after this song: <strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>.
     {%- elif session.state == 'paused' %}Paused. Resume to go on.
     {%- elif not device %}The device was disconnected.
-    {%- elif not device.online %}<span class="warn-text">{{ name }} is offline:</span> it starts as soon as Mitschnitt runs there.
-    {%- elif device.state == 'setup' %}<span class="warn-text">{{ name }}: {{ device.detail or 'a setup check fails' }}</span> (Mitschnitt's Setup tab).
+    {%- elif not device.online %}<span class="warn-text">{{ name }} is offline.</span> It starts as soon as Mitschnitt runs there.
+    {%- elif device.state == 'setup' %}<span class="warn-text">{{ name }}: {{ device.detail or 'a setup check fails' }}</span> See Mitschnitt's Setup tab.
     {%- elif device.state == 'busy' %}Waiting until Spotify is free on {{ name }}.
     {%- elif session.recording %}<strong>{{ session.recording.artist }} – {{ session.recording.title }}</strong>{% if clock %} <span class="muted"><span data-clock data-at="{{ clock.at }}" data-total="{{ clock.total }}" data-song="{{ session.recording.artist }} – {{ session.recording.title }}">{{ clock.at|mmss }}</span> / {{ clock.total|mmss }}</span>{% endif %}
     {%- else %}Starting the next song.{% endif %}
@@ -42,13 +42,13 @@
   {% endif %}
   {% if not live and (session.not_better or session.found or session.lossy_only or session.other or session.wrong_song or session.by_user or session.failed or session.state == 'stopped' or not session.done) %}
   <ul class="record-summary small">
-    {% if session.not_better %}<li>{{ session.not_better }} not better than your copy: yours stayed.</li>{% endif %}
-    {% if session.found %}<li>{{ session.found }} Echolot found on its own meanwhile: it kept those.</li>{% endif %}
-    {% if session.lossy_only %}<li>{{ session.lossy_only }} Spotify has only lossy: not offered again.</li>{% endif %}
-    {% if session.other %}<li>{{ session.other }} Spotify plays as another recording than the release's: not offered again.</li>{% endif %}
-    {% if session.wrong_song %}<li>{{ session.wrong_song }} played as another song in Spotify: not offered again for 30 days.</li>{% endif %}
-    {% if session.by_user %}<li>{{ session.by_user }} skipped by you: offered again next time.</li>{% endif %}
-    {% if session.failed %}<li class="bad-text">{{ session.failed }} could not be recorded; they come up again next time.</li>{% endif %}
+    {% if session.not_better %}<li>{{ session.not_better }} not better than your copy. Yours stayed.</li>{% endif %}
+    {% if session.found %}<li>{{ session.found }} found by Echolot meanwhile. It kept those.</li>{% endif %}
+    {% if session.lossy_only %}<li>{{ session.lossy_only }} only lossy on Spotify. Not offered again.</li>{% endif %}
+    {% if session.other %}<li>{{ session.other }} another recording on Spotify than the release's. Not offered again.</li>{% endif %}
+    {% if session.wrong_song %}<li>{{ session.wrong_song }} played as another song in Spotify. Not offered again for 30 days.</li>{% endif %}
+    {% if session.by_user %}<li>{{ session.by_user }} skipped by you. Offered again next time.</li>{% endif %}
+    {% if session.failed %}<li class="bad-text">{{ session.failed }} could not be recorded. Offered again next time.</li>{% endif %}
     {% if session.state == 'stopped' and session.done < session.total %}<li>Stopped: {{ session.total - session.done }} not recorded.</li>{% endif %}
     {% if not session.done %}<li>Nothing was recorded.</li>{% endif %}
   </ul>

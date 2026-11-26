@@ -51,7 +51,8 @@
     {% for t in g.values %}<span class="y" style="top: {{ t.pos }}%">{{ t.label }}</span>{% endfor %}
     <div class="canvas">
     <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-      {% for b in g.bands %}<path class="band q-{{ b.key }}" d="{{ b.area }}"></path>{% endfor %}
+      <defs>{% for b in g.bands %}<linearGradient id="{{ name }}-{{ b.key }}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="q-{{ b.key }} band-top"></stop><stop offset="1" class="q-{{ b.key }} band-bottom"></stop></linearGradient>{% endfor %}</defs>
+      {% for b in g.bands %}<path class="band q-{{ b.key }}" d="{{ b.area }}" style="fill: url(#{{ name }}-{{ b.key }})"></path>{% endfor %}
       {% for t in g.values %}<line class="grid" x1="0" x2="1000" y1="{{ 3 * t.pos }}" y2="{{ 3 * t.pos }}"></line>{% endfor %}
       {% for b in g.bands[:-1] %}<path class="edge q-{{ b.key }}" d="{{ b.edge }}"></path>{% endfor %}
     </svg>

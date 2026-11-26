@@ -1,4 +1,5 @@
-"""Changes page: songs that no longer play (jobs/availability) and what changed in the lists."""
+"""Availability page: songs that no longer play (jobs/availability) and how that changed; Changes page: what
+changed in the lists."""
 
 from collections import Counter
 
@@ -11,12 +12,16 @@ from echolot.web.common import DB, page
 router = APIRouter(include_in_schema=False)
 
 
-@router.get("/changes", response_class=HTMLResponse)
-def changes_page(request: Request, con: DB, kind: str = "") -> HTMLResponse:
+@router.get("/availability", response_class=HTMLResponse)
+def availability_page(request: Request, con: DB, q: str = "") -> HTMLResponse:
     uid = stats.scope(request.state.user)
     now, relinked = stats.unavailable_now(con, uid)
-    counts = Counter(r["state"] for r in now)
-    entries = stats.changes(con, uid, kind)
-    extra = {"now": now, "counts": counts, "relinked": relinked, "entries": entries, "kind": kind}
-    extra["labels"] = stats.CHANGES
-    return page(request, "changes.html", nav="changes", **extra)
+    entries = stats.changes(con, uid, "unavailable", query=q.strip())
+    extra = {"now": now, "counts": Counter(r["state"] for r in now), "relinked": relinked, "entries": entries}
+    return page(request, "availability.html", nav="availability", labels=stats.CHANGES, q=q, **extra)
+
+
+@router.get("/changes", response_class=HTMLResponse)
+def changes_page(request: Request, con: DB, q: str = "") -> HTMLResponse:
+    entries = stats.changes(con, stats.scope(request.state.user), "lists", query=q.strip())
+    return page(request, "changes.html", nav="changes", labels=stats.CHANGES, q=q, entries=entries)

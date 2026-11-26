@@ -1,20 +1,25 @@
-{# the Library page's connection line: a chip per service; a problem links to where it is set up #}
+{# the sidebar's services: an icon each with a dot for its state, the details on hover or tap; a problem links to
+   where it is fixed. The free disk space beside them #}
 {% from "_icons.html" import icon %}
 {% set sp, sc, sl = s.spotify, s.soundcloud, s.soulseek %}
-{% set to = ' href="/settings#soulseek-client"' if user.admin else '' %}
-<nav class="connections" aria-label="Connections">
-  {% if sp.resting %}<a class="status warn" href="/playlists#spotify" title="{{ sp.resting }}">{{ icon('spotify', 13) }}<span>waits until {{ sp.until }}</span></a>
-  {% elif sp.connected and not sp.error %}<span class="status ok" title="Spotify: {{ sp.name }}">{{ icon('spotify', 13) }}<span>{{ sp.name }}</span></span>
-  {% elif sp.error %}<a class="status bad" href="/playlists#spotify" title="{{ sp.error }}">{{ icon('spotify', 13) }}<span>error</span></a>
-  {% else %}<a class="status warn" href="/playlists#spotify" title="Spotify: not connected">{{ icon('spotify', 13) }}<span>not connected</span></a>{% endif %}
-  {% if sc.connected %}<span class="status ok" title="SoundCloud: {{ sc.name }}">{{ icon('soundcloud', 13) }}<span>{{ sc.name }}</span></span>
-  {% elif sc.error %}<a class="status bad" href="/playlists#soundcloud" title="{{ sc.error }}">{{ icon('soundcloud', 13) }}<span>token {{ 'expired' if sc.expired else 'invalid' }}</span></a>
-  {% else %}<a class="status warn" href="/playlists#soundcloud" title="SoundCloud: not connected">{{ icon('soundcloud', 13) }}<span>not connected</span></a>{% endif %}
+{% set to = '/settings#soulseek-client' if user.admin else '' %}
+{% macro service(name, tone, text, href='') -%}
+{% if href %}<a class="service {{ tone }} tip" href="{{ href }}" title="{{ text }}">{{ icon(name, 16) }}<span class="sr-only">{{ text }}</span></a>
+{%- else %}<span class="service {{ tone }} tip" tabindex="0" role="button" title="{{ text }}">{{ icon(name, 16) }}<span class="sr-only">{{ text }}</span></span>{% endif %}
+{%- endmacro %}
+<div class="services" aria-label="Services">
+  {% if sp.resting %}{{ service('spotify', 'warn', 'Spotify asked Echolot to wait until ' ~ sp.until ~ '.', '/playlists#spotify') }}
+  {% elif sp.connected and not sp.error %}{{ service('spotify', 'ok', 'Spotify: connected as ' ~ sp.name) }}
+  {% elif sp.error %}{{ service('spotify', 'bad', 'Spotify error: ' ~ sp.error, '/playlists#spotify') }}
+  {% else %}{{ service('spotify', 'warn', 'Spotify not connected', '/playlists#spotify') }}{% endif %}
+  {% if sc.connected %}{{ service('soundcloud', 'ok', 'SoundCloud: connected as ' ~ sc.name) }}
+  {% elif sc.error %}{{ service('soundcloud', 'bad', 'SoundCloud login ' ~ ('expired' if sc.expired else 'invalid') ~ '. Connect it again.', '/playlists#soundcloud') }}
+  {% else %}{{ service('soundcloud', 'warn', 'SoundCloud not connected', '/playlists#soundcloud') }}{% endif %}
   {% set who = sl.user if user.admin and sl.user else '' %}{# the server's Soulseek account: named to admins only #}
-  {% if sl.ready %}<span class="status ok" title="Soulseek: logged in{{ ' as ' ~ who if who }}">{{ icon('soulseek', 13) }}<span>{{ who or 'logged in' }}</span></span>
-  {% elif not sl.reachable %}<a class="status bad"{{ to|safe }} title="{{ sl.error }}">{{ icon('soulseek', 13) }}<span>daemon not reachable</span></a>
-  {% elif sl.user and 'Disconnected' in (sl.state or '') %}<a class="status bad"{{ to|safe }} title="Soulseek dropped the login; the searches wait (the daemon is restarted after 15 minutes)">{{ icon('soulseek', 13) }}<span>disconnected</span></a>
-  {% elif sl.user %}<span class="status" title="Soulseek logs in with the next search">{{ icon('soulseek', 13) }}<span>{{ who or 'logs in when needed' }}</span></span>
-  {% else %}<a class="status warn"{{ to|safe }} title="Soulseek: no account">{{ icon('soulseek', 13) }}<span>no account</span></a>{% endif %}
-  {% if free is not none %}<span class="status disk{{ ' bad' if free < low_disk }}" title="Free in the library's folder">{{ free|size }} free</span>{% endif %}
-</nav>
+  {% if sl.ready %}{{ service('soulseek', 'ok', 'Soulseek: logged in' ~ (' as ' ~ who if who else '')) }}
+  {% elif not sl.reachable %}{{ service('soulseek', 'bad', 'Soulseek not reachable: ' ~ sl.error, to) }}
+  {% elif sl.user and 'Disconnected' in (sl.state or '') %}{{ service('soulseek', 'bad', 'Soulseek dropped the login. Searches wait until it is back.', to) }}
+  {% elif sl.user %}{{ service('soulseek', '', 'Soulseek logs in with the next search') }}
+  {% else %}{{ service('soulseek', 'warn', 'No Soulseek account', to) }}{% endif %}
+  {% if free is not none %}<span class="disk{{ ' bad' if free < low_disk }} tip" tabindex="0" role="button" title="Free in the library's folder">{{ free|size }} free</span>{% endif %}
+</div>

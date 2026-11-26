@@ -1,61 +1,47 @@
 {% from "_macros.html" import how %}
+{% from "_icons.html" import icon %}
 {% extends "base.html" %}
 {% block title %}Server settings · Echolot{% endblock %}
 {% block content %}
-<div class="with-rail">
-<aside class="rail">
-  <h1>Server settings</h1>
-  <p class="muted small">For everyone: the Soulseek account, when the jobs run, how Echolot uses Soulseek, who may log in, where the data is.</p>
-  <nav aria-label="Sections">
-    <a href="#soulseek-client">Soulseek account</a>
-    <a href="#jobs">Jobs</a>
-    <a href="#soulseek">Soulseek search</a>
-    <a href="#files">Files</a>
-    <a href="#access">Access</a>
-    <a href="#discogs">Discogs</a>
-    <a href="#data">Data and backup</a>
-  </nav>
-</aside>
-
+<div class="page-head"><div class="page-title"><h1>Server settings</h1><p class="lead">Settings for the whole server and every user.</p></div></div>
 <div class="sections">
 {% include "_soulseek.html" %}
 <form method="post" action="/settings">{{ csrf_input }}
 <section class="card" id="jobs">
   <div class="section-head"><h2>When the jobs run</h2></div>
-  {% call how('schedule', 'Each job: minutes between starts, fixed local times, or off.') %}Minutes between starts (<code>30</code>), fixed local times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>) or <code>off</code>. Soulseek jobs share one connection: a due job waits for the running one and keeps its turn. Jobs can also be started by hand under <a href="/jobs">History · Jobs</a>.{% endcall %}
-  <table class="rows schedule">
-    <thead><tr><th>Step</th><th>When</th><th class="hide-narrow"></th></tr></thead>
-    {% for task, steps in tasks %}
-    <tbody>
-    <tr class="schedule-task"><th colspan="3">{{ task.label }}</th></tr>
-    {% for job, when in steps %}
-    <tr>
-      <td>{{ job.label }}<div class="muted small">{{ job.help }}</div></td>
-      <td>{% if job.started_by and when == 'off' %}<span class="muted small">after {{ job.started_by }}</span><input type="hidden" name="{{ job.name }}" value="off">
-        {%- else %}<input type="text" name="{{ job.name }}" value="{{ when }}" aria-label="{{ job.label }}: when" size="24">{% endif %}</td>
-      <td class="muted small nowrap hide-narrow">{% if not (job.started_by and when == 'off') %}at most every {{ job.minimum }} min{% endif %}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-    {% endfor %}
-  </table>
+    {% call how('schedule', 'Each job: minutes between starts, fixed local times, or off.') %}Minutes between starts (<code>30</code>), fixed times separated by <code>;</code> (<code>20:00; sat,sun 15:00</code>), or <code>off</code>. Soulseek jobs share one connection, so a due job waits its turn. Start a job by hand under <a href="/jobs">Jobs</a>.{% endcall %}
+  {% if form_error %}<p class="flash error" role="alert">Not saved: {{ form_error }}</p>{% endif %}
+  {% macro when_field(job, when) -%}
+    <div class="field">
+      <label for="when-{{ job.name }}">{{ job.label }}<span class="hint">{{ job.help }}</span></label>
+      <div class="control">{% if job.started_by and when == 'off' %}<span class="muted">After {{ job.started_by }}</span><input type="hidden" name="{{ job.name }}" value="off">
+        {%- else %}<input type="text" id="when-{{ job.name }}" name="{{ job.name }}" value="{{ when }}"{% if bad == job.name %} aria-invalid="true" autofocus{% endif %}>
+        <span class="muted small">At least {{ (job.minimum * 60)|span }} apart</span>{% endif %}</div>
+    </div>
+  {%- endmacro %}
+  {% for task, steps in tasks if not task.maintenance %}
+  <h3 class="field-group">{{ task.label }}</h3>
+  <div class="fields schedule">{% for job, when in steps %}{{ when_field(job, when) }}{% endfor %}</div>
+  {% endfor %}
+  <h3 class="field-group">Maintenance</h3>
+  <div class="fields schedule">{% for task, steps in tasks if task.maintenance %}{% for job, when in steps %}{{ when_field(job, when) }}{% endfor %}{% endfor %}</div>
   <div class="section-actions"><button class="primary">Save</button></div>
 </section>
 
 <section class="card" id="soulseek">
-  <div class="section-head"><h2>Soulseek</h2></div>
+  <div class="section-head"><h2>Soulseek search</h2></div>
   <div class="fields">
     <div class="field">
-      <label for="parallel">Songs at a time<span class="hint">searched and downloaded in parallel (Soulseek allows about 34 searches per 220 s anyway)</span></label>
+      <label for="parallel">Songs at a time<span class="hint">Searched and downloaded at once. Soulseek allows about 34 searches per 220 s.</span></label>
       <div class="control"><input id="parallel" type="number" name="parallel" value="{{ soulseek.parallel }}" min="1" max="8" class="short"></div>
     </div>
     <div class="field">
-      <label for="upgrade_batch">FLAC upgrade<span class="hint">songs per run, the longest waiting first</span></label>
-      <div class="control"><input id="upgrade_batch" type="number" name="upgrade_batch" value="{{ soulseek.upgrade_batch }}" min="1" max="2000" class="short"></div>
+      <label for="upgrade_batch">FLAC upgrade<span class="hint">Songs per run, the longest waiting first.</span></label>
+      <div class="control"><input id="upgrade_batch" type="number" name="upgrade_batch" value="{{ soulseek.upgrade_batch }}" min="1" max="2000" class="short"> <span class="muted small">songs</span></div>
     </div>
     <div class="field">
-      <label for="stall_minutes">Stuck downloads<span class="hint">minutes without progress (queued at the peer) before the next file is tried</span></label>
-      <div class="control"><input id="stall_minutes" type="number" name="stall_minutes" value="{{ soulseek.stall_minutes }}" min="2" max="120" class="short"></div>
+      <label for="stall_minutes">Stuck downloads<span class="hint">How long without progress before the next file is tried.</span></label>
+      <div class="control"><input id="stall_minutes" type="number" name="stall_minutes" value="{{ soulseek.stall_minutes }}" min="2" max="120" class="short"> <span class="muted small">min</span></div>
     </div>
   </div>
   <div class="section-actions"><button class="primary">Save</button></div>
@@ -65,12 +51,12 @@
   <div class="section-head"><h2>Files</h2></div>
   <div class="fields">
     <div class="field">
-      <div class="label">Hi-res FLAC<span class="hint">above 48 kHz: by default made 44.1 or 48 kHz, 24 bit (inaudible, about half the size, plays everywhere). Kept, a file stays as downloaded</span></div>
-      <div class="control"><label><input type="checkbox" name="keep_hires" value="1" {% if files.keep_hires %}checked{% endif %}> Keep hi-res as it is</label></div>
+      <div class="label">Hi-res FLAC<span class="hint">Files above 48 kHz become 44.1 or 48 kHz, 24 bit. No audible loss, half the size, and they play everywhere.</span></div>
+      <div class="control"><label class="switch"><input type="checkbox" role="switch" name="keep_hires" value="1" {% if files.keep_hires %}checked{% endif %}><span class="switch-track" aria-hidden="true"></span>Keep hi-res as it is</label></div>
     </div>
     <div class="field">
-      <div class="label">Email for free downloads<span class="hint">some free downloads (Hypeddit email gates) ask for an address before they hand over the file. It is sent to Hypeddit and the artist. Leave empty to skip those</span></div>
-      <div class="control"><input type="email" name="gate_email" value="{{ files.gate_email }}" placeholder="you@example.com" autocomplete="off"></div>
+      <label for="gate-email">Email for free downloads<span class="hint">Some free downloads ask for one. It goes to Hypeddit and the artist. Empty: those are skipped.</span></label>
+      <div class="control"><input type="email" id="gate-email" name="gate_email" value="{{ files.gate_email }}" placeholder="you@example.com" autocomplete="off"></div>
     </div>
   </div>
   <div class="section-actions"><button class="primary">Save</button></div>
@@ -82,24 +68,24 @@
   <div class="section-head"><h2>Access</h2></div>
   <div class="fields">
     <div class="field">
-      <label for="navidrome_url">Navidrome<span class="hint">its address: Navidrome's accounts log in to Echolot with their Navidrome password{% if navidrome_env %}; empty: {{ navidrome_env }} (ECHOLOT_NAVIDROME_URL){% endif %}</span></label>
+      <label for="navidrome_url">Navidrome<span class="hint">Its address. Everyone logs in with their Navidrome account.{% if navidrome_env %} Empty: {{ navidrome_env }}.{% endif %}</span></label>
       <div class="control"><input id="navidrome_url" type="url" name="navidrome_url" value="{{ navidrome.url }}" placeholder="{{ navidrome_env or 'http://192.168.1.10:4533' }}" {% if not navidrome_env %}required{% endif %}></div>
     </div>
     <div class="field">
-      <label for="service_user">Service account<span class="hint">a Navidrome admin: Echolot reads Navidrome's users with it (who is an admin, who is gone) and sets the owners of the playlists it writes</span></label>
+      <label for="service_user">Service account<span class="hint">A Navidrome admin. Echolot reads the users with it and sets who owns each playlist. An empty password keeps the saved one.</span></label>
       <div class="control">
-        <input id="service_user" type="text" name="service_user" value="{{ navidrome.service_user }}" class="short" autocomplete="off" aria-label="Service account name">
-        <input type="password" name="service_password" placeholder="password (empty: keep)" autocomplete="new-password" aria-label="Service account password">
-        <span class="pill {{ 'bad-pill' if navidrome_ok else 'ok-pill' }}">{{ navidrome_ok or 'works' }}</span>
+        <input id="service_user" type="text" name="service_user" value="{{ navidrome.service_user }}" class="half" autocomplete="off" aria-label="Service account name">
+        <input type="password" name="service_password" class="half" placeholder="Password" autocomplete="new-password" aria-label="Service account password">
+        <span class="pill {{ 'bad-pill' if navidrome_ok else 'ok-pill' }}">{{ navidrome_ok|sentence or 'Works' }}</span>
       </div>
     </div>
     <div class="field">
-      <label for="session_days">A login lasts<span class="hint">then Echolot asks for the password again</span></label>
-      <div class="control"><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short" autocomplete="off" data-bwignore data-1p-ignore> <span class="muted small">days</span></div>
+      <label for="session_days">A session lasts<span class="hint">Then Echolot asks again who you are.</span></label>
+      <div class="control"><input id="session_days" type="number" name="session_days" value="{{ auth_options.session_days }}" min="1" max="365" class="short" autocomplete="off" data-bwignore data-1p-ignore data-lpignore="true"> <span class="muted small">days</span></div>
     </div>
     <div class="field">
-      <div class="label">Metrics<span class="hint">for Prometheus; else it needs an API token</span></div>
-      <div class="control"><label><input type="checkbox" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}> <code>/metrics</code> without login</label></div>
+      <div class="label">Metrics<span class="hint">For Prometheus. Otherwise it needs an API token.</span></div>
+      <div class="control"><label class="switch"><input type="checkbox" role="switch" name="metrics_public" value="1" {% if metrics.public %}checked{% endif %}><span class="switch-track" aria-hidden="true"></span><code>/metrics</code> without a token</label></div>
     </div>
   </div>
   <div class="section-actions"><button class="primary">Save</button></div>
@@ -109,17 +95,17 @@
 <form method="post" action="/settings/discogs">{{ csrf_input }}
 <section class="card" id="discogs">
   <div class="section-head"><h2>Discogs</h2></div>
-  <p class="muted small">Optional: the <a href="/discogs">Discogs page</a> shows which releases of your library songs Discogs lacks, with what to submit for them (taken from Beatport). Echolot only reads Discogs and Beatport, a list at a time when an admin asks; nothing is submitted.</p>
+  <p class="lead">Optional. The <a href="/discogs">Discogs page</a> shows which releases of your songs Discogs lacks, and what to submit. Echolot only reads Discogs and Beatport, one list at a time, when an admin asks.</p>
   <div class="fields">
     <div class="field">
-      <div class="label">Discogs page<span class="hint">off: the page and its checks are gone; what was found stays</span></div>
-      <div class="control"><label><input type="checkbox" name="enabled" value="1" {% if discogs.enabled %}checked{% endif %}> On</label></div>
+      <div class="label">Discogs page<span class="hint">Off hides the page. What was found stays.</span></div>
+      <div class="control"><label class="switch"><input type="checkbox" role="switch" name="enabled" value="1" {% if discogs.enabled %}checked{% endif %}><span class="switch-track" aria-hidden="true"></span>On</label></div>
     </div>
     <div class="field">
-      <label for="discogs_token">Token<span class="hint">a personal access token: discogs.com, Settings, Developers, Generate token. Kept in the vault</span></label>
+      <label for="discogs_token">Token<span class="hint">A personal access token from discogs.com, Settings, Developers. Stored encrypted.</span></label>
       <div class="control">
-        <input id="discogs_token" type="password" name="token" placeholder="{{ 'stored (empty: keep)' if discogs_token else 'token' }}" autocomplete="off" data-bwignore data-1p-ignore aria-label="Discogs token">
-        {% if discogs_token %}<span class="pill ok-pill">{{ discogs.user or 'stored' }}</span>{% endif %}
+        <input id="discogs_token" type="password" name="token" placeholder="{{ 'Saved, empty keeps it' if discogs_token else 'Token' }}" autocomplete="off" data-bwignore data-1p-ignore data-lpignore="true" aria-label="Discogs token">
+        {% if discogs_token %}<span class="pill ok-pill">{{ discogs.user or 'Saved' }}</span>{% endif %}
       </div>
     </div>
   </div>
@@ -131,29 +117,28 @@
   <div class="section-head"><h2>Data and backup</h2></div>
   <div class="fields">
     <div class="field">
-      <div class="label">Library<span class="hint">the music folder</span></div>
+      <div class="label">Library<span class="hint">The music folder.</span></div>
       <div class="control"><code>{{ settings.library_dir or 'not configured' }}</code></div>
     </div>
     <div class="field">
-      <div class="label">Data<span class="hint">the database and Echolot's own files</span></div>
+      <div class="label">Data<span class="hint">The database and Echolot's own files.</span></div>
       <div class="control"><code>{{ settings.data_dir }}</code></div>
     </div>
     <div class="field">
-      <div class="label">Secrets<span class="hint">the credentials of the <a href="/playlists">accounts</a>, stored encrypted and never shown again</span></div>
-      <div class="control"><span>Key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}<span class="hint">a file next to the database: set <code>ECHOLOT_SECRET_KEY</code> so that a copy of the database alone reveals nothing</span>{% endif %}</span></div>
+      <div class="label">Secrets<span class="hint">The credentials of the <a href="/playlists">accounts</a>, stored encrypted and never shown again.</span></div>
+      <div class="control"><span>Key from <code>{{ vault_source }}</code>{% if vault_source != 'ECHOLOT_SECRET_KEY' %}<span class="hint">A file next to the database. Set <code>ECHOLOT_SECRET_KEY</code>, so a copy of the database alone reveals nothing.</span>{% endif %}</span></div>
     </div>
     <div class="field">
-      <div class="label">Configuration file<span class="hint">all lists, the schedule and these settings as one YAML file (<code>echolot.yml</code>), for a backup or another install; no secrets, no accounts. An import shows what it changes before anything is stored.</span></div>
+      <div class="label">Configuration file<span class="hint">All lists, the schedule and these settings in one YAML file, for a backup or another install. No secrets or accounts.</span></div>
       <div class="control">
-        <a href="/settings/config/export">Download echolot.yml</a>
-        <form method="post" action="/settings/config/import" enctype="multipart/form-data" class="row-form">{{ csrf_input }}
-          <input type="file" name="file" accept=".yml,.yaml,text/yaml" aria-label="echolot.yml to import" required>
-          <button>Preview import</button>
+        <a class="button" href="/settings/config/export">{{ icon('download', 16) }} Export</a>
+        <form method="post" action="/settings/config/import" enctype="multipart/form-data" class="file-form">{{ csrf_input }}
+          <label class="button" title="Shows its changes before anything is saved">{{ icon('upload', 16) }} Import<input type="file" name="file" accept=".yml,.yaml,text/yaml" aria-label="echolot.yml to import" required onchange="this.form.submit()"></label>
+          <noscript><button>Preview import</button></noscript>
         </form>
       </div>
     </div>
   </div>
 </section>
-</div>
 </div>
 {% endblock %}

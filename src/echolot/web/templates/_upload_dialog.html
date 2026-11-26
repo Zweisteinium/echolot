@@ -46,7 +46,7 @@
       tr.className = "upload-row pending";
       tr.innerHTML = '<td class="upload-file"><div class="name"></div><span class="ph short"></span></td>' +
         '<td><span class="ph"></span><span class="ph short"></span></td>' +
-        '<td><div class="sonar-ph"><span class="ping" aria-hidden="true"></span><span class="ph"></span></div><span class="ph short"></span></td>' +
+        '<td><div class="sonar-ph"><span class="echo ping" aria-hidden="true"><i></i><i></i><i></i></span><span class="ph"></span></div><span class="ph short"></span></td>' +
         '<td class="row-action"><button type="button" class="icon-button" data-drop-row title="Leave this file out">×</button></td>';
       tr.querySelector(".name").textContent = tr.querySelector(".name").title = file.name;
       body.querySelector("[data-rows]").append(tr);
@@ -71,7 +71,7 @@
       xhr.onload = () => {
         const t = document.createElement("tbody");
         t.innerHTML = xhr.status === 200 ? xhr.responseText
-          : '<tr class="upload-row"><td class="upload-file"><div class="name"></div></td><td colspan="2"><span class="pill bad-pill">upload failed</span></td><td class="row-action"><button type="button" class="icon-button" data-drop-row>×</button></td></tr>';
+          : '<tr class="upload-row"><td class="upload-file"><div class="name"></div></td><td colspan="2"><span class="pill bad-pill">Upload failed</span></td><td class="row-action"><button type="button" class="icon-button" data-drop-row>×</button></td></tr>';
         if (xhr.status !== 200) t.querySelector(".name").textContent = job.file.name;
         const row = t.firstElementChild;
         row.job = job;

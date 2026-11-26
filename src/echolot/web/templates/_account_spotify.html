@@ -1,31 +1,31 @@
 {# Spotify on the Playlists page: the app (admins), login, disconnect; s.spotify: accounts.status #}
   {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }}
-    {%- if '403' in s.spotify.error %} Spotify refuses this account: make sure the app's owner added exactly this account's e-mail address under User Management in the Spotify developer app (and that the owner still has Premium), then connect again below.
-    {%- else %} Connect again below. (Spotify also stops apps whose owner no longer has Premium.){% endif %}</p>{% endif %}
-  {% if s.spotify.resting %}<p class="flash warn">{{ s.spotify.resting }} The login is fine, nothing to do: Echolot goes on by itself then.</p>{% endif %}
+    {%- if '403' in s.spotify.error %} Spotify refuses this account. The app's owner must add its email under User Management and still have Premium. Then connect again below.
+    {%- else %} Connect again below. Spotify also stops apps whose owner lost Premium.{% endif %}</p>{% endif %}
+  {% if s.spotify.resting %}<p class="flash warn">{{ s.spotify.resting }} Your login is fine. Echolot goes on by itself.</p>{% endif %}
 
   {% if s.spotify.connected and not s.spotify.error %}
-  <p class="muted">Echolot reads your liked songs and playlists, also other people's that you saved. Spotify's own playlists (This Is, editorial) are read from their public page; for your personal mixes, copy their songs into a playlist of yours. Spotify's rules let it withhold other people's playlists from private apps; the Sources page marks any it does.</p>
+  <p class="muted">Echolot reads your liked songs and playlists, including ones you saved. Spotify's own playlists are read from their public page. To follow a personal mix, copy its songs into a playlist of yours.</p>
   <div class="row-form">
     <form method="post" action="/accounts/spotify/login">{{ csrf_input }}<button>Connect again</button></form>
     <form method="post" action="/accounts/spotify/disconnect" onsubmit="return confirm('Disconnect Spotify? Your lists and songs stay.')">{{ csrf_input }}<button class="danger">Disconnect</button></form>
   </div>
-  <p class="muted small">A new login returns to <code>{{ redirect_uri }}</code>, which has to be listed under <b>Redirect URIs</b> in your app.</p>
+  <p class="muted small">A new login comes back to <code>{{ redirect_uri }}</code>. Your app must list it under <b>Redirect URIs</b>.</p>
   {% if user.admin %}
   <form method="post" action="/accounts/spotify/market" class="row-form">{{ csrf_input }}
-    <label class="small">Country of the catalogue <input type="text" name="market" value="{{ market }}" maxlength="2" class="short" autocomplete="off" aria-label="Country, two letters"></label>
-    <button>Save</button> <span class="muted small">the availability check asks whether the songs play there</span>
+    <label class="small">Country <input type="text" name="market" value="{{ market }}" maxlength="2" class="short" autocomplete="off" aria-label="Country, two letters"></label>
+    <button>Save</button> <span class="muted small">where the availability check asks</span>
   </form>
   {% endif %}
   {% elif not user.admin %}
   {% if s.spotify.app %}
-  <p class="muted">Echolot reads your liked songs and playlists through the Spotify app your admin set up.</p>
+  <p class="muted">Your admin set up a Spotify app. Connect your account to it.</p>
   <ol class="steps">
-    <li>Ask an admin to add your Spotify account (its name and email) under <b>User Management</b> in the Spotify app. Spotify allows up to 5 accounts per app.</li>
-    <li>Log in to Spotify once and allow access; Echolot keeps that login, encrypted:
+    <li>Ask an admin to add your Spotify account's name and email under <b>User Management</b> in the app. An app takes up to 5 accounts.</li>
+    <li>Log in to Spotify and allow access. Echolot keeps the login, encrypted.
       <form method="post" action="/accounts/spotify/login">{{ csrf_input }}<button class="primary">Connect Spotify</button></form>
       {% if not automatic %}
-      <p class="muted small">Then copy the whole address from your browser's address bar (it starts with <code>{{ redirect_uri }}?code=</code>) and paste it here:</p>
+      <p class="muted small">Then copy the address your browser shows. It starts with <code>{{ redirect_uri }}?code=</code>.</p>
       <form method="post" action="/accounts/spotify/paste" class="row-form">{{ csrf_input }}
         <input type="url" name="url" class="grow" placeholder="{{ redirect_uri }}?code=…" aria-label="Address after the login" required>
         <button>Finish</button>
@@ -33,28 +33,28 @@
       {% endif %}</li>
   </ol>
   {% else %}
-  <p class="muted">An admin sets up the Spotify app first; then you connect your Spotify account here.</p>
+  <p class="muted">An admin sets up the Spotify app first. Then you connect your account here.</p>
   {% endif %}
   {% else %}
-  <p class="flash error"><b>Spotify Premium required.</b> Spotify runs developer apps only while their owner has Premium (since March 2026); when it lapses, the app stops working.</p>
-  <p class="muted">Spotify lets private apps read your playlists. You create one for yourself (free, takes two minutes); its keys stay in Echolot, encrypted.</p>
+  <p class="flash warn"><b>Spotify Premium needed.</b> Spotify runs developer apps only while their owner has Premium.</p>
+  <p class="muted">Create a private Spotify app for Echolot. It is free and takes two minutes. Its keys are stored encrypted.</p>
   <ol class="steps">
-    <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify developer dashboard ↗</a>, log in with your Premium account, accept the terms and click <b>Create app</b>.</li>
-    <li>Name and description: anything, e.g. <i>Echolot</i>. Under <b>Redirect URIs</b> add this address exactly, and tick <b>Web API</b>:
+    <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify developer dashboard ↗</a>, log in with your Premium account and click <b>Create app</b>.</li>
+    <li>Give it any name, for example <i>Echolot</i>. Add this address under <b>Redirect URIs</b> and tick <b>Web API</b>.
       <div class="copy-row"><input id="redirect" type="text" value="{{ redirect_uri }}" readonly aria-label="Redirect URI"><button type="button" data-copy="#redirect">Copy</button></div>
-      <span class="muted small">{% if automatic %}Spotify sends you back to Echolot right away.{% else %}Spotify accepts only https addresses or 127.0.0.1 here. After the login your browser tries to open this address and shows an error page: that is expected, you copy its address back into Echolot (step 5). Opened through an https address (a reverse proxy), Echolot shows that one here and the login comes back by itself.{% endif %}</span></li>
-    <li><i>For everyone else's Spotify account</i> (each user connects their own; no Premium needed): open <b>User Management</b> in the app and add that account's name and email. Up to 5 accounts; the owner never needs to be listed.</li>
-    <li>Open the app's <b>Settings</b>, copy the <b>Client ID</b> and, after <i>View client secret</i>, the <b>Client secret</b>:
+      <span class="muted small">{% if automatic %}Spotify sends you back here after the login.{% else %}Spotify takes only https addresses or 127.0.0.1. After the login your browser shows an error page. That is expected: copy its address into step 5.{% endif %}</span></li>
+    <li>For each other user, add their Spotify account's name and email under <b>User Management</b>. They need no Premium. Up to 5 accounts.</li>
+    <li>In the app's <b>Settings</b>, copy the <b>Client ID</b> and the <b>Client secret</b>.
       <form method="post" action="/accounts/spotify/app" class="stack narrow-form">{{ csrf_input }}
         <label>Client ID <input type="text" name="client_id" value="{{ s.spotify.client_id }}" autocomplete="off" required></label>
-        <label>Client secret {% if s.spotify.app %}<span class="muted small">saved; leave empty to keep it</span>{% endif %}<input type="password" name="client_secret" autocomplete="off" {% if not s.spotify.app %}required{% endif %}></label>
-        <label>Country <span class="muted small">two letters: whose catalogue the availability check asks</span><input type="text" name="market" value="{{ market }}" maxlength="2" class="short" autocomplete="off"></label>
+        <label>Client secret {% if s.spotify.app %}<span class="muted small">saved, leave empty to keep it</span>{% endif %}<input type="password" name="client_secret" autocomplete="off" {% if not s.spotify.app %}required{% endif %}></label>
+        <label>Country <span class="muted small">two letters, for the availability check</span><input type="text" name="market" value="{{ market }}" maxlength="2" class="short" autocomplete="off"></label>
         <p><button class="primary">Save app</button></p>
       </form></li>
-    <li>Connect your account:
+    <li>Connect your account.
       <form method="post" action="/accounts/spotify/login">{{ csrf_input }}<button class="primary" {% if not s.spotify.app %}disabled{% endif %}>Connect Spotify</button></form>
       {% if not automatic %}
-      <p class="muted small">Log in and allow access. Then copy the whole address from your browser's address bar (it starts with <code>{{ redirect_uri }}?code=</code>) and paste it here:</p>
+      <p class="muted small">Log in and allow access. Then copy the address your browser shows. It starts with <code>{{ redirect_uri }}?code=</code>.</p>
       <form method="post" action="/accounts/spotify/paste" class="row-form">{{ csrf_input }}
         <input type="url" name="url" class="grow" placeholder="{{ redirect_uri }}?code=…" aria-label="Address after the login" required {% if not s.spotify.app %}disabled{% endif %}>
         <button {% if not s.spotify.app %}disabled{% endif %}>Finish</button>

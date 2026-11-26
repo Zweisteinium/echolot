@@ -1,4 +1,4 @@
-"""Library pages: overview and its graphs, Missing, Buy, a list, Activity."""
+"""Library pages: overview and its graphs, Missing, Buy, a list, History (the activity)."""
 
 import sqlite3
 from datetime import datetime, timedelta
@@ -30,6 +30,8 @@ def overview(request: Request, con: DB) -> HTMLResponse:
     connected = vault.has(con, spotify.refresh_name(request.state.user.id)) or vault.has(
         con, soundcloud.token_name(request.state.user.id)
     )
+    lists = cache.get(con, stats.lists, uid)  # Quality by list
+    record = any(r["service"] == "spotify" for r in lists)  # Add music: Record
     rings = {
         "files": charts.donut(o["tiers"], size=160, width=22),
         "songs": charts.donut(o["song_tiers"], size=160, width=22),
@@ -45,7 +47,8 @@ def overview(request: Request, con: DB) -> HTMLResponse:
         best_hints={k: hint for k, _, hint in stats.BEST_TIERS},
         tier_hints=stats.TIER_HINTS,
         connected=connected,
-        lists=cache.get(con, stats.lists, uid),
+        record=record,
+        lists=lists,
         tabs=cache.get(con, library_tabs, uid),
     )
 
@@ -60,8 +63,10 @@ def graphs(request: Request, con: DB) -> HTMLResponse:
 
 
 def library_tabs(con: sqlite3.Connection, uid: int | None) -> dict[str, int | None]:
-    """Counts on the Library tabs: Buy, and Discogs (None while Discogs is off: no tab)."""
-    return {"buy": len(stats.buy(con, uid)), "discogs": discogs.to_add(con, uid)}
+    """The sidebar's counts of things to do: Missing (as its page lists them), Buy, and Discogs (None while Discogs
+    is off: no entry)."""
+    missing, buy = len(stats.missing(con, uid=uid)), len(stats.buy(con, uid))
+    return {"missing": missing, "buy": buy, "discogs": discogs.to_add(con, uid)}
 
 
 RANGES = {"7d": ("7 d", 7), "30d": ("30 d", 30), "90d": ("3 mo", 90), "all": ("All", None)}
@@ -173,15 +178,36 @@ def _files(con: sqlite3.Connection, uid: int | None, o: dict) -> list[tuple[str,
 
 
 @router.get("/missing", response_class=HTMLResponse)
-def missing(request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "") -> HTMLResponse:
+def missing(
+    request: Request, con: DB, list_key: Annotated[str, Query(alias="list")] = "", show: str = ""
+) -> HTMLResponse:
+    """The missing songs (of a list); `show`: only those still searched for (searching) or seemingly wiped off the
+    internet (wiped: gone from Spotify and searched for everywhere in vain)."""
     library = request.app.state.settings.library_dir
     uid = stats.scope(request.state.user)
-    songs = stats.missing(con, list_key or None, filing.Paths(library.parent) if library else None, uid)
+    found = stats.missing(con, list_key or None, filing.Paths(library.parent) if library else None, uid)
+    wiped = sum(1 for s in found if s["wiped"])
+    shown = {"wiped": True, "searching": False}.get(show)
+    songs = found if shown is None else [s for s in found if bool(s["wiped"]) is shown]
     lists, close = cache.get(con, stats.lists, uid), stats.close_matches(con, uid)
-    marks = recording.marks(con, request.state.user.id, songs)
-    return page(
-        request, "missing.html", nav="missing", songs=songs, close=close, lists=lists, selected=list_key, marks=marks
-    )
+    marks, show = recording.marks(con, request.state.user.id, songs), show if shown is not None else ""
+    extra = {"close": close, "lists": lists, "selected": list_key, "marks": marks, "show": show}
+    counts = {"all": len(found), "wiped": wiped, "searching": len(found) - wiped}
+    return page(request, "missing.html", nav="missing", songs=songs, counts=counts, **extra)
+
+
+@router.get("/song", response_class=HTMLResponse)
+def song_page(request: Request, con: DB, key: str) -> HTMLResponse:
+    """Everything about a song: its panel (htmx, in the song dialog), else a page of its own."""
+    library = request.app.state.settings.library_dir
+    paths = filing.Paths(library.parent) if library else None
+    s = stats.song(con, key, stats.scope(request.state.user), paths)
+    if s is None:
+        raise HTTPException(404, "Not a song of yours.")
+    extra = {"s": s, "lyric_states": stats.LYRICS_STATES}
+    if request.headers.get("hx-request"):
+        return page(request, "_song_panel.html", **extra)
+    return page(request, "song.html", nav="library", **extra)
 
 
 @router.get("/missing/tried", response_class=HTMLResponse)
@@ -189,7 +215,7 @@ def missing_tried(request: Request, con: DB, song: str) -> HTMLResponse:
     """What the searches of a missing song tried: loaded when its row on the Missing page opens."""
     found = stats.missing(con, uid=stats.scope(request.state.user), song=song)
     if not found:
-        raise HTTPException(404, "not a missing song of yours")
+        raise HTTPException(404, "Not a missing song of yours.")
     return page(request, "_missing_tried.html", s=found[0])
 
 
@@ -203,7 +229,6 @@ def buy_page(request: Request, con: DB) -> HTMLResponse:
     gates_last = con.execute("SELECT * FROM jobs WHERE name = 'hypeddit'").fetchone()
     gates_running = "hypeddit" in runs or "hypeddit" in asked
     has_email = bool(options.get(con, options.Files).gate_email)
-    tabs = cache.get(con, library_tabs, stats.scope(request.state.user))
     return page(
         request,
         "buy.html",
@@ -211,7 +236,6 @@ def buy_page(request: Request, con: DB) -> HTMLResponse:
         songs=songs,
         last=last,
         running=running,
-        tabs=tabs,
         gates=gates,
         gates_last=gates_last,
         gates_running=gates_running,
@@ -224,7 +248,7 @@ def buy_refresh(request: Request) -> RedirectResponse:
     """Admins only: it asks Bandcamp for every page."""
     if not request.app.state.worker.trigger("bandcamp"):
         return back("/buy", error="Refresh could not start.")
-    return back("/buy", ok="Refresh starts in a moment; reload the page in a few minutes.")
+    return back("/buy", ok="Refresh starts in a moment. Reload the page in a few minutes.")
 
 
 @router.post("/buy/gates")
@@ -232,23 +256,27 @@ def buy_gates(request: Request) -> RedirectResponse:
     """Admins only: get the Hypeddit free downloads (jobs/bandcamp.gates)."""
     if not request.app.state.worker.trigger("hypeddit"):
         return back("/buy", error="Getting the free downloads could not start.")
-    return back("/buy", ok="Getting the free downloads starts in a moment; reload the page in a few minutes.")
+    return back("/buy", ok="Getting the free downloads starts in a moment. Reload the page in a few minutes.")
 
 
 ROWS = 300  # a list's songs on its page at first and per scroll (an unreleased list, ordered by dragging: all)
 From = Annotated[int, Query(alias="from", ge=0)]
+SHOW = {"missing": "Missing", "lossy": "Lossy"}  # a list page's filters besides the words: ?show=
+FILTER_FROM = 20  # songs: a longer list's page has the filter
 
 
 @router.get("/lists/{key:path}", response_class=HTMLResponse)
-def list_page(request: Request, con: DB, key: str, start: From = 0) -> HTMLResponse:
-    """A list's page with its first ROWS songs; ?from=: the next ROWS rows (htmx, as the page scrolls)."""
+def list_page(request: Request, con: DB, key: str, start: From = 0, q: str = "", show: str = "") -> HTMLResponse:
+    """A list's page with its first ROWS songs; ?from=: the next ROWS rows (htmx, as the page scrolls); ?q= and
+    ?show= filter them (words of the artist or title, SHOW), the rows alone for the filter's htmx request."""
     lst = stats.get_list(con, key, stats.scope(request.state.user))
     if lst is None:  # or not theirs
-        raise HTTPException(404, "no such list")
+        raise HTTPException(404, "No such list.")
     songs = cache.get(con, stats.list_songs, key)
     same = stats.same_as(songs)  # counted once in the quality bar
-    stop = len(songs) if lst["service"] == "local" else start + ROWS
-    shown = songs[start:stop]
+    chosen = stats.filter_songs(songs, q, show if show in SHOW else "")
+    stop = len(chosen) if lst["service"] == "local" else start + ROWS
+    shown = chosen[start:stop]
     marks = recording.marks(con, request.state.user.id, shown) if lst["service"] == "spotify" else {}
     marks |= {k: recording.Mark("original", why) for k, why in origin.marks(con, [s["key"] for s in shown]).items()}
     offers = stats.offers(con) if lst["service"] == "soundcloud" else {}
@@ -256,17 +284,18 @@ def list_page(request: Request, con: DB, key: str, start: From = 0) -> HTMLRespo
     mine = unreleased.owns(con, request.state.user.id, key)  # an Unreleased list of theirs: they manage it
     alone = set(unreleased.only_here(con, request.state.user.id, key)) if mine else set()
     rows = {"lst": lst, "songs": shown, "same": same, "marks": marks, "offers": offers, "links": links, "mine": mine}
-    rows |= {"alone": alone, "more": stop if stop < len(songs) else None}
-    if start:
+    filters = {"q": q, "show": show if show in SHOW else "", "shows": SHOW, "filter": len(songs) > FILTER_FROM}
+    rows |= {"alone": alone, "more": stop if stop < len(chosen) else None, **filters}
+    if start or request.headers.get("hx-target") == "list-rows":
         return page(request, "_list_rows.html", **rows)
     tiers = stats.tiers_of([s for s in songs if s["position"] not in same])
     others = [r for r in unreleased.lists(con, request.state.user.id) if r["key"] != key] if mine else []
     have = sum(1 for s in songs if s["file"])
     extra = {"total": len(songs), "have": have, "tiers": tiers, "others": others, "drop": unreleased.DROP}
-    return page(request, "list.html", nav="library", **rows, **extra)
+    return page(request, "list.html", nav="playlists", **rows, **extra)
 
 
 @router.get("/activity", response_class=HTMLResponse)
-def activity(request: Request, con: DB, kind: str = "") -> HTMLResponse:
-    entries = stats.activity(con, kind, uid=stats.scope(request.state.user))
-    return page(request, "activity.html", nav="activity", entries=entries, kind=kind)
+def activity(request: Request, con: DB, kind: str = "", q: str = "") -> HTMLResponse:
+    entries = stats.activity(con, kind, uid=stats.scope(request.state.user), query=q.strip())
+    return page(request, "activity.html", nav="activity", entries=entries, kind=kind, q=q)

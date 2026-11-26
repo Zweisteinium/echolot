@@ -172,7 +172,7 @@ def test_the_buy_page_and_the_badge(settings, login: Callable[..., TestClient]) 
     buy = client.get("/buy").text
     assert "Trance Tune" in buy and "Bandcamp 1.50 €" in buy and 'action="/buy/refresh"' in buy
     assert 'href="https://artist.bandcamp.com/track/trance-tune"' in client.get("/lists/soundcloud:someone/likes").text
-    assert '<a href="/buy">Buy <span class="tab-count">1</span></a>' in client.get("/library").text  # its tab
+    assert 'href="/buy" title="Buy: 1"' in client.get("/library").text  # in the sidebar, with its count
     viewer = login(create_app(settings), "guest", admin=False)
     assert 'action="/buy/refresh"' not in viewer.get("/buy").text
     assert viewer.post("/buy/refresh", follow_redirects=False).status_code == 403
@@ -390,7 +390,7 @@ def test_a_gate_is_listed_to_get_by_hand(run, settings, login, monkeypatch: pyte
     buy = client.get("/buy").text
     assert "Trance Tune" in buy and 'href="https://hypeddit.com/up/trancetune"' in buy and "Free · Hypeddit" in buy
     assert "Free · Hypeddit" in client.get("/lists/soundcloud:someone/likes").text
-    assert '<a href="/buy">Buy <span class="tab-count">1</span></a>' in client.get("/library").text
+    assert 'href="/buy" title="Buy: 1"' in client.get("/library").text
 
 
 def test_songs_looked_at_before_get_their_free_links_without_bandcamp(run, settings, monkeypatch) -> None:

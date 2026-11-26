@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -101,6 +102,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(FILTERS)
     templates.env.globals.update(pct=pct, percent=share, tier_counts=stats.tier_counts, tiers=stats.TIERS)
+    templates.env.globals["why"] = stats.why  # a rejection's reason in a few words
+    templates.env.globals["plainly"] = stats.plainly  # a download's reason in Review
     templates.env.globals.update(version=__version__, commit=COMMIT)
     templates.env.globals["asset"] = asset_urls(HERE / "static")
     app.state.templates = templates
@@ -112,7 +115,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def http_error(request: Request, exc: HTTPException) -> Response:
         """Browsers get an error page, scripts JSON."""
         if "text/html" in request.headers.get("accept", "") and exc.status_code in (400, 403, 404, 409):
-            return page(request, "error.html", exc.status_code, message=exc.detail)
+            args = (request, "error.html", exc.status_code)  # (the page counts the navigation's: not on the loop)
+            return await run_in_threadpool(page, *args, message=exc.detail, status=exc.status_code)
         return await http_exception_handler(request, exc)
 
     @app.get("/favicon.ico", include_in_schema=False)

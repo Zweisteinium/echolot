@@ -4,11 +4,19 @@
 {% block title %}Missing · Echolot{% endblock %}
 {% from "_missing_tried.html" import stage %}
 {% block content %}
-<a class="crumb" href="/library">← Library</a>
-<section class="card">
-  <div class="card-head">
-    <h1>Missing <span class="count" id="missing-count">{{ songs|length|num }}</span></h1>
+{% set upload = user.can('upload') %}
+{% set here = '?list=' ~ selected|urlencode ~ '&' if selected else '?' %}
+<div class="page-head">
+  <div class="page-title"><h1>Missing <span class="count" id="missing-count">{{ songs|length|num }}</span></h1>
+    <p class="lead">Songs of your lists that are not in the library yet.</p></div>
+  <div class="actions">
+    {% if counts.wiped %}<nav class="tabs" aria-label="Show">
+      <a href="/missing{{ here[:-1] }}"{% if not show %} aria-current="page"{% endif %}>All</a>
+      <a href="/missing{{ here }}show=searching"{% if show == 'searching' %} aria-current="page"{% endif %}>Still searching</a>
+      <a href="/missing{{ here }}show=wiped"{% if show == 'wiped' %} aria-current="page"{% endif %} title="Gone from Spotify, and searched for everywhere in vain">Wiped off the internet <span class="muted">{{ counts.wiped|num }}</span></a>
+    </nav>{% endif %}
     <form method="get" action="/missing">
+      {% if show %}<input type="hidden" name="show" value="{{ show }}">{% endif %}
       <select name="list" onchange="this.form.submit()" aria-label="List">
         <option value="">All lists</option>
         {% for l in lists %}
@@ -17,32 +25,34 @@
       </select>
       <noscript><button>Show</button></noscript>
     </form>
-    {% set upload = user.can('upload') %}
-    {% if upload %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Import files you got elsewhere: for missing songs, or better copies of songs you have">{{ icon('upload') }} Upload files</button>{% endif %}
+    {% if upload %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Add files you got elsewhere: missing songs or better copies">{{ icon('upload') }} Upload files</button>{% endif %}
   </div>
+</div>
+<section class="card">
   <table class="rows missing row-blocks">
-    <thead><tr>{{ song_heads() }}<th class="hide-narrow" title="#: the song's place in the list, as Spotify and SoundCloud order it (Liked Songs: newest first)">Lists</th><th>What was tried</th>{% if upload %}<th></th>{% endif %}</tr></thead>
+    <thead><tr>{{ song_heads() }}<th class="hide-narrow" title="The lists with the song, and its place in each">Lists</th><th>What was tried</th>{% if upload %}<th></th>{% endif %}</tr></thead>
     <tbody>
     {% for s in songs %}
     <tr data-song="{{ s.key }}">
       {{ song_cells(s, song_mark(s.key, marks.get(s.key), upload)) }}
       <td class="muted small hide-narrow">{{ s.in_lists }}</td>
       <td class="small tried">
-        {% if s.notes or s.in_review %}<div class="chips">
-          {% for text, style, why in s.notes %}<span class="pill {{ style }}-pill" title="{{ why }}">{{ text }}</span>{% endfor %}
-          {% if s.in_review %}<span class="pill warn-pill" title="A download of another length waits for your decision in Review">in review</span>{% endif %}
+        {% if s.notes or s.in_review or s.wiped %}<div class="chips">
+          {% if s.wiped %}<span class="pill" title="Gone from Spotify, and searched for everywhere in vain: Soulseek at its loosest, YouTube and SoundCloud">Seems wiped off the internet :(</span>{% endif %}
+          {% for text, style, why in s.notes %}<span class="pill {{ style }}-pill" title="{{ why }}">{{ text|sentence }}</span>{% endfor %}
+          {% if s.in_review %}<span class="pill warn-pill" title="A download of another length waits in Review">In review</span>{% endif %}
         </div>{% endif %}
         {% if s.tries or s.fallback or s.last_fallback or s.rejected %}
         <details hx-get="/missing/tried?song={{ s.key|urlencode }}" hx-trigger="toggle once" hx-target="find dl" hx-swap="outerHTML">
           <summary>{% if s.tries %}Soulseek {{ s.tries }}× {{ stage(s.stage) }} last {{ s.last_try|ago }}{% else %}YouTube, SoundCloud {{ s.last_fallback|ago }}{% endif %}</summary>
           <dl><dd class="muted">Loading…</dd></dl>
         </details>
-        {% elif s.unavailable is none %}<span class="muted">{{ 'downloaded again with the next SoundCloud run' if s.service == 'soundcloud' else 'waiting for the first search' }}</span>{% endif %}
+        {% elif s.unavailable is none %}<span class="muted">{{ 'downloaded with the next SoundCloud run' if s.service == 'soundcloud' else 'not searched yet' }}</span>{% endif %}
       </td>
       {% if upload %}<td class="row-action">{% if s.service != 'local' %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload a file for this song" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}</td>{% endif %}
     </tr>
     {% else %}
-    <tr><td colspan="6" class="muted">Nothing missing.</td></tr>
+    <tr><td colspan="6" class="muted">{% if show == 'wiped' %}No song seems wiped off the internet.{% else %}Nothing missing. Every song of your lists is in the library.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -54,7 +64,7 @@
 <section class="card" id="close">
   <details class="group" data-remember="missing-close" open>
     <summary><h2 class="group-name">Covered by a close match <span class="count">{{ close|length|num }}</span></h2></summary>
-    <p class="lead small">Another version you took for the song in review; it plays in your playlists until the song itself is found. <em>Search again</em> or an upload looks for the song; the close match stays a file of its own until you <em>Remove</em> it.</p>
+    <p class="lead small">Another version you accepted in Review. It plays in your playlists until the song itself is found.</p>
     <table class="rows songs row-blocks">
       <thead><tr>{{ song_heads() }}<th>Covered by</th><th></th></tr></thead>
       <tbody>
@@ -63,9 +73,9 @@
         {{ song_cells(s) }}
         <td><span title="{{ s.file }}">{{ s.file.rsplit('/', 1)[-1].rsplit('.', 1)[0] }}</span> <span class="muted small">{{ s.duration|mmss }}</span></td>
         <td class="nowrap row-actions">
-          {% if user.can('run') %}<form method="post" action="/songs/{{ s.key }}/search" class="inline">{{ csrf_input }}<button title="Look for the perfect match again; the close match stays a file of its own">Search again</button></form>{% endif %}
-          {% if user.can('review') %}<form method="post" action="/songs/{{ s.key }}/close-remove" class="inline" onsubmit="return confirm('Remove this close match from the library? It is kept 30 days in inbox/replaced, and the song is searched again.')">{{ csrf_input }}<button class="danger" title="Take the close match out of the library (kept 30 days in inbox/replaced) and search for the song again">Remove</button></form>{% endif %}
-          {% if upload %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the song itself; the close match stays unless you remove it" aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}
+          {% if user.can('run') %}<form method="post" action="/songs/{{ s.key }}/search" class="inline">{{ csrf_input }}<button title="Search for the song itself again. The close match stays.">Search again</button></form>{% endif %}
+          {% if user.can('review') %}<form method="post" action="/songs/{{ s.key }}/close-remove" class="inline" onsubmit="return confirm('Remove this close match? It is kept 30 days in inbox/replaced, and the song is searched again.')">{{ csrf_input }}<button class="danger" title="Take the close match out of the library (kept 30 days in inbox/replaced) and search for the song again">Remove</button></form>{% endif %}
+          {% if upload %}<button type="button" class="icon-button" hx-get="/missing/upload?song={{ s.key|urlencode }}" hx-target="#upload-body" title="Upload the song itself. The close match stays." aria-label="Upload a file for {{ s.artist }} – {{ s.title }}">{{ use('upload') }}</button>{% endif %}
         </td>
       </tr>
       {% endfor %}

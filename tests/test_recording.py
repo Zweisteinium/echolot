@@ -155,7 +155,7 @@ def test_a_session_song_by_song(app: FastAPI, login: Callable[..., TestClient]) 
     done = device.get("/api/recorder/me").json()
     assert done["session"] is None  # (ended)
     panel = owner.get("/recordings/panel", params={"list": "spotify:likes:1"}).text
-    assert "Done" in panel and "Spotify has only lossy" in panel and "could not be recorded" in panel
+    assert "Done" in panel and "only lossy on Spotify" in panel and "could not be recorded" in panel
     con = db.connect(app.state.settings.db_path)
     assert [t.key for t in recording.candidates(con, 1)] == ["spotify:s2"]  # s1: not again for 30 days
     con.close()
@@ -506,7 +506,7 @@ def test_best_marks_and_the_record_dialog_agree(app: FastAPI, login: Callable[..
             "INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:likes:1', 3, 'spotify:s1b')"
         )
     con.close()
-    rows = owner.get("/lists/spotify:likes:1").text.split("<tbody>", 1)[1].split("</tr>")[:4]
+    rows = owner.get("/lists/spotify:likes:1").text.split('<tbody id="list-rows">', 1)[1].split("</tr>")[:4]
     assert all('<span class="nowrap"><span class="chip' in r and "spotify-best" in r for r in rows)
     assert "The same song as #1, another release at its source: one file, recorded once" in rows[3]
     assert "Spotify no longer plays it (taken down): it cannot be recorded, this copy stays" in rows[0]

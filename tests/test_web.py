@@ -33,13 +33,13 @@ def test_healthz(client: TestClient) -> None:
 
 def test_overview(client: TestClient) -> None:
     html = client.get("/stats").text
-    assert "Playlist A" in html
-    assert 'href="/lists/spotify:playlist:BBB222"' in html
-    assert "no playlist" in html
-    assert 'hx-get="/jobs/now"' in html  # the jobs' line
+    assert 'hx-get="/jobs/now"' in html  # the jobs' line in the sidebar
+    assert '<button type="button" popovertarget="add-music"' in html and "Record from Spotify" in html  # Add music
+    assert "Quality by list" in html and "Playlist A" in html and 'href="/lists/spotify:playlist:BBB222"' in html
+    assert "no playlist" in html and 'data-remember="lists-spotify">' in html  # folded at first
     jobs = client.get("/jobs").text
     assert (
-        "Run now" in jobs and "Resume" in jobs and 'aria-current="page">Jobs</a>' in jobs
+        "Run now" in jobs and "Resume" in jobs and '<a href="/jobs" aria-current="page"' in jobs
     )  # paused since the takeover
     assert "Jobs paused" in client.get("/jobs/now").text
 
@@ -120,18 +120,34 @@ def test_best_ring(client: TestClient, settings: Settings) -> None:
     html = client.get("/library").text
     assert 'data-ring="best" hidden' in html and 'value="best"' in html and "At their best" in html
     assert 'data-ring="files">' in html and 'data-ring="songs" hidden' in html  # Files first, Songs and Best behind
-    assert (
-        "1 of the lossy ones are FLACs made from lossy files" in html
-        and "Missing · seems wiped off the internet :(" in html
-    )
+    assert "1 fake FLAC counted as lossy" in html and "Missing · seems wiped off the internet :(" in html
 
 
 def test_missing(client: TestClient) -> None:
     html = client.get("/missing").text
     assert "Gone Song" in html and "Locked" in html
-    assert "greyed out on Spotify" in html
+    assert "Greyed out on Spotify" in html
     html = client.get("/missing", params={"list": "soundcloud:someone/likes"}).text
     assert "Locked" in html and "Gone Song" not in html
+
+
+def test_missing_tells_the_songs_wiped_off_the_internet(client: TestClient, settings: Settings) -> None:
+    """A song gone from Spotify and searched for everywhere in vain is marked, and Missing shows it alone or
+    leaves it out; the Songs ring counts it apart from the songs still searched for."""
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("DELETE FROM attempts")
+        con.execute("INSERT INTO attempts (song_key, tries, last_try, last_fallback) VALUES ('spotify:s3', 4, 1, 1)")
+    con.close()
+    mark = "Seems wiped off the internet :("
+    html = client.get("/missing").text
+    assert mark in html and "Wiped off the internet" in html and "Gone Song" in html and "Locked" in html
+    wiped = client.get("/missing", params={"show": "wiped"}).text
+    assert "Gone Song" in wiped and "Locked" not in wiped
+    searching = client.get("/missing", params={"show": "searching"}).text
+    assert "Gone Song" not in searching and "Locked" in searching
+    ring = client.get("/library").text
+    assert "Missing · still searching" in ring and f"Missing · {mark[0].lower()}{mark[1:]}" in ring
 
 
 def test_list_page(client: TestClient, settings: Settings) -> None:
@@ -212,11 +228,29 @@ def test_a_long_list_loads_its_rows_as_the_page_scrolls(
     assert "from=4" not in rows  # the last part
 
 
+def test_a_list_page_finds_its_songs(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A list's filter searches all of its songs (not just the rows shown): words at a word's start, any case,
+    or its missing or lossy songs; the filter's own request gets the rows alone, and scrolling keeps it."""
+    monkeypatch.setattr(pages, "ROWS", 1)
+    monkeypatch.setattr(pages, "FILTER_FROM", 0)
+    html = client.get("/lists/spotify:likes:1", params={"q": "second"}).text
+    assert 'class="list-filter"' in html and 'value="second"' in html and "Second Song" in html
+    rows = client.get("/lists/spotify:likes:1", params={"q": "SECOND"}, headers={"HX-Target": "list-rows"}).text
+    assert "Second Song" in rows and "First Song" not in rows
+    rows = client.get("/lists/spotify:likes:1", params={"show": "missing"}, headers={"HX-Target": "list-rows"}).text
+    assert "Gone Song" in rows and "First Song" not in rows and "<html" not in rows
+    rows = client.get(
+        "/lists/spotify:likes:1", params={"q": "song", "show": "lossy"}, headers={"HX-Target": "list-rows"}
+    ).text
+    assert "First Song" in rows and "Gone Song" not in rows and "from=1&amp;q=song&amp;show=lossy" in rows
+    assert "No song matches “nothing”." in client.get("/lists/spotify:likes:1?q=nothing").text
+
+
 def test_activity(client: TestClient) -> None:
     html = client.get("/activity").text
     assert "Artist A – First Song" in html and ">Added</span>" in html and ">Soulseek</span>" in html
     html = client.get("/activity", params={"kind": "rejected"}).text
-    assert "Gone Song" in html and "First Song" not in html and ">another artist</span>" in html
+    assert "Gone Song" in html and "First Song" not in html and ">Another artist</span>" in html
 
 
 def test_activity_names_the_list_a_song_came_from(client: TestClient) -> None:
@@ -304,7 +338,8 @@ def test_sources_page(client: TestClient) -> None:
     cards = client.get("/sources/other").text  # lists followed without an account
     assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
     assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
-    assert 'class="mode-legend"' in html and " Playlist</label>" in cards and "Songs + playlist" not in html + cards
+    assert "<b>Songs and playlist</b>: they also make a playlist" in html and " Songs and playlist</label>" in cards
+    assert "Songs + playlist" not in html + cards
 
 
 def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
@@ -349,7 +384,7 @@ def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) ->
         con.execute("INSERT OR REPLACE INTO attempts VALUES (?, 3, 1, 1, ?, ?)", row)
     con.close()
     html = client.get("/missing").text
-    assert "DRM on SoundCloud" in html and "stalls at peers" in html and "Soulseek 3×" in html
+    assert "DRM on SoundCloud" in html and "Stalls at peers" in html and "Soulseek 3×" in html
     assert f'hx-get="/missing/tried?song={urllib.parse.quote(key, safe="")}"' in html  # loaded when opened
     assert "Last search" not in html
     html = client.get("/missing/tried", params={"song": key}).text
@@ -386,7 +421,9 @@ def test_add_by_link(client: TestClient, monkeypatch) -> None:
     assert "Following+Their+list" in r.headers["location"]
     assert "Their list" in client.get("/sources/other").text
     r = client.post("/sources/add", data={"url": "https://example.com/x"}, follow_redirects=False)
-    assert "error=" in r.headers["location"]
+    assert "error=" in r.headers["location"] and r.headers["location"].endswith("#follow")
+    page = client.get(r.headers["location"].split("#")[0]).text  # the link stays in its field
+    assert 'value="https://example.com/x"' in page and 'aria-invalid="true" autofocus' in page
 
 
 def test_accounts_page(client: TestClient, settings: Settings) -> None:
@@ -408,7 +445,7 @@ def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
     """Behind an https proxy the redirect and the token exchange use the https address."""
     callback = "https://testserver/accounts/spotify/callback"
     html = client.get("https://testserver/accounts").text
-    assert callback in html and "Spotify Premium required" in html and "?code=" not in html
+    assert callback in html and "Spotify Premium needed" in html and "?code=" not in html
     r = client.post("/accounts/spotify/app", data={"client_id": "x" * 32, "client_secret": "s"}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     r = client.post("https://testserver/accounts/spotify/login", follow_redirects=False)
@@ -421,10 +458,10 @@ def test_spotify_login_over_https(client: TestClient, monkeypatch) -> None:
 
 
 def test_connection_line(client: TestClient) -> None:
-    assert 'hx-get="/accounts/line"' in client.get("/stats").text
+    assert 'hx-get="/accounts/line"' in client.get("/stats").text  # the sidebar's services
     html = client.get("/accounts/line").text
-    assert 'title="Spotify: not connected"' in html and 'title="SoundCloud: not connected"' in html
-    assert "<span>daemon not reachable</span>" in html and " free</span>" in html
+    assert 'title="Spotify not connected"' in html and 'title="SoundCloud not connected"' in html
+    assert 'title="Soulseek not reachable: ' in html and 'class="service bad tip"' in html and " free</span>" in html
 
 
 def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -437,7 +474,7 @@ def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, mon
     con.close()
     state = {"ready": False, "state": "Disconnected", "flags": ["Disconnected"], "version": "", "started": ""}
     monkeypatch.setattr(soulseek.Daemon, "status", lambda self: state)
-    assert "<span>disconnected</span>" in client.get("/accounts/line").text
+    assert "Soulseek dropped the login" in client.get("/accounts/line").text
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
@@ -457,8 +494,12 @@ def test_settings_save(client: TestClient, settings: Settings) -> None:
     con.close()
     assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (20, None, ["13:00", "sat 10:00"]) and kept
     assert 'value="3"' in client.get("/settings").text
+    bad = client.post("/settings", data=form | {"fallback": "2", "sync": "every hour", "parallel": "4"})
+    assert bad.status_code == 422 and "Not saved:" in bad.text  # the page as typed, the field at fault focused
+    assert 'name="sync" value="every hour" aria-invalid="true" autofocus' in bad.text
+    assert 'value="2"' in bad.text and 'value="4"' in bad.text  # the rest as typed too
     bad = client.post("/settings", data=form | {"fallback": "2"})
-    assert "at least 60" in bad.text
+    assert "at least 60" in bad.text and 'aria-invalid="true"' in bad.text
 
 
 def test_review(client: TestClient, settings: Settings) -> None:
@@ -559,7 +600,7 @@ def test_a_card_shows_its_likeliest_download_and_another_performance(client: Tes
     con.close()
     html = client.get("/review").text
     assert "<summary>1 more download</summary>" in html
-    assert html.count(">another performance</span>") == 2
+    assert html.count(">Another performance</span>") == 2
 
 
 def test_close_matches_on_the_missing_page(client: TestClient, settings: Settings) -> None:
@@ -616,7 +657,7 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
         assert label in html
     assert 'aria-valuenow="12"' in html and 'style="width: 4.8%"' in html  # 12 of 250
     assert "<b>12</b><i>/250</i> <span>songs</span>" in html
-    assert 'title="2 upgrade"' in html and 'title="10 not found"' in html and "<span>not found</span>" not in html
+    assert 'title="2 upgraded"' in html and 'title="10 not found"' in html and "<span>not found</span>" not in html
     run.say(f"13 of 250: {long}", 12, 250)
     assert f'<span class="fact-text" title="{long}">' in client.get("/jobs").text  # cut in the tile, whole on hover
     assert (
@@ -639,7 +680,8 @@ def test_the_jobs_card_shows_tasks_with_their_run(client: TestClient, settings: 
     assert {"sync", "soundcloud"} <= set(wk.requested)
     assert client.post("/jobs/start", data={"names": "nope"}).status_code == 404
     settings_html = client.get("/settings").text
-    assert "after Spotify and YouTube lists" in settings_html and 'class="schedule-task"' in settings_html
+    group = '<h3 class="field-group">New songs</h3>'  # the schedule, by task
+    assert "After Spotify and YouTube lists" in settings_html and group in settings_html
 
 
 def test_soulseek_backend_choice(client: TestClient, settings: Settings) -> None:
@@ -673,12 +715,12 @@ def test_spotify_403_says_to_check_the_users_email(client: TestClient, monkeypat
     error = "Spotify: HTTP 403 for https://api.spotify.com/v1/me"
     monkeypatch.setattr(accounts, "_spotify_status", lambda state, uid: {"connected": False, "error": error})
     html = client.get("/playlists").text
-    assert "exactly this account's e-mail address under User Management" in html
+    assert "must add its email under User Management" in html
     monkeypatch.setattr(
         accounts, "_spotify_status", lambda state, uid: {"connected": False, "error": "Spotify: timeout"}
     )
     html = client.get("/playlists").text
-    assert "User Management in the Spotify developer app" not in html and "no longer has Premium" in html
+    assert "must add its email" not in html and "lost Premium" in html
 
 
 def test_spotify_asking_to_wait_is_no_login_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -693,9 +735,9 @@ def test_spotify_asking_to_wait_is_no_login_error(client: TestClient, monkeypatc
     monkeypatch.setattr(spotify.Spotify, "me", lambda self: (_ for _ in ()).throw(spotify.SpotifyResting(until)))
     html = client.get("/playlists").text
     when = time.strftime("%H:%M", time.localtime(until))
-    assert f"wait until {when} (too many requests)" in html and "The login is fine" in html
-    assert "Connect again below" not in html and "Premium required" not in html and "Save app" not in html
-    assert f"<span>waits until {when}</span>" in client.get("/accounts/line").text
+    assert f"wait until {when} after too many requests" in html and "Your login is fine" in html
+    assert "Connect again below" not in html and "Premium needed" not in html and "Save app" not in html
+    assert f'title="Spotify asked Echolot to wait until {when}."' in client.get("/accounts/line").text
 
 
 def test_pages_are_compressed_and_pictures_not(client: TestClient) -> None:
@@ -720,18 +762,18 @@ def test_connection_line_answers_from_the_last_check(client: TestClient, monkeyp
         return {"connected": True, "name": f"account{len(calls)}"}
 
     monkeypatch.setattr(accounts, "_spotify_status", spotify_status)
-    assert "<span>account1</span>" in client.get("/accounts/line").text and len(calls) == 1
-    assert "<span>account1</span>" in client.get("/accounts/line").text and len(calls) == 1  # young: kept
+    assert "connected as account1" in client.get("/accounts/line").text and len(calls) == 1
+    assert "connected as account1" in client.get("/accounts/line").text and len(calls) == 1  # young: kept
     state = {"ready": False, "state": "Disconnected", "flags": ["Disconnected"], "version": "", "started": ""}
     monkeypatch.setattr(soulseek.Daemon, "status", lambda self: state)
     monkeypatch.setattr(accounts, "ONLINE_SECONDS", 0)
     html = client.get("/accounts/line").text
-    assert "<span>account1</span>" in html and "<span>daemon not reachable</span>" not in html  # (asked now)
+    assert "connected as account1" in html and "Soulseek not reachable" not in html  # (asked now)
     for t in threading.enumerate():
         if t.name.startswith("accounts-"):
             t.join(5)
     monkeypatch.setattr(accounts, "ONLINE_SECONDS", 600)
-    assert len(calls) == 2 and "<span>account2</span>" in client.get("/accounts/line").text
+    assert len(calls) == 2 and "connected as account2" in client.get("/accounts/line").text
     client.get("/playlists")
     assert len(calls) == 3
 
@@ -744,8 +786,55 @@ def test_messages_are_toasts(settings: Settings, login: Callable[..., TestClient
     assert '<div class="toast error" role="alert" data-toast>Wrong user name or password.</div>' in wrong
 
 
+def test_a_songs_panel(client: TestClient, settings: Settings) -> None:
+    """Everything about a song in one place: its file and quality, its lists with its place, its lyrics, what
+    happened to it; for a missing one what was tried. In the song dialog (htmx) or as a page of its own."""
+    con = db.connect(settings.db_path)
+    with con:
+        file = con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
+        con.execute(
+            "INSERT INTO lyrics (path, song_key, state, source, size, mtime, checked) "
+            "VALUES (?, 'spotify:s1', 'none', '', 0, 0, '2026-11-26')",
+            (file,),
+        )
+    con.close()
+    panel = client.get("/song", params={"key": "spotify:s1"}, headers={"HX-Request": "true"}).text
+    assert '<h2 id="song-panel-title">First Song</h2>' in panel and "<html" not in panel
+    assert 'href="/lists/spotify%3Alikes%3A1">Liked Songs</a> <span class="muted small">#1</span>' in panel
+    assert "none on LRCLIB yet" in panel and ">New</span>" in panel and "Open on Spotify" in panel
+    missing = client.get("/song", params={"key": "spotify:s3"}).text
+    assert "<html" in missing and '<h1 id="song-panel-title">Gone Song</h1>' in missing and "What was tried" in missing
+    assert client.get("/song", params={"key": "spotify:nope"}).status_code == 404
+    rows = client.get("/lists/spotify:likes:1").text
+    assert 'hx-get="/song?key=spotify%3As1" hx-target="#song-panel-body"' in rows and 'id="song-panel"' in rows
+
+
 def test_answers_carry_the_security_headers(client: TestClient) -> None:
     for url in ("/library", "/login", "/static/style.css"):
         r = client.get(url)
         assert r.headers["x-content-type-options"] == "nosniff" and r.headers["x-frame-options"] == "DENY", url
         assert r.headers["referrer-policy"] == "same-origin", url
+
+
+def test_activity_and_changes_find_in_all_of_them(client: TestClient) -> None:
+    """A search on Activity and Changes goes through all of them, not just the newest shown."""
+    html = client.get("/activity", params={"q": "first SONG"}).text
+    assert "Artist A – First Song" in html and "Gone Song" not in html and 'value="first SONG"' in html
+    assert "Gone Song" in client.get("/activity", params={"q": "gone", "kind": "rejected"}).text
+    assert "First Song" not in client.get("/activity", params={"q": "nothing like it"}).text
+    assert 'id="change-rows"' in client.get("/changes", params={"q": "first"}).text
+
+
+def test_an_error_page_says_what_kind(client: TestClient) -> None:
+    html = {"accept": "text/html"}
+    gone = client.get("/song", params={"key": "spotify:nope"}, headers=html)
+    assert gone.status_code == 404 and "<h1>Not found</h1>" in gone.text and "Not found · Echolot" in gone.text
+
+
+def test_reviews_reasons_in_plain_words() -> None:
+    from echolot.web.stats import plainly
+
+    matcher = "probable: 'x' has the core title, the same version words, length within 3 s, but the audio differs"
+    assert plainly(f"{matcher} from the release (0.58)") == "the audio differs from the release (0.58)"
+    assert plainly("title 'A': no reading of tag 'B' or file name 'C' has the same core title") == "its names differ"
+    assert plainly("this download was marked wrong in review") == "you answered No match to it before"

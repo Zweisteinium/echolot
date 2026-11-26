@@ -1,49 +1,22 @@
 {% extends "base.html" %}
-{% from "_macros.html" import how, song_link %}
+{% from "_macros.html" import song_link %}
 {% block title %}Changes · Echolot{% endblock %}
 {% block content %}
-{% from "_subnav.html" import history %}{{ history('changes') }}
-{% set states = {'taken_down': 'Taken down', 'blocked': 'Not in this country', 'gone': 'Gone', 'preview': 'Preview only'} %}
+<div class="page-head"><div class="page-title"><h1>Changes</h1><p class="lead">What changed in {{ 'everyone\'s' if user.everyone else 'your' }} lists: songs added, removed or uploaded again.</p></div></div>
 <section class="card">
-  <div class="card-head">
-    <h1>No longer playable <span class="count">{{ now|length|num }}</span></h1>
-    <span class="muted small">{% for state, label in states.items() if counts.get(state) %}{{ counts[state]|num }} {{ label|lower }}{{ ' · ' if not loop.last }}{% endfor %}</span>
-  </div>
-  {% call how('changes', 'Songs of ' ~ ('everyone\'s' if user.everyone else 'your') ~ ' lists that no longer play at their source as they are; your files stay.') %}What each state means: <b>taken down</b> (Spotify plays them nowhere), <b>not in this country</b>, <b>gone</b> (deleted, or made private on SoundCloud), or a SoundCloud <b>preview only</b> (30 seconds without Go+). Checked once a day.{% if relinked %} {{ relinked|num }} more play as another release of the same recording (Spotify swaps it in): nothing to do.{% endif %}{% endcall %}
-  <table class="rows row-blocks">
-    <thead><tr><th>Song</th><th>State</th><th>Since</th><th>In your library</th></tr></thead>
-    <tbody>
-    {% for r in now %}
-    <tr>
-      <td class="lead-cell">{{ song_link(r.key, r.url, r.artist ~ ' – ' ~ r.title) }}</td>
-      <td><span class="pill{{ ' warn-pill' if r.state == 'preview' else ' bad-pill' }}">{{ states.get(r.state, r.state) }}</span></td>
-      <td class="small nowrap">{% if r.since %}{{ r.since }}{% else %}<span class="muted" title="It was so at the first check: since when is not known">unknown</span>{% endif %}</td>
-      <td class="small">{% if r.file %}<span class="ok-text">yes</span>{% else %}<span class="bad-text">missing</span>{% endif %}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="4" class="muted">Everything plays (as of the last check).</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-
-<section class="card">
-  <div class="card-head">
-    <h2>Changes</h2>
-    <nav class="tabs">
-      <a href="/changes" data-label="All" {% if not kind %}aria-current="page"{% endif %}>All</a>
-      <a href="/changes?kind=unavailable" data-label="Availability" {% if kind == 'unavailable' %}aria-current="page"{% endif %}>Availability</a>
-      <a href="/changes?kind=lists" data-label="Lists" {% if kind == 'lists' %}aria-current="page"{% endif %}>Lists</a>
-    </nav>
-  </div>
+  <div class="card-head"><h2>Latest changes</h2></div>
+  <form class="list-filter" role="search" action="/changes" hx-get="/changes" hx-target="#change-rows" hx-select="#change-rows" hx-swap="outerHTML"
+        hx-trigger="input changed delay:300ms from:input[type=search], submit" hx-replace-url="true" hx-sync="this:replace">
+    <input type="search" name="q" value="{{ q }}" placeholder="Find a change: artist, title or list" aria-label="Find a change: artist, title or list" autocomplete="off">
+  </form>
   <table class="rows row-blocks">
     <thead><tr><th>When</th><th>Change</th><th>Song</th><th>Details</th></tr></thead>
-    <tbody>
+    <tbody id="change-rows">
     {% for c in entries %}
     {% set label = labels.get(c.change, (c.change, '')) %}
     <tr>
       <td class="muted small nowrap" title="{{ c.ts }}">{{ c.ts|ago }}</td>
-      <td><span class="pill{{ ' ' ~ label[1] ~ '-pill' if label[1] }}">{{ label[0] }}</span></td>
+      <td><span class="pill{{ ' ' ~ label[1] ~ '-pill' if label[1] }}">{{ label[0]|sentence }}</span></td>
       <td class="lead-cell">{% if c.song_key %}{{ song_link(c.song_key, c.url, (c.artist or '?') ~ ' – ' ~ (c.title or '?')) }}{% else %}<span class="muted">the list itself</span>{% endif %}</td>
       <td class="small">
         {%- if c.list_title %}<span class="muted">{{ c.list_title }}</span>{% endif %}
@@ -52,7 +25,7 @@
         {%- if c.song_key and c.change not in ('added',) %} · {% if c.file %}<span class="ok-text">your file stays</span>{% else %}<span class="muted">no file</span>{% endif %}{% endif %}</td>
     </tr>
     {% else %}
-    <tr><td colspan="4" class="muted">Nothing changed yet.</td></tr>
+    <tr><td colspan="4" class="muted">{% if q %}No change matches “{{ q }}”.{% else %}Nothing changed in the lists yet.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

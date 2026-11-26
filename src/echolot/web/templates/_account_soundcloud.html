@@ -1,15 +1,19 @@
 {# SoundCloud on the Playlists page: paste the browser login's two cookies #}
   {% if s.soundcloud.error %}<p class="flash error">{{ s.soundcloud.error }} Paste the two cookies again below.</p>{% endif %}
   {% if s.soundcloud.connected %}
-  <p class="muted">Echolot reads your likes and sets and downloads the songs, originals in their own quality where the uploader allows it. {% if s.soundcloud.renews %}It renews its token itself each day (this one works until {{ s.soundcloud.expires.strftime('%Y-%m-%d %H:%M') if s.soundcloud.expires else '?' }}) as long as that login is not logged out.{% elif s.soundcloud.expires %}The token works until {{ s.soundcloud.expires.strftime('%Y-%m-%d %H:%M') }}: SoundCloud's login tokens last a day. Paste the refresh token with it (steps below) and Echolot renews it itself.{% else %}The token stops working when you log out of SoundCloud in that browser: then paste a new one.{% endif %}</p>
+  {% set until = s.soundcloud.expires.strftime('%Y-%m-%d %H:%M') if s.soundcloud.expires else '' %}
+  <p class="muted">Echolot reads your likes and sets and downloads their songs, in original quality where the uploader allows it.
+    {% if s.soundcloud.renews %}It renews its login every day{% if until %}, this one works until {{ until }}{% endif %}. Don't log out of that browser login.
+    {%- elif until %}This login works until {{ until }}. SoundCloud logins last a day. Paste the refresh token with it, and Echolot renews it every day.
+    {%- else %}The login stops working when you log out of SoundCloud in that browser.{% endif %}</p>
   {% endif %}
   {% if not s.soundcloud.renews %}
-  <p class="muted">SoundCloud gives out no app keys, so Echolot uses a browser login, its two cookies:</p>
+  <p class="muted">SoundCloud gives no app keys, so Echolot uses a browser login: two of its cookies.</p>
   <ol class="steps">
-    <li>Best in a private window, so the login is Echolot's own: open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com ↗</a> there and log in.</li>
-    <li>Open the developer tools (<kbd>F12</kbd>, or right click → Inspect), tab <b>Application</b> (Firefox: <b>Storage</b>), <b>Cookies</b> → <code>https://soundcloud.com</code>.</li>
-    <li>Copy the value of <code>oauth_token</code> (it starts with <code>eyJ</code>) and the one of <code>oauth_refresh_token</code> into the fields below.</li>
-    <li>Close the window without logging out: logging out ends Echolot's login too. Your usual browser keeps its own.</li>
+    <li>Open a private window, so the login is Echolot's own. Go to <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com ↗</a> there and log in.</li>
+    <li>Open the developer tools (<kbd>F12</kbd>), then <b>Application</b> (Firefox: <b>Storage</b>), <b>Cookies</b>, <code>https://soundcloud.com</code>.</li>
+    <li>Copy the values of <code>oauth_token</code> (starts with <code>eyJ</code>) and <code>oauth_refresh_token</code> into the fields below.</li>
+    <li>Close the window without logging out. Logging out ends Echolot's login too.</li>
   </ol>
   {% endif %}
   <form method="post" action="/accounts/soundcloud" class="row-form">{{ csrf_input }}

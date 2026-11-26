@@ -11,16 +11,16 @@
     <input type="hidden" name="url" value="{{ follow.url }}">
     <span class="seg" role="radiogroup" aria-label="Follow as">
       <label title="Songs into the library"><input type="radio" name="mode" value="songs"> Songs</label>
-      <label title="Songs into the library, and a playlist in your music server"><input type="radio" name="mode" value="playlist" checked> Playlist</label>
+      <label title="Songs into the library, and a playlist in the music server"><input type="radio" name="mode" value="playlist" checked> Playlist</label>
     </span>
     <button class="primary">Follow</button>
   </form>
 </article>
-<p class="muted small">Echolot fetches its songs and keeps the list up to date; manage it under <a href="/playlists">Playlists</a>.</p>
+<p class="muted small">Its songs are fetched and kept up to date. Manage it under <a href="/playlists">Playlists</a>.</p>
 {% elif link and link.error %}
-<p class="warn-text">{{ link.error }} Paste a playlist link, or a Spotify, SoundCloud or YouTube track link.</p>
+<p class="warn-text">{{ link.error }} Song links from Spotify, SoundCloud and YouTube work too.</p>
 {% elif q and q|length < 2 %}
-<p class="muted small">A little more, please.</p>
+<p class="muted small">Type a few more letters.</p>
 {% elif q and not results and not failed %}
 <p class="muted">Nothing found for “{{ q }}”.</p>
 {% elif results %}
@@ -47,7 +47,7 @@
   {% endfor %}
 </ol>
 {% elif failed %}
-<p class="warn-text">{% for name, why in failed.items() %}{{ names[name] }}: {{ why }}{{ '; ' if not loop.last }}{% endfor %}</p>
+<p class="warn-text">{% for name, why in failed.items() %}{{ names[name] }}: {{ why }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
 {% else %}
-<p class="muted small discover-hint">{{ icon('deezer', 15) }} {{ icon('apple', 15) }} {{ icon('soundcloud', 15) }} &nbsp;Type an artist or a song, or paste a link.</p>
+<p class="muted small discover-hint">{{ icon('deezer', 15) }} {{ icon('apple', 15) }} {{ icon('soundcloud', 15) }} &nbsp;Searches your lists, Deezer, Apple Music and SoundCloud.</p>
 {% endif %}

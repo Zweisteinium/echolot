@@ -8,50 +8,82 @@
   <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="48x48">
   <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
   <link rel="stylesheet" href="{{ asset('style.css') }}">
+  <script>try { if (localStorage.getItem("echolot:rail") === "1") document.documentElement.classList.add("rail"); } catch (e) {}</script>
   <script src="{{ asset('htmx.min.js') }}" defer></script>
   <script src="{{ asset('idiomorph-ext.min.js') }}" defer></script>
 </head>
+{% from "_icons.html" import icon %}
 <body{% block body_class %}{% endblock %} hx-ext="morph"{% if csrf_token %} hx-headers='{"X-CSRF-Token": "{{ csrf_token }}"}'{% endif %}>
+  {% if user %}<div class="app">{% endif %}
   {% block header %}
-  <header>
-    <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
-    {% if user %}
-    {% from "_icons.html" import icon %}
-    {% set library = nav in ('library', 'missing', 'buy', 'discogs') %}{% set history = nav in ('activity', 'changes', 'jobs') %}
-    {# on phones a tab bar at the bottom #}
-    <nav aria-label="Pages" class="pages">
-      <a href="/" data-label="Search" {% if nav == 'search' %}aria-current="page"{% endif %}>{{ icon('search', 22) }}<span>Search</span></a>
-      <a href="/playlists" data-label="Playlists" {% if nav == 'playlists' %}aria-current="page"{% endif %}>{{ icon('playlist', 22) }}<span>Playlists</span></a>
-      <a href="/library" data-label="Library" {% if library %}aria-current="page"{% endif %}>{{ icon('songs', 22) }}<span>Library</span></a>
-      {% if user.can('review') %}<a href="/review" data-label="Review" {% if nav == 'review' %}aria-current="page"{% endif %}>{{ icon('check', 22) }}<span>Review</span></a>{% endif %}
-      <a href="/activity" data-label="History" {% if history %}aria-current="page"{% endif %}>{{ icon('clock', 22) }}<span>History</span></a>
-    </nav>
-    {% if user.admin %}
-    <form method="post" action="/account/view" class="view-switch" title="Whose lists and songs the pages show">{{ csrf_input }}
-      <button name="view" value="mine" {% if user.view != 'everyone' %}aria-pressed="true"{% endif %}>Mine</button><button name="view" value="everyone" {% if user.view == 'everyone' %}aria-pressed="true"{% endif %}>Everyone</button>
-    </form>
-    {% endif %}
-    <details class="user-menu">
-      <summary{% if nav in ('account', 'users', 'settings') %} aria-current="page"{% endif %}><span class="avatar" aria-hidden="true">{{ user.name[:1]|upper }}</span><span class="user-name">{{ user.name }}</span></summary>
-      <div class="menu" role="menu">
-        <a href="/account" role="menuitem" {% if nav == 'account' %}aria-current="page"{% endif %}>Your account</a>
-        {% if user.admin %}
-        <a href="/users" role="menuitem" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
-        <a href="/settings" role="menuitem" {% if nav == 'settings' %}aria-current="page"{% endif %}>Server settings</a>
-        {% endif %}
-        <form method="post" action="/logout">{{ csrf_input }}<button class="link" role="menuitem">Log out</button></form>
-        <span class="muted version">v{{ version }}</span>
+  {% if user %}
+  {% set counts = nav_counts or {} %}{% set waiting = counts.get('review', 0) %}
+  {% set main_pages = ('search', 'playlists', 'library', 'review') %}
+  {% macro item(href, label, icon_name, here, count=none, hot=false) -%}
+  <a href="{{ href }}"{% if here %} aria-current="page"{% endif %} title="{{ label }}{{ ': ' ~ count|num if count }}">{{ icon(icon_name, 18) }}<span class="label">{{ label }}</span>{% if count %}<span class="nav-count{{ ' hot' if hot }}"><span class="sr-only">, </span>{{ count|num }}</span>{% endif %}</a>
+  {%- endmacro %}
+  <aside class="sidebar" id="sidebar" aria-label="Menu">
+    <div class="side-inner">
+      <a class="logo" href="/"><img src="{{ asset('echolot.svg') }}" alt="" width="26" height="26"><span>Echolot</span></a>
+      <nav class="side-nav" aria-label="Pages">
+        {{ item('/', 'Search', 'search', nav == 'search') }}
+        {{ item('/playlists', 'Playlists', 'playlist', nav == 'playlists') }}
+        {{ item('/library', 'Library', 'songs', nav == 'library') }}
+        <p class="side-group">Your turn</p><span class="side-group-rule" aria-hidden="true"></span>
+        {% if user.can('review') %}{{ item('/review', 'Review', 'check', nav == 'review', waiting, true) }}{% endif %}
+        {{ item('/missing', 'Missing', 'search-off', nav == 'missing', counts.get('missing')) }}
+        {% if counts.get('buy') or nav == 'buy' %}{{ item('/buy', 'Buy', 'bag', nav == 'buy', counts.get('buy')) }}{% endif %}
+        {% if counts.get('discogs') is not none %}{{ item('/discogs', 'Discogs', 'album', nav == 'discogs', counts.get('discogs')) }}{% endif %}
+        <p class="side-group">Status</p><span class="side-group-rule" aria-hidden="true"></span>
+        {{ item('/jobs', 'Jobs', 'clock', nav == 'jobs') }}
+        {{ item('/activity', 'History', 'list', nav == 'activity') }}
+        {{ item('/changes', 'Changes', 'swap', nav == 'changes') }}
+        {{ item('/availability', 'Availability', 'block', nav == 'availability') }}
+      </nav>
+      <div class="side-foot">
+        <span hx-get="/jobs/now" hx-trigger="load" hx-swap="outerHTML"></span>
+        <div class="services" hx-get="/accounts/line" hx-trigger="load" hx-swap="outerHTML"></div>
+        {% macro view_switch(extra='') -%}
+        <form method="post" action="/account/view" class="view-switch{{ extra }}" title="Whose lists and songs the pages show">{{ csrf_input }}
+          <button name="view" value="mine" {% if user.view != 'everyone' %}aria-pressed="true"{% endif %}>Mine</button><button name="view" value="everyone" {% if user.view == 'everyone' %}aria-pressed="true"{% endif %}>Everyone</button>
+        </form>
+        {%- endmacro %}
+        {% if user.admin %}{{ view_switch() }}{% endif %}
+        <div class="side-row">
+          <button type="button" class="user-button" popovertarget="user-menu"{% if nav in ('account', 'users', 'settings') %} aria-current="page"{% endif %} title="{{ user.name }}"><span class="avatar" aria-hidden="true">{{ user.name[:1]|upper }}</span><span class="user-name">{{ user.name }}</span></button>
+          <button type="button" class="icon-button rail-toggle" data-rail aria-label="Fold the menu" title="Fold the menu">{{ icon('chevron-left', 18) }}</button>
+        </div>
       </div>
-    </details>
+    </div>
+  </aside>
+  <div class="menu user-menu" id="user-menu" popover aria-label="{{ user.name }}">
+    {% if user.admin %}{{ view_switch(' menu-switch') }}{% endif %}
+    <a href="/account" {% if nav == 'account' %}aria-current="page"{% endif %}>Your account</a>
+    {% if user.admin %}
+    <a href="/users" {% if nav == 'users' %}aria-current="page"{% endif %}>Users</a>
+    <a href="/settings" {% if nav == 'settings' %}aria-current="page"{% endif %}>Server settings</a>
     {% endif %}
-    <span class="muted version"{% if commit %} title="commit {{ commit }}"{% endif %}>v{{ version }}</span>
-  </header>
+    <div class="sep"></div>
+    <form method="post" action="/logout">{{ csrf_input }}<button>Log out</button></form>
+    <span class="muted version"{% if commit %} title="commit {{ commit }}"{% endif %}>Echolot v{{ version }}</span>
+  </div>
+  <div class="sheet-backdrop" data-sheet-close></div>
+  <nav class="tabbar" aria-label="Main pages">
+    <a href="/"{% if nav == 'search' %} aria-current="page"{% endif %}>{{ icon('search', 22) }}<span>Search</span></a>
+    <a href="/playlists"{% if nav == 'playlists' %} aria-current="page"{% endif %}>{{ icon('playlist', 22) }}<span>Playlists</span></a>
+    <a href="/library"{% if nav == 'library' %} aria-current="page"{% endif %}>{{ icon('songs', 22) }}<span>Library</span></a>
+    {% if user.can('review') %}<a href="/review"{% if nav == 'review' %} aria-current="page"{% endif %}>{{ icon('check', 22) }}<span>Review</span>{% if waiting %}<span class="nav-count hot"><span class="sr-only">, </span>{{ waiting|num }}</span>{% endif %}</a>{% endif %}
+    <button type="button" data-sheet aria-controls="sidebar" aria-expanded="false"{% if nav not in main_pages %} class="here"{% endif %}>{{ icon('menu', 22) }}<span>More</span></button>
+  </nav>
+  {% endif %}
   {% endblock %}
   {% block main %}
   <main>
     {% block content %}{% endblock %}
   </main>
   {% endblock %}
+  {% if user %}</div>{% endif %}
+  {% if user %}<dialog id="song-panel" class="modal" aria-labelledby="song-panel-title"><div id="song-panel-body"></div></dialog>{% endif %}
   {% include "_toasts.html" %}
   <script>
     // toasts (_toasts.html): each slides in, and out after TOAST_MS (an error stays longer); pointing at it or
@@ -103,9 +135,8 @@
     document.querySelectorAll("[data-toast]").forEach(showToast);
     {
       const url = new URL(location.href);
-      if (url.searchParams.has("ok") || url.searchParams.has("error")) {
-        url.searchParams.delete("ok");
-        url.searchParams.delete("error");
+      if (["ok", "error", "url"].some((k) => url.searchParams.has(k))) {  // (a message once, the typed link in its field)
+        for (const k of ["ok", "error", "url"]) url.searchParams.delete(k);
         history.replaceState(history.state, "", url);
       }
     }
@@ -132,13 +163,89 @@
       showInfo(b.dataset.info, open);
     });
     document.addEventListener("htmx:load", () => openInfo.forEach((id) => showInfo(id, true)));
-    document.addEventListener("click", (e) => {  // the user menu closes on a click elsewhere
-      const menu = document.querySelector(".user-menu[open]");
-      if (menu && !menu.contains(e.target)) menu.open = false;
+    // hints (.tip with a title): a tap, a click or Enter shows the text in a bubble under it (touch screens and
+    // keyboards have no hover); a tap elsewhere, Escape or scrolling closes it
+    let bubble = null;
+    const hideTip = () => { bubble?.owner.removeAttribute("aria-describedby"); bubble?.remove(); bubble = null; };
+    const showTip = (el) => {
+      const text = el.getAttribute("title");
+      if (!text) return;
+      const again = bubble?.owner === el;
+      hideTip();
+      if (again) return;
+      bubble = Object.assign(document.createElement("div"), { className: "tip-bubble", textContent: text, owner: el });
+      bubble.setAttribute("role", "tooltip");
+      bubble.id = "tip-bubble";
+      el.setAttribute("aria-describedby", bubble.id);
+      document.body.append(bubble);
+      const r = el.getBoundingClientRect(), w = bubble.offsetWidth;
+      bubble.style.left = `${Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8)) + scrollX}px`;
+      bubble.style.top = `${r.bottom + 6 + scrollY}px`;
+    };
+    document.addEventListener("click", (ev) => {
+      const tip = ev.target.closest(".tip");
+      if (tip && !ev.target.closest("a, button, input, select")) { ev.preventDefault(); showTip(tip); }
+      else if (!ev.target.closest(".tip-bubble")) hideTip();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") hideTip();
+      else if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches?.(".tip")) { ev.preventDefault(); showTip(ev.target); }
+    });
+    addEventListener("scroll", hideTip, { passive: true });
+    // the sidebar: folded to a rail by its button (remembered); on phones More opens it as a sheet
+    document.addEventListener("click", (e) => {
+      if (e.target.closest("[data-rail]")) {
+        const rail = document.documentElement.classList.toggle("rail");
+        try { localStorage.setItem("echolot:rail", rail ? "1" : "0"); } catch (err) {}
+        return;
+      }
+      const more = e.target.closest("[data-sheet]");
+      if (more || e.target.closest("[data-sheet-close]")) {
+        const open = !!more && !document.documentElement.classList.contains("nav-open");
+        document.documentElement.classList.toggle("nav-open", open);
+        document.querySelector("[data-sheet]")?.setAttribute("aria-expanded", String(open));
+      }
+    });
+    // menus under their button (popovers like Add music): placed when they open, below the button or above it
+    // near the window's bottom, its right edges level; scrolling closes them
+    document.addEventListener("beforetoggle", (e) => {
+      const menu = e.target;
+      if (!menu.classList?.contains("pop-menu") || e.newState !== "open") return;
+      const button = [...document.querySelectorAll(`[popovertarget="${menu.id}"]`)].find((b) => !menu.contains(b));
+      if (!button) return;
+      const r = button.getBoundingClientRect(), narrow = innerWidth < 600;  // phones: the window's width
+      const right = narrow ? 8 : Math.max(8, innerWidth - r.right);
+      menu.style.right = `${right}px`;
+      menu.style.left = narrow ? "8px" : "auto";
+      menu.style.width = narrow ? "auto" : "";
+      menu.style.maxWidth = `${innerWidth - right - 8}px`;
+      const below = r.bottom + 230 < innerHeight;
+      menu.style.top = below ? `${r.bottom + 6}px` : "auto";
+      menu.style.bottom = below ? "auto" : `${innerHeight - r.top + 6}px`;
+    }, true);
+    addEventListener("scroll", () => document.querySelectorAll(".pop-menu:popover-open").forEach((m) => m.hidePopover()), { passive: true });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !document.documentElement.classList.contains("nav-open")) return;
+      document.documentElement.classList.remove("nav-open");
+      document.querySelector("[data-sheet]")?.setAttribute("aria-expanded", "false");
     });
     document.addEventListener("DOMContentLoaded", () => {
       Idiomorph.defaults.callbacks.beforeAttributeUpdated = (name, el) =>
         !((name === "hidden" || name === "aria-expanded") && (openInfo.has(el.id) || openInfo.has(el.dataset?.info)));
+    });
+    // the song panel: a song's details land in the dialog and open it; × or a click outside closes it
+    document.addEventListener("htmx:afterSwap", (e) => {
+      if (e.detail.target.id !== "song-panel-body") return;
+      const dialog = document.getElementById("song-panel");
+      if (!dialog.open) dialog.showModal();
+    });
+    document.addEventListener("click", (e) => {
+      const dialog = document.getElementById("song-panel");
+      if (!dialog?.open) return;
+      if (e.target.closest("[data-close-panel]")) return dialog.close();
+      if (e.target !== dialog) return;
+      const r = dialog.getBoundingClientRect();  // (the dialog's own padding is the dialog too: only outside it)
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
     });
     // copy buttons (data-copy="#id"): the clipboard API needs https; on plain http select and copy
     document.addEventListener("click", async (ev) => {
@@ -276,6 +383,7 @@
       const key = "echolot:" + d.dataset.remember;
       try { const was = localStorage.getItem(key); if (was) d.open = was === "open"; } catch (e) {}
       d.addEventListener("toggle", () => {
+        if (d.hasAttribute("data-filtered")) return;  // opened by a filter, not by the user
         try { localStorage.setItem(key, d.open ? "open" : "closed"); } catch (e) {}
       });
     }
