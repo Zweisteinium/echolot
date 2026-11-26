@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from pools import (
+    CLASSICAL,
     EXTRA_HITS,
     FEATS,
     HITS,
@@ -141,10 +142,10 @@ for u in users:
 
 LISTS = [  # key, service, title, url, creator
     ("spotify:likes:1", "spotify", "Liked Songs", "https://open.spotify.com/collection/tracks", "rick"),
-    ("spotify:playlist:demo1", "spotify", "Trance Classics", "https://open.spotify.com/playlist/demo1", "rick"),
-    ("spotify:playlist:demo2", "spotify", "Hits", "https://open.spotify.com/playlist/demo2", "rick"),
+    ("spotify:playlist:demo1", "spotify", "NCS Releases", "https://open.spotify.com/playlist/demo1", "rick"),
+    ("spotify:playlist:demo2", "spotify", "Fun", "https://open.spotify.com/playlist/demo2", "rick"),
     ("spotify:playlist:demo3", "spotify", "Techno", "https://open.spotify.com/playlist/demo3", "rick"),
-    ("spotify:playlist:demo4", "spotify", "Night Drive", "https://open.spotify.com/playlist/demo4", "rick"),
+    ("spotify:playlist:demo4", "spotify", "Trance Classics", "https://open.spotify.com/playlist/demo4", "rick"),
     ("spotify:playlist:demo5", "spotify", "Gym", "https://open.spotify.com/playlist/demo5", "rick"),
     ("spotify:playlist:demo6", "spotify", "Chill", "https://open.spotify.com/playlist/demo6", "rick"),
     ("soundcloud:rick/likes", "soundcloud", "Likes", "https://soundcloud.com/rick/likes", "rick"),
@@ -155,13 +156,7 @@ LISTS = [  # key, service, title, url, creator
         "https://soundcloud.com/djsets/sets/trance",
         "djsets",
     ),
-    (
-        "youtube:PLdemo1",
-        "youtube",
-        "NCS Releases",
-        "https://www.youtube.com/playlist?list=PLdemo1",
-        "NoCopyrightSounds",
-    ),
+    ("youtube:PLdemo1", "youtube", "Open Classics", "https://www.youtube.com/playlist?list=PLdemo1", "Kimiko Ishizaka"),
     ("spotify:likes:2", "spotify", "Liked Songs", "https://open.spotify.com/collection/tracks", "sam"),
     ("youtube:PLdemo2", "youtube", "Workout Mix", "https://www.youtube.com/playlist?list=PLdemo2", "jo"),
 ]
@@ -317,8 +312,8 @@ def put(list_key: str, key: str) -> None:
         list_songs[list_key].append(key)
 
 
-# ---- the songs that show: Trance Classics on top, every quality in the first rows
-TRANCE_TIERS = {
+# ---- the songs that show: NCS Releases on top (the list scene), every quality in the first rows
+NCS_TIERS = {
     2: ("lossy-high", "mp3", 320),
     5: ("lossy-mid", "mp3", 192),
     9: ("fake", "flac", 912),
@@ -328,9 +323,11 @@ TRANCE_TIERS = {
     27: ("lossy-high", "mp3", 320),
     33: ("fake", "flac", 870),
 }
-for i, (a, t, n, extra) in enumerate(TRANCE):
-    tier, ext, kbps = TRANCE_TIERS.get(i, ("lossless", None, None))
-    put("spotify:playlist:demo1", add_song("spotify", a, t, n, extra, tier=tier, ext=ext, kbps=kbps))
+for i, (a, t, n) in enumerate(NCS):
+    tier, ext, kbps = NCS_TIERS.get(i, ("lossless", None, None))
+    put("spotify:playlist:demo1", add_song("spotify", a, t, n, tier=tier, ext=ext, kbps=kbps))
+for a, t, n, extra in TRANCE:
+    put("spotify:playlist:demo4", add_song("spotify", a, t, n, extra))
 
 # ---- missing songs (Spotify), and the review items
 MISSING = {}  # name -> key
@@ -348,42 +345,40 @@ def missing_song(list_keys, artist, title, seconds, extra=(), service="spotify",
 
 hits_rows = [*STORY_HITS, *HITS, *EXTRA_HITS]
 R.shuffle(hits_rows)
-hits_rows.insert(0, hits_rows.pop(next(i for i, h in enumerate(hits_rows) if h[0] == "Icona Pop")))  # (on top)
+hits_rows.insert(0, hits_rows.pop(next(i for i, h in enumerate(hits_rows) if h[0] == "Rick Astley")))  # (on top)
 MISSING_HITS = {
-    ("Avicii", "Levels - Radio Edit"),
-    ("Kesha", "TiK ToK"),
-    ("Stromae", "Papaoutai"),
-    ("Pitbull", "Timber"),
-    ("Spice Girls", "Wannabe"),
-    ("Lady Gaga", "Poker Face"),
-    ("The Weeknd", "Blinding Lights"),
+    ("Scatman John", "Scatman (Ski-Ba-Bop-Ba-Dop-Bop)"),
+    ("Eduard Khil", "Trololo"),
+    ("Las Ketchup", "Asereje"),
+    ("Ylvis", "The Fox (What Does the Fox Say?)"),
+    ("Los Del Rio", "Macarena - Bayside Boys Remix"),
+    ("Rednex", "Cotton Eye Joe"),
+    ("Baha Men", "Who Let the Dogs Out"),
 }
-FEAT = {"Pitbull - Timber": ["Ke$ha"], "Icona Pop - I Love It (feat. Charli XCX)": ["Charli xcx"]}
+FEAT: dict[str, list[str]] = {}
 special_tiers = {
-    ("Icona Pop", "I Love It (feat. Charli XCX)"): ("lossless", "flac", 1012),
-    ("Katy Perry", "Dark Horse"): ("lossless", "flac", 987),
-    ("Calvin Harris", "Feel So Close - Radio Edit"): ("lossy-high", "mp3", 320),
-    ("Imagine Dragons", "Thunder"): ("lossy-mid", "mp3", 192),
-    ("Tove Lo", "Habits (Stay High) - Hippie Sabotage Remix"): ("lossy-high", "mp3", 320),
-    ("Mike Posner", "I Took A Pill In Ibiza - Seeb Remix"): ("lossless", "flac", 1004),
+    ("Rick Astley", "Never Gonna Give You Up"): ("lossless", "flac", 1012),
+    ("a-ha", "Take On Me"): ("lossless", "flac", 987),
+    ("Gala", "Freed From Desire - Radio Edit"): ("lossy-high", "mp3", 320),
+    ("Lipps Inc.", "Funkytown"): ("lossy-mid", "mp3", 192),
+    ("Crazy Frog", "Axel F - Radio Edit"): ("lossy-high", "mp3", 320),
+    ("Lou Bega", "Mambo No. 5 - Radio Version"): ("lossless", "flac", 1004),
 }
 for a, t, n in hits_rows:
     if (a, t) in MISSING_HITS:
         continue
-    if a == "Galantis" and t.startswith("Runaway (U & I)"):
+    if a == "Haddaway" and t.startswith("What Is Love"):
         continue  # a close match, below
-    if a == "Avicii" and t.startswith("Hey Brother"):
+    if a == "Captain Jack" and t.startswith("Captain Jack"):
         continue
-    if (a, t) == ("PSY", ""):
-        continue
-    tier, ext, kbps = special_tiers.get((a, t), ("auto", None, None))
+        tier, ext, kbps = special_tiers.get((a, t), ("auto", None, None))
     key = add_song("spotify", a, t, n, FEAT.get(f"{a} - {t}", []), tier=tier, ext=ext, kbps=kbps)
     put("spotify:playlist:demo2", key)
 
 # the close matches: another version taken in review
 for a, t, n, other, other_n in [
-    ("Galantis", "Runaway (U & I)", 227, "Runaway (U & I) (Extended Mix)", 352),
-    ("Avicii", "Hey Brother", 255, "Hey Brother (Extended Version)", 390),
+    ("Haddaway", "What Is Love", 227, "What Is Love (Extended Mix)", 352),
+    ("Captain Jack", "Captain Jack", 255, "Captain Jack (Extended Mix)", 390),
 ]:
     path = make_file(a, other, other_n, "lossless", "flac", R.randint(900, 1100))
     key = add_song("spotify", a, t, n, [], file=path)
@@ -396,6 +391,11 @@ for a, t, n in hits_rows:
     if (a, t) in MISSING_HITS:
         pos = next((i for i, h in enumerate(hits_rows) if (h[0], h[1]) == (a, t)), None)
         missing_song([("spotify:playlist:demo2", pos)], a, t, n, FEAT.get(f"{a} - {t}", []))
+
+# the Fun list padded with invented songs below the real ones, so it mirrors no real list (audit.py)
+while len(list_songs["spotify:playlist:demo2"]) < 150:
+    a, t, n, extra = filler("pop")
+    put("spotify:playlist:demo2", add_song("spotify", a, t, n, extra))
 
 # Techno: real ones, a few missing
 for a, t, n, extra in TECHNO:
@@ -410,8 +410,8 @@ for a, t, n, extra, pos in [
 ]:
     missing_song([("spotify:playlist:demo3", pos)], a, t, n, extra)
 
-# NCS (YouTube list) and the two NCS review songs (Spotify, in Liked Songs)
-for a, t, n in NCS:
+# Open Classics (YouTube) and the two NCS review songs (Spotify, in Liked Songs)
+for a, t, n in CLASSICAL:
     put("youtube:PLdemo1", add_song("youtube", a, t, n))
 FADE = add_song("spotify", "Alan Walker", "Fade", 264, tier=None)
 songs[FADE]["file"] = "Alan Walker/Alan Walker - Fade.flac"
@@ -433,10 +433,10 @@ PURPLE = add_song("soundcloud", "Boris Brejcha", "Purple Noise", 439, tier="loss
 LENS = add_song("soundcloud", "Amelie Lens", "In My Mind", 281, tier=None)
 songs[LENS]["file"] = make_file("Amelie Lens", "In My Mind", 281, "lossy-high", "m4a", 256)
 songs[LENS]["stem"] = songs[LENS]["file"].rsplit(".", 1)[0]
-KYGO_SC = add_song("soundcloud", "Kygo", "Firestone ft. Conrad Sewell", 272, tier=None)
-kygo_sp = by_name[("spotify", "kygo", "firestone")]
-songs[KYGO_SC]["file"] = songs[kygo_sp]["file"]
-songs[KYGO_SC]["link"] = json.dumps(["Kygo", "Firestone", 272])
+BLUE_SC = add_song("soundcloud", "Eiffel 65", "Blue (Da Ba Dee) (Radio Edit)", 272, tier=None)
+blue_sp = by_name[("spotify", "eiffel 65", "blue (da ba dee)")]
+songs[BLUE_SC]["file"] = songs[blue_sp]["file"]
+songs[BLUE_SC]["link"] = json.dumps(["Eiffel 65", "Blue (Da Ba Dee)", 272])
 AMELIE_HYP = missing_song([("spotify:playlist:demo3", None)], "Amelie Lens", "Hypnotized", 382)
 
 # ---- Liked Songs: newest first; the review and missing songs among them
@@ -461,25 +461,25 @@ def insert(lst, pos, key):
     lst.insert(pos, key)
 
 
-insert(liked, 1, by_name[("spotify", "icona pop", "i love it (feat. charli xcx)")])
+insert(liked, 1, by_name[("spotify", "rick astley", "never gonna give you up")])
 insert(liked, 211, JANJI)
 for name in (
-    "Avicii - Levels - Radio Edit",
-    "Kesha - TiK ToK",
-    "The Weeknd - Blinding Lights",
+    "Scatman John - Scatman (Ski-Ba-Bop-Ba-Dop-Bop)",
+    "Eduard Khil - Trololo",
+    "Baha Men - Who Let the Dogs Out",
     "Boris Brejcha - Gravity",
 ):
     insert(liked, R.randint(300, 2300), MISSING[name])
 
-# Trance Classics fillers, Techno fillers, playlists
+# NCS Releases fillers, Techno fillers, playlists
 for _ in range(312 - len(list_songs["spotify:playlist:demo1"])):
-    a, t, n, extra = filler("trance")
+    a, t, n, extra = filler("pop")
     put("spotify:playlist:demo1", add_song("spotify", a, t, n, extra))
 for _ in range(124 - len(list_songs["spotify:playlist:demo3"])):
     a, t, n, extra = filler("techno")
     put("spotify:playlist:demo3", add_song("spotify", a, t, n, extra))
 for lk, size, kinds in [
-    ("spotify:playlist:demo4", 64, ["techno", "chill", "trance"]),
+    ("spotify:playlist:demo4", 120, ["trance"]),
     ("spotify:playlist:demo5", 82, ["pop", "techno"]),
     ("spotify:playlist:demo6", 96, ["chill", "pop"]),
 ]:
@@ -493,7 +493,7 @@ for lk, size, kinds in [
 
 # SoundCloud likes: some the same recordings as Spotify songs (one file), the rest their own
 sc = list_songs["soundcloud:rick/likes"]
-for k in (PURPLE, LENS, KYGO_SC):
+for k in (PURPLE, LENS, BLUE_SC):
     insert(sc, R.randint(0, 12), k)
 spotify_with_files = [k for k in liked if songs[k]["file"]]
 while len(sc) < 1400:
@@ -513,17 +513,13 @@ for _ in range(38):
     a = R.choice(TRANCE_ARTISTS)
     t = (
         f"{R.choice(['Live at', 'Recorded at', 'Sunrise Set at', 'Closing Set at'])} "
-        f"{R.choice(['Transmission', 'ASOT', 'Dreamstate', 'Luminosity', 'Ministry of Sound', 'Tomorrowland'])} "
+        f"{R.choice(['the Harbour Stage', 'the Old Mill', 'Club Meridian', 'the Lighthouse', 'Open Air Nord'])} "
         f"{R.choice(range(2012, 2026))}"
     )
     n = R.randint(3000, 5400)
     t1 = R.choices(["lossy-high", "lossy-mid", "lossy-low", "lossless"], [45, 25, 20, 10])[0]
     put("soundcloud:djsets/sets/trance", add_song("soundcloud", a, t, n, tier=t1))
 
-# NCS Releases fillers (YouTube)
-while len(list_songs["youtube:PLdemo1"]) < 146:
-    a, t, n, _ = filler(R.choice(["pop", "chill"]))
-    put("youtube:PLdemo1", add_song("youtube", a, t, n))
 
 # sam's likes (a third shared with rick's) and jo's workout mix
 while len(list_songs["spotify:likes:2"]) < 300:
@@ -533,7 +529,7 @@ while len(list_songs["spotify:likes:2"]) < 300:
         a, t, n, extra = filler(R.choice(["pop", "chill"]))
         k = add_song("spotify", a, t, n, extra)
     put("spotify:likes:2", k)
-for extra_song in [("Martin Garrix", "Animals - Radio Edit", 183)]:
+for extra_song in [("Rick Astley", "Together Forever", 183)]:
     put("spotify:likes:2", add_song("spotify", *extra_song))
 while len(list_songs["youtube:PLdemo2"]) < 90:
     a, t, n, _ = filler(R.choice(["pop", "techno"]))
@@ -594,10 +590,10 @@ for k in R.sample([k for k in songs if not any(k in v for v in list_songs.values
 # ------------------------------------------------------------------ attempts (Missing page)
 M = MISSING
 GREY = [
-    "Avicii - Levels - Radio Edit",
-    "Kesha - TiK ToK",
+    "Scatman John - Scatman (Ski-Ba-Bop-Ba-Dop-Bop)",
+    "Eduard Khil - Trololo",
     "Paul Kalkbrenner - Sky and Sand",
-    "The Weeknd - Blinding Lights",
+    "Baha Men - Who Let the Dogs Out",
 ]
 for name in GREY:
     con.execute("UPDATE songs SET unavailable = ? WHERE key = ?", (GREYED_OUT, M[name]))
@@ -623,7 +619,7 @@ def rep(stage, results, fits, rejected, tried=()):
 
 attempt("Adam Beyer - Your Mind", 1, 138, rep(0, 3, 0, {"another length": 2, "artist missing": 1}))
 attempt(
-    "Avicii - Levels - Radio Edit",
+    "Scatman John - Scatman (Ski-Ba-Bop-Ba-Dop-Bop)",
     13,
     60 * 24 * 4.2,
     rep(2, 2, 0, {"another length": 2}),
@@ -707,12 +703,12 @@ attempt(
         ],
     ),
 )
-attempt("Kesha - TiK ToK", 6, 60 * 24 * 2.3, rep(2, 1, 0, {"another length": 1}))
+attempt("Eduard Khil - Trololo", 6, 60 * 24 * 2.3, rep(2, 1, 0, {"another length": 1}))
 attempt("Kölsch - Grey", 2, 60 * 20.5, rep(1, 2, 0, {"lacks the version": 2}))
-attempt("Lady Gaga - Poker Face", 1, 60 * 3.1, rep(0, 0, 0, {}))
+attempt("Rednex - Cotton Eye Joe", 1, 60 * 3.1, rep(0, 0, 0, {}))
 attempt("Paul Kalkbrenner - Sky and Sand", 9, 60 * 24 * 3.9, rep(2, 4, 0, {"another length": 3, "another song": 1}))
 attempt(
-    "Pitbull - Timber",
+    "Ylvis - The Fox (What Does the Fox Say?)",
     4,
     60 * 22,
     rep(2, 5, 0, {"another length": 3, "artist in another name": 2}),
@@ -721,13 +717,13 @@ attempt(
             "results": 12,
             "fits": 1,
             "rejected": {"another length": 8, "another song": 3},
-            "tried": [["Pitbull - Timber (Lyrics) ft. Ke$ha", "mismatch", ""]],
+            "tried": [["Ylvis - The Fox (What Does the Fox Say?) [Official Music Video]", "mismatch", ""]],
         },
         "soundcloud": {"results": 3, "fits": 0, "rejected": {"another song": 3}, "tried": []},
     },
     60 * 21,
 )
-attempt("Spice Girls - Wannabe", 2, 60 * 20, rep(1, 1, 0, {"another length": 1}))
+attempt("Los Del Rio - Macarena - Bayside Boys Remix", 2, 60 * 20, rep(1, 1, 0, {"another length": 1}))
 attempt(
     "Stephan Bodzin - Powers of Ten",
     5,
@@ -740,8 +736,8 @@ attempt(
         [("Stephan Bodzin - Powers Of Ten (Original Mix).flac", "bad file", "decoding failed at 2:11")],
     ),
 )
-attempt("Stromae - Papaoutai", 1, 60 * 2.6, rep(0, 2, 0, {"artist missing": 2}))
-attempt("The Weeknd - Blinding Lights", 13, 60 * 24 * 4.4, rep(2, 3, 0, {"another length": 3}))
+attempt("Las Ketchup - Asereje", 1, 60 * 2.6, rep(0, 2, 0, {"artist missing": 2}))
+attempt("Baha Men - Who Let the Dogs Out", 13, 60 * 24 * 4.4, rep(2, 3, 0, {"another length": 3}))
 
 # ------------------------------------------------------------------ events
 events: list[dict] = []
@@ -907,7 +903,7 @@ for i, m in enumerate(old_minutes):
         )
 
 # the review history behind what shows now
-blame = song_of("Calvin Harris", "Blame (feat. John Newman)")
+blame = song_of("Dr. Alban", "Sing Hallelujah!")
 blame_ev = ev(
     60 * 46,
     "new",
@@ -916,99 +912,101 @@ blame_ev = ev(
     kbps=files[lib(blame)]["kbps"],
     seconds=round(files[lib(blame)]["duration"]),
     source="soulseek",
-    artist="Calvin Harris",
-    title="Blame (feat. John Newman)",
+    artist="Dr. Alban",
+    title="Sing Hallelujah!",
     song=blame,
     matched="probable",
-    reason="probable: 'Blame (feat. John Newman) [Radio Edit]' has the core title, the same version words, length within 3 s",
-    found="Blame (feat. John Newman) [Radio Edit]",
-    file_name="Calvin Harris - Blame (feat. John Newman) [Radio Edit].flac",
+    reason="probable: 'Sing Hallelujah! [Radio Edit]' has the core title, the same version words, length within 3 s",
+    found="Sing Hallelujah! [Radio Edit]",
+    file_name="Dr. Alban - Sing Hallelujah! [Radio Edit].flac",
     fake=0,
     tries=1,
     audio="audio unclear (0.64)",
 )
-stole = song_of("Kygo", "Stole the Show")
-stole_ev = ev(
+move = song_of("Eiffel 65", "Move Your Body")
+move_ev = ev(
     60 * 30,
     "mismatch",
-    kept_path("Kygo", "Stole the Show", "soulseek", "flac", (NOW - dt.timedelta(hours=30)).date().isoformat()),
+    kept_path("Eiffel 65", "Move Your Body", "soulseek", "flac", (NOW - dt.timedelta(hours=30)).date().isoformat()),
     bytes=36_220_114,
     kbps=968,
     seconds=299,
     source="soulseek",
-    artist="Kygo",
-    title="Stole the Show",
-    song=stole,
-    found="Stole the Show",
-    file_name="Kygo - Stole the Show.flac",
+    artist="Eiffel 65",
+    title="Move Your Body",
+    song=move,
+    found="Move Your Body",
+    file_name="Eiffel 65 - Move Your Body.flac",
     fake=0,
     tries=0,
     wanted_seconds=223,
     audio="audio unclear (0.52)",
 )
-shm = song_of("Galantis", "Runaway (U & I)")
-shm_old = "Galantis/Galantis - Runaway (U & I).flac"
-shm_ev = ev(
+love = song_of("Haddaway", "What Is Love")
+love_old = "Haddaway/Haddaway - What Is Love.flac"
+love_ev = ev(
     60 * 27,
     "new",
-    shm_old,
-    bytes=size_of(lib(shm)),
-    kbps=files[lib(shm)]["kbps"],
+    love_old,
+    bytes=size_of(lib(love)),
+    kbps=files[lib(love)]["kbps"],
     seconds=352,
     source="soulseek",
-    artist="Galantis",
-    title="Runaway (U & I)",
-    song=shm,
+    artist="Haddaway",
+    title="What Is Love",
+    song=love,
     matched="probable",
-    reason="probable: 'Runaway (U & I)' has the core title, the same version words, length within 3 s",
-    found="Runaway (U & I)",
-    file_name="Galantis - Runaway (U & I).flac",
+    reason="probable: 'What Is Love' has the core title, the same version words, length within 3 s",
+    found="What Is Love",
+    file_name="Haddaway - What Is Love.flac",
     fake=0,
     tries=2,
     audio="audio unclear (0.71)",
 )
-sigala = song_of("Sigala", "Easy Love")
-sigala_kept = ev(
+venga = song_of("Vengaboys", "Boom, Boom, Boom, Boom!!")
+venga_kept = ev(
     60 * 31,
     "mismatch",
-    kept_path("Sigala", "Easy Love", "youtube", "opus", (NOW - dt.timedelta(hours=31)).date().isoformat()),
+    kept_path(
+        "Vengaboys", "Boom, Boom, Boom, Boom!!", "youtube", "opus", (NOW - dt.timedelta(hours=31)).date().isoformat()
+    ),
     bytes=4_710_332,
     kbps=160,
     seconds=236,
     source="youtube",
-    artist="Sigala",
-    title="Easy Love",
-    song=sigala,
-    found="Sigala - Easy Love (Official Video)",
-    file_name="Sigala - Easy Love (Official Video)",
-    url="https://www.youtube.com/watch?v=demoSigala1",
+    artist="Vengaboys",
+    title="Boom, Boom, Boom, Boom!!",
+    song=venga,
+    found="Vengaboys - Boom, Boom, Boom, Boom!! (Official Video)",
+    file_name="Vengaboys - Boom, Boom, Boom, Boom!! (Official Video)",
+    url="https://www.youtube.com/watch?v=demoVenga1",
     wanted_seconds=227,
 )
-posner = song_of("Mike Posner", "I Took A Pill In Ibiza - Seeb Remix")
-posner_retired = ev(
+mambo = song_of("Lou Bega", "Mambo No. 5 - Radio Version")
+mambo_retired = ev(
     60 * 24 * 3,
     "retired",
-    replaced_path(lib(posner), (NOW - dt.timedelta(days=3)).date().isoformat()),
-    bytes=size_of(lib(posner)),
-    kbps=files[lib(posner)]["kbps"],
+    replaced_path(lib(mambo), (NOW - dt.timedelta(days=3)).date().isoformat()),
+    bytes=size_of(lib(mambo)),
+    kbps=files[lib(mambo)]["kbps"],
     seconds=198,
-    reason=f"no match in review (was {lib(posner)})",
+    reason=f"no match in review (was {lib(mambo)})",
 )
-posner_ev = ev(
+mambo_ev = ev(
     60 * 24 * 3.2,
     "new",
-    lib(posner),
-    bytes=size_of(lib(posner)),
-    kbps=files[lib(posner)]["kbps"],
+    lib(mambo),
+    bytes=size_of(lib(mambo)),
+    kbps=files[lib(mambo)]["kbps"],
     seconds=198,
     source="soulseek",
-    artist="Mike Posner",
-    title="I Took A Pill In Ibiza - Seeb Remix",
-    song=posner,
+    artist="Lou Bega",
+    title="Mambo No. 5 - Radio Version",
+    song=mambo,
     matched="probable",
-    reason="probable: 'I Took A Pill In Ibiza (Seeb Remix)' has the core title, the same version words, length within 3 s",
-    found="I Took A Pill In Ibiza (Seeb Remix)",
-    file_name="Mike Posner - I Took A Pill In Ibiza (Seeb Remix).flac",
+    reason="probable: 'Mambo No. 5 (Radio Version)' has the core title, the same version words, length within 3 s",
+    found="Mambo No. 5 (Radio Version)",
+    file_name="Lou Bega - Mambo No. 5 (Radio Version).flac",
     fake=0,
     tries=0,
 )
@@ -1068,21 +1066,27 @@ gravity_old = ev(
     tries=0,
     audio="audio differs from the release (0.16)",
 )
-pitbull = M["Pitbull - Timber"]
+fox = M["Ylvis - The Fox (What Does the Fox Say?)"]
 ev(
     60 * 21,
     "mismatch",
-    kept_path("Pitbull", "Timber", "youtube", "opus", (NOW - dt.timedelta(hours=21)).date().isoformat()),
+    kept_path(
+        "Ylvis",
+        "The Fox (What Does the Fox Say?)",
+        "youtube",
+        "opus",
+        (NOW - dt.timedelta(hours=21)).date().isoformat(),
+    ),
     bytes=5_102_377,
     kbps=131,
     seconds=284,
     source="youtube",
-    artist="Pitbull",
-    title="Timber",
-    song=pitbull,
-    found="Pitbull - Timber (Lyrics) ft. Ke$ha",
-    file_name="Pitbull - Timber (Lyrics) ft. Ke$ha",
-    url="https://www.youtube.com/watch?v=demoTimber1",
+    artist="Ylvis",
+    title="The Fox (What Does the Fox Say?)",
+    song=fox,
+    found="Ylvis - The Fox (What Does the Fox Say?) [Official Music Video]",
+    file_name="Ylvis - The Fox (What Does the Fox Say?) [Official Music Video]",
+    url="https://www.youtube.com/watch?v=demoFox1",
     wanted_seconds=204,
 )
 
@@ -1091,29 +1095,29 @@ ret = ev(60 * 5.5, "retagged", "/music/tracks", ext="", bytes=0, reason="186 fil
 ev(
     60 * 2.6,
     "retired",
-    replaced_path("Martin Garrix/Martin Garrix - Animals (Original Mix).flac"),
+    replaced_path("Rick Astley/Rick Astley - Together Forever (Lew Laboratories Mix).flac"),
     ext="flac",
     bytes=48_377_015,
     kbps=1046,
     seconds=303,
-    reason="close match removed by hand (was Martin Garrix/Martin Garrix - Animals (Original Mix).flac)",
+    reason="close match removed by hand (was Rick Astley/Rick Astley - Together Forever (Lew Laboratories Mix).flac)",
 )
-habits = song_of("Tove Lo", "Habits (Stay High) - Hippie Sabotage Remix")
-habits_ev = ev(
+axel = song_of("Crazy Frog", "Axel F - Radio Edit")
+axel_ev = ev(
     60 * 7.4,
     "wrong-song",
-    kept_path("Tove Lo", "Habits (Stay High) - Hippie Sabotage Remix", "soulseek", "flac"),
+    kept_path("Crazy Frog", "Axel F - Radio Edit", "soulseek", "flac"),
     bytes=33_290_118,
     kbps=1028,
     seconds=258,
     source="soulseek",
-    artist="Tove Lo",
-    title="Habits (Stay High) - Hippie Sabotage Remix",
-    song=habits,
-    reason="probable: 'Habits (Stay High) (Hippie Sabotage Remix)' has the core title, the same version words, "
+    artist="Crazy Frog",
+    title="Axel F - Radio Edit",
+    song=axel,
+    reason="probable: 'Axel F (Radio Edit)' has the core title, the same version words, "
     "length within 3 s (not filed: soulseek probable matches need a review)",
-    found="Habits (Stay High) (Hippie Sabotage Remix)",
-    file_name="Tove Lo - Habits (Stay High) (Hippie Sabotage Remix).flac",
+    found="Axel F (Radio Edit)",
+    file_name="Crazy Frog - Axel F (Radio Edit).flac",
     fake=0,
     tries=0,
     audio="audio unclear (0.58)",
@@ -1121,103 +1125,103 @@ habits_ev = ev(
 ev(
     60 * 6.6,
     "restored",
-    lib(posner),
-    bytes=size_of(lib(posner)),
-    kbps=files[lib(posner)]["kbps"],
+    lib(mambo),
+    bytes=size_of(lib(mambo)),
+    kbps=files[lib(mambo)]["kbps"],
     seconds=198,
-    song=posner,
-    artist="Mike Posner",
-    title="I Took A Pill In Ibiza - Seeb Remix",
+    song=mambo,
+    artist="Lou Bega",
+    title="Mambo No. 5 - Radio Version",
     reason="No match taken back by an admin",
 )
 ev(
     60 * 5.9,
     "new",
-    lib(sigala),
-    bytes=size_of(lib(sigala)),
-    kbps=files[lib(sigala)]["kbps"],
-    seconds=round(files[lib(sigala)]["duration"]),
+    lib(venga),
+    bytes=size_of(lib(venga)),
+    kbps=files[lib(venga)]["kbps"],
+    seconds=round(files[lib(venga)]["duration"]),
     source="youtube",
-    artist="Sigala",
-    title="Easy Love",
-    song=sigala,
+    artist="Vengaboys",
+    title="Boom, Boom, Boom, Boom!!",
+    song=venga,
     matched="review",
-    found="Sigala - Easy Love (Official Video)",
-    file_name="Sigala - Easy Love (Official Video)",
-    url="https://www.youtube.com/watch?v=demoSigala1",
+    found="Vengaboys - Boom, Boom, Boom, Boom!! (Official Video)",
+    file_name="Vengaboys - Boom, Boom, Boom, Boom!! (Official Video)",
+    url="https://www.youtube.com/watch?v=demoVenga1",
 )
-# (Sigala's copy is the YouTube download: 160 kbps)
-files[lib(sigala)].update(kbps=160, quality="lossy-mid", size=4_610_220)
-old_sigala = lib(sigala)
+# (Vengaboys's copy is the YouTube download: 160 kbps)
+files[lib(venga)].update(kbps=160, quality="lossy-mid", size=4_610_220)
+old_sigala = lib(venga)
 new_sigala = old_sigala.rsplit(".", 1)[0] + ".opus"
 files[new_sigala] = {**files.pop(old_sigala), "path": new_sigala}
-songs[sigala]["file"] = new_sigala
+songs[venga]["file"] = new_sigala
 events[-1].update(path=new_sigala, ext="opus", kbps=160, bytes=4_610_220)
-feel = song_of("Calvin Harris", "Feel So Close - Radio Edit")
+freed = song_of("Gala", "Freed From Desire - Radio Edit")
 ev(
     60 * 5.2,
     "wrong-song",
-    kept_path("Calvin Harris", "Feel So Close - Radio Edit", "soulseek", "flac"),
+    kept_path("Gala", "Freed From Desire - Radio Edit", "soulseek", "flac"),
     bytes=27_114_590,
     kbps=1049,
     seconds=205,
     source="soulseek",
-    artist="Calvin Harris",
-    title="Feel So Close - Radio Edit",
-    song=feel,
-    reason="probable: 'Feel So Close (Radio Edit)' has the core title, the same version words, length within 3 s, "
+    artist="Gala",
+    title="Freed From Desire - Radio Edit",
+    song=freed,
+    reason="probable: 'Freed From Desire (Radio Edit)' has the core title, the same version words, length within 3 s, "
     "but the audio differs from the release (0.18)",
-    found="Feel So Close (Radio Edit)",
-    file_name="Calvin Harris - Feel So Close (Radio Edit).flac",
+    found="Freed From Desire (Radio Edit)",
+    file_name="Gala - Freed From Desire (Radio Edit).flac",
     fake=0,
     tries=0,
     audio="audio differs from the release (0.18)",
 )
-shm_new = lib(shm)
+love_new = lib(love)
 ev(
     60 * 4.6,
     "renamed",
-    shm_new,
-    bytes=size_of(shm_new),
-    kbps=files[shm_new]["kbps"],
+    love_new,
+    bytes=size_of(love_new),
+    kbps=files[love_new]["kbps"],
     seconds=352,
-    artist="Galantis",
-    title="Runaway (U & I) (Extended Mix)",
-    reason=f"close match for Galantis - Runaway (U & I) (was {shm_old})",
+    artist="Haddaway",
+    title="What Is Love (Extended Mix)",
+    reason=f"close match for Haddaway - What Is Love (was {love_old})",
 )
-robin = song_of("Avicii", "Hey Brother")
+jack = song_of("Captain Jack", "Captain Jack")
 ev(
     60 * 4.4,
     "new",
-    lib(robin),
-    bytes=size_of(lib(robin)),
-    kbps=files[lib(robin)]["kbps"],
+    lib(jack),
+    bytes=size_of(lib(jack)),
+    kbps=files[lib(jack)]["kbps"],
     seconds=390,
     source="soulseek",
-    artist="Avicii",
-    title="Hey Brother",
-    song=robin,
+    artist="Captain Jack",
+    title="Captain Jack",
+    song=jack,
     matched="close",
-    found="Hey Brother (Extended Version)",
-    file_name="Avicii - Hey Brother (Extended Version).flac",
+    found="Captain Jack (Extended Mix)",
+    file_name="Captain Jack - Captain Jack (Extended Mix).flac",
     fake=0,
     tries=3,
 )
-rihanna = song_of("Rihanna", "We Found Love")
+tiger = song_of("Survivor", "Eye of the Tiger")
 ev(
     60 * 3.9,
     "wrong-song",
-    "/music/inbox/soulseek/demo/We Found Love.flac",
+    "/music/inbox/soulseek/demo/Eye of the Tiger.flac",
     bytes=0,
     kbps=1011,
     seconds=215,
     source="soulseek",
-    artist="Rihanna",
-    title="We Found Love",
-    song=rihanna,
-    reason="artist 'Rihanna' not in the tags 'Lindsey Stirling', the file name 'We Found Love.flac' or its folders",
-    found="We Found Love",
-    file_name="We Found Love.flac",
+    artist="Survivor",
+    title="Eye of the Tiger",
+    song=tiger,
+    reason="artist 'Survivor' not in the tags 'Vitamin String Quartet', the file name 'Eye of the Tiger.flac' or its folders",
+    found="Eye of the Tiger",
+    file_name="Eye of the Tiger.flac",
     fake=0,
     tries=0,
 )
@@ -1229,13 +1233,13 @@ blame_re = ev(
     kbps=files[lib(blame)]["kbps"],
     seconds=round(files[lib(blame)]["duration"]),
     source="soulseek",
-    artist="Calvin Harris",
-    title="Blame (feat. John Newman)",
+    artist="Dr. Alban",
+    title="Sing Hallelujah!",
     song=blame,
     matched="probable",
     reason="back in review: taken by a user, rick looks again",
-    found="Blame (feat. John Newman) [Radio Edit]",
-    file_name="Calvin Harris - Blame (feat. John Newman) [Radio Edit].flac",
+    found="Sing Hallelujah! [Radio Edit]",
+    file_name="Dr. Alban - Sing Hallelujah! [Radio Edit].flac",
 )
 purple_ev = ev(
     60 * 2.8,
@@ -1255,55 +1259,55 @@ purple_ev = ev(
     fake=0,
     tries=0,
 )
-rivers = song_of("Lykke Li", "I Follow Rivers - The Magician Remix")
+ymca = song_of("Village People", "Y.M.C.A. - Original Version 1978")
 ev(
     60 * 2.3,
     "wrong-song",
-    kept_path("Lykke Li", "I Follow Rivers - The Magician Remix", "soulseek", "flac"),
+    kept_path("Village People", "Y.M.C.A. - Original Version 1978", "soulseek", "flac"),
     bytes=30_877_201,
     kbps=979,
     seconds=275,
     source="soulseek",
-    artist="Lykke Li",
-    title="I Follow Rivers - The Magician Remix",
-    song=rivers,
-    reason="file name 'Lykke Li - I Follow Rivers (Live at Rockefeller)' names another version than "
-    "'I Follow Rivers - The Magician Remix'",
-    found="I Follow Rivers (Live at Rockefeller)",
-    file_name="Lykke Li - I Follow Rivers (Live at Rockefeller).flac",
+    artist="Village People",
+    title="Y.M.C.A. - Original Version 1978",
+    song=ymca,
+    reason="file name 'Village People - Y.M.C.A. (Live at Madison Square Garden)' names another version than "
+    "'Y.M.C.A. - Original Version 1978'",
+    found="Y.M.C.A. (Live at Madison Square Garden)",
+    file_name="Village People - Y.M.C.A. (Live at Madison Square Garden).flac",
     fake=0,
     tries=0,
 )
-dark = song_of("Katy Perry", "Dark Horse")
-upgrade(60 * 1.9, dark, "mp3", 128, 3_490_112, hand=True)
+takeonme = song_of("a-ha", "Take On Me")
+upgrade(60 * 1.9, takeonme, "mp3", 128, 3_490_112, hand=True)
 ev(
     60 * 1.4,
     "linked",
-    lib(KYGO_SC),
-    bytes=size_of(lib(KYGO_SC)),
-    kbps=files[lib(KYGO_SC)]["kbps"],
+    lib(BLUE_SC),
+    bytes=size_of(lib(BLUE_SC)),
+    kbps=files[lib(BLUE_SC)]["kbps"],
     seconds=272,
-    song=KYGO_SC,
-    artist="Kygo",
-    title="Firestone ft. Conrad Sewell",
-    reason=f"same recording as {lib(KYGO_SC)} (the same audio)",
+    song=BLUE_SC,
+    artist="Eiffel 65",
+    title="Blue (Da Ba Dee) (Radio Edit)",
+    reason=f"same recording as {lib(BLUE_SC)} (the same audio)",
 )
-thunder = song_of("Imagine Dragons", "Thunder")
+funky = song_of("Lipps Inc.", "Funkytown")
 ev(
     60 * 1.1,
     "wrong-song",
-    kept_path("Imagine Dragons", "Thunder", "soulseek", "flac"),
+    kept_path("Lipps Inc.", "Funkytown", "soulseek", "flac"),
     bytes=24_301_877,
     kbps=1017,
     seconds=188,
     source="soulseek",
-    artist="Imagine Dragons",
-    title="Thunder",
-    song=thunder,
-    reason="title 'Thunder': no reading of tag 'Thunder / Young Dumb & Broke (Medley)' or file name "
-    "'Imagine Dragons - Thunder - Young Dumb & Broke (Medley).flac' has the same core title and version",
-    found="Thunder / Young Dumb & Broke (Medley)",
-    file_name="Imagine Dragons - Thunder - Young Dumb & Broke (Medley).flac",
+    artist="Lipps Inc.",
+    title="Funkytown",
+    song=funky,
+    reason="title 'Funkytown': no reading of tag 'Funkytown / Le Freak (Medley)' or file name "
+    "'Lipps Inc. - Funkytown - Le Freak (Medley).flac' has the same core title and version",
+    found="Funkytown / Le Freak (Medley)",
+    file_name="Lipps Inc. - Funkytown - Le Freak (Medley).flac",
     fake=0,
     tries=0,
 )
@@ -1320,21 +1324,21 @@ ev(
     song=LENS,
     url=songs[LENS]["url"],
 )
-titan = song_of("David Guetta", "Titanium (feat. Sia)")
+coco = song_of("Mr. President", "Coco Jamboo")
 ev(
     34,
     "duplicate",
-    lib(titan),
-    bytes=size_of(lib(titan)),
-    kbps=files[lib(titan)]["kbps"],
+    lib(coco),
+    bytes=size_of(lib(coco)),
+    kbps=files[lib(coco)]["kbps"],
     seconds=245,
     source="soulseek",
-    artist="David Guetta",
-    title="Titanium (feat. Sia)",
-    song=titan,
+    artist="Mr. President",
+    title="Coco Jamboo",
+    song=coco,
     matched="exact",
-    found="Titanium",
-    file_name="David Guetta - Titanium (feat. Sia).flac",
+    found="Coco Jamboo",
+    file_name="Mr. President - Coco Jamboo.flac",
     fake=1,
     tries=0,
     peer_bytes=33_810_221,
@@ -1359,8 +1363,8 @@ janji_ev = ev(
     compared="",
     peer_bytes=12_330_510,
 )
-icona = song_of("Icona Pop", "I Love It (feat. Charli XCX)")
-upgrade(11, icona, "mp3", 320, 6_310_442)
+never = song_of("Rick Astley", "Never Gonna Give You Up")
+upgrade(11, never, "mp3", 320, 6_310_442)
 fade_ev = ev(
     4,
     "new",
@@ -1417,7 +1421,7 @@ for e in events:
         files[e["path"]]["mtime"] = int(dt.datetime.fromisoformat(e["ts"]).timestamp())
 for f in files.values():
     write("files", {k: f[k] for k in ("path", "size", "mtime", "duration", "kbps", "quality")})
-con.execute("UPDATE songs SET file = ? WHERE key = ?", (songs[sigala]["file"], sigala))
+con.execute("UPDATE songs SET file = ? WHERE key = ?", (songs[venga]["file"], venga))
 
 
 # ------------------------------------------------------------------ review decisions
@@ -1441,27 +1445,27 @@ def decide(e, decision, user_id, after_min, result, name=None, overridden=None):
 
 
 decide(blame_ev, "ok", 2, 60 * 9, "kept", overridden=f"rick {blame_re['ts']}")
-decide(stole_ev, "discard", 2, 60 * 4, "deleted")
+decide(move_ev, "discard", 2, 60 * 4, "deleted")
 decide(blame_re, "ok", 1, 22, "kept")
-decide(shm_ev, "close", 1, 60 * 22, f"renamed {shm_new}", name="Galantis - Runaway (U & I) (Extended Mix)")
-decide(sigala_kept, "accept", 1, 60 * 25, f"new {new_sigala}")
-decide(posner_ev, "wrong", 1, 60 * 2, "retired")
+decide(love_ev, "close", 1, 60 * 22, f"renamed {love_new}", name="Haddaway - What Is Love (Extended Mix)")
+decide(venga_kept, "accept", 1, 60 * 25, f"new {new_sigala}")
+decide(mambo_ev, "wrong", 1, 60 * 2, "retired")
 decide(gravity_kept, "discard", 1, 60 * 3, "deleted")
 decide(gravity_old, "discard", 1, 60 * 5, "deleted")
-decide(habits_ev, "discard", 1, 50, "deleted")
+decide(axel_ev, "discard", 1, 50, "deleted")
 decide(purple_ev, "discard", 1, 35, "deleted")
 for e in events:  # older probable matches: confirmed
     if (
         e["action"] == "new"
         and e.get("matched") == "probable"
         and e is not fade_ev
-        and e not in (blame_ev, shm_ev, posner_ev)
+        and e not in (blame_ev, love_ev, mambo_ev)
     ):
         decide(e, "ok", 1, 90, "kept")
 for key, name in [
     (gravity, "Gravity"),
     (gravity, "Gravity (Original Mix)"),
-    (stole, "Stole the Show"),
+    (move, "Move Your Body"),
     (PURPLE, "Purple Noise (Original Mix)"),
 ]:
     write("blocked", {"song_key": key, "name": name})
@@ -1498,10 +1502,10 @@ for name, start, end, msg in JOBS:
     write("jobs", {"name": name, "started": ago(start), "finished": ago(end), "ok": 1, "message": msg})
 
 for name, state, since in [
-    ("Avicii - Levels - Radio Edit", "blocked", 9),
-    ("Kesha - TiK ToK", "taken_down", 6),
+    ("Scatman John - Scatman (Ski-Ba-Bop-Ba-Dop-Bop)", "blocked", 9),
+    ("Eduard Khil - Trololo", "taken_down", 6),
     ("Paul Kalkbrenner - Sky and Sand", "blocked", 8),
-    ("The Weeknd - Blinding Lights", "blocked", 11),
+    ("Baha Men - Who Let the Dogs Out", "blocked", 11),
 ]:
     write(
         "availability",
@@ -1529,7 +1533,7 @@ for k in (AMELIE_HYP, MISSING["Adam Beyer - Your Mind"]):
 con.execute(
     "INSERT INTO changes (ts, song_key, list_key, change, detail) VALUES (?, ?, 'spotify:playlist:demo2', "
     "'removed', 'taken down at its source')",
-    (ago(60 * 30), song_of("Rihanna", "Only Girl (In The World)")),
+    (ago(60 * 30), song_of("Vengaboys", "We like to Party! (The Vengabus)")),
 )
 con.commit()
 
@@ -1659,12 +1663,16 @@ for out, artist, title, seconds, codec in (
     raw.unlink()
 
 # ------------------------------------------------------------------ contract: what the scenes rely on
-UPLOAD = [("Lady Gaga", "Poker Face", 237), ("Stromae", "Papaoutai", 232), ("Spice Girls", "Wannabe", 173)]  # make.py
+UPLOAD = [
+    ("Rednex", "Cotton Eye Joe", 237),
+    ("Las Ketchup", "Asereje", 232),
+    ("Los Del Rio", "Macarena - Bayside Boys Remix", 173),
+]  # make.py
 q = lambda sql, *a: con.execute(sql, a).fetchone()  # noqa: E731
 rick = [r[0] for r in con.execute("SELECT key FROM sources WHERE user_id = 1")]
 problems = []
 if q("SELECT count(*) FROM list_songs WHERE list_key = 'spotify:playlist:demo1'")[0] < 300:
-    problems.append("the list scene's Trance Classics has fewer than 300 songs")
+    problems.append("the list scene's NCS Releases has fewer than 300 songs")
 for a, t, _ in UPLOAD:
     row = q(
         "SELECT s.file, (SELECT count(*) FROM list_songs ls WHERE ls.song_key = s.key AND ls.list_key IN "

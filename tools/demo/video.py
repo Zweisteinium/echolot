@@ -1,5 +1,5 @@
 """Building blocks for demo videos from recorded frames (capture.Recorder): a scene as a clip in real time, the
-clips composed in a window on a backdrop with slides between them and a fade in and out, and the encodings:
+clips composed full frame with slides between them and a fade in and out, and the encodings:
 H.264 MP4 and animated WebP. Everything in between is lossless (FFV1, RGB), so each encoding is the only lossy
 step; the WebP goes through libwebp's own animation encoder (Pillow), which keeps whole-frame quality, unlike
 ffmpeg's libwebp_anim (its lossy sub-frames pile up as dark blocks on gradients)."""
@@ -59,19 +59,10 @@ def scene(frames: Path, work: Path, size: tuple[int, int], fps: int, cut_start: 
 
 
 def compose(
-    clips: list[Clip],
-    out: Path,
-    fps: int,
-    backdrop: Path,
-    mask: Path,
-    window: tuple[int, int],
-    at: tuple[int, int],
-    slide: float = 0.7,
-    fade_in: float = 0.5,
-    fade_out: float = 0.8,
+    clips: list[Clip], out: Path, fps: int, slide: float = 0.7, fade_in: float = 0.5, fade_out: float = 0.8
 ) -> Clip:
-    """The clips one after another in a window (its size; mask: its shape; at: its place) on the backdrop, a slide from
-    each to the next, a fade from and to black at the ends; lossless."""
+    """The clips one after another, full frame, a slide from each to the next, a fade from and to black at the
+    ends; lossless."""
     inputs, graph, last, offset = [], [], "[0:v]", 0.0
     for c in clips:
         inputs += ["-i", str(c.path)]
@@ -80,16 +71,8 @@ def compose(
         graph.append(f"{last}[{n + 1}:v]xfade=transition=slideleft:duration={slide}:offset={offset:.3f}[s{n}]")
         last = f"[s{n}]"
     total = sum(c.length for c in clips) - slide * (len(clips) - 1)
-    n = len(clips)
-    inputs += ["-i", str(backdrop), "-i", str(mask)]
-    graph += [
-        f"{last}format=rgba[win]",
-        f"[{n + 1}:v]format=gray,scale={window[0]}:{window[1]}[m]",
-        "[win][m]alphamerge[shaped]",
-        f"[{n}:v]loop=-1:1,fps={fps},trim=duration={total:.3f},format=rgba[bg]",
-        f"[bg][shaped]overlay={at[0]}:{at[1]}:shortest=1,format=gbrp,"
-        f"fade=t=in:st=0:d={fade_in},fade=t=out:st={total - fade_out:.3f}:d={fade_out}[out]",
-    ]
+    fades = f"fade=t=in:st=0:d={fade_in},fade=t=out:st={total - fade_out:.3f}:d={fade_out}"
+    graph.append(f"{last}fps={fps},format=gbrp,{fades}[out]")
     ffmpeg(*inputs, "-filter_complex", ";".join(graph), "-map", "[out]", "-c:v", "ffv1", "-level", "3", str(out))
     return Clip(out, total)
 

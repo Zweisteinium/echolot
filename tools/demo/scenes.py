@@ -9,11 +9,12 @@ from pathlib import Path
 
 from capture import Recorder, smooth_scroll
 
-VIEW, SCALE = (1440, 900), 4 / 3  # the browser window, and the frames' scale (1920 x 1200)
+VIEW, SCALE = (1280, 720), 1.5  # the browser window, and the frames' scale (1920 x 1080, the video's size)
 FRAME = (int(VIEW[0] * SCALE), int(VIEW[1] * SCALE))
-HIDE = (
-    ".connections { display: none !important; } html { scrollbar-width: none; } ::-webkit-scrollbar { display: none; }"
-)
+HIDE = ".services { display: none !important; } html { scrollbar-width: none; } ::-webkit-scrollbar { display: none; }"
+
+
+LISTS = 'details[data-remember="lists-spotify"] > summary'  # Library's quality by list, its Spotify group
 
 
 @dataclass
@@ -26,11 +27,11 @@ class Scene:
 
 
 def library(page, cdp, ptr, base: str, work: Path) -> None:
-    """The library's growth read along, a stretch dragged to zoom in, then the quality over time."""
+    """The library's growth read along, a stretch dragged to zoom in, the quality over time, then each list's."""
     page.goto("about:blank")
     with Recorder(page, cdp, work / "frames" / "library", FRAME):
         page.goto(base + "/library")
-        ptr.place(1010, 830)
+        ptr.place(900, 640)
         page.wait_for_timeout(1300)  # the graph draws in
         plot = page.locator("[data-panel=songs] .canvas").bounding_box()
         y = plot["y"] + plot["height"] * 0.8  # below the curve: the tooltip above it stays clear
@@ -49,7 +50,14 @@ def library(page, cdp, ptr, base: str, work: Path) -> None:
         y = plot["y"] + plot["height"] * 0.85
         ptr.glide(plot["x"] + plot["width"] * 0.3, y, 800)
         ptr.glide(plot["x"] + plot["width"] * 0.85, y, 1500, bend=0, linear=True)  # each quality's share and count
-        page.wait_for_timeout(900)
+        page.wait_for_timeout(700)
+        top = page.locator("[data-lists]").bounding_box()["y"] - 24
+        ptr.glide(760, 560, 600)
+        smooth_scroll(page, top, 1.3)
+        page.wait_for_timeout(300)
+        ptr.to(LISTS, 900, fx=0.15)
+        ptr.click()
+        page.wait_for_timeout(1700)  # each list's quality
 
 
 def songs_list(page, cdp, ptr, base: str, work: Path) -> None:
@@ -57,9 +65,9 @@ def songs_list(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/lists/spotify:playlist:demo1")
     page.wait_for_timeout(600)
     with Recorder(page, cdp, work / "frames" / "list", FRAME):
-        ptr.place(1180, 560)
+        ptr.place(1050, 480)
         page.wait_for_timeout(900)
-        smooth_scroll(page, 820, 4.2)
+        smooth_scroll(page, 700, 4.0)
         page.wait_for_timeout(1200)
 
 
@@ -68,7 +76,7 @@ def upload(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/missing")
     page.wait_for_timeout(600)
     with Recorder(page, cdp, work / "frames" / "upload", FRAME):
-        ptr.place(1130, 430)
+        ptr.place(1000, 400)
         page.wait_for_timeout(600)
         ptr.to("button:has-text('Upload files')", 1000)
         page.wait_for_timeout(200)
@@ -104,7 +112,7 @@ def review(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/review")
     page.wait_for_timeout(600)
     with Recorder(page, cdp, work / "frames" / "review", FRAME):
-        ptr.place(1180, 640)
+        ptr.place(1050, 560)
         page.wait_for_timeout(900)
         ptr.to("button:has-text('Perfect match')", 1200)
         page.wait_for_timeout(700)
@@ -119,17 +127,19 @@ def jobs(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/jobs")
     page.wait_for_timeout(800)
     with Recorder(page, cdp, work / "frames" / "jobs", FRAME):
-        ptr.place(1100, 700)
+        ptr.place(980, 600)
         page.wait_for_timeout(700)
-        ptr.to(".job.ok .step.live", 1100, fx=0.3, fy=0.35)
+        ptr.to(".job.run .step.live", 1100, fx=0.3, fy=0.35)
         page.wait_for_timeout(3200)  # the counts go on (the page reloads its jobs every few seconds)
-        ptr.to(".job.ok .info-toggle", 900)
+        ptr.to(".job.run .info-toggle", 900)
         ptr.click()
         page.wait_for_timeout(2600)  # what the job does
 
 
 SCENES = [
-    Scene("library", "/library", ["[data-panel=songs] .canvas", "label:has(input[value=quality])"], library, 0.35),
+    Scene(
+        "library", "/library", ["[data-panel=songs] .canvas", "label:has(input[value=quality])", LISTS], library, 0.35
+    ),
     Scene("list", "/lists/spotify:playlist:demo1", ["table.list-songs"], songs_list),
     Scene("upload", "/missing", ["button:has-text('Upload files')", "#upload"], upload),
     Scene("review", "/review", ["button:has-text('Perfect match')"], review),
