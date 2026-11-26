@@ -1,7 +1,7 @@
 # The README video
 
-`docs/echolot.webp`: Echolot in about 40 seconds, full frame at 1920 x 1080 (a 1280 x 720 browser at 1.5x, so text
-stays sharp and readable when GitHub shows it smaller), dark mode, real time, a soft pointer doing what a person would. It is made again for every minor release (x.y.0), so it shows the Echolot that is
+`docs/echolot.webp`: Echolot in about 40 seconds, full frame at 1920 x 1080 (a 1920 x 1080 browser at 1x, so it
+looks like Echolot on a 1080p screen, frames lossless until the encoding), dark mode, real time, a soft pointer doing what a person would. It is made again for every minor release (x.y.0), so it shows the Echolot that is
 released. This file says what it must show; the code (`scenes.py`) is one way of showing it and may change.
 
 ```sh

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from capture import Recorder, smooth_scroll
 
-VIEW, SCALE = (1280, 720), 1.5  # the browser window, and the frames' scale (1920 x 1080, the video's size)
+VIEW, SCALE = (1920, 1080), 1  # a 1080p screen at its own size: the video shows the page as the browser does
 FRAME = (int(VIEW[0] * SCALE), int(VIEW[1] * SCALE))
 HIDE = ".services { display: none !important; } html { scrollbar-width: none; } ::-webkit-scrollbar { display: none; }"
 
@@ -31,7 +31,7 @@ def library(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto("about:blank")
     with Recorder(page, cdp, work / "frames" / "library", FRAME):
         page.goto(base + "/library")
-        ptr.place(900, 640)
+        ptr.place(1350, 960)
         page.wait_for_timeout(1300)  # the graph draws in
         plot = page.locator("[data-panel=songs] .canvas").bounding_box()
         y = plot["y"] + plot["height"] * 0.8  # below the curve: the tooltip above it stays clear
@@ -52,11 +52,15 @@ def library(page, cdp, ptr, base: str, work: Path) -> None:
         ptr.glide(plot["x"] + plot["width"] * 0.85, y, 1500, bend=0, linear=True)  # each quality's share and count
         page.wait_for_timeout(700)
         top = page.locator("[data-lists]").bounding_box()["y"] - 24
-        ptr.glide(760, 560, 600)
+        ptr.glide(1140, 840, 600)
         smooth_scroll(page, top, 1.3)
         page.wait_for_timeout(300)
         ptr.to(LISTS, 900, fx=0.15)
         ptr.click()
+        page.wait_for_timeout(500)
+        box = page.locator("[data-lists]").bounding_box()
+        if (below := box["y"] + box["height"] + 24 - VIEW[1]) > 0:
+            smooth_scroll(page, below, 1.0)  # the whole group in view
         page.wait_for_timeout(1700)  # each list's quality
 
 
@@ -65,9 +69,9 @@ def songs_list(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/lists/spotify:playlist:demo1")
     page.wait_for_timeout(600)
     with Recorder(page, cdp, work / "frames" / "list", FRAME):
-        ptr.place(1050, 480)
+        ptr.place(1575, 720)
         page.wait_for_timeout(900)
-        smooth_scroll(page, 700, 4.0)
+        smooth_scroll(page, 1050, 4.0)
         page.wait_for_timeout(1200)
 
 
@@ -76,7 +80,7 @@ def upload(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/missing")
     page.wait_for_timeout(600)
     with Recorder(page, cdp, work / "frames" / "upload", FRAME):
-        ptr.place(1000, 400)
+        ptr.place(1500, 600)
         page.wait_for_timeout(600)
         ptr.to("button:has-text('Upload files')", 1000)
         page.wait_for_timeout(200)
@@ -85,7 +89,7 @@ def upload(page, cdp, ptr, base: str, work: Path) -> None:
         page.wait_for_timeout(800)  # the dialog
         drop = page.locator("#upload .drop").first
         d = drop.bounding_box()
-        ptr.glide(d["x"] + d["width"] + 150, d["y"] + d["height"] + 120, 750)  # (where the files come from)
+        ptr.glide(d["x"] + d["width"] + 225, d["y"] + d["height"] + 180, 750)  # (where the files come from)
         ptr.carry("3 files")
         page.wait_for_timeout(300)
         ptr.glide(d["x"] + d["width"] * 0.55, d["y"] + d["height"] * 0.55, 1100)
@@ -112,7 +116,7 @@ def review(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/review")
     page.wait_for_timeout(600)
     with Recorder(page, cdp, work / "frames" / "review", FRAME):
-        ptr.place(1050, 560)
+        ptr.place(1000, 420)  # beside "Worth a look": nothing lights up
         page.wait_for_timeout(900)
         ptr.to("button:has-text('Perfect match')", 1200)
         page.wait_for_timeout(700)
@@ -127,7 +131,7 @@ def jobs(page, cdp, ptr, base: str, work: Path) -> None:
     page.goto(base + "/jobs")
     page.wait_for_timeout(800)
     with Recorder(page, cdp, work / "frames" / "jobs", FRAME):
-        ptr.place(980, 600)
+        ptr.place(1470, 900)
         page.wait_for_timeout(700)
         ptr.to(".job.run .step.live", 1100, fx=0.3, fy=0.35)
         page.wait_for_timeout(3200)  # the counts go on (the page reloads its jobs every few seconds)

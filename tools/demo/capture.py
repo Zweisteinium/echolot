@@ -27,13 +27,13 @@ addEventListener('DOMContentLoaded', () => {
   p.style.cssText = 'position:fixed;inset:auto;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;' +
     'overflow:visible;background:none;pointer-events:none;opacity:0;transition:opacity .35s;will-change:transform';
   const dot = document.createElement('div');  // the glow; a click pulses this, not the positioned element
-  dot.style.cssText = 'position:absolute;left:-11px;top:-11px;width:22px;height:22px;border-radius:50%;' +
+  dot.style.cssText = 'position:absolute;left:-15px;top:-15px;width:30px;height:30px;border-radius:50%;' +
     'background:radial-gradient(circle, rgba(220,236,255,.98) 0 26%, rgba(106,169,242,.6) 44%, rgba(106,169,242,0) 72%);' +
-    'box-shadow:0 0 18px 5px rgba(106,169,242,.38)';
+    'box-shadow:0 0 24px 7px rgba(106,169,242,.38)';
   const chip = document.createElement('span');  // what the pointer carries (files being dragged)
-  chip.style.cssText = 'position:absolute;left:14px;top:8px;white-space:nowrap;font:600 12.5px system-ui,sans-serif;' +
+  chip.style.cssText = 'position:absolute;left:19px;top:11px;white-space:nowrap;font:600 16px system-ui,sans-serif;' +
     'color:#dcecff;background:rgba(31,107,207,.92);border:1px solid rgba(160,200,255,.5);border-radius:8px;' +
-    'padding:5px 9px;box-shadow:0 8px 24px rgba(0,0,0,.45);opacity:0;transition:opacity .25s';
+    'padding:6px 12px;box-shadow:0 8px 24px rgba(0,0,0,.45);opacity:0;transition:opacity .25s';
   p.append(dot, chip);
   document.body.appendChild(p);
   p.showPopover();
@@ -73,17 +73,17 @@ addEventListener('DOMContentLoaded', () => {
 
 
 class Recorder:
-    """`with Recorder(...)`: the frames shown meanwhile, as <folder>/NNNNN.jpg and times.json
+    """`with Recorder(...)`: the frames shown meanwhile, as <folder>/NNNNN.png (lossless: JPEG halves the colour detail) and times.json
     ({"frames": [timestamp, ...], "end": stop time}, seconds)."""
 
     def __init__(self, page: "Page", cdp, folder: Path, size: tuple[int, int]) -> None:
         self.page, self.cdp, self.folder, self.size, self.frames = page, cdp, folder, size, []
         folder.mkdir(parents=True, exist_ok=True)
-        for f in folder.glob("*.jpg"):
+        for f in folder.glob("[0-9]*.*"):
             f.unlink()
 
     def frame(self, ev: dict) -> None:
-        (self.folder / f"{len(self.frames):05d}.jpg").write_bytes(base64.b64decode(ev["data"]))
+        (self.folder / f"{len(self.frames):05d}.png").write_bytes(base64.b64decode(ev["data"]))
         self.frames.append(ev["metadata"]["timestamp"])
         self.cdp.send("Page.screencastFrameAck", {"sessionId": ev["sessionId"]})
 
@@ -91,7 +91,7 @@ class Recorder:
         self.cdp.on("Page.screencastFrame", self.frame)
         self.cdp.send(
             "Page.startScreencast",
-            {"format": "jpeg", "quality": 95, "maxWidth": self.size[0], "maxHeight": self.size[1], "everyNthFrame": 1},
+            {"format": "png", "maxWidth": self.size[0], "maxHeight": self.size[1], "everyNthFrame": 1},
         )
         return self
 

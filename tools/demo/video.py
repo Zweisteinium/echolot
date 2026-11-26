@@ -34,9 +34,9 @@ def scene(frames: Path, work: Path, size: tuple[int, int], fps: int, cut_start: 
     for i in range(len(t) - 1):
         a, b = max(t[i], t0), t[i + 1]
         if b > t0:
-            rows += [f"file '{frames / f'{i:05d}.jpg'}'", f"duration {b - a:.4f}"]
+            rows += [f"file '{frames / f'{i:05d}.png'}'", f"duration {b - a:.4f}"]
             span += b - a
-    rows += [f"file '{frames / f'{len(t) - 2:05d}.jpg'}'"]
+    rows += [f"file '{frames / f'{len(t) - 2:05d}.png'}'"]
     work.mkdir(parents=True, exist_ok=True)
     lst, out = work / f"{frames.name}.ffconcat", work / f"{frames.name}.mkv"
     lst.write_text("\n".join(rows) + "\n")
