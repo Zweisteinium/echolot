@@ -44,9 +44,10 @@ You need:
 Navidrome comes with it, or use your own. Everyone logs in to Echolot with their Navidrome account.
 
 ```sh
-git clone https://github.com/Zweisteinium/echolot
-cd echolot/deploy
-cp .env.example .env    # then set MUSIC to your music folder
+mkdir echolot && cd echolot
+curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/compose.yaml
+curl -fsSL https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/.env.example -o .env
+nano .env    # set MUSIC to your music folder
 mkdir -p data/echolot data/sockseek data/navidrome
 docker compose up -d
 ```
@@ -132,7 +133,8 @@ folders can go into the same Navidrome.
 <details>
 <summary><b>Soulseek through a VPN</b></summary>
 
-Soulseek peers see your IP address. Fill in the VPN lines in `.env` and start with
+Soulseek peers see your IP address. Get `vpn.yaml` next to `compose.yaml`
+(`curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/vpn.yaml`), fill in the VPN lines in `.env` and start with
 `docker compose -f compose.yaml -f vpn.yaml up -d`. [gluetun](https://github.com/qdm12/gluetun) then
 carries the Soulseek traffic. YouTube and SoundCloud stay on your own connection, as they don't like VPNs.
 With a provider that forwards a port, peers behind a firewall can send to you too.
@@ -258,8 +260,8 @@ the basics:
 - **History** lists everything filed and rejected. `docker compose logs echolot` has the details.
 - **Users** are Navidrome's accounts. Navidrome admins are admins here too, and the **Users** page gives
   others more rights. Locked out: `docker compose exec echolot echolot user admin <name>`.
-- **Backups:** `deploy/data/` and your music folder. Echolot backs up its database before every update that
-  changes it. Stop Echolot first for a clean copy of your own.
+- **Backups:** `data/` next to `compose.yaml`, and your music folder. Echolot backs up its database before
+  every update that changes it. Stop Echolot first for a clean copy of your own.
 - **A music folder half gone**, such as a disk or share not mounted, is not taken as deleted. The library
   job fails and keeps the last scan until the files are back. If you removed that many files on purpose:
   `docker compose exec echolot echolot library rescan --accept-missing`.
@@ -267,9 +269,8 @@ the basics:
 - **Updates:** read the release notes, then:
 
 ```sh
-git pull
+curl -fsSLO https://raw.githubusercontent.com/Zweisteinium/echolot/main/deploy/compose.yaml    # or change the versions in yours
 docker compose pull
-docker compose build sockseek
 docker compose up -d
 ```
 
@@ -331,7 +332,9 @@ The audio tests need ffmpeg, like the image. `echolot serve` listens on http://1
 
 CI tests every push and builds the image for amd64 and arm64. A new version in `pyproject.toml` and
 `deploy/compose.yaml` (a test checks both) is released when it lands on `main`. CI then tags it, publishes
-the release and pushes `lordlayer/echolot` to Docker Hub for both platforms.
+the release and pushes `lordlayer/echolot` to Docker Hub for both platforms. The Sockseek daemon's image
+(`deploy/sockseek`, `lordlayer/echolot-sockseek`) is built from a tested Sockseek commit and pushed from `main`
+when that changes.
 
 ## Credits
 

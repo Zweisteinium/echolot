@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from echolot.config import Settings
 from echolot.services import soulseek
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sockseek" / "v3"
@@ -110,6 +111,29 @@ def test_login_file(tmp_path: Path) -> None:
     f = tmp_path / "d" / "daemon.conf"
     assert "user = me\npass = pw with spaces\n" in f.read_text()
     assert oct(f.stat().st_mode & 0o777) == "0o600"
+
+
+def test_a_new_installation_gets_an_account_of_its_own(bare_settings: Settings) -> None:
+    """At the first start the daemon gets a random name and password, once, and never over one set by hand."""
+    from echolot import db
+    from echolot.settings import options, vault
+
+    secrets, folder = vault.Vault.from_env(bare_settings.data_dir, {}), bare_settings.daemon_dir
+    con = db.connect(bare_settings.db_path)
+    try:
+        name = soulseek.first_account(con, secrets, folder)
+        assert name and options.get(con, options.Soulseek).user == name
+        password = secrets.get(con, "soulseek.password")
+        assert f"user = {name}\npass = {password}\n" in (folder / "daemon.conf").read_text()
+        assert soulseek.first_account(con, secrets, folder) == ""  # once
+        options.update(con, options.Soulseek, user="")
+        assert soulseek.first_account(con, secrets, folder) == ""  # a login file is there: set by hand
+        (folder / "daemon.conf").unlink()
+        options.update(con, options.Soulseek, backend="slskd")
+        assert soulseek.first_account(con, secrets, folder) == ""  # slskd brings its own
+        assert soulseek.first_account(con, secrets, None) == ""
+    finally:
+        con.close()
 
 
 def test_real_result_shape() -> None:

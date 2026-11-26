@@ -79,6 +79,7 @@
   {% endblock %}
   {% block main %}
   <main>
+    {% if service_offer %}{% include "_service_offer.html" %}{% endif %}
     {% block content %}{% endblock %}
   </main>
   {% endblock %}

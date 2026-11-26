@@ -2,7 +2,7 @@
 #
 #   cp .env.example .env                  # set MUSIC to your music folder
 #   mkdir -p data/echolot data/sockseek data/navidrome
-#   docker compose up -d                  # the first start builds Sockseek (a few minutes)
+#   docker compose up -d
 #
 # Echolot makes tracks/, playlists/ and inbox/ in MUSIC itself (as PUID); the others start after it. Then
 # create Navidrome's admin at http://<this host>:4533 and log in to Echolot at :8490 with it. Soulseek
@@ -33,16 +33,12 @@ services:
     restart: unless-stopped
 
   sockseek:                               # searches and downloads on Soulseek for Echolot (port 5031, not published)
-    build: https://github.com/fiso64/sockseek.git#febfba1fe6125a768c99dd883e477863cee07fbf  # v3.0.5+, tested
-    image: sockseek:local
+    image: lordlayer/echolot-sockseek:febfba1  # Sockseek 3.0.6, tested. Or build it: build: ./sockseek
     user: *user
     init: true
-    entrypoint: ["/bin/sh", "/run.sh"]
     environment:
-      HOME: /tmp
       TZ: ${TZ:-UTC}
     volumes:
-      - ./sockseek/run.sh:/run.sh:ro
       - ./data/sockseek:/daemon
       - ${MUSIC}/inbox/soulseek:/music/inbox/soulseek   # the only place it writes
     depends_on:

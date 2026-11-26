@@ -147,6 +147,30 @@ def settings_access(
     return back("/settings", ok="Access settings saved. The service account works.")
 
 
+@router.post("/settings/service/mine", include_in_schema=False)
+def settings_service_mine(
+    request: Request, con: DB, answer: Annotated[str, Form()] = "", next: Annotated[str, Form()] = "/"
+) -> RedirectResponse:
+    """The answer to the offer after a Navidrome admin's login: their own account as the service account. Echolot
+    kept the password in memory since that login, so nobody types it twice."""
+    offer = request.app.state.service_offers.pop(request.state.user.id, None)
+    target = next if next.startswith("/") and not next.startswith("//") else "/"
+    if answer != "yes":
+        return back(target)
+    if offer is None:
+        return back("/settings", error="Echolot has restarted since your login. Enter the account here.")
+    vault = request.app.state.vault
+    if vault.get(con, navidrome.SERVICE_PASSWORD):
+        return back(target, ok="Another admin has set the service account already.")
+    name, password = offer
+    with con:
+        options.update(con, options.Navidrome, service_user=name)
+        vault.set(con, navidrome.SERVICE_PASSWORD, password)
+    if problem := _service_state(request, con):
+        return back("/settings", error=f"Saved. The service account does not work yet: {problem}")
+    return back(target, ok=f"Done. Echolot works in Navidrome as {name}.")
+
+
 @router.post("/settings/discogs", include_in_schema=False)
 def settings_discogs(
     request: Request, con: DB, enabled: Annotated[bool, Form()] = False, token: Annotated[str, Form()] = ""

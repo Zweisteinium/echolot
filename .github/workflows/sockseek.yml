@@ -1,0 +1,54 @@
+name: Sockseek image
+
+# The Sockseek daemon of deploy/compose.yaml (deploy/sockseek): built and tested on every change, pushed to
+# Docker Hub from main or by hand (Run workflow), tagged with the Sockseek commit it is built from.
+on:
+  push:
+    branches: [main, dev, "feat/**", "fix/**"]
+    paths: [deploy/sockseek/**, .github/workflows/sockseek.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: lordlayer/echolot-sockseek # (secret DOCKERHUB_TOKEN)
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: tag
+        run: echo "tag=$(sed -n 's/^ARG SOCKSEEK_COMMIT=\(.\{7\}\).*/\1/p' deploy/sockseek/Dockerfile | head -1)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4 # arm64's runtime stage (the .NET build cross-compiles)
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: deploy/sockseek
+          platforms: linux/amd64
+          load: true
+          tags: sockseek:ci
+          cache-from: type=gha,scope=sockseek
+          cache-to: type=gha,scope=sockseek,mode=max
+      - name: The daemon answers
+        run: |
+          docker run --rm --entrypoint sh sockseek:ci -c 'test -x /usr/bin/sockseek && test -r /run.sh'
+          docker run -d --name sockseek --entrypoint sockseek -p 5031:5031 sockseek:ci \
+            daemon --server-ip 0.0.0.0 --server-port 5031 -o /tmp/out
+          for _ in $(seq 30); do curl -fsS http://127.0.0.1:5031/api/server/status && exit 0; sleep 1; done
+          docker logs sockseek
+          exit 1
+      - if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        uses: docker/login-action@v4
+        with:
+          username: lordlayer
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v7
+        with:
+          context: deploy/sockseek
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha,scope=sockseek

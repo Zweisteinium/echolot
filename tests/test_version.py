@@ -17,3 +17,10 @@ def test_the_package_reports_it() -> None:
 def test_the_quick_start_runs_it() -> None:
     image = re.search(r"image: lordlayer/echolot:(\S+)", (ROOT / "deploy" / "compose.yaml").read_text())
     assert image and image[1] == VERSION
+
+
+def test_the_quick_start_runs_the_sockseek_it_builds() -> None:
+    compose = (ROOT / "deploy" / "compose.yaml").read_text()
+    image = re.search(r"image: lordlayer/echolot-sockseek:(\S+)", compose)
+    commit = re.search(r"ARG SOCKSEEK_COMMIT=(\w+)", (ROOT / "deploy" / "sockseek" / "Dockerfile").read_text())
+    assert image and commit and commit[1].startswith(image[1])  # a new commit: CI pushes its image from main

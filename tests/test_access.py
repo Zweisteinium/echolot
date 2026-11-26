@@ -399,3 +399,33 @@ def test_only_a_navidrome_admin_or_the_service_password_moves_navidrome(
     assert (
         other.post("/settings/access", data={"session_days": 9, "navidrome_url": "http://evil:4533"}).status_code < 400
     )
+
+
+def test_the_first_navidrome_admin_is_offered_as_the_service_account(
+    app, fake_navidrome: dict[str, bool], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a service account a Navidrome admin's login is offered for it: one click, no password again."""
+    from echolot.services import navidrome
+
+    monkeypatch.setattr(navidrome.Service, "users", lambda self: [])
+    fake_navidrome["Boss"] = True
+    client = TestClient(app)
+    assert log_in(client, "anna") == 303
+    assert "Use your Navidrome account" not in client.get("/", headers=HTML).text  # not a Navidrome admin
+    client = TestClient(app)
+    assert log_in(client, "Boss") == 303
+    html = client.get("/", headers=HTML).text
+    assert "Use your Navidrome account" in html and "Use Boss" in html
+    con = db.connect(app.state.settings.db_path)
+    try:
+        client.headers["X-CSRF-Token"] = con.execute("SELECT csrf FROM sessions ORDER BY rowid DESC").fetchone()[0]
+        r = client.post("/settings/service/mine", data={"answer": "yes", "next": "/missing"}, follow_redirects=False)
+        assert r.headers["location"].startswith("/missing?ok=Done.")
+        assert options.get(con, options.Navidrome).service_user == "Boss"
+        assert app.state.vault.get(con, navidrome.SERVICE_PASSWORD) == PASSWORD
+    finally:
+        con.close()
+    assert "Use your Navidrome account" not in client.get("/", headers=HTML).text
+    client = TestClient(app)
+    assert log_in(client, "Boss") == 303
+    assert "Use your Navidrome account" not in client.get("/", headers=HTML).text  # there is one now

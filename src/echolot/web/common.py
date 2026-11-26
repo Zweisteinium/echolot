@@ -39,6 +39,8 @@ def page(request: Request, template: str, status_code: int = 200, **context: Any
     context.setdefault("user", getattr(request.state, "user", None))
     if not template.startswith("_"):  # a whole page (fragments start with _): the navigation's counts
         context.setdefault("nav_counts", nav_counts(request, context["user"]))
+        offer = request.app.state.service_offers.get(getattr(context["user"], "id", None))
+        context.setdefault("service_offer", offer[0] if offer else "")
     context["csrf_token"] = csrf
     context["csrf_input"] = Markup(f'<input type="hidden" name="csrf_token" value="{escape(csrf)}">')
     templates = request.app.state.templates

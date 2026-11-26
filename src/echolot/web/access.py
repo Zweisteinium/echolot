@@ -254,6 +254,8 @@ def login(
         return _login_page(request, con, 409, next=next, name=name, error=error)
     if user.admin and (adopted := sources.adopt(con)):
         log.info("adopted at %s's login: %s", user.name, adopted)
+    if user.admin and navidrome_admin and not request.app.state.vault.get(con, navidrome.SERVICE_PASSWORD):
+        request.app.state.service_offers[user.id] = (account, password)  # in memory until answered (admin.py)
     throttle.passed(client)
     response = RedirectResponse(_safe_next(next), status_code=303)
     set_session_cookie(request, response, con, user)
@@ -263,6 +265,8 @@ def login(
 @router.post("/logout")
 def logout(request: Request, con: DB) -> RedirectResponse:
     auth.end_session(con, request.cookies.get(auth.COOKIE, ""))
+    if user := getattr(request.state, "user", None):
+        request.app.state.service_offers.pop(user.id, None)
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(auth.COOKIE, path="/")
     return response

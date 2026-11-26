@@ -6,13 +6,19 @@ Echolot sends its search settings (SEARCH) with every job.
 import contextlib
 import json
 import os
+import secrets
+import sqlite3
+import string
 import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from echolot.settings.vault import Vault
 
 # Sockseek's filters (necessary) and preferences. The artist is no filter: Sockseek's wants the whole name as
 # in the path ("Riko & Para" is not "Para_x_Riko"); rules.prejudge checks it (aliases, any order)
@@ -231,3 +237,21 @@ def write_conf(folder: Path, user: str, password: str) -> None:
     with os.fdopen(fd, "w") as f:
         f.write(text)
     tmp.replace(folder / CONF)
+
+
+def first_account(con: sqlite3.Connection, vault: "Vault", folder: Path | None) -> str:
+    """A Soulseek account for the daemon while it has none: a random name and password (Soulseek registers a new
+    name at its first login). Returns the name, or '' when there is an account already, slskd is used, or Echolot
+    has no daemon folder to write the login to."""
+    from echolot.settings import options
+
+    current = options.get(con, options.Soulseek)
+    if folder is None or current.backend != "sockseek" or current.user or (folder / CONF).exists():
+        return ""
+    name = "".join(secrets.choice(string.ascii_lowercase) for _ in range(8)) + str(secrets.randbelow(90) + 10)
+    password = secrets.token_urlsafe(16)
+    write_conf(folder, name, password)  # (first: a folder Echolot can't write leaves the settings as they were)
+    with con:
+        options.update(con, options.Soulseek, user=name)
+        vault.set(con, "soulseek.password", password)
+    return name

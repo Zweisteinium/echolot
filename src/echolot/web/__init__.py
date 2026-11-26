@@ -17,6 +17,7 @@ from echolot import COMMIT, __version__, db
 from echolot.config import Settings
 from echolot.jobs.worker import Worker
 from echolot.library import filing
+from echolot.services import soulseek
 from echolot.settings import auth, vault
 from echolot.settings.sources import adopt
 from echolot.web import (
@@ -68,6 +69,7 @@ ROUTERS = (
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
+    secrets = vault.Vault.from_env(settings.data_dir)  # a wrong key stops Echolot here
     con = db.connect(settings.db_path)
     if settings.library_dir is not None:
         try:
@@ -77,9 +79,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     try:  # lists from before users had lists go to the oldest admin
         if adopted := adopt(con):
             log.info("adopted: %s", adopted)
+        if account := soulseek.first_account(con, secrets, settings.daemon_dir):
+            log.info("Soulseek: a new account for the daemon, %s", account)
+    except OSError as e:  # (the daemon folder not writable: the account is set by hand then)
+        log.warning("no Soulseek account made: %s", e)
     finally:
         con.close()
-    secrets = vault.Vault.from_env(settings.data_dir)  # a wrong key stops Echolot here
     worker = Worker(settings, secrets)
 
     @asynccontextmanager
@@ -94,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Echolot", version=__version__, lifespan=lifespan, dependencies=csrf, **docs)
     app.state.settings, app.state.worker = settings, worker
     app.state.vault, app.state.throttle = secrets, auth.Throttle()
+    app.state.service_offers = {}  # user id -> (Navidrome name, password): offered as the service account
     app.middleware("http")(access.authenticate)
     app.middleware("http")(access.secure_headers)
     # added last so it wraps everything; Starlette skips audio, images, streams and ranges

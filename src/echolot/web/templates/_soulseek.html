@@ -13,7 +13,7 @@
   {% if via_slskd %}
   <p class="muted">Songs come from Soulseek, a file sharing network, through slskd{% if s.soulseek.version %} {{ s.soulseek.version }}{% endif %}. It shares your music, so peers that refuse non-sharers deliver too. Its Soulseek account is set in slskd.</p>
   {% else %}
-  {% call how('sockseek', 'Songs come from Soulseek, a file sharing network, through the Sockseek daemon.') %}{% if s.soulseek.version %}Sockseek {{ s.soulseek.version }}. {% endif %}It needs a Soulseek account of its own. A new name is registered at the first login. No other client may use it, as an account is online only once. Sockseek shares nothing, so some peers refuse it. slskd, below, shares. Peers behind a firewall can only send when the daemon's port is reachable. The VPN setup (<code>vpn.yaml</code>) forwards one.{% endcall %}
+  {% call how('sockseek', 'Songs come from Soulseek, a file sharing network, through the Sockseek daemon.') %}{% if s.soulseek.version %}Sockseek {{ s.soulseek.version }}. {% endif %}It needs a Soulseek account of its own. Echolot makes one at its first start, or you enter yours. A new name is registered at the first login. No other client may use it, as an account is online only once. Sockseek shares nothing, so some peers refuse it. slskd, below, shares. Peers behind a firewall can only send when the daemon's port is reachable. The VPN setup (<code>vpn.yaml</code>) forwards one.{% endcall %}
   {% endif %}
   {% if not s.soulseek.reachable %}<p class="flash error">{{ s.soulseek.error }}</p>{% endif %}
   {% if via_slskd %}{% elif has_daemon_dir %}

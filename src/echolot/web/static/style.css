@@ -757,6 +757,13 @@ a.kpi:hover .label { color: var(--accent); }
 .control > .muted.small { white-space: nowrap; }
 .field-group { margin: 1.4rem 0 -0.35rem; font-size: var(--fs-sm); font-weight: 500; color: var(--muted); }
 .section-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem; }
+/* the offer of the service account (_service_offer.html) */
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.offer > div:first-of-type { flex: 1 1 22rem; }
+.offer h2 { margin: 0 0 0.25rem; font-size: var(--fs-lg); }
+.offer p { margin: 0; }
+.offer-actions { display: flex; gap: 0.5rem; }
 details.more-settings { margin-top: 1.1rem; }
 details.more-settings > summary { margin: 0; }
 /* a file chosen by a button (the import): the field hidden inside the label */
