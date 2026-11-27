@@ -289,6 +289,14 @@ def list_page(request: Request, con: DB, key: str, start: From = 0, q: str = "",
     return page(request, "list.html", nav="playlists", **rows, **extra)
 
 
+@router.get("/lyrics", response_class=HTMLResponse)
+def lyrics(request: Request, con: DB, kind: str = "", q: str = "") -> HTMLResponse:
+    """The songs whose file has lyrics (the Library's figure)."""
+    kind = kind if kind in stats.LYRICS_FOUND else ""
+    rows, counts = stats.with_lyrics(con, stats.scope(request.state.user), kind, q.strip())
+    return page(request, "lyrics.html", nav="library", rows=rows, counts=counts, kind=kind, q=q)
+
+
 @router.get("/activity", response_class=HTMLResponse)
 def activity(request: Request, con: DB, kind: str = "", q: str = "") -> HTMLResponse:
     entries = stats.activity(con, kind, uid=stats.scope(request.state.user), query=q.strip())

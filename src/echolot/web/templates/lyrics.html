@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_macros.html" import song_heads, song_cells %}
+{% block title %}Lyrics · Echolot{% endblock %}
+{% block content %}
+{% set KINDS = (('synced', 'Synced', 'accent'), ('plain', 'Plain', ''), ('own', 'Own', '')) %}
+<a class="crumb" href="/library">← Library</a>
+<div class="page-head">
+  <div class="page-title"><h1>Lyrics <span class="count">{{ counts.values()|sum|num }}</span></h1>
+    <p class="lead">Songs whose file has lyrics. Synced and plain ones come from LRCLIB, own ones came with the file.</p></div>
+  <div class="actions"><nav class="tabs" aria-label="Show">
+    <a href="/lyrics"{% if not kind %} aria-current="page"{% endif %}>All</a>
+    {% for k, label, _ in KINDS %}<a href="/lyrics?kind={{ k }}"{% if kind == k %} aria-current="page"{% endif %}>{{ label }} <span class="n">{{ counts.get(k, 0)|num }}</span></a>{% endfor %}
+  </nav></div>
+</div>
+<section class="card">
+  <form class="list-filter" role="search" action="/lyrics" hx-get="/lyrics" hx-target="#lyrics-rows" hx-select="#lyrics-rows" hx-swap="outerHTML"
+        hx-trigger="input changed delay:300ms from:input[type=search], submit" hx-replace-url="true" hx-sync="this:replace">
+    {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}" placeholder="Find a song: artist or title" aria-label="Find a song: artist or title" autocomplete="off">
+  </form>
+  <table class="rows">
+    <thead><tr>{{ song_heads() }}<th>Lyrics</th></tr></thead>
+    <tbody id="lyrics-rows">
+    {% for r in rows %}
+    {% set k = KINDS|selectattr(0, 'equalto', r.state)|first %}
+    <tr>{{ song_cells(r) }}<td><span class="pill{{ ' ' ~ k[2] ~ '-pill' if k[2] }}">{{ k[1] }}</span></td></tr>
+    {% else %}
+    <tr><td colspan="4" class="muted">{% if q %}No song matches “{{ q }}”.{% else %}No lyrics here yet. The Lyrics job adds them to the files.{% endif %}</td></tr>
+    {% endfor %}
+    {% if rows|length >= 500 %}<tr><td colspan="4" class="muted small">Showing the first 500. Find a song to see the others.</td></tr>{% endif %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

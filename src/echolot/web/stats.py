@@ -725,6 +725,32 @@ def unavailable_now(con: Connection, uid: int | None = None) -> tuple[list[Row],
     return rows, con.execute(sql, args).fetchone()[0]
 
 
+LYRICS_FOUND = ("synced", "plain", "own")
+
+
+def with_lyrics(
+    con: Connection, uid: int | None = None, kind: str = "", query: str = "", limit: int = 500
+) -> tuple[list[Row], dict[str, int]]:
+    """The files with lyrics, as the Library's figure counts them, by artist (a song each): those of `kind`
+    whose song's artist and title hold every word of `query`; and how many files have each kind."""
+    mine, args = _mine(uid)
+    files_of = "1" if uid is None else f"l.path IN (SELECT s.file FROM songs s WHERE {mine})"
+    where = f"l.state IN {LYRICS_FOUND} AND l.path IN (SELECT path FROM files) AND {files_of}"
+    found = "FROM lyrics l JOIN songs s ON s.key = l.song_key"
+    counts = dict(con.execute(f"SELECT l.state, count(*) {found} WHERE {where} GROUP BY 1", args).fetchall())
+    named, named_args = _words_like("s.artist || ' ' || s.title", query)
+    where, args = where + named, (*args, *named_args)
+    if kind in LYRICS_FOUND:
+        where, args = f"{where} AND l.state = ?", (*args, kind)
+    order = "s.artist COLLATE NOCASE, s.title COLLATE NOCASE"
+    rows = con.execute(
+        f"SELECT l.state, s.key, s.artist, s.title, s.length, {db.play_url()} AS url {found} "
+        f"WHERE {where} ORDER BY {order} LIMIT ?",
+        (*args, limit),
+    ).fetchall()
+    return rows, counts
+
+
 def changes(con: Connection, uid: int | None = None, kind: str = "", limit: int = 500, query: str = "") -> list[Row]:
     """The latest changes; a user's: of their songs or in their lists. `query`: those whose song's artist and
     title or list hold every word of it."""

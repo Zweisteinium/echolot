@@ -758,7 +758,7 @@ ol.steps form { margin-top: 0.5rem; }
 .pl-jump a:hover { color: var(--text); text-decoration: none; }
 .pl-jump a[aria-current] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
   background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
-.pl-tools .n, .kind-filter .n { font-weight: 400; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.pl-tools .n, .kind-filter .n, .tabs .n { font-weight: 400; opacity: 0.75; font-variant-numeric: tabular-nums; }
 
 /* a source: its head (name, the filter by whose lists, the account at the right end), then its lists; nothing folds */
 .pl-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.85rem; }

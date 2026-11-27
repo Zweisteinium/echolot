@@ -26,11 +26,11 @@
     <div class="value">{{ o.rejected_24h|num }}</div>
     <div class="sub">downloads that were not the song</div>
   </a>
-  {% if o.lyrics_looked %}<div class="kpi tip" tabindex="0" role="button" title="Files with lyrics: their own, or lyrics from LRCLIB checked to surely be the song's.">
+  {% if o.lyrics_looked %}<a class="kpi" href="/lyrics" title="Files with lyrics: their own, or lyrics from LRCLIB checked to surely be the song's.">
     <div class="label">With lyrics</div>
     <div class="value">{{ pct(o.lyrics, o.files) }} %</div>
     <div class="sub">{{ o.lyrics|num }} files · {{ o.synced|num }} synced</div>
-  </div>{% endif %}
+  </a>{% endif %}
   <div class="kpi tip" tabindex="0" role="button" title="{{ o.in_lists|num }} files hold the {{ o.have|num }} songs of your lists. A song listed twice is one file.{% if unlisted %} {{ unlisted|num }} files are on no list anymore.{% endif %}">
     <div class="label">{{ 'Your files' if o.scoped else 'Files' }}</div>
     <div class="value">{{ o.files|num }}</div>

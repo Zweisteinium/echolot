@@ -14,7 +14,7 @@ from echolot.library import filing, history
 from echolot.library.filing import Paths
 from echolot.services import spotify
 from echolot.settings import options
-from echolot.web import create_app, pages, stats
+from echolot.web import cache, create_app, pages, stats
 from echolot.web import sources as sources_web
 
 OWNER = 1  # conftest: the owner of the small collection
@@ -364,6 +364,26 @@ def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
     assert html.count('data-kind="own"') == 2 and 'data-kind="other"' in html and "· collaborative" in html
     assert html.count('class="pl-note"') == 1  # only on the one Spotify withholds
     sources_web._found.clear()
+
+
+def test_lyrics_page(client: TestClient, settings: Settings) -> None:
+    """The Library's lyrics figure leads to the songs whose file has lyrics, by kind, found by name."""
+    con = db.connect(settings.db_path)
+    mine = f"s.key IN ({stats.MINE}) AND s.file IN (SELECT path FROM files)"  # (the page shows the user's)
+    on_file = f"SELECT s.key, s.file, s.title FROM songs s WHERE {mine} ORDER BY s.key LIMIT 3"
+    (k1, f1, t1), (k2, f2, t2), (k3, f3, t3) = con.execute(on_file, (1,)).fetchall()
+    add = "INSERT INTO lyrics (path, song_key, state, size, mtime, checked) VALUES (?, ?, ?, 1, 1, '2026-11-27')"
+    with con:
+        con.executemany(add, [(f1, k1, "synced"), (f2, k2, "own"), (f3, k3, "none")])
+    con.close()
+    cache.clear()
+    assert '<a class="kpi" href="/lyrics"' in client.get("/library").text
+    html = client.get("/lyrics").text
+    assert t1 in html
+    assert 'Synced <span class="n">1</span>' in html and 'Own <span class="n">1</span>' in html and t3 not in html
+    own = client.get("/lyrics", params={"kind": "own"}).text
+    assert t2 in own and 'class="pill">Own</span>' in own and "accent-pill" not in own
+    assert "No song matches “zzz”." in client.get("/lyrics", params={"q": "zzz"}).text
 
 
 def test_missing_shows_what_was_tried(client: TestClient, settings: Settings) -> None:
