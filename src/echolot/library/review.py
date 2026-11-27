@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from echolot import db
-from echolot.library import audio, catalog, filing, identity, recordings, rules, tagging
+from echolot.library import audio, catalog, filing, identity, recording, recordings, rules, tagging
 from echolot.library.filing import MUSIC, Want
 from echolot.settings.sources import ConfigError
 
@@ -141,6 +141,8 @@ class Item:
         if self.name:
             return self.name
         e = self.event
+        if e["source"] == "mitschnitt" and e["found"]:  # a recording, by the names Spotify plays it as
+            return e["found"]
         found = re.split(r"[/\\]", (e["found"] or e["file_name"] or "").strip())[-1]
         stem, dot, ext = found.rpartition(".")
         if dot and ext.lower() in audio.AUDIO:
@@ -582,6 +584,8 @@ def _apply(run: "Run", con: sqlite3.Connection, d: sqlite3.Row) -> str:
         return _confirm(run, con, d)
     if decision == "wrong":
         _block(con, key, d)
+        if d["source"] == "mitschnitt" and key.startswith("spotify:"):  # what Spotify plays is another recording
+            recording.block(con, key, None, "other", f"No match in Review: {d['found'] or 'the recording'}")
         with filing.LOCK:
             cat = catalog.Catalog.from_db(con)
             entry = next((e for e in cat.entries if e.path == d["path"]), None)

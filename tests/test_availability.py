@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from typing import ClassVar
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,7 +16,7 @@ from echolot.config import Settings
 from echolot.jobs import availability
 from echolot.jobs.schedule import BY_NAME
 from echolot.jobs.worker import Run
-from echolot.library import identity
+from echolot.library import identity, recording
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify
 from echolot.settings import auth, sources
@@ -224,6 +225,51 @@ def test_what_a_relinked_song_plays_as(run: Run) -> None:
     availability.check(run)
     con = run.connect()
     assert con.execute(plays).fetchone()[0] is None
+    con.close()
+
+
+def test_a_relink_is_told_apart_before_it_is_recorded(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing song whose relink may be another recording is told apart before anyone records it. Another
+    length, or Deezer's previews of both ISRCs sounding different, keeps it from being recorded. Try again
+    lifts that for good. Without previews it is asked again next time. A song with a copy is checked against
+    it once recorded, and a relink with the song's ISRC is its recording."""
+    rng = np.random.default_rng(7)
+    tune, other = (rng.integers(0, 2**32, 240, dtype=np.uint32) for _ in range(2))
+    refs = {"L1": tune, "R1": tune, "L2": tune, "R2": other}
+    monkeypatch.setattr(identity, "reference", lambda con, isrc, length=0: refs.get(isrc))
+    con = run.connect()
+    songs = {  # key: (length, isrc, relink's length, relink's isrc, file)
+        "spotify:m1": (200, "L1", 201, "R1", None),  # the same audio
+        "spotify:m2": (200, "L2", 200, "R2", None),  # previews sound different
+        "spotify:m3": (208, "L3", 217, "R3", None),  # 9 s longer: a BPM edit
+        "spotify:m4": (200, "L4", 200, "R4", None),  # no previews
+        "spotify:m5": (200, "L5", 230, "R5", "Artist A/Artist A - First Song.mp3"),  # a copy to check against
+        "spotify:m6": (200, "L6", 240, "L6", None),  # the song's ISRC
+    }
+    song = "INSERT INTO songs (key, service, artist, title, length, isrc, file) VALUES (?, 'spotify', 'A', ?, ?, ?, ?)"
+    relinked = "INSERT INTO availability VALUES (?, 'replaced', '', 'x', ?, NULL, ?)"
+    with con:
+        for key, (length, isrc, plays_length, plays_isrc, file) in songs.items():
+            con.execute(song, (key, f"Song {key[-1]}", length, isrc, file))
+            plays = {"key": f"{key}b", "artist": "Other", "artists": ["Other"], "title": "Else", "album": "X"}
+            plays |= {"length": plays_length, "isrc": plays_isrc}
+            con.execute(relinked, (key, f"{key}b", json.dumps(plays)))
+    availability._relink_audio(con, run)
+    held = recording.blocks(con)
+    assert sorted(held) == ["spotify:m2", "spotify:m3"]
+    assert held["spotify:m2"]["uri"] == "spotify:track:m2b" and held["spotify:m2"]["reason"] == "other"
+    assert held["spotify:m2"]["detail"].startswith("Sounds different: Spotify plays it as Other – Else, whose preview")
+    assert held["spotify:m3"]["detail"] == "Sounds different: Spotify plays it as Other – Else, 3:37 long, not 3:28"
+
+    def told(key: str) -> str | None:
+        plays = con.execute("SELECT plays FROM availability WHERE song_key = ?", (key,)).fetchone()[0]
+        return json.loads(plays).get("audio")
+
+    assert [told(k) for k in songs] == ["same", "other", "other", None, None, None]
+    recording.unblock(con, "spotify:m2")  # Try again
+    refs |= {"L4": tune, "R4": other}  # Deezer has the previews now
+    availability._relink_audio(con, run)
+    assert sorted(recording.blocks(con)) == ["spotify:m3", "spotify:m4"]  # m2 stays lifted
     con.close()
 
 

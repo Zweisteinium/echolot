@@ -210,7 +210,8 @@ CREATE TABLE availability (         -- whether a song still plays at its source,
     searched TEXT,                  -- Spotify: when another release of a song that plays nowhere here was last
                                     -- looked for (by its ISRC; Spotify relinks only some)
     plays TEXT                      -- replaced, Spotify: JSON of the release it plays as, by that one's own names
-                                    -- (key, artist, artists, title, album, length, isrc)
+                                    -- (key, artist, artists, title, album, length, isrc), and once told for a
+                                    -- missing song whether it is its recording (audio: same, other)
 );
 CREATE TABLE changes (              -- what happened to the songs and lists of everyone (jobs/availability)
     id INTEGER PRIMARY KEY,

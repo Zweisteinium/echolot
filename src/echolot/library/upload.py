@@ -398,12 +398,17 @@ def recorded_different(fit: Fit | None, as_listed: bool, unsure: bool) -> tuple[
     the odd one), or when it is the list's own track as Spotify lists it (recording.as_listed) and as long:
     then the preview may be another release under the ISRC; else different(), with your copy when Spotify
     plays another release that may be another recording (`unsure`)."""
-    if fit is None or (fit.fingerprint is not None and fit.fingerprint >= identity.SAME):
+    if fit is None or heard_same(fit):
         return "", ""
     why = different(fit, copy=unsure)
     if why and as_listed and fit.diff is not None and abs(fit.diff) <= AS_LISTED:
         return "", f"the list's own track, though {why}"
     return why, ""
+
+
+def heard_same(fit: Fit | None) -> bool:
+    """The file sounds like the release's preview."""
+    return fit is not None and fit.fingerprint is not None and fit.fingerprint >= identity.SAME
 
 
 def sounds_different(fit: Fit | None) -> bool:
@@ -576,12 +581,14 @@ def import_files(
     source: str = "manual",
     origins: dict[int, str] | None = None,
     data: Path | None = None,
+    review: dict[int, tuple[str, str]] | None = None,
 ) -> list[tuple[str, str | None]]:
     """File the chosen files (n -> song key) as their songs, as by Perfect match: a missing song gets the file
     (one covered by a close match too: the version stays, unless n is in `remove`), a library song the file in
     place of its copy (filing.file_into replace); then delete the batch. `source`: as History shows it
-    (manual, mitschnitt); `origins`: where each came from (origin.KINDS). One line per file, with the song key
-    when the song has the file now."""
+    (manual, mitschnitt); `origins`: where each came from (origin.KINDS); `review`: n -> (what the file is,
+    why) of a file filed on a probable match, which waits in Review. One line per file, with the song key when
+    the song has the file now."""
     from echolot.jobs.acquire import finish
 
     by_n = {f.n: f for f in files(paths, batch)}
@@ -596,8 +603,11 @@ def import_files(
         if not have:
             _link(con, key, want, f.seconds if close else 0)  # this file whatever its length
         kind = (origins or {}).get(n, "")
+        what, why = (review or {}).get(n, ("", ""))
         info = {
-            "match": "by hand",
+            "match": "probable" if what else "by hand",
+            "file_name": what,
+            "heard": identity.Evidence("", why),
             "fake": fake,
             "fake_source": f.source,
             "replaces": have or "",

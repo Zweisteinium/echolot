@@ -330,7 +330,7 @@ def _check_and_file(
 ) -> tuple[str, str, str, str]:
     """(result, detail, tier, lossy source): rejected (not audio, or another recording than the release's or,
     when Spotify plays another release, than the library's copy: upload.recorded_different), not_better, or
-    filed."""
+    filed (on a probable match, for Review, when Spotify plays another release and nothing tells)."""
     song = next(iter(stats.upload_songs(con, item["user_id"], item["song_key"])), None)
     if song is None:
         return "rejected", "the song is no longer in your lists", "", ""
@@ -352,6 +352,8 @@ def _check_and_file(
         copy = upload.compare(paths, f, song)
         if copy is not None and not copy.better:
             return "not_better", copy.why, tier, f.source
+        # Spotify plays another release that may be another recording, and no copy or preview tells: you do
+        doubt = bool(plays) and upload.needs(song) and not upload.heard_same(fit)
         lines = upload.import_files(
             con,
             paths,
@@ -360,12 +362,14 @@ def _check_and_file(
             {f.n: song["key"]},
             source="mitschnitt",
             data=request.app.state.settings.data_dir,
+            review={f.n: (plays.replace(" – ", " - ", 1), recording.DOUBT)} if doubt else None,  # 'Artist - Title'
         )
         line, key = lines[0] if lines else ("not imported", None)
         if key is None:
             return "rejected", line, tier, f.source
         # filing may still find the library's copy better (import_files' line says so)
         line = f"{line} ({note})" if note else line
+        line = f"{line}, waits in Review (Spotify plays it as {plays})" if doubt else line
         return ("not_better" if "has a better copy" in line else "filed"), line, tier, f.source
     finally:
         upload.cancel(paths, batch)

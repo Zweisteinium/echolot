@@ -8,6 +8,7 @@ import re
 import secrets
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -16,7 +17,7 @@ from fastapi.testclient import TestClient
 from echolot import db
 from echolot.config import Settings
 from echolot.jobs import availability
-from echolot.library import audio, recording, upload
+from echolot.library import audio, filing, recording, review, upload
 from echolot.settings import auth, sources
 from echolot.web import create_app, stats
 
@@ -202,7 +203,7 @@ def test_the_upload_into_the_song(
     monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: upload.Copy(True, "genuine lossless"))
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None, review=None):
         seen.append((dict(chosen), source))
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
 
@@ -237,9 +238,10 @@ def test_the_upload_into_the_song(
 def test_a_relinked_song_by_the_names_it_plays_as(
     app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A relinked song goes out under the relink's names when it is the same recording (ISRC) or there is a
-    library copy to check against; else, or for an unknown relink, under the list's names. Against the copy,
-    another recording is rejected and blocked, another master is filed."""
+    """A relinked song goes out under the names it plays as (the player shows those), also when it may be
+    another recording and there is no copy to check against (its audio tells, or you in Review); an unknown
+    relink under the list's names. Against the copy, another recording is rejected and blocked, another master
+    is filed."""
     con = db.connect(app.state.settings.db_path)
     plays = {"key": "spotify:s1b", "artist": "evaness", "artists": ["evaness"], "title": "Heineken", "album": "H"}
     plays |= {"length": 201, "isrc": "QZTAS2444552"}
@@ -257,7 +259,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     copy = con.execute("SELECT file FROM songs WHERE key = 'spotify:s1'").fetchone()[0]
     with con:  # no copy to check against
         con.execute("UPDATE songs SET file = NULL WHERE key = 'spotify:s1'")
-    assert handed()[1:4] == ("Artist A", ["Artist A"], "First Song")
+    assert handed()[1:4] == ("evaness", ["evaness"], "Heineken")
     with con:  # same ISRC
         con.execute("UPDATE songs SET isrc = 'QZTAS2444552' WHERE key = 'spotify:s1'")
     assert handed()[3] == "Heineken"
@@ -274,7 +276,7 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     def add(paths, batch, name, fileobj, keep_hires=False):
         return upload.File(1, name, Path("/x/rec.flac"), 201, 900, "lossless")
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None, review=None):
         return [("Artist A – First Song: replaced the copy", "spotify:s1")]
 
     monkeypatch.setattr(upload, "add", add)
@@ -308,6 +310,56 @@ def test_a_relinked_song_by_the_names_it_plays_as(
     item = poll(device)["item"]
     body = device.post(f"/api/recorder/items/{item['id']}/file", files=files).json()
     assert item["key"] == "spotify:s1" and body["result"] == "filed"
+
+
+def test_a_relink_nothing_tells_waits_in_review(
+    app: FastAPI, login: Callable[..., TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing song Spotify plays as another release that may be another recording goes out under that
+    release's names. With no preview to tell, its recording is filed on a probable match that waits in Review,
+    named as Spotify played it. No match there takes the file out, and the release is not recorded again."""
+    settings = app.state.settings
+    paths = filing.Paths(settings.library_dir.parent)
+    plays = {"key": "spotify:s3b", "artist": "Nostalgiacore", "artists": ["Nostalgiacore"], "album": "Lofi"}
+    plays |= {"title": "Gone Song - Bitcrushed Lofi Mix", "length": 180, "isrc": "GBLPF2530870"}
+    con = db.connect(settings.db_path)
+    with con:
+        con.execute("UPDATE songs SET unavailable = NULL, isrc = 'QZTB42425714' WHERE key = 'spotify:s3'")
+        replaced = "INSERT INTO availability VALUES ('spotify:s3', 'replaced', '', 'x', 'spotify:s3b', NULL, ?)"
+        con.execute(replaced, (json.dumps(plays),))
+
+    def prepare(path: Path, keep_hires: bool = False) -> audio.Prepared:  # (no ffmpeg)
+        return audio.Prepared(path, False, {"verdict": "ok"})
+
+    monkeypatch.setattr(audio, "prepare", prepare)
+    monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0))  # Deezer has no preview
+    owner = login(app)
+    device = as_device(app, connect(owner, app))
+    owner.post("/recordings", data={"recorder": 1, "below": "missing", "list": "spotify:likes:1"})
+    item = poll(device)["item"]
+    handed = (item["key"], item["uri"], item["artist"], item["title"])
+    assert handed == ("spotify:s3", "spotify:track:s3b", "Nostalgiacore", "Gone Song - Bitcrushed Lofi Mix")
+    flac = {"file": ("rec.flac", (Path(__file__).parent / "fixtures/audio/silence.flac").read_bytes(), "audio/flac")}
+    body = device.post(f"/api/recorder/items/{item['id']}/file", files=flac).json()
+    played = "Nostalgiacore – Gone Song - Bitcrushed Lofi Mix"
+    assert body["result"] == "filed" and body["detail"].endswith(f", waits in Review (Spotify plays it as {played})")
+    [waiting] = review.items(con, paths.music, 1)["filed"]
+    e, name = waiting.event, "Nostalgiacore - Gone Song - Bitcrushed Lofi Mix"
+    filed = (e["song"], e["source"], e["matched"], e["found"], e["audio"])
+    assert filed == ("spotify:s3", "mitschnitt", "probable", name, recording.DOUBT)
+    assert waiting.close_name == name  # what Close match files it as
+    page = owner.get("/review").text
+    assert name in page and "Echolot has nothing to compare it with, so only you can tell." in page
+    review.decide(con, paths.music, e["id"], "wrong")
+    with con:
+        con.execute("UPDATE review_decisions SET decided = '2000-01-01T00:00:00'")
+    assert review.apply_due(SimpleNamespace(paths=paths), con)[-1].endswith(": retired")
+    assert not (paths.tracks / e["path"]).exists()
+    held = recording.blocks(con)["spotify:s3"]  # what Spotify plays is another recording
+    assert (held["uri"], held["reason"]) == ("spotify:track:s3b", "other")
+    assert held["detail"] == f"No match in Review: {name}"
+    assert "spotify:s3" not in [t.key for t in recording.candidates(con, 1)]
+    con.close()
 
 
 def test_a_song_skipped_on_the_device(app: FastAPI, login: Callable[..., TestClient]) -> None:
@@ -583,7 +635,7 @@ def test_a_recording_made_from_lossy(
         upload._save(upload.folder(paths, batch), f)
         return f
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None, review=None):
         f = upload.files(paths, batch)[0]
         imported.append((f.tier, f.source))
         return [("Artist B – Second Song: replaced the copy: Artist B/Artist B - Second Song.flac", "spotify:s2")]
@@ -625,7 +677,7 @@ def files_in(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(upload, "fit", lambda con, f, song, tracks: upload.Fit(0, 0.97, 0.95))
     monkeypatch.setattr(upload, "compare", lambda paths, f, song: None)
 
-    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None):
+    def import_files(con, paths, vault, batch, chosen, remove=frozenset(), source="manual", data=None, review=None):
         filed.extend(chosen.values())
         return [(f"{k}: filed as x", k) for k in chosen.values()]
 

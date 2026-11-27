@@ -402,7 +402,8 @@ def file_into(
     that file. `sure`: same audio from the song's own page, filed as exact whatever the names. `trusted`: the
     artist's own file from the song's page: names reject it only when they name neither the artist nor the
     title (named), a doubt waits in Review even lossy, and a reject is kept. `replace` (an upload by hand): takes over the song's copy whatever the ranks. `url`: the page
-    it came from; `fake_source`: what a fake FLAC was made from."""
+    it came from; `fake_source`: what a fake FLAC was made from. Not strict, `file_name` and `heard` say what
+    the file is and what its audio says, for Review (with match 'probable')."""
     ext = src.suffix.lower().lstrip(".")
     dur, _ = audio.probe(src)
     key = norm_key(want.key)
@@ -462,6 +463,8 @@ def file_into(
             kept = keep(paths, src, want.artist, want.title, source)
             event(con, paths, "confirm", kept, matched=match, **info)
             return "confirm", None
+    else:  # filed as it is: what the file is and what its audio says, for Review (upload.import_files)
+        info.update(found=file_name, audio=heard.detail)
     if match:
         info["matched"] = match
     length = dur or length

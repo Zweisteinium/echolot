@@ -21,7 +21,7 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from echolot import db
-from echolot.library import identity, recordings, rules
+from echolot.library import identity, recording, recordings, rules
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify
 from echolot.settings import options
@@ -303,9 +303,61 @@ def _plays_as(con: sqlite3.Connection, run: "Run", states: dict[str, tuple[str, 
         rows = [(json.dumps(found[d], ensure_ascii=False), k) for k, d in relinked.items() if d in found]
         con.executemany("UPDATE availability SET plays = ? WHERE song_key = ?", rows)
         con.execute("UPDATE availability SET plays = NULL WHERE plays IS NOT NULL AND state != 'replaced'")
+    _relink_audio(con, run)
 
 
 PLAYS = ("artist", "artists", "title", "album", "length", "isrc")  # availability.plays, besides the key
+RELINK_LENGTH = 3  # s: a relink this much longer or shorter than the song is another recording (a BPM edit)
+
+
+def _relink_audio(con: sqlite3.Connection, run: "Run") -> None:
+    """Whether the release a missing song plays as (a relink that may be another recording: other names and
+    ISRC) is another recording, told before anyone records it: by its length, or by Deezer's previews of both
+    ISRCs. Another one is not offered for recording (recording.block, Try again lifts it). The verdict is kept
+    in availability.plays (audio), so a lifted block stays lifted; none (no previews) is asked again next time.
+    A recording of the rest waits in Review when nothing tells (web/recorders); a song with a copy is checked
+    against it once recorded."""
+    sql = (
+        "SELECT s.key, s.artist, s.title, s.length, s.isrc, a.state, a.detail, a.plays FROM availability a "
+        "JOIN songs s ON s.key = a.song_key WHERE a.state = 'replaced' AND (s.file IS NULL OR s.close_match)"
+    )
+    for r in con.execute(sql).fetchall():
+        if run.stop.is_set():
+            break
+        plays = recording.plays_as(r)
+        if plays is None or "audio" in plays or rules.same_recording(r, plays):
+            continue
+        verdict, why = _relink_heard(con, r, plays)
+        if not verdict:
+            continue
+        with con:
+            con.execute(
+                "UPDATE availability SET plays = ? WHERE song_key = ?",
+                (json.dumps(plays | {"audio": verdict}, ensure_ascii=False), r["key"]),
+            )
+        if verdict == "other":
+            uri = f"spotify:track:{plays['key'].removeprefix('spotify:')}"
+            detail = f"{recording.DIFFERENT}: Spotify plays it as {plays['artist']} – {plays['title']}, {why}"
+            recording.block(con, r["key"], uri, "other", detail)
+
+
+def _relink_heard(con: sqlite3.Connection, song: sqlite3.Row, plays: dict) -> tuple[str, str]:
+    """(same, other or '' when unknown; why) for a song and the release Spotify plays it as."""
+    length, relink = song["length"] or 0, plays.get("length") or 0
+    if length and relink and abs(relink - length) > RELINK_LENGTH:
+        return "other", f"{_mmss(relink)} long, not {_mmss(length)}"
+    ref = identity.reference(con, song["isrc"], length) if song["isrc"] else None
+    other = identity.reference(con, plays["isrc"], relink) if ref is not None and plays.get("isrc") else None
+    if ref is None or other is None:
+        return "", ""
+    share = identity.previews_alike(ref, other)
+    verdict = "same" if share >= identity.SAME else "other" if share <= identity.OTHER else ""
+    return verdict, f"whose preview sounds different (same audio {share:.2f})"
+
+
+def _mmss(seconds: float) -> str:
+    n = round(seconds)
+    return f"{n // 60}:{n % 60:02d}"
 
 
 def _restriction(track: dict) -> str | None:

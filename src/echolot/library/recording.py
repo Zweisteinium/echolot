@@ -55,6 +55,7 @@ BEST = {  # spotify_best.reason -> why Spotify has nothing better (the lists sho
     "other": "Spotify plays another recording of this song than the release's",
 }
 DIFFERENT = "Sounds different"  # a rejected recording's detail: another recording than the release's or your copy (block "other")
+DOUBT = "Spotify plays this release in its place. Echolot has nothing to compare it with, so only you can tell."
 PLAYS_AS = (  # SQL: the Spotify track a song plays as here (the release Spotify relinks it to), of {key}
     "'spotify:track:' || CASE WHEN a.state = 'replaced' AND a.detail LIKE 'spotify:%' THEN substr(a.detail, 9) "
     "ELSE substr({key}, 9) END"
@@ -191,8 +192,8 @@ def _name(name: str) -> str:
 @dataclass
 class Track:
     """A song to record: its key, the Spotify URI that plays it here (the release Spotify relinks it to: the
-    list's own can start the album one song off), names, length (s) and ISRC (the relink's where trustworthy:
-    survey), and what the library has."""
+    list's own can start the album one song off), names, length (s) and ISRC (the relink's, as the player shows
+    it: survey), and what the library has."""
 
     key: str
     uri: str
@@ -324,8 +325,9 @@ def survey(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -
             sid = r["detail"].removeprefix("spotify:")
         artists = json.loads(r["artists"]) if r["artists"] else [r["artist"]]
         names = (r["artist"], artists, r["title"], r["album"] or "", r["length"] or 0, r["isrc"] or "")
-        plays = plays_as(r)  # the device checks the player's names: the relink's (another recording: unsure)
-        if plays and (rules.same_recording(r, plays) or have != "missing"):
+        # the device checks the player's names: the relink's, also when it may be another recording (the audio
+        # tells once it is recorded: unsure; jobs/availability rules out what is told before)
+        if plays := plays_as(r):
             names = (*(plays[k] for k in ("artist", "artists", "title", "album", "length")), plays["isrc"] or "")
         out.append(Track(r["key"], f"spotify:track:{sid}", *names, have))
     words = [w.format(n=left[kind]) for kind, w in LEFT_OUT.items() if left[kind]]
@@ -344,7 +346,8 @@ def plays_as(row: sqlite3.Row) -> dict | None:
 def unsure(con: sqlite3.Connection, key: str, uri: str) -> str:
     """The release Spotify plays a song as ("Artist – Title") when it may be another recording (a relink whose
     ISRC, names and length do not agree: rules.same_recording) and `uri` is that release's; '' otherwise. A
-    recording of it must sound like the library's copy (upload.different)."""
+    recording of it must sound like the release's preview or the library's copy (upload.different), and of a
+    song without a copy waits in Review unless the preview confirms it (web/recorders)."""
     sql = (
         "SELECT s.artist, s.title, s.length, s.isrc, a.state, a.detail, a.plays FROM songs s "
         "LEFT JOIN availability a ON a.song_key = s.key WHERE s.key = ?"

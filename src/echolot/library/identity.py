@@ -104,6 +104,13 @@ def similarity(ref: np.ndarray, cand: np.ndarray) -> float:
     return _place(ref, cand)[1]
 
 
+def previews_alike(a: np.ndarray, b: np.ndarray) -> float:
+    """How alike two previews are: the middle half of `a` at its best position in `b` (two releases' 30 s may
+    start a few seconds apart)."""
+    q = len(a) // 4
+    return similarity(a[q : 3 * q], b) if q else 0.0
+
+
 def _place(ref: np.ndarray, cand: np.ndarray) -> tuple[int, float]:
     """Where `ref` fits `cand` best (the frame of `cand` its start falls on; down to -LEAD when `cand` lacks the
     release's silent lead-in, as a recording of Spotify's stream may) and the share of equal bits there, over
