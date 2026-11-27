@@ -1,14 +1,15 @@
-{# the Discogs dialog: what to enter, in the form's order; optional fields folded away #}
+{# the Discogs dialog: what to enter, a row per field of Discogs' form in its order (label, the values to copy, a
+   hint under them); optional fields folded away #}
+{% from "_icons.html" import sprite, use %}
 {% macro copy(id, value) -%}
-<span class="dc-copyable"><span id="dc-{{ id }}">{{ value }}</span><button type="button" class="dc-copy" data-copy="#dc-{{ id }}">Copy</button></span>
+<span class="copy-value"><span id="dc-{{ id }}">{{ value }}</span><button type="button" class="icon-copy" data-copy="#dc-{{ id }}" title="Copy" aria-label="Copy {{ value }}">{{ use('copy', 15) }}{{ use('check', 15) }}</button></span>
 {%- endmacro %}
-{% macro field(id, label, value, hint='', empty='none') -%}
-<div class="dc-field">
-  <div class="dc-label">{{ label }}{% if hint %}<span class="hint">{{ hint }}</span>{% endif %}</div>
-  <div class="dc-value">{% if value %}{{ copy(id, value) }}{% else %}<span class="muted">{{ empty }}</span>{% endif %}</div>
-</div>
+{% macro field(label) -%}
+<div class="dc-field"><div class="dc-label">{{ label }}</div><div class="dc-value">{{ caller() }}</div></div>
 {%- endmacro %}
-<div class="dc">
+{% macro hint(text) %}<p class="dc-hint">{{ text }}</p>{% endmacro %}
+{{ sprite(['copy', 'check']) }}
+<div class="dc" tabindex="-1" autofocus>{# (the dialog opens at its start, no control picked) #}
   <div class="dc-head">
     {% if s.cover %}<img src="{{ s.cover }}" alt="" width="88" height="88" loading="lazy" referrerpolicy="no-referrer">{% endif %}
     <div>
@@ -16,41 +17,33 @@
       <p class="muted small">
         {% if row.state == 'digital' %}Discogs has it only as <a href="{{ found.url }}" target="_blank" rel="noopener">{{ found.formats|join(', ') }}</a>{% if found.catno %} ({{ found.label }}, {{ found.catno }}){% endif %}: the download version is missing.
         {% elif row.state == 'listed' %}Discogs lists it: <a href="{{ found.url }}" target="_blank" rel="noopener">{{ found.title }}</a> ({{ found.formats|join(', ') }}){% if not found.exact %}, under a slightly different title{% endif %}.
-        {% else %}Discogs does not list it: Echolot searched for “{{ a.artist }} {{ a.title }}”{% endif %}
-        · {{ a.songs|length }} of your songs · {{ a.lists.values()|join(', ') }}
+        {% else %}Discogs does not list it: Echolot searched for “{{ a.artist }} {{ a.title }}”.{% endif %}
+        {{ a.songs|length }} of your songs · {{ a.lists.values()|join(', ') }}
       </p>
     </div>
   </div>
   {% if not s.from_store %}
-  <p class="flash error small">No release found on Beatport. Discogs takes a download only with its source, a store or a free download page, in the notes. Find it on Bandcamp or another store first. Below is what Spotify and your library know.</p>
+  <p class="flash warn small">No release found on Beatport. Discogs takes a download only with its source in the notes: a store or a free download page. Find it on Bandcamp or another store first. Below is what Spotify and your library know.</p>
   {% endif %}
   <div class="dc-fields">
-    {% for name in s.artists %}{{ field('artist-' ~ loop.index, 'Artists' if loop.first else '', name, 'one artist per row; Discogs may know several of a name: pick the right one, Name (2)' if loop.first else '') }}{% endfor %}
-    {{ field('title', 'Title', s.title) }}
-    <div class="dc-field">
-      <div class="dc-label">Label, catalog number<span class="hint">{% if s.from_store %}type Label{% else %}as the store page names them{% endif %}</span></div>
-      <div class="dc-value dc-stack">
-        {% if s.label %}<span>{{ copy('label', s.label) }} <span class="muted small">catalog number</span> {{ copy('catno', s.catno) }}</span>
-        {% else %}<span class="muted small">No label, or only a distributor like DistroKid: {{ copy('self', s.self_released) }} with catalog number {{ copy('catno', 'none') }}</span>{% endif %}
-      </div>
-    </div>
-    <div class="dc-field">
-      <div class="dc-label">Format<span class="hint">Each file type is its own release on Discogs, so submit the one you downloaded</span></div>
-      <div class="dc-value dc-stack">
-        <span><b>File</b> · <b>FLAC</b> · Qty {{ copy('qty', s.qty) }} <span class="muted small">the number of files</span></span>
-        {% if s.formats %}<span class="small">Beatport sells it as {{ s.formats|join(', ') }}. Enter FLAC first, the others later, one submission each. <b>WAV</b> and <b>AIFF</b> take no free text, <b>MP3</b> takes {{ copy('kbps', '320 kbps') }}.</span>
-        {% else %}<span class="small">FLAC if the store sells it, else the type it sells. <b>WAV</b> and <b>AIFF</b> take no free text, <b>MP3</b> takes its bitrate, like {{ copy('kbps', '320 kbps') }}.</span>{% endif %}
-        {% if s.description %}<span class="small">Description: <b>{{ s.description }}</b> <span class="muted">as the release calls itself</span></span>{% endif %}
-      </div>
-    </div>
-    {{ field('released', 'Released', s.released) }}
-    <div class="dc-field">
-      <div class="dc-label">Genres, styles<span class="hint">Styles appear once a genre is ticked</span></div>
-      <div class="dc-value dc-stack">
-        {% if s.genres %}<span>{% for g in s.genres %}<b>{{ g }}</b>{{ ', ' if not loop.last }}{% endfor %}{% for st in s.styles %} · {{ copy('style-' ~ loop.index, st) }}{% endfor %}</span>{% else %}<span class="muted">none known</span>{% endif %}
-        {% if s.store_genre or s.your_genre %}<span class="muted small">{% if s.your_genre %}your genre: {{ s.your_genre }}{% endif %}{% if s.your_genre and s.store_genre %} · {% endif %}{% if s.store_genre %}Beatport: {{ s.store_genre }}{% endif %}{% if not s.styles %}, no Discogs style{% endif %}. A genre Discogs lacks, like Tekk, goes nowhere, not even in the notes.</span>{% endif %}
-      </div>
-    </div>
+    {% call field('Artists') %}{% for name in s.artists %}{{ copy('artist-' ~ loop.index, name) }}{% endfor %}
+      {{ hint('One artist per row. Discogs may know several of a name: pick the right one, like Name (2).') }}{% endcall %}
+    {% call field('Title') %}{{ copy('title', s.title) }}{% endcall %}
+    {% call field('Label') %}{{ copy('label', s.label or s.self_released) }}
+      {{ hint(('Type Label.' if s.from_store else 'As the store page names it.') if s.label else 'No label, or only a distributor like DistroKid.') }}{% endcall %}
+    {% call field('Catalog number') %}{{ copy('catno', s.catno if s.label else 'none') }}{% endcall %}
+    {% call field('Format') %}<span class="dc-tag">File</span><span class="dc-tag">FLAC</span>
+      {{ hint('Each file type is its own release on Discogs. Submit the one you downloaded.') }}
+      {% if s.formats %}{{ hint('Beatport sells it as ' ~ s.formats|join(', ') ~ '. Enter FLAC first, the others later, one submission each.') }}
+      {% else %}{{ hint('FLAC if the store sells it, else the type it sells.') }}{% endif %}{% endcall %}
+    {% call field('Quantity') %}{{ copy('qty', s.qty) }}{{ hint('The number of files.') }}{% endcall %}
+    {% call field('Free text') %}{{ copy('kbps', '320 kbps') }}{{ hint('Only for an MP3 release: its bitrate. Leave it empty for FLAC, WAV and AIFF.') }}{% endcall %}
+    {% if s.description %}{% call field('Description') %}<span class="dc-tag">{{ s.description }}</span>{{ hint('As the release calls itself.') }}{% endcall %}{% endif %}
+    {% call field('Released') %}{% if s.released %}{{ copy('released', s.released) }}{% else %}<span class="muted">none</span>{% endif %}{% endcall %}
+    {% call field('Genre') %}{% for g in s.genres %}<span class="dc-tag">{{ g }}</span>{% else %}<span class="muted">none known</span>{% endfor %}
+      {% if s.genres %}{{ hint('Tick it, then its styles appear.') }}{% endif %}{% endcall %}
+    {% call field('Style') %}{% for st in s.styles %}{{ copy('style-' ~ loop.index, st) }}{% else %}<span class="muted">none</span>{% endfor %}
+      {% if s.store_genre or s.your_genre %}{{ hint(('Your genre: ' ~ s.your_genre if s.your_genre else '') ~ (' · ' if s.your_genre and s.store_genre else '') ~ ('Beatport: ' ~ s.store_genre if s.store_genre else '') ~ '. A genre Discogs lacks, like Tekk, goes nowhere, not even in the notes.') }}{% endif %}{% endcall %}
   </div>
   <h3>Tracklist <span class="count">{{ s.tracks|length or a.songs|length }}</span></h3>
   {% if s.tracks %}
@@ -62,25 +55,27 @@
         <td class="muted">{{ t.position }}</td>
         <td>{{ copy('track-' ~ loop.index, t.title) }}
           {% if t.artists or t.credits %}<div class="muted small">{% if t.artists %}Artists: {{ t.artists|join(', ') }}{% endif %}{% if t.artists and t.credits %} · {% endif %}{{ t.credits|join(', ') }}</div>{% endif %}</td>
-        <td class="num nowrap">{{ copy('length-' ~ loop.index, t.length) if t.length }}</td>
+        <td class="num">{{ copy('length-' ~ loop.index, t.length) if t.length }}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
-  <p class="muted small">Track artists only where they differ from the release's. A remixer goes in as the credit Remix on its track.</p>
+  {{ hint('Track artists only where they differ from the release\'s. A remixer goes in as the credit Remix on its track.') }}
   {% else %}
-  <p class="muted small">Not known without the store's release: your library has {{ a.songs|length }} of its {{ a.tracks or '?' }} tracks.</p>
+  {{ hint('Not known without the store\'s release. Your library has ' ~ a.songs|length ~ (' of its ' ~ a.tracks ~ ' tracks.' if a.tracks else ' of its tracks.')) }}
   {% endif %}
   <div class="dc-fields">
-    {{ field('notes', 'Submission notes', s.notes, 'required: where the data comes from (the store page)', 'the store page\'s address') }}
+    {% call field('Submission notes') %}{% if s.notes %}{{ copy('notes', s.notes) }}{% else %}<span class="muted">the store page's address</span>{% endif %}
+      {{ hint('Required: where the data comes from.') }}{% endcall %}
   </div>
   <details class="dc-more">
     <summary>Optional, and what stays empty</summary>
     <div class="dc-fields">
-      {{ field('barcode', 'Barcode', s.barcode, 'type Barcode; only when the store page or your download shows it (the UPC of this store release)') }}
-      <div class="dc-field"><div class="dc-label">Country</div><div class="dc-value muted small">Worldwide when the store sells it everywhere, else empty</div></div>
-      <div class="dc-field"><div class="dc-label">ISRC</div><div class="dc-value muted small">only from the files you downloaded, per track</div></div>
-      <div class="dc-field"><div class="dc-label">Notes</div><div class="dc-value muted small">empty, unless the store page has a text of the release</div></div>
+      {% call field('Barcode') %}{% if s.barcode %}{{ copy('barcode', s.barcode) }}{% else %}<span class="muted">none</span>{% endif %}
+        {{ hint('Type Barcode. Only when the store page or your download shows it, the UPC of this store release.') }}{% endcall %}
+      {% call field('Country') %}{{ hint('Worldwide when the store sells it everywhere, else empty.') }}{% endcall %}
+      {% call field('ISRC') %}{{ hint('Only from the files you downloaded, per track.') }}{% endcall %}
+      {% call field('Notes') %}{{ hint('Empty, unless the store page has a text of the release.') }}{% endcall %}
     </div>
   </details>
   <div class="dialog-actions">

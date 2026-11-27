@@ -1293,27 +1293,37 @@ body.with-player main { padding-bottom: 5rem; }
 .discogs-rows tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .discogs-rows .release-title { font-weight: 500; }
 .discogs-rows td:nth-child(4) { white-space: nowrap; }
-dialog.discogs-dialog { width: min(44rem, calc(100vw - 2rem)); }
+dialog.discogs-dialog { width: min(52rem, calc(100vw - 2rem)); }
 .dc-head { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 0.75rem; }
 .dc-head img { flex: none; border-radius: var(--radius-sm); object-fit: cover; background: var(--track); }
 .dc-head h2 { margin: 0 0 0.25rem; font-size: var(--fs-xl); }
 .dc-head p { margin: 0; }
 .dc .flash { margin: 0 0 0.75rem; }
+/* a field of Discogs' form: its name, then the values to copy (or to tick) and a hint under them */
 .dc-fields { display: grid; border-top: 1px solid var(--border); }
-.dc-field { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.2rem 1rem; padding: 0.45rem 0;
+.dc-field { display: grid; grid-template-columns: 9rem minmax(0, 1fr); align-items: start; gap: 0.25rem 1rem; padding: 0.55rem 0;
   border-bottom: 1px solid var(--border); }
-.dc-label { font-size: var(--fs-sm); font-weight: 500; }
-.dc-label .hint { display: block; font-weight: 400; font-size: var(--fs-xs); color: var(--muted); }
-.dc-value { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.5rem; min-width: 0; overflow-wrap: anywhere; }
-.dc-stack { flex-direction: column; align-items: flex-start; }
-.dc-copyable { display: inline-flex; align-items: center; gap: 0.35rem; }
+.dc-label { display: flex; align-items: center; min-height: var(--h-sm); font-size: var(--fs-sm); font-weight: 500; }
+.dc-value { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.4rem; min-width: 0; font-size: var(--fs-sm); }
+.dc-hint { flex-basis: 100%; margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+.dc > .dc-hint { margin: 0.4rem 0 0.9rem; font-size: var(--fs-sm); }
+.dc-tag { display: inline-flex; align-items: center; height: var(--h-sm); padding: 0 0.6rem; font-weight: 600;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); }
+/* a value to copy: a box, its copy button inside at the right end (a tick once copied) */
+.copy-value { display: inline-flex; align-items: stretch; max-width: 100%; min-height: var(--h-sm); padding-left: 0.6rem; font-size: var(--fs-sm);
+  background: var(--track); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.copy-value > span { align-self: center; min-width: 0; padding: 0.2rem 0; overflow-wrap: anywhere; }
+.icon-copy { flex: none; width: var(--h-sm); height: auto; padding: 0; color: var(--muted); background: none; border: 0; }
+.icon-copy:hover { color: var(--accent); background: none; }
+.icon-copy .icon + .icon, .icon-copy.copied .icon:first-child { display: none; }
+.icon-copy.copied .icon + .icon { display: inline; color: var(--ok); }
 .dc-more { margin-top: 0.75rem; }
 .dc-more summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 500; color: var(--muted); }
 .dc-more .dc-fields { margin-top: 0.4rem; }
-.dc-copy { flex: none; padding: 0.15rem 0.5rem; font-size: var(--fs-xs); }
-.dc h3 { margin: 1rem 0 0.4rem; font-size: var(--fs-md); }
-.dc .dc-tracks + p { margin: 0.3rem 0 0.75rem; }
+.dc h3 { margin: 1.1rem 0 0.4rem; font-size: var(--fs-md); }
 .dc-tracks td { vertical-align: top; }
+.dc-tracks td:first-child { line-height: var(--h-sm); }
+.dc:focus { outline: none; }
 .dc .dialog-actions { align-items: center; flex-wrap: wrap; }
 .dc .dc-link:first-child { margin-right: auto; }
 @media (max-width: 640px) {

@@ -256,7 +256,8 @@
       const r = dialog.getBoundingClientRect();  // (the dialog's own padding is the dialog too: only outside it)
       if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
     });
-    // copy buttons (data-copy="#id"): the clipboard API needs https; on plain http select and copy
+    // copy buttons (data-copy="#id"): the clipboard API needs https; on plain http select and copy. A button
+    // with an icon (.icon-copy) shows a tick, one with words says it
     document.addEventListener("click", async (ev) => {
       const b = ev.target.closest("[data-copy]");
       if (!b) return;
@@ -264,7 +265,17 @@
       const text = field.value ?? field.textContent;
       let done = false;
       try { await navigator.clipboard.writeText(text); done = true; } catch (e) {}
-      if (!done) { field.select?.(); try { done = document.execCommand("copy"); } catch (e) {} }
+      if (!done) {
+        if (field.select) field.select();
+        else getSelection().selectAllChildren(field);
+        try { done = document.execCommand("copy"); } catch (e) {}
+      }
+      if (b.matches(".icon-copy")) {
+        b.classList.toggle("copied", done);
+        b.title = done ? "Copied" : "Select and copy";
+        setTimeout(() => { b.classList.remove("copied"); b.title = "Copy"; }, 2000);
+        return;
+      }
       b.textContent = done ? "Copied" : "Select and copy";
       setTimeout(() => (b.textContent = "Copy"), 2000);
     });
