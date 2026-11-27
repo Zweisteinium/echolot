@@ -32,7 +32,7 @@ def _get(path: str, params: dict[str, Any]) -> Any:
         with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=TIMEOUT) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        if e.code in (400, 404):  # none, or a question LRCLIB does not take: that song's answer, not a failure
             return None
         raise LrclibError(f"LRCLIB: HTTP {e.code}") from e
     except (OSError, ValueError, http.client.HTTPException) as e:  # (a cut connection: IncompleteRead)
@@ -44,11 +44,24 @@ def _get(path: str, params: dict[str, Any]) -> Any:
 def get(artist: str, title: str, album: str | None, length: float) -> dict[str, Any] | None:
     """The entry of this artist, title (and album) of this length within 2 s; None if LRCLIB has none."""
     params = {"artist_name": artist, "track_name": title, "album_name": album, "duration": round(length)}
-    found = _get("get", params)
-    return found if isinstance(found, dict) and found.get("id") else None
+    return _entry(_get("get", params))
 
 
 def search(artist: str, title: str) -> list[dict[str, Any]]:
     """The entries of a title by an artist (any length, any album), as LRCLIB ranks them."""
     found = _get("search", {"artist_name": artist, "track_name": title})
-    return [e for e in found or [] if isinstance(e, dict) and e.get("id")]
+    return [entry for e in found if (entry := _entry(e))] if isinstance(found, list) else []
+
+
+TEXTS = ("trackName", "artistName", "albumName", "plainLyrics", "syncedLyrics")  # each a string or null
+
+
+def _entry(found: Any) -> dict[str, Any] | None:
+    """An entry as LRCLIB's API describes it (an id, a length in seconds, its names and lyrics as text), else
+    None: an answer of another shape is none."""
+    if not isinstance(found, dict) or not found.get("id"):
+        return None
+    length = found.get("duration")
+    if not isinstance(length, (int, float)) or isinstance(length, bool):
+        return None
+    return found if all(isinstance(found.get(k), (str, type(None))) for k in TEXTS) else None

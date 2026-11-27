@@ -125,7 +125,8 @@ CREATE TABLE song_releases (       -- a song's own release on Spotify (jobs/cove
 CREATE TABLE lyrics (               -- the library files' lyrics (jobs/lyrics)
     path TEXT PRIMARY KEY,          -- files.path
     song_key TEXT NOT NULL,         -- the song they were looked up as
-    state TEXT NOT NULL,            -- synced, plain, instrumental (from LRCLIB), own (the file had some), none, unreadable
+    state TEXT NOT NULL,            -- synced, plain, instrumental (from LRCLIB), own (the file had some), none, unreadable,
+                                    -- failed (LRCLIB failed: asked again the next day)
     source TEXT NOT NULL DEFAULT '',-- lrclib:<entry id>
     size INTEGER NOT NULL,          -- the file's size and mtime then (changed since: looked at again)
     mtime INTEGER NOT NULL,

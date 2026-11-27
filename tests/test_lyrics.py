@@ -104,6 +104,8 @@ def test_lyrics_are_asked_by_the_songs_names_then_searched(monkeypatch: pytest.M
         ("Radiohead", "Creep", None),  # the first artist and the title without what the release adds
     ]
     assert lyrics.find(SONG | {"title": "Creep (Mixed)"}, 239.0) is None  # a DJ-mix cut: not asked
+    asked.clear()
+    assert lyrics.find(SONG, 6455.0) is None and asked == []  # a DJ set (LRCLIB takes up to an hour): not asked
 
 
 @pytest.mark.parametrize("ext", ["flac", "mp3", "m4a", "opus"])
@@ -256,9 +258,13 @@ def test_a_new_file_waits_and_lrclib_failing_ends_the_run(library: Settings, mon
 
     monkeypatch.setattr(lyrics, "find", down)
     message, run = run_job(library)
-    assert message == "1 LRCLIB failed" and not run.handled  # not noted: tried again next run
+    assert message == "1 LRCLIB failed" and not run.handled
     con = db.connect(library.db_path)
-    assert not con.execute("SELECT 1 FROM lyrics").fetchone()
+    assert con.execute("SELECT state FROM lyrics").fetchone()[0] == "failed"
+    assert job.due(con) == []  # not again today: a file LRCLIB fails on can't hold up the others run after run
+    with con:
+        con.execute("UPDATE lyrics SET checked = '2000-01-01'")
+    assert [r["path"] for r in job.due(con)] == ["Artist A/Artist A - First Song.mp3"]  # the next day
     con.close()
 
 
@@ -347,6 +353,35 @@ def test_a_cut_connection_is_lrclib_failing(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(lrclib, "SPACING", 0)
     with pytest.raises(lrclib.LrclibError):
         lrclib.search("Radiohead", "Creep")
+
+
+def test_a_question_lrclib_does_not_take_is_no_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 400 (LRCLIB's checks: a duration over an hour) is that song's answer, not LRCLIB failing: three of them
+    in a row ended every run before."""
+    import urllib.error
+
+    def rejected(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 400, "Bad Request", {}, None)
+
+    monkeypatch.setattr(lrclib.urllib.request, "urlopen", rejected)
+    monkeypatch.setattr(lrclib, "SPACING", 0)
+    assert lrclib.get("DJ", "Live Set", None, 4000) is None and lrclib.search("DJ", "Live Set") == []
+
+
+def test_an_answer_of_another_shape_is_no_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only entries as LRCLIB's API describes them count: an id, a length in seconds, names and lyrics as
+    text or null. Anything else is no entry, never a crash in the job."""
+    good = {"id": 7, "duration": 239.0, "trackName": "Creep", "artistName": "Radiohead", "syncedLyrics": None}
+    odd = [None, "error", [], {"id": 0, "duration": 239.0}, good | {"duration": "239"}, good | {"duration": True}]
+    odd += [good | {"trackName": 5}, good | {"plainLyrics": ["a"]}, {"duration": 239.0}]
+    answers = iter([*odd, good])
+    monkeypatch.setattr(lrclib, "_get", lambda path, params: next(answers))
+    assert [lrclib.get("Radiohead", "Creep", None, 239) for _ in odd] == [None] * len(odd)
+    assert lrclib.get("Radiohead", "Creep", None, 239) == good
+    monkeypatch.setattr(lrclib, "_get", lambda path, params: [*odd, good])
+    assert lrclib.search("Radiohead", "Creep") == [good]
+    monkeypatch.setattr(lrclib, "_get", lambda path, params: {"message": "oops"})
+    assert lrclib.search("Radiohead", "Creep") == []
 
 
 def test_a_full_disk_ends_the_run_and_marks_nothing(library: Settings, monkeypatch: pytest.MonkeyPatch) -> None:

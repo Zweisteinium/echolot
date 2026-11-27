@@ -20,6 +20,7 @@ from echolot.library import rules
 from echolot.services import lrclib
 
 LENGTH = 2.0  # s: an entry further from the file's length is of another recording (LRCLIB's own tolerance)
+LONGEST = 3600  # s: LRCLIB's limit (a longer file is a DJ set: no lyrics of its own)
 _STAMP = re.compile(r"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
 _CREDIT = re.compile(r"\s*[,;/&]\s*|\s+(?:x|feat\.?|ft\.?|featuring|with|vs\.?|and|und|y|e|et)\s+", re.I)
 _FEAT = re.compile(r"\s*[,;/]\s*|\s+(?:x|feat\.?|ft\.?|featuring|with|vs\.?)\s+", re.I)  # "&" kept: one name
@@ -38,7 +39,7 @@ class Lyrics:
 def find(song: Mapping[str, Any], length: float, album: str | None = None) -> Lyrics | None:
     """The song's lyrics for a file of `length` seconds (`song`: a songs row; `album`: its own release's, else
     the list's); None if LRCLIB has none that surely are (fits). Raises LrclibError when LRCLIB fails."""
-    if not length or rules.mix_cut(song["title"]):  # a cut from a DJ mix has no lyrics of its own length
+    if not length or length > LONGEST or rules.mix_cut(song["title"]):  # a DJ set, or a cut from a DJ mix
         return None
     artists = json.loads(song["artists"] or "[]") or [song["artist"]]
     credit, title = ", ".join(artists), song["title"]

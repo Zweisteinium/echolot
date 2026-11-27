@@ -2,7 +2,8 @@
 surely are its own, embedded where Navidrome and other players read them (synced ones as LRC lines). A file
 with lyrics of its own keeps them. One LRCLIB has none for is asked again after AGAIN (LRCLIB grows); a file
 changed in the last QUIET seconds waits (it may be being filed or tagged); one that changes later is looked
-at again. The newest files first, at most PER_RUN a run; LRCLIB failing FAILURES times in a row ends it."""
+at again. The newest files first, at most PER_RUN a run; LRCLIB failing FAILURES times in a row ends it. A
+file LRCLIB failed on is asked again the next day, so it can't hold up the others run after run."""
 
 import datetime
 import sqlite3
@@ -74,9 +75,9 @@ def due(con: sqlite3.Connection) -> list[sqlite3.Row]:
         "FROM files f JOIN songs s ON s.file = f.path LEFT JOIN song_releases r ON r.song_key = s.key "
         "LEFT JOIN lyrics l ON l.path = f.path "
         f"WHERE ({kinds}) AND s.service != ? AND f.duration > 0 AND NOT s.close_match AND (l.path IS NULL "
-        "OR l.size != f.size OR l.mtime != f.mtime OR (l.state IN ('none', 'unreadable') AND l.checked < ?)) "
-        "ORDER BY f.mtime DESC, s.service != 'spotify', s.key",
-        (catalog.LOCAL, again),
+        "OR l.size != f.size OR l.mtime != f.mtime OR (l.state IN ('none', 'unreadable') AND l.checked < ?) "
+        "OR (l.state = 'failed' AND l.checked < ?)) ORDER BY f.mtime DESC, s.service != 'spotify', s.key",
+        (catalog.LOCAL, again, datetime.date.today().isoformat()),
     ).fetchall()
     seen: set[str] = set()
     return [r for r in rows if not (r["path"] in seen or seen.add(r["path"]))]
@@ -102,6 +103,7 @@ def _one(run: "Run", con: sqlite3.Connection, row: sqlite3.Row) -> str:
     try:
         found = lyrics.find(row, row["duration"], row["own_album"])
     except lrclib.LrclibError:
+        _note(con, row, "failed", "", now)  # asked again tomorrow (due)
         return "failed"
     if found is None or found.kind == "instrumental":
         _note(con, row, found.kind if found else "none", found.source if found else "", now)
