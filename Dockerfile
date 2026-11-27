@@ -3,18 +3,15 @@ FROM python:3.13-slim AS build
 COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
-# Dependencies first, so code changes don't reinstall them.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
 COPY README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
-# An audio-only ffmpeg: Debian's pulls in ~450 MB of video and GPU libraries. Echolot needs the audio
-# decoders, FLAC, soxr resampling and the chromaprint muxer (the audio check); yt-dlp remuxes, tags and
-# may convert to MP3. Same versions as Debian 13 (ffmpeg 7.1.5, chromaprint 1.5.1 with kissfft), so the
-# fingerprints and the resampling stay the same. Shared libraries: ffmpeg and ffprobe use one copy.
-# Rebuilt only when this stage changes.
+# An audio-only ffmpeg. Debian's package pulls in about 450 MB of video and GPU libraries.
+# The versions match Debian 13 (ffmpeg 7.1.5, chromaprint 1.5.1 with kissfft), so fingerprints and
+# resampling come out the same.
 FROM python:3.13-slim AS ffmpeg
 ARG FFMPEG_VERSION=7.1.5 \
     FFMPEG_SHA256=de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f \
@@ -31,7 +28,7 @@ RUN curl -fsSL --retry 3 --retry-all-errors --connect-timeout 30 -o chromaprint.
     && cmake -S "chromaprint-${CHROMAPRINT_VERSION}" -B chromaprint-build -DCMAKE_BUILD_TYPE=Release \
        -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_TOOLS=OFF -DBUILD_TESTS=OFF -DFFT_LIB=kissfft \
     && cmake --build chromaprint-build -j "$(nproc)" && cmake --install chromaprint-build
-# ffmpeg.org drops connections from CI runners at times: retried, then Debian's copy (the same tarball, same checksum)
+# ffmpeg.org sometimes drops CI runners. Debian has the same tarball.
 RUN for url in "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
         "https://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_${FFMPEG_VERSION}.orig.tar.xz"; do \
       curl -fsSL --retry 3 --retry-all-errors --connect-timeout 30 -o ffmpeg.tar.xz "$url" \
@@ -42,8 +39,7 @@ RUN for url in "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
        --enable-chromaprint --enable-libsoxr --enable-libmp3lame --enable-openssl --enable-zlib --enable-iconv \
     && make -j "$(nproc)" && make install
 
-# lossprint (MIT, github.com/maxdjohnson/lossprint): the second lossy check, a CNN on spectrograms (audio.lossprint).
-# The release binary, pinned by its checksum; its model is built in.
+# lossprint (github.com/maxdjohnson/lossprint) is the second check for lossy audio, a CNN on spectrograms.
 FROM python:3.13-slim AS lossprint
 ARG TARGETARCH LOSSPRINT_VERSION=1.1 \
     LOSSPRINT_SHA256_AMD64=7111af755c74be04400386047afb9e5e7b386d87f6de3f9c906992e34d96eba7 \
@@ -65,8 +61,7 @@ LABEL org.opencontainers.image.title="Echolot" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
       org.opencontainers.image.version="${ECHOLOT_VERSION}" \
       org.opencontainers.image.revision="${ECHOLOT_COMMIT}"
-# the audio-only ffmpeg's libraries; QuickJS: yt-dlp's JavaScript runtime for YouTube (Debian's node is
-# older than yt-dlp supports); curl: Bandcamp's pages (services/bandcamp)
+# QuickJS runs YouTube's JavaScript for yt-dlp, Debian's Node is too old for it. curl fetches Bandcamp pages.
 RUN apt-get update && apt-get install -y --no-install-recommends libsoxr0 libmp3lame0 quickjs ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffprobe /usr/local/bin/

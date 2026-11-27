@@ -5,11 +5,12 @@
   </picture>
 </p>
 
-Echolot turns your playlists and likes on Spotify, SoundCloud and YouTube into an eternal music archive on
-your own server. Every song as the right recording, in the best quality it can find.
+Echolot turns your playlists and likes on Spotify and SoundCloud, and your YouTube playlists, into an eternal
+music archive on your own server. Every song as the right recording, in the best quality it can find.
 
 It is made for people who want a clean library they can rely on. Echolot would rather leave a song missing
-than file a wrong one, a fake FLAC or a broken file.
+than file a wrong recording or a broken file. Lossy copies, fake FLACs included, are labelled as what they
+are and replaced once a genuine FLAC turns up.
 
 <p align="center">
   <img src="docs/echolot.webp" alt="Echolot: the library's growth and quality, the quality of each list, a list's songs with their files, three files uploaded and checked, a download to review, the jobs at work" width="100%">
@@ -23,9 +24,10 @@ than file a wrong one, a fake FLAC or a broken file.
   Bandcamp and Hypeddit, takes files you upload, and can record songs from Spotify with
   [Mitschnitt](https://github.com/Zweisteinium/mitschnitt).
 - **Checks every file.** Artist, title, version and length have to match, and the audio is compared with the
-  official release. Fake FLACs and damaged files are caught. When Echolot is unsure, you decide on the Review
-  page.
-- **Gets better over time.** A lossy copy is replaced as soon as a genuine FLAC turns up.
+  official release. Damaged files are rejected, fake FLACs are recognised as lossy. When Echolot is unsure,
+  you decide on the Review page.
+- **Gets better over time.** Lossy songs keep being searched for FLAC. A genuine FLAC replaces the lossy
+  copy.
 - **Keeps what disappears.** Songs taken down on Spotify or SoundCloud stay in your library.
 - **Plays everywhere.** Every list becomes a playlist in [Navidrome](https://www.navidrome.org), with your likes
   and the lyrics, for each user. Any Subsonic app plays it on your phone or computer.
@@ -38,7 +40,8 @@ know, Echolot covers everyday listening.
 You need:
 
 - Docker with Compose.
-- Room for the music: a song in FLAC takes about 30 MB, so 10,000 songs take about 300 GB.
+- A music folder that belongs to you, with room: a song in FLAC takes about 30 MB, so 10,000 songs take
+  about 300 GB.
 - For Spotify lists, one Premium account to create Echolot's Spotify app with. Up to five people can use it.
 
 Navidrome comes with it, or use your own. Everyone logs in to Echolot with their Navidrome account.
@@ -54,7 +57,8 @@ docker compose up -d
 ```
 
 Create the first account in Navidrome at `http://<host>:4533`, then log in to Echolot at `http://<host>:8490`
-with it.
+with it. Echolot asks to use that account to give each playlist to its user, and it creates a Soulseek
+account by itself.
 
 > **Status:** beta. Echolot runs every day on a library of over 15,000 songs. Expect the odd rough edge until 1.0.
 
@@ -68,9 +72,9 @@ development.
 | Feature | What it does |
 |---|---|
 | Review | Doubtful downloads with a player and the reason, answered with a click or a key. |
-| Missing | The songs not found yet, and those that seem wiped off the internet. A file you upload goes through the same checks. |
-| Unreleased music | A friend's songs or an edit deleted everywhere, kept exactly as uploaded, in lists of their own. |
-| Buy | Lossy SoundCloud songs whose page links to Bandcamp, with the price. Free downloads come in by themselves. |
+| Missing | The songs not found yet, and those that seem wiped off the internet. Upload a file for one and see how it checks out before you import it. |
+| Unreleased music | A friend's songs or an edit deleted everywhere, the audio untouched, in lists of their own. |
+| Buy | Lossy SoundCloud songs whose page links to Bandcamp, with the price. Free Bandcamp downloads come in by themselves, Hypeddit ones with one click. |
 | Lyrics | From [LRCLIB](https://lrclib.net), synced where available, only when they surely belong to the song. |
 | Statistics | Growth over time and quality by file, song and list. Prometheus metrics and an API. |
 | Users | Everyone logs in with their Navidrome account and gets their own lists, playlists and likes. |
@@ -86,6 +90,18 @@ development.
 If you are after discovery and album management, [SoulSync](https://github.com/Nezreka/SoulSync) does much of
 what Echolot does and more. The two run fine side by side.
 
+## Roadmap
+
+| Status | Plan | |
+|---|---|---|
+| In progress | Genre and BPM from the audio | Tags are often missing or wrong, Spotify's too. A genre that just says "Music" helps nobody. A custom pipeline on the audio models MAEST and EffNet works them out from the sound itself. Its benchmark, genre-bench, is private, access on request. |
+| Next | Existing libraries | A good way to bring a library you already have, read-only beside Echolot or fully managed by it. |
+| Next | More lyrics | Coverage is still quite low. |
+| Later | More platforms | YouTube Music, Apple Music, Tidal and Deezer. |
+| Later | More music servers | Navidrome fits this stack best. Plex or Jellyfin would need a lot of compatibility work. |
+
+Later comes sooner if someone asks nicely.
+
 ## Accounts
 
 **Spotify.** One person creates a developer app with a Premium account. It is free and takes two minutes,
@@ -96,8 +112,9 @@ Playlists by other people may be withheld by Spotify. Copy their songs into a pl
 Spotify's [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes) for the
 limits.
 
-**SoundCloud.** SoundCloud hands out no app keys, so Echolot uses your browser's login token. The Playlists
-page shows where to find it. After you log out of SoundCloud in that browser, paste a new one.
+**SoundCloud.** SoundCloud hands out no app keys, so Echolot uses two cookies of a browser login. The
+Playlists page shows where to find them. Log in from a private window and close it without logging out.
+Echolot then renews the login every day.
 
 **YouTube.** Nothing to connect. Follow a playlist by its link.
 
@@ -117,7 +134,8 @@ first admin's, and Echolot then hands each one to its user. It never touches pla
 For the hearts, Navidrome has to let Echolot act as each user. Set `ND_EXTAUTH_USERHEADER=X-Echolot-User`
 and `ND_EXTAUTH_TRUSTEDSOURCES` to Echolot's address as Navidrome sees it, and nothing else. Never trust
 the address of a reverse proxy or a Docker gateway there, because other people's requests come from it
-too. The bundled `compose.yaml` does this with a network of their own and Echolot at a fixed address.
+too. Put both on a Docker network of their own with Echolot at a fixed address, as the bundled
+`compose.yaml` does.
 
 Songs you already have in your own library will show up twice.
 </details>
@@ -192,12 +210,14 @@ Playlists page shows where.
    straight from SoundCloud.
 3. **Fallback.** What Soulseek doesn't have is searched on YouTube, the official audio first, then on
    SoundCloud. Songs found nowhere are tried again regularly, with looser terms after a few misses.
-4. **Check.** Each download is repaired and normalised. WAV, AIFF and ALAC become FLAC with the very same
-   samples. Then it is checked for being made from a lossy file, with a spectrum check and
+4. **Check.** Each download is repaired where needed. WAV, AIFF and ALAC become FLAC with the very same
+   samples. FLAC above 48 kHz becomes 44.1 or 48 kHz at 24 bit, unless Server settings keeps hi-res. Then
+   it is checked for being made from a lossy file, with a spectrum check and
    [lossprint](https://github.com/maxdjohnson/lossprint), and identified by name and by sound.
 5. **File.** Into `tracks/<Artist>/`, tagged as the song in your list.
 6. **Upgrade.** Lossy songs are searched again for FLAC, the longest waiting first. A new copy replaces the
-   old one only if it is the same recording. A file that is the artist's own release stays, even as an MP3.
+   old one only if it is the same recording. A file from the artist's own free download or shop stays, even
+   as an MP3.
 7. **Keep.** Once a day, every song is checked at its source. Whatever was taken down stays in the archive.
 8. **Playlists.** One `.m3u` per list, in list order, with its cover, in `playlists/<user>/`.
 
@@ -213,8 +233,8 @@ Playlists page shows where.
   another song's length, was marked wrong before, or doesn't name the artist as a name of its own ("HK",
   not "HK Gruber").
 - **After a download:** an exact match is filed. A probable one, the core title with the length within
-  3 s, is filed too and listed on the Review page to confirm, unless all it adds is noise. The rest is
-  rejected, and near misses wait for review.
+  3 s (6 s from YouTube and SoundCloud), is filed too and listed on the Review page to confirm, unless all
+  it adds is noise. The rest is rejected, and near misses wait for review.
 - **The sound:** from 0.8 of the fingerprint in common with the release's preview, a download is the
   recording. Up to 0.7 it is another one, which sends even an exact name to review. A file tagged with the
   song's ISRC counts as the recording.
@@ -222,9 +242,11 @@ Playlists page shows where.
 
 ## Configuration
 
-Nearly everything lives in the web app: the schedule, Soulseek and access under **Server settings**, and
-`echolot.yml` with all lists and settings in one file, for a backup or a second install. `.env` only has
-the basics:
+Echolot works out of the box, and every setting has a sensible default. Nearly all of them can be changed
+in the web app under **Server settings**: each job's schedule, the Soulseek client and how many songs it
+fetches at once, whether hi-res FLAC stays, logins and access. `echolot.yml` holds all lists and settings
+in one file, for a second install. It holds no passwords or tokens, so back up `data/` as well. `.env` only
+has the basics:
 
 | Variable | Default | |
 |---|---|---|
@@ -239,7 +261,7 @@ the basics:
 <details>
 <summary><b>What the Echolot container reads</b></summary>
 
-`compose.yaml` sets the first ones for you.
+`compose.yaml` sets the first ones for you. Set others under the `echolot` service's `environment:` there.
 
 | Variable | Default | |
 |---|---|---|
@@ -247,10 +269,10 @@ the basics:
 | `ECHOLOT_DAEMON_DIR` | `/daemon` | where Echolot writes the Soulseek daemon's login |
 | `ECHOLOT_NAVIDROME_URL` | `http://navidrome:4533` | Navidrome's address, unless Server settings has another |
 | `ECHOLOT_DATA_DIR` | `/data` | the database and Echolot's own files |
-| `ECHOLOT_SECRET_KEY`, `ECHOLOT_SECRET_KEY_FILE` | | the key for stored passwords and tokens. Without one, `data/secret.key` is made, so a copy of `data/` holds both. |
+| `ECHOLOT_SECRET_KEY`, `ECHOLOT_SECRET_KEY_FILE` | | the key for stored passwords and tokens. Without one, Echolot creates `secret.key` in its data folder, so a backup of `data/` holds both. Set it before the first start: a new key can't read what the old one stored. |
 | `ECHOLOT_WORKER` | `on` | `off` runs no jobs, for a test copy |
 | `ECHOLOT_LOSSPRINT` | `on` | `on`: lossprint and the spectrum check decide together on every FLAC. `off`: the spectrum check alone. |
-| `ECHOLOT_HOST`, `ECHOLOT_PORT` | `0.0.0.0`, `8490` | where it listens inside the container |
+| `ECHOLOT_HOST`, `ECHOLOT_PORT` | `0.0.0.0`, `8490` | where it listens inside the container. `ECHOLOT_PORT` in `.env` is the host's port. |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | the reverse proxy whose `X-Forwarded-*` headers count |
 </details>
 
@@ -296,8 +318,8 @@ docker compose up -d
 
 ## API and metrics
 
-Scripts use an API token from **Your account**: `Authorization: Bearer <token>`. `/api/docs` lists every
-endpoint.
+Scripts use an admin's API token from **Your account**: `Authorization: Bearer <token>`. `/api/docs`
+describes the API.
 
 | Endpoint | Returns |
 |---|---|
@@ -330,7 +352,8 @@ The audio tests need ffmpeg, like the image. `echolot serve` listens on http://1
 | `jobs/` | the worker and its schedule, finding songs, reading lists |
 | `web/` | the pages and the API |
 
-CI tests every push and builds the image for amd64 and arm64. A new version in `pyproject.toml` and
+CI tests every push that changes code, and builds the image for amd64 and arm64 when what goes into it
+changed. A new version in `pyproject.toml` and
 `deploy/compose.yaml` (a test checks both) is released when it lands on `main`. CI then tags it, publishes
 the release and pushes `lordlayer/echolot` to Docker Hub for both platforms. The Sockseek daemon's image
 (`deploy/sockseek`, `lordlayer/echolot-sockseek`) is built from a tested Sockseek commit and pushed from `main`
@@ -351,4 +374,4 @@ the terms of those services and the law where you live. Echolot does not break c
 
 ## License
 
-[GNU AGPL v3](LICENSE)
+[GNU AGPL v3 or later](LICENSE)

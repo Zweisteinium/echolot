@@ -1,6 +1,6 @@
-# The Sockseek daemon as Echolot runs it: Sockseek (github.com/fiso64/sockseek) built from a tested commit, plus
-# run.sh, which restarts it when Echolot writes a new login. CI publishes it as lordlayer/echolot-sockseek:<TAG>
-# (.github/workflows/sockseek.yml) and never replaces a published tag: a change here or in run.sh needs a new TAG.
+# Sockseek (github.com/fiso64/sockseek) from a tested commit, with run.sh, which restarts the daemon when
+# Echolot writes a new login. CI publishes it as lordlayer/echolot-sockseek:<TAG> and never replaces a
+# published tag, so a change here or in run.sh needs a new TAG.
 ARG SOCKSEEK_COMMIT=febfba1fe6125a768c99dd883e477863cee07fbf
 ARG TAG=febfba1-2
 

@@ -2,11 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, dev, "feat/**", "feature/**", "fix/**"] # releases come from main only (job meta)
+    branches: [main, dev, "feat/**", "feature/**", "fix/**"]
+    paths-ignore: ["**.md", "docs/**", LICENSE, .gitignore]
   pull_request:
-  workflow_dispatch: # a branch's image on both platforms, without a release
+    paths-ignore: ["**.md", "docs/**", LICENSE, .gitignore]
+  workflow_dispatch: # builds a branch's images without releasing them
 
-concurrency: # a newer push supersedes a branch's running check; main runs every commit (releases)
+concurrency: # a newer push cancels the running check, except on main, where every commit may release
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
@@ -14,14 +16,14 @@ permissions:
   contents: read
 
 env:
-  IMAGE: lordlayer/echolot # Docker Hub; pushed for a release only (secret DOCKERHUB_TOKEN)
+  IMAGE: lordlayer/echolot # pushed to Docker Hub only for a release
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3 # no floating major tag upstream
+      - uses: astral-sh/setup-uv@v10.3.3 # pinned exactly, setup-uv has no major version tag
         with:
           enable-cache: true
       - run: uv sync --locked
@@ -30,11 +32,13 @@ jobs:
       - run: uv run pytest
 
   meta:
-    # the version in pyproject.toml, and whether this push releases it (on main, no tag for it yet)
+    # A push to main releases the version in pyproject.toml if it has no tag yet.
+    # The images build only when their inputs changed, and always for a release, a run by hand or a new branch.
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.release.outputs.release }}
+      image: ${{ steps.image.outputs.image }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,11 +53,24 @@ jobs:
           else
             echo "release=false" >> "$GITHUB_OUTPUT"
           fi
+      - id: image
+        env:
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          RELEASE: ${{ steps.release.outputs.release }}
+        run: |
+          inputs='^(src/|pyproject\.toml$|uv\.lock$|Dockerfile$|\.dockerignore$|tools/smoke\.py$|\.github/workflows/ci\.yml$)'
+          image=true
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ "$RELEASE" != true ] \
+             && git cat-file -e "$BEFORE^{commit}" 2>/dev/null && ! git diff --name-only "$BEFORE" HEAD | grep -qE "$inputs"; then
+            image=false
+          fi
+          echo "image=$image" >> "$GITHUB_OUTPUT"
 
   image:
-    # built and tested on each platform natively (no emulation: the ffmpeg stage compiles); a release
-    # pushes each platform's image by digest, the release job joins them under the version's tags
+    # Each platform builds natively, since the ffmpeg stage compiles from source.
+    # A release pushes each image by digest and the release job tags them together.
     needs: meta
+    if: needs.meta.outputs.image == 'true'
     strategy:
       matrix:
         include:
@@ -74,7 +91,7 @@ jobs:
           build-args: |
             ECHOLOT_VERSION=${{ needs.meta.outputs.version }}
             ECHOLOT_COMMIT=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.arch }} # the ffmpeg stage takes minutes to build; cached it takes seconds
+          cache-from: type=gha,scope=${{ matrix.arch }} # spares the ffmpeg build, which takes minutes
           cache-to: type=gha,scope=${{ matrix.arch }},mode=max
       - name: Smoke test
         run: docker run --rm -v "$PWD/tools:/tools:ro" echolot:ci python /tools/smoke.py
@@ -98,7 +115,7 @@ jobs:
           build-args: |
             ECHOLOT_VERSION=${{ needs.meta.outputs.version }}
             ECHOLOT_COMMIT=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.arch }} # the image just tested, from the cache
+          cache-from: type=gha,scope=${{ matrix.arch }} # the image just tested
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
       - if: needs.meta.outputs.release == 'true'
         run: mkdir -p digests && touch "digests/${DIGEST#sha256:}"
@@ -112,8 +129,7 @@ jobs:
           retention-days: 1
 
   release:
-    # a version in pyproject.toml without its tag yet: the images under <version>, <major.minor> and
-    # latest, then the tag on the tested commit and the release notes
+    # Tags the images as <version>, <major.minor> and latest, then the commit, and writes the release notes.
     needs: [test, meta, image]
     if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-latest

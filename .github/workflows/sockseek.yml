@@ -1,7 +1,7 @@
 name: Sockseek image
 
-# The Sockseek daemon of deploy/compose.yaml (deploy/sockseek): built and tested on every change, pushed to
-# Docker Hub from main or by hand (Run workflow) under the TAG in its Dockerfile, once: a published tag stays.
+# The Sockseek image of deploy/sockseek, built and tested on every change. From main or a run by hand it is
+# pushed under the TAG in its Dockerfile, unless that tag exists. A published tag is never replaced.
 on:
   push:
     branches: [main, dev, "feat/**", "fix/**"]
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: lordlayer/echolot-sockseek # (secret DOCKERHUB_TOKEN)
+  IMAGE: lordlayer/echolot-sockseek
 
 jobs:
   image:
@@ -26,7 +26,7 @@ jobs:
           if docker buildx imagetools inspect "$IMAGE:$tag" > /dev/null 2>&1; then
             echo "published=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: docker/setup-qemu-action@v4 # arm64's runtime stage (the .NET build cross-compiles)
+      - uses: docker/setup-qemu-action@v4 # for the arm64 runtime stage, the .NET build cross-compiles
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:

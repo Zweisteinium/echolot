@@ -1,11 +1,8 @@
-# Optional: Soulseek through a VPN. Peer-to-peer clients show their IP address to their peers; this puts
-# the Sockseek daemon into gluetun's network (github.com/qdm12/gluetun-wiki: settings per provider).
-# Echolot stays on the normal network and still reaches the daemon as sockseek:5031.
+# Optional: Soulseek through a VPN, so peers don't see your IP address. The Sockseek daemon joins gluetun's
+# network. Echolot stays outside and still reaches it as sockseek:5031. Turn it on in .env with
+# COMPOSE_FILE=compose.yaml:vpn.yaml. The settings per provider are in github.com/qdm12/gluetun-wiki.
 #
-#   docker compose -f compose.yaml -f vpn.yaml up -d
-#
-# With a provider that forwards a port (ProtonVPN, PIA, ...), gluetun hands it to the daemon, so peers
-# behind a firewall can connect too.
+# With a provider that forwards a port (ProtonVPN, PIA and others), peers behind a firewall can connect too.
 services:
   gluetun:
     image: qmcgaw/gluetun:v3
@@ -20,7 +17,7 @@ services:
       VPN_PORT_FORWARDING_UP_COMMAND: /bin/sh -c "echo {{PORT}} > /daemon/listen-port"
       TZ: ${TZ:-UTC}
     volumes:
-      - ./data/sockseek:/daemon           # the forwarded port for the daemon (run.sh restarts it)
+      - ./data/sockseek:/daemon           # the forwarded port goes here, the daemon restarts with it
     networks:
       default:
         aliases: [sockseek]
@@ -31,4 +28,4 @@ services:
     depends_on:
       gluetun:
         condition: service_healthy
-        restart: true                     # gluetun recreated: this one joins its new network (run.sh: restarted)
+        restart: true                     # follows a recreated gluetun into its new network

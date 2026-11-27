@@ -1,27 +1,26 @@
-# Echolot with everything it needs: the Sockseek daemon (Soulseek) and Navidrome (plays the library).
+# Echolot with the Sockseek daemon for Soulseek and Navidrome to play the library.
 #
 #   cp .env.example .env                  # set MUSIC to your music folder
 #   mkdir -p data/echolot data/sockseek data/navidrome
 #   docker compose up -d
 #
-# Echolot makes tracks/, playlists/ and inbox/ in MUSIC itself (as PUID); the others start after it. Then
-# create Navidrome's admin at http://<this host>:4533 and log in to Echolot at :8490 with it. Soulseek
-# through a VPN: vpn.yaml.
+# Then create Navidrome's admin at http://<this host>:4533 and log in to Echolot at :8490 with it.
+# For Soulseek through a VPN, see vpn.yaml.
 name: echolot
 
 x-user: &user "${PUID:-1000}:${PGID:-1000}"
 
 services:
   echolot:
-    image: lordlayer/echolot:0.16.0        # or build it from this repository: build: ..
+    image: lordlayer/echolot:0.16.0        # or build it from this repository with build: ..
     user: *user
     ports:
       - "${ECHOLOT_PORT:-8490}:8490"
     environment:
       ECHOLOT_LIBRARY_DIR: /music/tracks
       ECHOLOT_DAEMON_DIR: /daemon
-      ECHOLOT_NAVIDROME_URL: ${NAVIDROME_URL:-http://navidrome:4533}  # its accounts log in to Echolot
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}  # a reverse proxy in front: its address
+      ECHOLOT_NAVIDROME_URL: ${NAVIDROME_URL:-http://navidrome:4533}  # its accounts are Echolot's logins
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}  # the address of a reverse proxy in front
       TZ: ${TZ:-UTC}
     volumes:
       - ./data/echolot:/data              # database, settings, encrypted secrets
@@ -33,8 +32,8 @@ services:
         ipv4_address: ${HEARTS_NET:-10.253.53}.2
     restart: unless-stopped
 
-  sockseek:                               # searches and downloads on Soulseek for Echolot (port 5031, not published)
-    image: lordlayer/echolot-sockseek:febfba1-2  # Sockseek 3.0.6, tested. Or build it: build: ./sockseek
+  sockseek:                               # searches and downloads on Soulseek, for Echolot only
+    image: lordlayer/echolot-sockseek:febfba1-2  # Sockseek 3.0.6, or build it with build: ./sockseek
     user: *user
     init: true
     environment:
@@ -44,7 +43,7 @@ services:
       - ${MUSIC}/inbox/soulseek:/music/inbox/soulseek   # the only place it writes
     depends_on:
       echolot:
-        condition: service_healthy        # (Echolot makes the inbox, owned by PUID)
+        condition: service_healthy        # Echolot creates the inbox first, owned by PUID
     restart: unless-stopped
 
   navidrome:                              # plays the library in the browser and in any Subsonic app
@@ -54,24 +53,25 @@ services:
       - "${NAVIDROME_PORT:-4533}:4533"
     environment:
       ND_MUSICFOLDER: /music
-      ND_SCANNER_SCHEDULE: "@every 1h"    # a safety net: its file watcher picks up changes within seconds
-      ND_AUTOIMPORTPLAYLISTS: "true"      # Echolot's playlists (Echolot then gives each to its user)
-      ND_EXTAUTH_TRUSTEDSOURCES: ${HEARTS_NET:-10.253.53}.2/32  # Echolot alone may name a user: it gives
-      ND_EXTAUTH_USERHEADER: X-Echolot-User                    # the liked songs their hearts, as each user
+      ND_SCANNER_SCHEDULE: "@every 1h"    # a fallback, its file watcher sees changes within seconds
+      ND_AUTOIMPORTPLAYLISTS: "true"      # Echolot's playlists, each then given to its user
+      # Only Echolot may act as a user, to heart each user's liked songs
+      ND_EXTAUTH_TRUSTEDSOURCES: ${HEARTS_NET:-10.253.53}.2/32
+      ND_EXTAUTH_USERHEADER: X-Echolot-User
       TZ: ${TZ:-UTC}
     volumes:
       - ./data/navidrome:/data
-      - ${MUSIC}:/music:ro                # tracks/ and playlists/; inbox/ has a .ndignore (skipped)
+      - ${MUSIC}:/music:ro                # inbox/ is skipped, it has a .ndignore
     networks:
       navidrome:
-        ipv4_address: ${HEARTS_NET:-10.253.53}.3  # fixed: .2 is Echolot's
+        ipv4_address: ${HEARTS_NET:-10.253.53}.3
     depends_on:
       echolot:
         condition: service_healthy
     restart: unless-stopped
 
 networks:
-  navidrome:                              # Echolot and Navidrome alone, Echolot at a fixed address
+  navidrome:                              # Echolot and Navidrome only, with fixed addresses
     ipam:
       config:
         - subnet: ${HEARTS_NET:-10.253.53}.0/29
