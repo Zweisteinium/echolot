@@ -1,6 +1,7 @@
 """Covers from your lists (jobs/covers.py, audio.picture and embed_cover): the song's cover replaces the
 uploader's, the old one is backed up, and a run goes on where the last one stopped."""
 
+import datetime
 import os
 import shutil
 import subprocess
@@ -358,15 +359,15 @@ def test_a_spotify_song_gets_its_singles_cover(settings: Settings, lookups: list
     con = db.connect(settings.db_path)
     c = covers.Covers(con, run)
     song = SONG_ROW | {"key": "spotify:t1", "isrc": "ISRC1", "album": "Hits", "length": 200}
-    assert c.of(song) == SONG and lookups == ["u/S"] and Sp.asked == ["isrc:ISRC1"]
-    row = con.execute("SELECT album, released, track, tracks, disc, how FROM song_releases").fetchone()
-    assert tuple(row) == ("S", "2015", 1, 1, 1, "isrc")
+    assert c.of(song) == SONG and lookups == ["u/S"] and Sp.asked == ["isrc:ISRC1", "track t1"]  # (what "Hits" is)
+    row = con.execute("SELECT album, released, track, tracks, disc, how, listed FROM song_releases").fetchone()
+    assert tuple(row) == ("S", "2015", 1, 1, 1, "isrc", "other")  # the list's: not its artist's own
     Sp.isrc, Sp.asked = Sp.isrc[:1], []  # compilations only: by its names
     Sp.names = [_release("album", "2015-03-01", "The Album", isrc="ISRC9", ms=201000)]
     assert (
         c.of(song) == SONG
         and lookups == ["u/S", "u/The Album"]
-        and Sp.asked == ["isrc:ISRC1", "track:Song artist:Artist A"]
+        and Sp.asked == ["isrc:ISRC1", "track:Song artist:Artist A", "track t1"]
     )
     assert con.execute("SELECT album, how FROM song_releases").fetchone()[:] == ("The Album", "names")
     Sp.isrc, Sp.asked = [_release("album", "2016-07-27", "Hits")], []  # the list's own (an album): not by names
@@ -503,3 +504,141 @@ def test_a_larger_copy_of_the_same_picture_stays(tmp_path: Path) -> None:
     assert (covers.width(big), covers.width(small)) == (1200, 640)
     assert covers.keeps(big, small)  # the same picture, smaller: the file keeps its own
     assert not covers.keeps(small, big) and not covers.keeps(big, other) and not covers.keeps(None, small)
+
+
+def test_the_list_release_is_told_apart(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What a song's release as its list has it is beside its own: the same, its artist's own single or album
+    (any year: covers as listed take it), or another (a compilation, another artist's)."""
+    song, single = SONG_ROW, {"id": "s", "name": "S", "image": "u/S"}
+    album = _release("album", "2013-08-23", "THIS IS")["album"]
+    assert covers.listed_kind(album | {"id": "s"}, song, single) == "same"
+    assert covers.listed_kind(album, song, single) == "own"
+    assert covers.listed_kind(_release("single", "2012", "G", "guest")["album"], song, single) == "own"  # (featured)
+    assert covers.listed_kind(_release("compilation", "2019", "Mood Booster")["album"], song, single) == "other"
+    assert covers.listed_kind(_release("album", "2019", "Hits", "Various Artists")["album"], song, single) == "other"
+    assert covers.listed_kind({}, song, single) == "other"  # nothing known of it: not taken
+    copy = {"id": "c", "name": "THIS IS", "image": "u/other copy"}  # another copy Spotify keeps (another market)
+    monkeypatch.setattr(covers, "same_picture", lambda a, b: (a, b) == ("u/THIS IS", "u/other copy"))
+    assert covers.listed_kind(album, song, copy) == "same"  # the same name and picture
+    monkeypatch.setattr(covers, "same_picture", lambda a, b: False)
+    assert covers.listed_kind(album, song, copy) == "own"  # another edition's cover (a clean one)
+
+
+def test_covers_as_listed_take_the_lists_release(settings: Settings, lookups: list[str], monkeypatch) -> None:
+    """Covers as listed (the default): the list's release when it is its artist's own; the original release
+    (its first single) when switched off; a compilation on the list gets the original either way."""
+    from echolot.settings import options
+
+    run = Run(BY_NAME["covers"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+    Sp.isrc = [_release("single", "2012-01-01", "The Single")]
+    listed = {"album": _release("album", "2013-08-23", "The Album")["album"] | {"id": "listed"}}
+    monkeypatch.setattr(Sp, "track", lambda self, sid: self.asked.append(f"track {sid}") or listed)
+    con = db.connect(settings.db_path)
+    song = SONG_ROW | {"key": "spotify:t1", "isrc": "ISRC1", "album": "The Album", "length": 200}
+    assert covers.Covers(con, run).of(song) == SONG and lookups == ["u/The Album"]
+    assert con.execute("SELECT album, listed FROM song_releases").fetchone()[:] == ("The Single", "own")
+    with con:
+        options.put(con, options.Files(covers_as_listed=False))
+    assert covers.Covers(con, run).of(song) == SONG and lookups[-1] == "u/The Single"
+    with con:
+        options.put(con, options.Files(covers_as_listed=True))
+    listed["album"] = _release("compilation", "2019", "Mood Booster")["album"]
+    assert covers.Covers(con, run).of(song) == SONG and lookups[-1] == "u/The Single"
+    con.close()
+
+
+SHARED = "Artist A/Artist A - Song.flac"
+
+
+def _shared(settings: Settings) -> tuple:
+    """One file two songs share: the list's (an album, 2013) and an older single's no list has any more."""
+    con = db.connect(settings.db_path)
+    columns = "key, service, artist, title, album, length, isrc, released, track, tracks, disc, file"
+    songs = [("spotify:t1", "The Album", "2013-08-23", 13), ("spotify:t0", "Song", "2012-01-01", 1)]
+    rows = [
+        (k, "spotify", "Artist A", "Song", album, 200, "ISRC1", date, 1, n, 1, SHARED) for k, album, date, n in songs
+    ]
+    with con:
+        con.executemany(f"INSERT INTO songs ({columns}) VALUES ({', '.join('?' * 12)})", rows)
+        con.execute("INSERT INTO list_songs (list_key, position, song_key) VALUES ('spotify:likes:1', 9, 'spotify:t1')")
+    covers.store(con, "spotify:t1", _release("single", "2012-01-01", "Song"), "isrc", "own")
+    path = settings.library_dir / SHARED
+    path.parent.mkdir(exist_ok=True)
+    shutil.copy(AUDIO / "silence.flac", path)
+    os.utime(path, (time.time() - 3600, time.time() - 3600))
+    catalog.scan(con, settings.library_dir)
+    return con, path
+
+
+def test_a_shared_file_by_the_switch(settings: Settings) -> None:
+    """As listed, a file two songs share carries the one on a list (never one no list has any more) and its
+    list's release; by the original release, the earliest song and its own release. A compilation on the list
+    leaves the original release."""
+    from echolot.settings import options
+
+    con, path = _shared(settings)
+    assert tagging.lead(con, SHARED, listed=True)["key"] == "spotify:t1"
+    assert tagging.lead(con, SHARED, listed=False)["key"] == "spotify:t0"  # the earliest release
+    tags = tagging.for_file(con, SHARED, path)  # (as listed: the default)
+    assert (tags.album, tags.facts["date"], tags.facts["track"]) == ("The Album", "2013-08-23", "1/13")
+    with con:
+        options.put(con, options.Files(covers_as_listed=False))
+    tags = tagging.for_file(con, SHARED, path)
+    assert (tags.album, tags.facts["date"], tags.facts["track"]) == ("Song", "2012-01-01", "1/1")
+    assert covers.switched(con) == [SHARED]  # the only file the switch changes
+    with con:
+        con.execute("UPDATE song_releases SET listed = 'other'")  # the list's release: a compilation
+    assert tagging.release_of(con, tagging.lead(con, SHARED, listed=True), True)["album"] == "Song"
+    con.close()
+
+
+def test_the_switch_covers_only_the_files_it_changes(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A switch (or a library from before it: by the original release) gives only the files it changes their
+    cover and tags, once; switched back, the same files the other way. One not done is tried again an hour
+    after its last try."""
+    from echolot.settings import options
+
+    con, path = _shared(settings)
+    asked: list[str] = []
+    monkeypatch.setattr(covers.Covers, "of", lambda self, song: asked.append(song["key"]) or SONG)
+
+    def resync() -> str:
+        run = Run(BY_NAME["covers_release"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+        run.stop = threading.Event()
+        return covers.resync(run)
+
+    assert covers.resync_due(con) and db.get_meta(con, covers.MODE) == ""  # (a library from before the switch)
+    message = resync()
+    assert asked == ["spotify:t1"] and message.startswith("1 replaced") and "retagged" in message
+    assert audio.picture(path) == SONG and tagging.read(path)["album"] == "The Album"
+    assert db.get_meta(con, covers.MODE) == "listed" and not covers.resync_due(con)
+    assert resync() == "nothing to do" and asked == ["spotify:t1"]
+    with con:
+        options.put(con, options.Files(covers_as_listed=False))
+    os.utime(path, (time.time() - 3600, time.time() - 3600))
+    assert resync().startswith("1 right already") and asked[-1] == "spotify:t0"
+    assert tagging.read(path)["album"] == "Song" and db.get_meta(con, covers.MODE) == "original"
+    with con:
+        db.set_meta(con, covers.MODE, "")  # a switch not done
+        now = datetime.datetime.now().isoformat(timespec="seconds")
+        con.execute(
+            "INSERT INTO jobs (name, started, finished, ok, message) VALUES ('covers_release', ?, ?, 1, '')", (now, now)
+        )
+    assert not covers.resync_due(con)  # tried a moment ago: again in an hour
+    con.close()
+
+
+def test_the_list_releases_not_known_yet_are_looked_up(settings: Settings) -> None:
+    """Songs whose list release is not known yet (before the switch) are looked up, 50 tracks to a request."""
+    from types import SimpleNamespace
+
+    con, _ = _shared(settings)
+    with con:
+        con.execute("UPDATE song_releases SET listed = NULL")
+    asked: list[str] = []
+    album = _release("album", "2013-08-23", "The Album")["album"]
+    sp = SimpleNamespace(get=lambda url: asked.append(url) or {"tracks": [None, {"id": "t1", "album": album}]})
+    assert covers.fill_listed(con, SimpleNamespace(sp=sp)) == 1 and asked == ["/tracks?ids=t1"]
+    assert con.execute("SELECT listed FROM song_releases").fetchone()[0] == "own"
+    assert covers.fill_listed(con, SimpleNamespace(sp=sp)) == 0  # known now
+    con.close()

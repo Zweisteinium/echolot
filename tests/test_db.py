@@ -263,7 +263,7 @@ def test_a_schema_change_backs_the_database_up_first(tmp_path) -> None:
     path = tmp_path / "echolot.db"
     db.init(path)
     con = db.connect(path)
-    con.execute("DROP TABLE lyrics")
+    con.execute("ALTER TABLE song_releases DROP COLUMN listed")  # (the last step)
     con.execute(f"PRAGMA user_version = {db.VERSION - 1}")
     con.close()
     backups = tmp_path / "backups"
@@ -282,7 +282,7 @@ def test_a_schema_change_backs_the_database_up_first(tmp_path) -> None:
     assert (backups / "echolot-hand-made.db").exists() and len(list(backups.glob("echolot-2026*-v40.db"))) == 9
     con = db.connect(path)
     con.execute(f"PRAGMA user_version = {db.VERSION - 1}")
-    con.execute("DROP TABLE lyrics")
+    con.execute("ALTER TABLE song_releases DROP COLUMN listed")  # (the last step)
     con.close()
     db.init(path)
     assert len(list(backups.glob(f"echolot-*-v{db.VERSION - 1}.db"))) == 1  # one this hour already

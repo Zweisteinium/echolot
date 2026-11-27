@@ -75,12 +75,16 @@ JOBS = [
             "goes on after them. Off on the schedule."),
     JobInfo("covers", "Covers from your lists", "pictures", None, 60,
             "Gives files their song's cover. Start it with Add missing.",
-            "New files get their cover when they are filed. This does the rest: the cover of the song's own release "
-            "on Spotify, the SoundCloud artwork, or the YouTube video's picture. Old pictures and tags are kept in "
-            "cover-backups. Off on the schedule."),
+            "New files get their cover when they are filed. This does the rest: on Spotify the cover of the release "
+            "on your lists or the original one (Server settings, Files), the SoundCloud artwork, or the YouTube "
+            "video's picture. Old pictures and tags are kept in cover-backups. Off on the schedule."),
     JobInfo("covers_all", "Covers, all files", "pictures", None, 60,
             "Gives every file its song's cover again. Start it with Replace all.",
             "Like Add missing, for every file. One request per song, so it takes hours. Off on the schedule."),
+    JobInfo("covers_release", "Covers after the switch", "pictures", None, 60,
+            "Gives the files the cover of the release the Covers switch chose.",
+            "Only the files whose cover or album name the switch changes, about one request per song. Old pictures "
+            "and tags are kept in cover-backups.", started_by="the Covers switch in Files"),
     JobInfo("availability", "Availability check", "catalog", ["05:30"], 360,
             "Checks whether your lists' songs still play.",
             "Asks Spotify and SoundCloud about every song, 50 at a time: does it play, as another release, or not at "
@@ -126,6 +130,7 @@ STEPS = {  # each job's short name inside its task
     "library": "",
     "covers": "Add missing",
     "covers_all": "Replace all",
+    "covers_release": "After the switch",
     "availability": "",
     "lossy": "",
     "lyrics": "",
@@ -215,13 +220,13 @@ TASKS = [
         "covers",
         "Covers from your lists",
         "Gives every file its song's cover.",
-        ("covers", "covers_all"),
+        ("covers", "covers_all", "covers_release"),
         (
             ("Add missing", ("covers",), "Files not done yet"),
             ("Replace all", ("covers_all",), "Every file again. Takes hours."),
         ),
         maintenance=True,
-        about="The cover of the song's own release on Spotify, the SoundCloud artwork, or the YouTube video's picture, in place of the uploader's. The old pictures are kept.",
+        about="The cover of the release on your lists or the original one on Spotify (Server settings, Files), the SoundCloud artwork, or the YouTube video's picture, in place of the uploader's. The old pictures are kept.",
         confirm={
             "Replace all": "Check the cover of every file again? This takes hours. Covers that are right already stay."
         },

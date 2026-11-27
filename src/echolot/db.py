@@ -5,7 +5,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-VERSION = 48
+VERSION = 49
 SCHEMA = """
 CREATE TABLE files (                -- audio files in the library
     path TEXT PRIMARY KEY,          -- relative to the library: <Artist>/<Artist> - <Title>.<ext>
@@ -120,7 +120,9 @@ CREATE TABLE song_releases (       -- a song's own release on Spotify (jobs/cove
     disc INTEGER,
     image TEXT NOT NULL,            -- its cover's address
     how TEXT NOT NULL,              -- isrc, or names (no own release under its ISRC: one by its names and length)
-    checked TEXT NOT NULL           -- date
+    checked TEXT NOT NULL,          -- date
+    listed TEXT                     -- the list's release beside it: same, own (its artist's single or album: covers
+                                    -- as listed take that one, options.Files), other (a compilation); NULL: not known
 );
 CREATE TABLE lyrics (               -- the library files' lyrics (jobs/lyrics)
     path TEXT PRIMARY KEY,          -- files.path
@@ -580,6 +582,7 @@ MIGRATIONS = {
         "CREATE TABLE IF NOT EXISTS lyrics (path TEXT PRIMARY KEY, song_key TEXT NOT NULL, state TEXT NOT NULL, "
         "source TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL, mtime INTEGER NOT NULL, checked TEXT NOT NULL)"
     ],
+    49: ["ALTER TABLE song_releases ADD COLUMN listed TEXT"],  # what the list's release is (covers as listed)
 }
 
 

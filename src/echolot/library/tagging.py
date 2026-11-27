@@ -1,6 +1,6 @@
 """A library file's tags come from its song, never its uploader: ARTIST (the artists shown), ARTISTS (listed),
-the album artist (the main one), the title, the album (the song's own release's, as its cover: song_releases;
-else Spotify's; else the file keeps its own), SOURCE (the songs' pages) and DOWNLOAD ("Soulseek" or the page it
+the album artist (the main one), the title, the album (the release its cover is of: release_of, the list's or
+the original; else the file keeps its own), SOURCE (the songs' pages) and DOWNLOAD ("Soulseek" or the page it
 came from). A close match gets the name given in
 review. The comment and the cover stay.
 
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from echolot.library import rules
+from echolot.settings import options
 
 SOURCES = {"soulseek": "Soulseek", "youtube": "YouTube", "soundcloud": "SoundCloud", "manual": "by hand"}
 SOURCES["soundcloud-search"] = "SoundCloud"
@@ -103,23 +104,50 @@ def names(s: sqlite3.Row) -> list[str]:
     return [s["artist"], *json.loads(s["artists"] or "[]")]
 
 
-def _lead(songs: list[sqlite3.Row], rel: str) -> sqlite3.Row:
-    """The song a file's names and cover come from: a close match first, then by service (NAMED), named as the
-    file's folder, with the most artists, of the earliest release (the album before its compilations)."""
+def _lead(songs: list[sqlite3.Row], rel: str, lists: dict[str, int] | None = None) -> sqlite3.Row:
+    """The song a file's names and cover come from: a close match first, then (covers as listed: `lists`, song
+    key -> the lists that have it) one on a list, by service (NAMED), named as the file's folder, on the most
+    lists, with the most artists, of the earliest release (the album before its compilations)."""
     folder = rules.artist_keys(rel.partition("/")[0])
+    on = lists or {}
 
     def order(s: sqlite3.Row) -> tuple:
-        named = bool(rules.artist_keys(s["artist"]) & folder)
-        first = s["released"] or "9999"
-        return not s["close_match"], NAMED.index(s["service"]), not named, -len(names(s)), first, s["key"]
+        named, first, n = bool(rules.artist_keys(s["artist"]) & folder), s["released"] or "9999", on.get(s["key"], 0)
+        unlisted = lists is not None and not n
+        return not s["close_match"], unlisted, NAMED.index(s["service"]), not named, -n, -len(names(s)), first, s["key"]
 
     return sorted(songs, key=order)[0]
 
 
-def lead(con: sqlite3.Connection, rel: str, key: str = "") -> sqlite3.Row | None:
-    """The song whose names and cover a library file carries; None for a file no song has."""
+def lead(con: sqlite3.Connection, rel: str, key: str = "", listed: bool | None = None) -> sqlite3.Row | None:
+    """The song whose names and cover a library file carries; None for a file no song has. `listed`: covers as
+    listed or not (None: the setting)."""
     songs = _songs(con, rel, key)
-    return _lead(songs, rel) if songs else None
+    return _lead(songs, rel, _lists(con, songs, listed)) if songs else None
+
+
+def as_listed(con: sqlite3.Connection) -> bool:
+    """Covers and album tags of the release on the lists (else the original release): options.Files."""
+    return options.get(con, options.Files).covers_as_listed
+
+
+def _lists(con: sqlite3.Connection, songs: list[sqlite3.Row], listed: bool | None) -> dict[str, int] | None:
+    """Covers as listed: song key -> how many lists have it (_lead); None: by the original release."""
+    if not (as_listed(con) if listed is None else listed):
+        return None
+    keys = [s["key"] for s in songs]
+    sql = f"SELECT song_key, count(DISTINCT list_key) FROM list_songs WHERE song_key IN ({', '.join('?' * len(keys))})"
+    return dict(con.execute(f"{sql} GROUP BY song_key", keys).fetchall())
+
+
+def release_of(con: sqlite3.Connection, song: sqlite3.Row, listed: bool | None = None) -> sqlite3.Row | None:
+    """The release a file of the song is tagged with and has the cover of: its original release (song_releases,
+    jobs/covers), or the list's (None): when it has none, or, covers as listed (`listed`; None: the setting),
+    when the list's is its artist's own single or album (not a compilation)."""
+    own = con.execute("SELECT * FROM song_releases WHERE song_key = ?", (song["key"],)).fetchone()
+    if own is not None and own["listed"] == "own" and (as_listed(con) if listed is None else listed):
+        return None
+    return own
 
 
 def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Tags | None:
@@ -129,7 +157,7 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
     songs = _songs(con, rel, key)
     if not songs:
         return None
-    lead = _lead(songs, rel)
+    lead = _lead(songs, rel, _lists(con, songs, None))
     if lead["service"] == "local":
         return None
     link = json.loads(lead["link"]) if lead["close_match"] and lead["link"] else None
@@ -139,7 +167,7 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
     elif lead["service"] != "soundcloud":  # songs sharing a file are one recording: all their artists
         same = [s for s in songs if s["service"] != "soundcloud" and not s["close_match"]]
         artists = list(dict.fromkeys([*names(lead), *(a for s in same for a in names(s))]))
-        own = con.execute("SELECT * FROM song_releases WHERE song_key = ?", (lead["key"],)).fetchone()
+        own = release_of(con, lead)
         title, album = lead["title"], (own["album"] if own else lead["album"]) or None
     else:
         artists, title, album = [lead["artist"]], clean_title(lead["title"], lead["artist"]), None
@@ -148,8 +176,8 @@ def for_file(con: sqlite3.Connection, rel: str, path: Path, key: str = "") -> Ta
 
 
 def facts(song: sqlite3.Row, own: sqlite3.Row | None = None) -> dict[str, str]:
-    """The release facts a file of the song gets: its own release's (`own`, as its cover: song_releases), else
-    its Spotify release's (also a YouTube song's Spotify has), never a close match's (another version) or a
+    """The release facts a file of the song gets: those of the release its cover is of (`own`: release_of),
+    else its Spotify release's (also a YouTube song's Spotify has), never a close match's (another version) or a
     SoundCloud upload's."""
     if song["service"] == "soundcloud" or song["close_match"]:
         return {}

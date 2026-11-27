@@ -49,6 +49,9 @@ class Navidrome(Section):
 class Files(Section):
     SECTION = "files"
     keep_hires: bool = Field(False, description="hi-res FLAC (above 48 kHz) stays (else 44.1/48 kHz, 24 bit)")
+    covers_as_listed: bool = Field(
+        True, description="covers and album tags of the release on your lists, the artist's own (else the original)"
+    )
     gate_email: str = Field("", description="an address for free downloads that ask for one (Hypeddit email gates)")
 
     @field_validator("gate_email")

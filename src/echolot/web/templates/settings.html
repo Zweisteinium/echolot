@@ -55,6 +55,10 @@
       <div class="control"><label class="switch"><input type="checkbox" role="switch" name="keep_hires" value="1" {% if files.keep_hires %}checked{% endif %}><span class="switch-track" aria-hidden="true"></span>Keep hi-res as it is</label></div>
     </div>
     <div class="field">
+      <div class="label">Covers<span class="hint">The cover and album name of the release on your lists, as Spotify shows it there. Off: the song's original release, often its first single. A compilation always gets the original.</span></div>
+      <div class="control"><label class="switch"><input type="checkbox" role="switch" name="covers_as_listed" value="1" {% if files.covers_as_listed %}checked{% endif %}><span class="switch-track" aria-hidden="true"></span>As on your lists</label></div>
+    </div>
+    <div class="field">
       <label for="gate-email">Email for free downloads<span class="hint">Some free downloads ask for one. It goes to Hypeddit and the artist. Empty: those are skipped.</span></label>
       <div class="control"><input type="email" id="gate-email" name="gate_email" value="{{ files.gate_email }}" placeholder="you@example.com" autocomplete="off"></div>
     </div>

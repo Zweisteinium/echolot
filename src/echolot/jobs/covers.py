@@ -1,10 +1,13 @@
 """Covers from your lists: a library file carries its song's cover, not the one its uploader embedded (a
-compilation, a remaster): on Spotify its own release's (own_release: its original single, else its album, by
-its ISRC, else by its names; else the list's release), stored with the album, date and track its file is
-tagged with (song_releases, tagging.for_file); the SoundCloud artwork; a YouTube video's picture as a square. New files get it when filed (acquire.pictures) and are noted done; `run` gives it
-to the files not done yet, keeping the old picture in <data>/cover-backups/<file>.jpg and noting the files
-done in done.txt, so a stopped run goes on where it was; `run_all` to every file again. A file changed in
-the last 10 minutes waits. Pictures come as uploaded where the site keeps that (largest), and a file's picture
+compilation, a remaster): on Spotify the list's release's when that is its artist's own single or album and
+covers are as listed (options.Files, the default), else its own release's (own_release: its original single,
+else its album, by its ISRC, else by its names; else the list's release), stored with the album, date and
+track its file is tagged with and what the list's release is beside it (song_releases, tagging.release_of);
+the SoundCloud artwork; a YouTube video's picture as a square. New files get it when filed (acquire.pictures)
+and are noted done; `run` gives it to the files not done yet, keeping the old picture in
+<data>/cover-backups/<file>.jpg and noting the files done in done.txt, so a stopped run goes on where it was;
+`run_all` to every file again; `resync` to the files a switch of the setting changes. A file changed in the
+last 10 minutes waits. Pictures come as uploaded where the site keeps that (largest), and a file's picture
 that is the same one, larger, stays (keeps).
 """
 
@@ -15,12 +18,14 @@ import re
 import sqlite3
 import subprocess
 import time
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.request import Request, urlopen
 
 import numpy as np
 
+from echolot import db
 from echolot.library import audio, filing, rules, tagging
 from echolot.services import soundcloud as sc_api
 from echolot.services import spotify
@@ -119,6 +124,7 @@ class Covers:
 
     def __init__(self, con: sqlite3.Connection, run: "Run") -> None:
         self.con = con
+        self.as_listed = tagging.as_listed(con)
         self.cache: dict[str, bytes | None] = {}
         self.found: dict[str, dict] = {}  # Spotify track id -> the track, as the last song's searches gave it
         self.token = sc_api.any_token(con, run.vault)
@@ -128,14 +134,14 @@ class Covers:
             self.sp = None
 
     def of(self, song: sqlite3.Row) -> bytes | None:
-        """The song's cover: its own release's on Spotify (release), else the list's release's; its SoundCloud
-        artwork; a YouTube or Discover song's own release's too, else the first release of its ISRC, else a
-        Discover song's picture Discover showed (large), a YouTube song's video picture (thumbnail); None if it
-        has none."""
+        """The song's cover: on Spotify its own release's (release), else (or covers as listed, when the list's
+        release is its artist's own) the list's release's; its SoundCloud artwork; a YouTube or Discover song's
+        own release's too, else the first release of its ISRC, else a Discover song's picture Discover showed
+        (large), a YouTube song's video picture (thumbnail); None if it has none."""
         service, _, sid = song["key"].partition(":")
         if service in ("spotify", "youtube", "discover") and self.sp:
             own, hits = self.release(song)
-            if own:
+            if own and not (self.as_listed and own["listed"] == "own"):
                 return self._fetch(own["album_id"], own["image"])
             if service != "spotify" and hits:
                 service, sid = "spotify", hits[0]["id"]
@@ -168,7 +174,21 @@ class Covers:
         if track is None and not listed and (q := by_names(song)):
             time.sleep(0.25)
             track, how = own_release(self._seen(self.sp.search(q, RELEASES)), song, names=True), "names"
-        return store(self.con, song["key"], track, how), hits
+        kind = "same" if listed and track is not None else self.listed(song, track)  # (pick: the list's is its own)
+        return store(self.con, song["key"], track, how, kind), hits
+
+    def listed(self, song: sqlite3.Row, own: dict | None) -> str | None:
+        """What a Spotify song's list release is beside its own release `own` (a track): listed_kind; None
+        without one, or for another service's song."""
+        service, _, sid = song["key"].partition(":")
+        if own is None or service != "spotify":
+            return None
+        if own.get("id") == sid:
+            return "same"
+        album = own["album"]
+        image = ((album.get("images") or [{}])[0] or {}).get("url") or ""
+        mine = {"id": album["id"], "name": album.get("name") or "", "image": image}
+        return listed_kind(self.track(sid).get("album") or {}, song, mine)
 
     def track(self, sid: str) -> dict:
         """A Spotify track: as the song's search found it (the same track: its album, its artists), else asked."""
@@ -266,8 +286,9 @@ def _core(title: str | None) -> str:
     return rules.title_key(_ADDED.sub("", title or "").strip())
 
 
-def store(con: sqlite3.Connection, key: str, track: dict | None, how: str) -> dict | None:
-    """Note a song's own release (song_releases; None: none, the list's), as stored."""
+def store(con: sqlite3.Connection, key: str, track: dict | None, how: str, listed: str | None = None) -> dict | None:
+    """Note a song's own release (song_releases; None: none, the list's) and what the list's release is beside
+    it (`listed`: listed_kind), as stored."""
     with con:
         if track is None:
             con.execute("DELETE FROM song_releases WHERE song_key = ?", (key,))
@@ -275,6 +296,7 @@ def store(con: sqlite3.Connection, key: str, track: dict | None, how: str) -> di
         album, facts = track["album"], spotify.release_facts(track)
         row = {"song_key": key, "album_id": album["id"], "album": album.get("name") or "", **facts}
         row |= {"image": album["images"][0]["url"], "how": how, "checked": datetime.date.today().isoformat()}
+        row["listed"] = listed
         con.execute(
             f"INSERT OR REPLACE INTO song_releases ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
             tuple(row.values()),
@@ -299,6 +321,33 @@ def thumbnail(video: str) -> bytes | None:
             return None
         return out.stdout if out.returncode == 0 and out.stdout[:3] == b"\xff\xd8\xff" else None
     return None
+
+
+def listed_kind(album: dict, song: sqlite3.Row | dict, own: dict) -> str:
+    """What a Spotify song's release as its list has it (`album`) is beside its own release (`own`: id, name,
+    image): same (also another copy of it, as Spotify keeps one per market: the same name and picture), own
+    (its artist's single or album, any year: covers as listed take it) or other (a compilation, another
+    artist's: never)."""
+    if album.get("id") == own["id"]:
+        return "same"
+    field = dict(song)
+    artists = {rules.fold(a) for a in [field.get("artist"), *json.loads(field.get("artists") or "[]")] if a}
+    by = {rules.fold(a.get("name")) for a in album.get("artists") or []}
+    if album.get("album_type") not in ("single", "album") or not artists & by:
+        return "other"
+    image = ((album.get("images") or [{}])[0] or {}).get("url") or ""
+    named = rules.title_key(album.get("name")) == rules.title_key(own["name"])
+    return "same" if named and image and own["image"] and same_picture(image, own["image"]) else "own"
+
+
+def same_picture(a: str, b: str) -> bool:
+    """Whether two Spotify covers (their addresses) are one picture, by their 64 px copies (keeps' measure)."""
+    small = [url.replace("ab67616d0000b273", "ab67616d00004851") for url in (a, b)]
+    try:
+        x, y = (_grey(download(url)) for url in small)
+    except OSError:
+        return False
+    return x is not None and y is not None and float(np.abs(x - y).mean()) <= SAME_PICTURE
 
 
 def _year(album: dict) -> float:
@@ -356,6 +405,129 @@ def run_all(job: "Run") -> str:
     if not job.skip:
         journal(job.data).unlink(missing_ok=True)
     return run(job)
+
+
+# ---------------------------------------------------------------- the Covers switch
+
+MODE = "covers_mode"  # meta: listed or original, as the library's covers and album tags are ('' or none: not
+# known, while a switch is under way or for a library from before the switch)
+RETRY = 3600  # s: a switch not done (Spotify failing, a file just changed) is tried again this long after
+FAILURES = 3  # files in a row failing end a switch's run (Spotify resting, the network down)
+BATCH = 50  # tracks to a request (Spotify's limit)
+
+
+def _mode(con: sqlite3.Connection) -> str:
+    return "listed" if tagging.as_listed(con) else "original"
+
+
+def resync_due(con: sqlite3.Connection) -> bool:
+    """Whether files wait for the release the Covers switch gives them (resync), not tried in the last RETRY s."""
+    if db.get_meta(con, MODE) == _mode(con):
+        return False
+    last = con.execute("SELECT started FROM jobs WHERE name = 'covers_release'").fetchone()
+    then = datetime.datetime.fromisoformat(last[0]).timestamp() if last and last[0] else 0
+    return time.time() - then >= RETRY
+
+
+def switched(con: sqlite3.Connection) -> list[str]:
+    """The files whose cover and album tags the Covers switch changes: of another song or another release
+    either way (tagging.lead, tagging.release_of)."""
+
+    def way(rel: str, listed: bool) -> tuple[str, str] | None:
+        song = tagging.lead(con, rel, listed=listed)
+        own = tagging.release_of(con, song, listed) if song is not None else None
+        return (song["key"], own["album_id"] if own else "") if song is not None else None
+
+    return [rel for (rel,) in con.execute("SELECT path FROM files ORDER BY path") if way(rel, True) != way(rel, False)]
+
+
+def fill_listed(con: sqlite3.Connection, covers: Covers) -> int:
+    """What each Spotify song's list release is beside its own (song_releases.listed), where not known yet: its
+    track as the list has it, 50 to a request. How many were asked about."""
+    if covers.sp is None:
+        return 0
+    sql = (
+        "SELECT r.song_key, r.album_id, r.album, r.image, s.artist, s.artists FROM song_releases r "
+        "JOIN songs s ON s.key = r.song_key WHERE r.listed IS NULL AND r.song_key LIKE 'spotify:%'"
+    )
+    rows = con.execute(sql).fetchall()
+    for n in range(0, len(rows), BATCH):
+        part = {r["song_key"].removeprefix("spotify:"): r for r in rows[n : n + BATCH]}
+        kinds = []
+        for t in covers.sp.get(f"/tracks?ids={','.join(part)}").get("tracks") or []:
+            if t and (r := part.get(t.get("id"))) is not None:
+                own = {"id": r["album_id"], "name": r["album"], "image": r["image"]}
+                kinds.append((listed_kind(t.get("album") or {}, r, own), r["song_key"]))
+        with con:
+            con.executemany("UPDATE song_releases SET listed = ? WHERE song_key = ?", kinds)
+    return len(rows)
+
+
+def switch_journal(data: Path) -> Path:
+    """The files done for a switch: its mode on the first line, then one file per line."""
+    return data / "cover-backups" / "switched.txt"
+
+
+def resync(run: "Run") -> str:
+    """After the Covers switch (options.Files.covers_as_listed): the files whose cover and album tags it
+    changes (switched) get them, the rest stay; first what the songs' list releases are, where not known yet
+    (fill_listed). Done files are noted (switch_journal), so a stopped run goes on where it was; MODE is set
+    once all are done. Spotify failing FAILURES times in a row ends the run."""
+    backups = run.data / "cover-backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    con = run.connect()
+    try:
+        mode = _mode(con)
+        if db.get_meta(con, MODE) == mode:
+            return "nothing to do"
+        with con:
+            db.set_meta(con, MODE, "")  # under way: a stop, or a switch back meanwhile, finds it so
+        covers = Covers(con, run)
+        try:
+            asked = fill_listed(con, covers)
+        except spotify.SpotifyError as e:
+            run.note(f"Spotify: {e}. The switch waits for the next try")
+            return "Spotify failed: tried again in an hour"
+        journal_path = switch_journal(run.data)
+        lines = journal_path.read_text(encoding="utf-8").splitlines() if journal_path.exists() else []
+        if not lines or lines[0] != mode:
+            lines = [mode]
+            journal_path.write_text(mode + "\n", encoding="utf-8")
+        todo = run.todo([rel for rel in switched(con) if rel not in set(lines[1:])], str)
+        counts: Counter[str] = Counter()
+        failed = 0
+        with journal_path.open("a", encoding="utf-8") as noted:
+            for n, rel in enumerate(todo, 1):
+                if run.stop.is_set() or run.give_way.is_set():
+                    run.left = 0 if run.stop.is_set() else len(todo) - n + 1
+                    break
+                run.say(f"{run.of(n, len(todo))}: {rel}", n - 1, len(todo))
+                try:
+                    outcome = _one(run, con, covers, rel, backups)
+                    retagged = outcome not in ("failed", "just changed") and _retag(run, con, rel, backups)
+                except Exception:  # one file's trouble ends no run
+                    log.exception("cover of %s", rel)
+                    outcome, retagged = "failed", False
+                counts[outcome] += 1
+                counts["retagged"] += retagged
+                failed = failed + 1 if outcome == "failed" else 0
+                if outcome in ("failed", "just changed"):
+                    run.note(f"{rel}: {outcome}")
+                    if failed >= FAILURES:
+                        run.note("Covers keep failing: the rest waits for the next try")
+                        break
+                    continue
+                run.handled.add(rel)
+                noted.write(rel + "\n")
+                noted.flush()
+        if not run.left and failed < FAILURES and not counts["failed"] and not counts["just changed"]:
+            with con:
+                db.set_meta(con, MODE, mode)
+    finally:
+        con.close()
+    looked = [f"{asked} songs' list releases looked up"] if asked else []
+    parts = [f"{v} {k}" for k, v in counts.items() if v] + looked + ([f"{run.left} left"] if run.left else [])
+    return ", ".join(parts) or "no file changes"
 
 
 def _retag(run: "Run", con: sqlite3.Connection, rel: str, backups: Path) -> bool:

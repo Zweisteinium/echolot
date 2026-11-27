@@ -102,7 +102,7 @@ class Run:
 
 def upkeep(run: Run) -> str:
     """The library upkeep job: users, review decisions, rescan, merges, playlists, slskd's share, hearts,
-    the hourly snapshot and the daily purge."""
+    the hourly snapshot and the daily purge; the covers of a Covers switch when they wait (covers.resync)."""
     con = run.connect()
     try:
         parts = []
@@ -150,6 +150,8 @@ def upkeep(run: Run) -> str:
                 parts.append(f"purged {', '.join(gone)}")
             with con:
                 db.set_meta(con, "purged", today)
+        if covers.resync_due(con):  # the Covers switch changed (or a library from before it): those files
+            run.after.add("covers_release")
         return "; ".join(parts)
     finally:
         con.close()
@@ -191,6 +193,7 @@ FUNCTIONS: dict[str, Callable[[Run], str]] = {
     "fallback": acquire.fallback,
     "covers": covers.run,
     "covers_all": covers.run_all,
+    "covers_release": covers.resync,
     "availability": availability.check,
     "library": upkeep,
     "lossy": lossycheck.run,

@@ -502,21 +502,29 @@ def test_a_lost_soulseek_login_shows(client: TestClient, settings: Settings, mon
 
 
 def test_settings_save(client: TestClient, settings: Settings) -> None:
-    assert "New songs search" in client.get("/settings").text
+    page = client.get("/settings").text
+    assert "New songs search" in page and 'name="covers_as_listed" value="1" checked' in page  # (the default)
     form = {j.name: schedule.when_text(j.default) for j in schedule.JOBS} | {
         "sync": "20",
         "fallback": "0",
         "upgrade": "13:00; sat 10:00",
         "parallel": "3",
         "keep_hires": "1",
+        "covers_as_listed": "1",
     }
     response = client.post("/settings", data=form)
-    assert "Settings saved" in response.text
+    assert "Settings saved." in response.text and "covers that change" not in response.text
     con = db.connect(settings.db_path)
     rules = schedule.rules(con)
     kept = options.get(con, options.Files).keep_hires
     con.close()
     assert (rules["sync"], rules["fallback"], rules["upgrade"]) == (20, None, ["13:00", "sat 10:00"]) and kept
+    off = client.post("/settings", data={k: v for k, v in form.items() if k != "covers_as_listed"})
+    assert "The covers that change come next" in off.text  # the files whose cover changes (jobs/covers.resync)
+    assert "covers_release" in client.app.state.worker.state()[1]
+    con = db.connect(settings.db_path)
+    assert not options.get(con, options.Files).covers_as_listed
+    con.close()
     assert 'value="3"' in client.get("/settings").text
     bad = client.post("/settings", data=form | {"fallback": "2", "sync": "every hour", "parallel": "4"})
     assert bad.status_code == 422 and "Not saved:" in bad.text  # the page as typed, the field at fault focused

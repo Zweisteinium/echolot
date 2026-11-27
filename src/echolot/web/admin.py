@@ -29,7 +29,9 @@ def _settings_page(
     when = {n: typed.get(n, schedule.when_text(rules[n])) for n in schedule.BY_NAME}
     soulseek, files = options.get(con, options.Soulseek).model_dump(), options.get(con, options.Files).model_dump()
     soulseek |= {k: typed[k] for k in soulseek if k in typed}
-    files |= {"gate_email": typed.get("gate_email", ""), "keep_hires": typed.get("keep_hires") == "1"} if typed else {}
+    if typed:
+        files |= {"gate_email": typed.get("gate_email", ""), "keep_hires": typed.get("keep_hires") == "1"}
+        files["covers_as_listed"] = typed.get("covers_as_listed") == "1"
     return page(
         request,
         "settings.html",
@@ -74,15 +76,18 @@ async def settings_save(request: Request, con: DB) -> Response:
             **options.get(con, options.Soulseek).model_dump(),
             **{k: form[k] for k in ("parallel", "upgrade_batch", "stall_minutes") if k in form},
         })  # fmt: skip
-        files = options.validate(
-            options.Files, {"keep_hires": form.get("keep_hires") == "1", "gate_email": str(form.get("gate_email", ""))}
-        )
+        checked = {k: form.get(k) == "1" for k in ("keep_hires", "covers_as_listed")}
+        files = options.validate(options.Files, checked | {"gate_email": str(form.get("gate_email", ""))})
+        switched = files.covers_as_listed != options.get(con, options.Files).covers_as_listed
         with con:
             schedule.store(con, values)
             options.put(con, soulseek)
             options.put(con, files)
     except (ConfigError, options.OptionsError) as err:  # (the page asks the services: not on the event loop)
         return await run_in_threadpool(_settings_page, request, con, typed, str(err), bad)
+    if switched:  # the files whose cover comes from another release now (jobs/covers.resync)
+        request.app.state.worker.trigger("covers_release")
+        return back("/settings", ok="Settings saved. The covers that change come next, under Jobs.")
     return back("/settings", ok="Settings saved.")
 
 
