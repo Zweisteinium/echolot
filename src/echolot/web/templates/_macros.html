@@ -94,6 +94,6 @@
 <div class="pop-menu" id="add-music" popover aria-label="Add music">
   <button type="button" hx-get="/missing/upload" hx-target="#upload-body" popovertarget="add-music" popovertargetaction="hide">{{ icon('upload', 18) }}<span><b>Upload files</b><span>Missing songs or better copies</span></span></button>
   <button type="button" hx-get="/unreleased/upload" hx-target="#upload-body" popovertarget="add-music" popovertargetaction="hide">{{ icon('upload', 18) }}<span><b>Upload unreleased</b><span>Music that exists nowhere else</span></span></button>
-  {% if record %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" popovertarget="add-music" popovertargetaction="hide">{{ icon('record', 18) }}<span><b>Record from Spotify</b><span>With Mitschnitt on your PC, bit-exact</span></span></button>{% endif %}
+  {% if record %}<button type="button" class="record-button" hx-get="/recordings/new" hx-target="#record-body" data-title="Record all your Spotify lists" popovertarget="add-music" popovertargetaction="hide">{{ icon('record', 18) }}<span><b>Record from Spotify</b><span>With Mitschnitt on your PC, bit-exact</span></span></button>{% endif %}
 </div>
 {%- endmacro %}

@@ -6,6 +6,7 @@ upload dialog's checks, filed if better), or reports why it could not (result).
 """
 
 import asyncio
+import json
 import sqlite3
 import urllib.parse
 from typing import Annotated, Any
@@ -121,14 +122,14 @@ def _list(request: Request, con: sqlite3.Connection, key: str | None) -> sqlite3
 def _dialog(request: Request, con: sqlite3.Connection, key: str | None, note: str = "") -> HTMLResponse:
     user = request.state.user
     lst = _list(request, con, key)
-    tracks, left_out = recording.survey(con, user.id, key)
+    (tracks, left_out), played_other = recording.dialog(con, user.id, key)
     return page(
         request,
         "_record_dialog.html",
         lst=lst,
         choices=recording.choices(tracks),
         left_out=left_out,
-        played_other=recording.played_other(con, user.id, key),
+        played_other=played_other,
         skip_days=recording.SKIP_DAYS,
         note=note,
         devices=recording.devices(con, user.id),
@@ -144,17 +145,32 @@ def record_start(
     below: Annotated[str, Form()],
     list_key: Annotated[str, Form(alias="list")] = "",
 ) -> Response:
-    user = request.state.user
+    """A new session, shown on the Library page (or the list's). From the dialog (htmx) without a page load: its
+    panel takes the place of the page's, the dialog closes (recording-started), and a failure is a toast while
+    the dialog stays; the Playlists page, which has no panel, goes on to the Library page."""
+    user, htmx = request.state.user, request.headers.get("HX-Request") == "true"
     where = f"/lists/{list_key}" if list_key else "/library"
     lst = stats.get_list(con, list_key, stats.scope(user)) if list_key else None
     if list_key and (lst is None or lst["service"] != "spotify"):
+        if htmx:
+            raise HTTPException(404, "Not one of your Spotify lists.")
         return back("/library", error="Not one of your Spotify lists.")
     try:
         old = recording.active(con, recording.device(con, user.id, recorder)["id"])
         recording.start(con, user.id, recorder, list_key or None, below)
     except recording.RecordingError as e:
+        if htmx:
+            raise HTTPException(409, str(e)) from e
         return back(where, error=str(e))
-    return back(where, ok=f"The device's previous session ({old['title']}) was stopped.") if old else back(where)
+    note = f"The device's previous session ({old['title']}) was stopped." if old else ""
+    done = back(where, ok=note) if note else back(where)
+    shown = urllib.parse.unquote(urllib.parse.urlsplit(request.headers.get("HX-Current-URL", "")).path)
+    if not htmx or shown != where:
+        return Response(headers={"HX-Redirect": done.headers["location"]}) if htmx else done
+    response = _panel(request, con, list_key or None)
+    response.headers.update({"HX-Retarget": "#recording", "HX-Reswap": "outerHTML"})
+    response.headers["HX-Trigger"] = json.dumps({"recording-started": note})
+    return response
 
 
 @router.post("/songs/{key:path}/spotify-again", response_class=HTMLResponse)

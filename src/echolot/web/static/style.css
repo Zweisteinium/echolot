@@ -1027,7 +1027,7 @@ dialog.modal[open] { animation: rise 0.18s ease-out; }
 .download:has(form.htmx-request) :is(.download-body, .play) { opacity: 0.55; }
 .song-review:has(form.song-actions.htmx-request) .downloads { opacity: 0.55; }
 .song-review:has(form.htmx-request) :is(.downloads, .song-actions) { pointer-events: none; }
-:is(.review-actions form, form.song-actions).htmx-request button::before,
+:is(.review-actions form, form.song-actions).htmx-request button::before, .record-form.htmx-request .dialog-actions .primary::before,
 .download:has(form.htmx-request) .close-line .primary::before { content: ""; display: inline-block; width: 0.75em;
   height: 0.75em; margin-right: 0.4rem; vertical-align: -1px; border: 2px solid currentColor; border-top-color: transparent;
   border-radius: 50%; animation: spin 0.7s linear infinite; }
@@ -1120,6 +1120,9 @@ dialog.record-dialog { width: min(34rem, calc(100vw - 2rem)); }
 .record-choice:hover { border-color: var(--muted); }
 .record-choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .record-choice.empty { opacity: 0.5; cursor: default; }
+.record-form.skeleton .record-choice { grid-template-columns: 1fr; min-height: 2.5rem; }
+.record-form.skeleton .line { width: 45%; }
+.record-form.htmx-request .dialog-actions .primary:disabled { opacity: 1; cursor: progress; }
 .record-again p { margin: 0 0 0.3rem; }
 .record-again ul { margin: 0.3rem 0 0; padding-left: 1.2rem; max-height: 12rem; overflow-y: auto; }
 .record-label { font-weight: 500; }

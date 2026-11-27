@@ -221,6 +221,10 @@ class Mark:
     why: str = ""
 
 
+Songs = list[tuple[sqlite3.Row, Mark | None]]  # a choice's songs, each with why it is not to record (_songs)
+Survey = tuple[list[Track], list[str]]  # its songs to record, and what is left out (survey)
+
+
 GONE = {  # availability state (jobs/availability.UNPLAYABLE; none: greyed out) -> why Spotify no longer gives it
     "taken_down": "Spotify no longer plays it (taken down)",
     "blocked": "Spotify does not play it in this country",
@@ -275,7 +279,7 @@ def marks(con: sqlite3.Connection, user_id: int, rows: list[sqlite3.Row] | list[
     return out
 
 
-def _songs(con: sqlite3.Connection, user_id: int, list_key: str | None) -> list[tuple[sqlite3.Row, Mark | None]]:
+def _songs(con: sqlite3.Connection, user_id: int, list_key: str | None) -> Songs:
     """The songs of a choice (the user's Spotify lists, or that one), each recording once (the same song, file
     or ISRC in several lists), with why it is not to record (None: it is)."""
     songs = (
@@ -310,12 +314,22 @@ def candidates(con: sqlite3.Connection, user_id: int, list_key: str | None = Non
     return survey(con, user_id, list_key)[0]
 
 
-def survey(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> tuple[list[Track], list[str]]:
+def survey(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> Survey:
     """A choice's songs to record (candidates), and what of it is not, and why (LEFT_OUT: ["41 lossless
     already", "3 Spotify has nothing better of"])."""
+    return _survey(_songs(con, user_id, list_key))
+
+
+def dialog(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> tuple[Survey, list[dict]]:
+    """What the Record dialog shows of a choice, read once: survey's, and the songs played_other names."""
+    songs = _songs(con, user_id, list_key)
+    return _survey(songs), _played_other(con, user_id, songs)
+
+
+def _survey(songs: Songs) -> Survey:
     out: list[Track] = []
     left: Counter[str] = Counter()
-    for r, mark in _songs(con, user_id, list_key):
+    for r, mark in songs:
         if mark is not None:
             left[mark.kind] += 1
             continue
@@ -402,12 +416,13 @@ def unblock(con: sqlite3.Connection, key: str) -> bool:
 
 def played_other(con: sqlite3.Connection, user_id: int, list_key: str | None = None) -> list[dict]:
     """The songs of a choice (_songs) left out as played as another song lately: key, artist, title, when."""
+    return _played_other(con, user_id, _songs(con, user_id, list_key))
+
+
+def _played_other(con: sqlite3.Connection, user_id: int, songs: Songs) -> list[dict]:
     when = _lately(con, user_id)
-    return [
-        {"key": r["key"], "artist": r["artist"], "title": r["title"], "when": when[r["key"]]}
-        for r, m in _songs(con, user_id, list_key)
-        if m is not None and m.kind == "lately"
-    ]
+    lately = [r for r, m in songs if m is not None and m.kind == "lately"]
+    return [{"key": r["key"], "artist": r["artist"], "title": r["title"], "when": when[r["key"]]} for r in lately]
 
 
 def offer_again(con: sqlite3.Connection, user_id: int, keys: list[str]) -> None:

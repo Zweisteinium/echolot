@@ -14,7 +14,7 @@
       <button type="button" data-open="rename-dialog">Rename</button>
       <button type="button" class="danger" data-open="delete-dialog">Delete</button>
       {% elif not local and user.can('upload') %}<button type="button" hx-get="/missing/upload" hx-target="#upload-body" title="Add files you got elsewhere: missing songs or better copies">{{ icon('upload', 14) }} Upload files</button>{% endif %}
-      {% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" title="Record this list's songs with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
+      {% if lst.service == 'spotify' and user.can('upload') %}<button type="button" class="record-button" hx-get="/recordings/new?list={{ lst.key|urlencode }}" hx-target="#record-body" data-title="Record “{{ lst.title }}”" title="Record this list's songs with Mitschnitt">{{ icon('record', 14) }} Record</button>{% endif %}
       {% if not local %}<a class="button" href="{{ lst.url }}" target="_blank" rel="noopener" title="Open the list at its source">{{ icon(lst.service, 14) }} Open on {{ lst.service|source }} ↗</a>{% endif %}
     </div>
 </div>

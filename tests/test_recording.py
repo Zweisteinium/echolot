@@ -751,6 +751,31 @@ def test_a_new_request_stops_the_old_session(app: FastAPI, login: Callable[..., 
     assert poll(device)["session"]["id"] == 2
 
 
+def test_a_session_started_from_the_dialog(app: FastAPI, login: Callable[..., TestClient]) -> None:
+    """From the dialog (htmx) a start loads no page: the panel takes the place of the page's, and the dialog
+    closes with what was stopped. The Playlists page has no panel: it goes on to the Library page. A failure
+    is a toast, and the dialog stays."""
+    owner = login(app)
+    connect(owner, app)
+    hx = {"HX-Request": "true", "HX-Current-URL": "https://testserver/library"}
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, headers=hx)
+    assert r.status_code == 200 and 'id="recording"' in r.text and "All Spotify lists" in r.text
+    assert (r.headers["HX-Retarget"], r.headers["HX-Reswap"]) == ("#recording", "outerHTML")
+    assert json.loads(r.headers["HX-Trigger"]) == {"recording-started": ""}
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, headers=hx)
+    assert "stopped" in json.loads(r.headers["HX-Trigger"])["recording-started"]  # the one before
+    on_list = hx | {"HX-Current-URL": "https://testserver/lists/spotify%3Alikes%3A1?tab=songs"}
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless", "list": "spotify:likes:1"}, headers=on_list)
+    assert r.headers["HX-Retarget"] == "#recording" and "/recordings/panel?list=spotify%3Alikes%3A1" in r.text
+    playlists = hx | {"HX-Current-URL": "https://testserver/playlists"}
+    r = owner.post("/recordings", data={"recorder": 1, "below": "lossless"}, headers=playlists)
+    assert r.headers["HX-Redirect"].startswith("/library?ok=") and "HX-Retarget" not in r.headers
+    r = owner.post("/recordings", data={"recorder": 9, "below": "lossless"}, headers=hx)
+    assert r.status_code == 409 and r.json()["detail"] == "No such device."
+    dialog = owner.get("/recordings/new").text
+    assert 'hx-post="/recordings"' in dialog and "Offer" not in dialog
+
+
 def test_a_song_that_fails_to_start_goes_to_the_end(app: FastAPI, login: Callable[..., TestClient]) -> None:
     """A song that fails to start goes to the end of its session, and of a new session within a day."""
     owner = login(app)

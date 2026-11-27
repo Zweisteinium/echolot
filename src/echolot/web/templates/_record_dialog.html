@@ -1,7 +1,7 @@
 {# the Record dialog's form (recorders.record_dialog) #}
 {% from "_icons.html" import icon %}
 {% set nothing = not choices[0].songs %}
-<form method="post" action="/recordings" class="record-form">{{ csrf_input }}
+<form method="post" action="/recordings" class="record-form" hx-post="/recordings" hx-disabled-elt="find .dialog-actions .primary">{{ csrf_input }}
   {% if lst %}<input type="hidden" name="list" value="{{ lst.key }}">{% endif %}
   <h2><span class="record-dot">{{ icon('record', 18) }}</span> Record {{ '“' ~ lst.title ~ '”' if lst else 'all your Spotify lists' }}</h2>
   <p class="muted small">Mitschnitt plays each song in Spotify on your PC and records it, bit-exact, into your library. The worst copies first, each song once.</p>

@@ -1,21 +1,49 @@
-{# the Record dialog: opened by hx-get="/recordings/new[?list=<key>]" hx-target="#record-body" #}
+{# the Record dialog: opened by hx-get="/recordings/new[?list=<key>]" hx-target="#record-body", at once with a
+   placeholder (record-loading) while the server counts the songs #}
+{% from "_icons.html" import icon %}
 <dialog id="record" class="modal record-dialog" aria-label="Record with Mitschnitt"><div id="record-body"></div></dialog>
+<template id="record-loading">
+  <div class="record-form skeleton" aria-busy="true">
+    <h2><span class="record-dot">{{ icon('record', 18) }}</span> <span data-title>Record</span></h2>
+    <p class="muted small">Mitschnitt plays each song in Spotify on your PC and records it, bit-exact, into your library. The worst copies first, each song once.</p>
+    <fieldset class="record-what" disabled><legend>What</legend>{% for _ in range(4) %}<div class="record-choice"><span class="line"></span></div>{% endfor %}</fieldset>
+    <div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="primary" disabled>Record</button></div>
+  </div>
+</template>
 <script>
-  // the dialog opens with its form; the choice sets the export link's query
+  // the dialog opens at once and gets its form when it comes; the choice sets the export link's query
   (() => {
     const dialog = document.getElementById("record");
     const body = document.getElementById("record-body");
+    let wanted = false;  // (closed while it loads: it stays closed)
     const update = () => {
       const below = body.querySelector("input[name=below]:checked");
       const link = body.querySelector("[data-export]");
       if (link && below) link.href = `${link.dataset.export}below=${below.value}`;
     };
+    document.addEventListener("htmx:beforeRequest", (e) => {
+      if (e.detail.target !== body || e.detail.requestConfig.verb !== "get") return;
+      wanted = true;
+      const loading = document.getElementById("record-loading").content.cloneNode(true);
+      if (e.detail.elt.dataset.title) loading.querySelector("[data-title]").textContent = e.detail.elt.dataset.title;
+      body.replaceChildren(loading);
+      if (!dialog.open) dialog.showModal();
+    });
+    document.addEventListener("htmx:afterRequest", (e) => {
+      if (e.detail.target === body && !e.detail.successful && body.querySelector("[aria-busy]")) dialog.close();
+    });
     document.addEventListener("htmx:afterSwap", (e) => {
       if (e.target !== body) return;
       update();
-      if (body.firstElementChild && !dialog.open) dialog.showModal();
+      if (wanted && body.firstElementChild && !dialog.open) dialog.showModal();
+    });
+    // a session started (recorders.record_start): its panel took the page's
+    document.addEventListener("recording-started", (e) => {
+      dialog.close();
+      if (e.detail.value) toast(e.detail.value);
     });
     body.addEventListener("change", update);
+    dialog.addEventListener("close", () => { wanted = false; });
     dialog.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) dialog.close(); });
   })();
   // the session panel's clock and bar run on locally every frame; a new panel (every 5 s, whole seconds from
