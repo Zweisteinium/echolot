@@ -608,6 +608,10 @@ def test_the_switch_covers_only_the_files_it_changes(settings: Settings, monkeyp
         return covers.resync(run)
 
     assert covers.resync_due(con) and db.get_meta(con, covers.MODE) == ""  # (a library from before the switch)
+    stopped = Run(BY_NAME["covers_release"], settings, Vault.from_env(settings.data_dir, {}), "manual")
+    stopped.stop = threading.Event()
+    stopped.stop.set()  # Stop on the Jobs page: nothing done, and the switch is not either
+    assert covers.resync(stopped) == "no file changes" and asked == [] and db.get_meta(con, covers.MODE) == ""
     message = resync()
     assert asked == ["spotify:t1"] and message.startswith("1 replaced") and "retagged" in message
     assert audio.picture(path) == SONG and tagging.read(path)["album"] == "The Album"

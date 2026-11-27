@@ -471,8 +471,8 @@ def switch_journal(data: Path) -> Path:
 def resync(run: "Run") -> str:
     """After the Covers switch (options.Files.covers_as_listed): the files whose cover and album tags it
     changes (switched) get them, the rest stay; first what the songs' list releases are, where not known yet
-    (fill_listed). Done files are noted (switch_journal), so a stopped run goes on where it was; MODE is set
-    once all are done. Spotify failing FAILURES times in a row ends the run."""
+    (fill_listed). Done files are noted (switch_journal), so a stopped run goes on where it was (upkeep starts
+    it again, RETRY after); MODE is set once all are done. Spotify failing FAILURES times in a row ends the run."""
     backups = run.data / "cover-backups"
     backups.mkdir(parents=True, exist_ok=True)
     con = run.connect()
@@ -495,7 +495,7 @@ def resync(run: "Run") -> str:
             journal_path.write_text(mode + "\n", encoding="utf-8")
         todo = run.todo([rel for rel in switched(con) if rel not in set(lines[1:])], str)
         counts: Counter[str] = Counter()
-        failed = 0
+        failed, through = 0, False
         with journal_path.open("a", encoding="utf-8") as noted:
             for n, rel in enumerate(todo, 1):
                 if run.stop.is_set() or run.give_way.is_set():
@@ -520,7 +520,9 @@ def resync(run: "Run") -> str:
                 run.handled.add(rel)
                 noted.write(rel + "\n")
                 noted.flush()
-        if not run.left and failed < FAILURES and not counts["failed"] and not counts["just changed"]:
+            else:
+                through = True  # (not stopped, given way or ended by failures)
+        if through and not counts["failed"] and not counts["just changed"]:
             with con:
                 db.set_meta(con, MODE, mode)
     finally:
