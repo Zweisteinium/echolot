@@ -354,8 +354,9 @@ The audio tests need ffmpeg, like the image. `echolot serve` listens on http://1
 
 CI tests every push that changes code, and builds the image for amd64 and arm64 when what goes into it
 changed. A new version in `pyproject.toml` and
-`deploy/compose.yaml` (a test checks both) is released when it lands on `main`. CI then tags it, publishes
-the release and pushes `lordlayer/echolot` to Docker Hub for both platforms. The Sockseek daemon's image
+`deploy/compose.yaml`, with its notes in `CHANGELOG.md`, is released when it lands on `main`. A test checks
+all three. CI then tags it, publishes the release with those notes and pushes `lordlayer/echolot` to Docker
+Hub for both platforms. The Sockseek daemon's image
 (`deploy/sockseek`, `lordlayer/echolot-sockseek`) is built from a tested Sockseek commit and pushed from `main`
 when that changes.
 

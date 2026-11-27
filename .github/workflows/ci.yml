@@ -129,7 +129,8 @@ jobs:
           retention-days: 1
 
   release:
-    # Tags the images as <version>, <major.minor> and latest, then the commit, and writes the release notes.
+    # Tags the images as <version>, <major.minor> and latest, then the commit, and publishes the version's
+    # section of CHANGELOG.md as the release notes.
     needs: [test, meta, image]
     if: needs.meta.outputs.release == 'true'
     runs-on: ubuntu-latest
@@ -162,5 +163,5 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
           previous=$(git describe --tags --abbrev=0 2>/dev/null || true)
-          git log --no-merges --format='- %s' ${previous:+$previous..}HEAD > notes.md
+          python3 tools/release_notes.py "$VERSION" "$previous" > notes.md
           gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Echolot $VERSION" --notes-file notes.md
