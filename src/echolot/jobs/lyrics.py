@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from echolot.jobs.worker import Run
 
 KINDS = ("flac", "mp3", "m4a", "opus", "ogg")  # the files lyrics are embedded in (audio.write_lyrics)
-PER_RUN = 400
+PER_RUN = 500
 AGAIN = datetime.timedelta(days=30)
 QUIET = 600  # s
 FAILURES = 3
