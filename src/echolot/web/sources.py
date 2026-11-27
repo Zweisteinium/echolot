@@ -49,7 +49,7 @@ def _state(con: sqlite3.Connection, uid: int) -> dict[str, dict[str, Any]]:
 def _card(card: dict[str, Any], state: dict[str, dict[str, Any]]) -> dict[str, Any]:
     s = state.get(card["key"])
     return {**card, "mode": s["mode"] if s else "off", "have": s["have"] if s else None,
-            "in_library": s["songs"] if s else None}  # fmt: skip
+            "in_library": s["songs"] if s else None, "fetched": bool(s and s["fetched"])}  # fmt: skip
 
 
 def _cards_of(app: FastAPI, service: str, uid: int) -> list[dict[str, Any]]:
@@ -180,7 +180,8 @@ def _db_card(con: sqlite3.Connection, key: str, service: str, url: str) -> dict[
 
 def _card_answer(request: Request, con: sqlite3.Connection, card: dict[str, Any], error: str = "") -> Response:
     if request.headers.get("hx-request"):
-        return page(request, "_card.html", c=_card(card, _state(con, request.state.user.id)), error=error)
+        c = _card(card, _state(con, request.state.user.id))
+        return page(request, "_card.html", c=c, error=error, fresh=True)
     return back("/playlists", **({"error": error} if error else {"ok": "Saved."}))
 
 

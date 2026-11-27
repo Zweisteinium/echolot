@@ -1,4 +1,4 @@
-{# SoundCloud on the Playlists page: paste the browser login's two cookies #}
+{# SoundCloud's account dialog on the Playlists page: paste the browser login's two cookies #}
   {% if s.soundcloud.error %}<p class="flash error">{{ s.soundcloud.error }} Paste the two cookies again below.</p>{% endif %}
   {% if s.soundcloud.connected %}
   {% set until = s.soundcloud.expires.strftime('%Y-%m-%d %H:%M') if s.soundcloud.expires else '' %}

@@ -1,4 +1,4 @@
-{# Spotify on the Playlists page: the app (admins), login, disconnect; s.spotify: accounts.status #}
+{# Spotify's account dialog on the Playlists page: the app (admins), login, disconnect; s.spotify: accounts.status #}
   {% if s.spotify.error %}<p class="flash error">{{ s.spotify.error }}
     {%- if '403' in s.spotify.error %} Spotify refuses this account. The app's owner must add its email under User Management and still have Premium. Then connect again below.
     {%- else %} Connect again below. Spotify also stops apps whose owner lost Premium.{% endif %}</p>{% endif %}

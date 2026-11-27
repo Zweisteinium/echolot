@@ -1,12 +1,14 @@
+{# a service's lists (or those by link) as cards; the filter by whose lists goes into the section's head #}
 {% if error %}<p class="flash error">{{ error }}</p>{% endif %}
-{% if cards %}
 {% if kinds|length > 1 %}
-<span class="seg kind-filter" role="radiogroup" aria-label="Show" data-filter="{{ service }}">
-  <label><input type="radio" name="show-{{ service }}" value="all" checked> All <span class="n">{{ cards|length }}</span></label>
-  {% for k, label, n in kinds %}<label><input type="radio" name="show-{{ service }}" value="{{ k }}"> {{ label }} <span class="n">{{ n }}</span></label>{% endfor %}
+<span class="seg kind-filter" id="kinds-{{ service }}" hx-swap-oob="true" role="radiogroup" aria-label="Show" data-filter="{{ service }}">
+  <label><input type="radio" name="kind-{{ service }}" value="all" checked> All <span class="n" data-n="all">{{ cards|length }}</span></label>
+  {% for k, label, n in kinds %}<label><input type="radio" name="kind-{{ service }}" value="{{ k }}"> {{ label }} <span class="n" data-n="{{ k }}">{{ n }}</span></label>{% endfor %}
 </span>
 {% endif %}
-<div class="cards">
+{% if cards %}
+<div class="pl-grid">
   {% for c in cards %}{% include "_card.html" %}{% endfor %}
 </div>
-{% elif not error and service != 'other' %}<p class="muted">No lists found in this account.</p>{% endif %}
+{% elif service == 'other' %}<p class="muted">Lists you follow by their link show up here. Paste one above.</p>
+{% elif not error %}<p class="muted">No lists found in this account.</p>{% endif %}

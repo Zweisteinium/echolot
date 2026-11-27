@@ -256,22 +256,6 @@ a.pill:hover { filter: brightness(1.12); }
 /* a row's badges at its right end, so they line up from row to row whatever the name's length */
 .end { margin-left: auto; display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
 
-/* Playlists: a service's account */
-.connection { margin-top: 0.9rem; border-top: 1px solid var(--border); padding-top: 0.6rem; }
-.connection > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); list-style-position: inside; }
-.connection > summary:hover { color: var(--text); }
-.connection-body { display: grid; gap: 0.75rem; margin-top: 0.7rem; }
-.connection-body > p, .connection-body > ol, .connect > p, .connect > ol { margin: 0; }
-.connect { display: grid; gap: 0.75rem; margin-top: 0.6rem; padding: 0.9rem 1rem; border: 1px dashed var(--border); border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--track) 45%, transparent); }
-.connect h3 { margin: 0; font-size: var(--fs-lg); }
-/* Playlists: following by link, one field with its choice and button inside */
-.follow-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.5rem; margin: 0; padding: 0.3rem 0.3rem 0.3rem 0.85rem;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); transition: border-color 0.15s, box-shadow 0.15s; }
-.follow-bar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
-.follow-bar .follow-icon { display: flex; color: var(--muted); }
-.follow-bar input[type="url"] { flex: 1 1 16rem; min-width: 0; padding: 0 0.2rem; border: 0; background: none; box-shadow: none; }
-.follow-bar input[type="url"]:focus-visible { box-shadow: none; }
 /* the Add music menu: a popover under its button (placed by base.html) */
 .pop-menu[popover] { position: fixed; inset: auto; margin: 0; width: max-content; max-width: calc(100vw - 1rem); padding: 0.3rem; color: var(--text);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--lift); }
@@ -389,8 +373,6 @@ dd { margin: 0; overflow-wrap: anywhere; }
   mask: var(--mask) center / contain no-repeat; }
 .loading { animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.45; } }
-.cards.htmx-added { opacity: 0; }  /* loaded lists fade in (a decision shows at once) */
-.cards { transition: opacity 0.2s ease-out; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
 /* collapsible groups */
@@ -487,8 +469,6 @@ input[type="file"]::file-selector-button { font: inherit; font-weight: 500; colo
 input[type="file"]::file-selector-button:hover { border-color: var(--muted); }
 .copy-row { display: flex; gap: 0.5rem; margin: 0.35rem 0; max-width: 34rem; }
 .copy-row input { flex: 1; min-width: 0; font-family: ui-monospace, monospace; font-size: var(--fs-sm); }
-.connect code { overflow-wrap: anywhere; }
-.connect, .connect > *, .connect li { min-width: 0; }
 
 /* segmented controls (radio buttons, view switches, link tabs): one look, the chosen part raised */
 .seg, .segmented, .view-switch, .tabs { display: inline-flex; align-items: stretch; gap: 2px; height: var(--h); padding: 2px; margin: 0;
@@ -757,36 +737,106 @@ ol.steps { margin: 0.5rem 0 1rem; padding-left: 1.4rem; display: grid; gap: 0.75
 ol.steps li::marker { color: var(--muted); font-weight: 600; }
 ol.steps form { margin-top: 0.5rem; }
 
-/* sources */
-.kind-filter { margin-top: 0.25rem; }
-.kind-filter .n { opacity: 0.7; font-weight: 400; margin-left: 0.15rem; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.9rem; margin-top: 0.75rem; }
-.cards[data-show="own"] > .src-card:not([data-kind="own"]),
-.cards[data-show="collab"] > .src-card:not([data-kind="collab"]),
-.cards[data-show="other"] > .src-card:not([data-kind="other"]) { display: none; }
-.src-card { display: flex; flex-direction: column; overflow: hidden; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); transition: border-color 0.15s, box-shadow 0.15s; }
-.src-card.on { border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+/* Playlists: the toolbar (the field finds a list or follows a pasted link, the filter beside it, the jump marks
+   under them) stays on top while the lists scroll; on a phone only the jump marks stay */
+.pl-tools { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem;
+  margin: 0 -0.5rem; padding: 0.5rem; border-bottom: 1px solid transparent; }
+.pl-tools.stuck { background: var(--bg); border-bottom-color: var(--border); }
+.pl-tools [hidden] { display: none; }
+.omni { flex: 1 1 22rem; display: flex; align-items: center; gap: 0.5rem; min-width: 0; height: var(--h); padding: 0 3px 0 0.75rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color 0.15s, box-shadow 0.15s; }
+.omni:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.omni > .icon { color: var(--muted); }
+.omni input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; box-shadow: none; }
+.omni input:focus-visible { box-shadow: none; }
+.omni button { height: calc(var(--h) - 8px); }
+.omni-hint { flex-basis: 100%; margin: -0.15rem 0 0 0.2rem; font-size: var(--fs-sm); color: var(--muted); }
+.pl-jump { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.pl-jump a { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; height: var(--h-sm); padding: 0 0.8rem;
+  font-size: var(--fs-sm); font-weight: 500; color: var(--muted); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.pl-jump a:hover { color: var(--text); text-decoration: none; }
+.pl-jump a[aria-current] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.pl-tools .n, .kind-filter .n { font-weight: 400; opacity: 0.75; font-variant-numeric: tabular-nums; }
+
+/* a source: its head (name, the filter by whose lists, the account at the right end), then its lists; nothing folds */
+.pl-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.85rem; }
+.pl-section + .pl-section { margin-top: 1.4rem; }
+.pl-section > p { margin: 0; }
+.pl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--border); }
+.pl-head h2 { display: inline-flex; align-items: center; gap: 0.55rem; margin: 0; }
+.pl-head .kind-filter { height: var(--h-sm); }
+.pl-head .kind-filter label { padding: 0 0.65rem; font-size: var(--fs-sm); }
+.pl-head .end button { height: var(--h-sm); padding: 0 0.7rem; font-size: var(--fs-sm); }
+.pl-head .pill[hidden], .pl-empty[hidden], .pl[hidden] { display: none; }
+.pl-empty { color: var(--muted); font-size: var(--fs-sm); }
+.pl-connect { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; padding: 1.25rem;
+  border: 1.5px dashed var(--border); border-radius: var(--radius); }
+.pl-connect p { flex: 1 1 18rem; margin: 0; color: var(--muted); }
+.pl-connect b { color: var(--text); font-weight: 600; }
+
+/* a list: a followed one has a ring, its cover in full colour and its share in the library along the cover's foot */
+.pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 1rem 0.9rem; transition: opacity 0.2s ease-out; }
+.pl-grid.htmx-added { opacity: 0; }  /* loaded lists fade in (a decision shows at once) */
+.pl { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); transition: border-color 0.15s, box-shadow 0.15s; }
+.pl.on { border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
 /* always square, the picture cropped to its middle (overflow stops a tall one stretching the box) */
-.src-card .cover { aspect-ratio: 1; background: var(--track); display: grid; place-items: center; position: relative; overflow: hidden; }
-.src-card .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
-.src-card .cover img.shown { opacity: 1; }  /* fades in once (lazily) loaded */
-.src-card:not(.on) .cover img { filter: saturate(0.6); }
-.src-card:not(.on) .cover img.shown { opacity: 0.85; }
-.src-card .no-cover { font-size: var(--fs-3xl); color: var(--muted); }
-.src-card .body { padding: 0.6rem 0.7rem 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
-.src-card .body > p { margin: 0; }
-.src-card .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.src-card form { margin-top: auto; padding-top: 0.3rem; }  /* buttons line up at the bottom of a row */
-.src-card .seg.modes { display: grid; height: auto; }  /* the modes stacked, in their full words */
-.src-card .seg.modes label { justify-content: flex-start; height: var(--h-sm); padding: 0 0.6rem; }
-/* placeholders while a list of cards loads */
-.skeleton .cover, .skeleton .line { background: linear-gradient(90deg, var(--track) 30%, color-mix(in srgb, var(--track) 40%, var(--surface)) 50%, var(--track) 70%) 0 0 / 300% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+.pl-cover { position: relative; aspect-ratio: 1; display: grid; place-items: center; overflow: hidden; background: var(--track); }
+.pl-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; }
+.pl-cover img.shown { opacity: 1; }  /* fades in once (lazily) loaded */
+.pl:not(.on) .pl-cover img { filter: saturate(0.45) brightness(0.92); }
+.pl-cover .no-cover { font-size: var(--fs-3xl); color: var(--muted); }
+.pl-cover .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+  background: var(--brand) 0 0 / var(--have) 100% no-repeat, rgb(0 0 0 / 0.35); }
+.pl-body { display: flex; flex-direction: column; gap: 0.15rem; flex: 1; padding: 0.6rem 0.7rem 0.7rem; }
+.pl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-meta { font-size: var(--fs-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-note { margin: 0.2rem 0 0; font-size: var(--fs-xs); color: var(--warn); }
+.pl-note.bad-text { color: var(--bad); }
+/* Follow at the foot, lined up from card to card; followed: Following (Unfollow under the pointer, once it came back
+   after the click) and the playlist switch */
+.pl-actions { display: flex; gap: 0.4rem; margin-top: auto; padding-top: 0.55rem; }
+.pl-actions button { height: var(--h-sm); padding: 0 0.65rem; font-size: var(--fs-sm); }
+.pl-actions .follow { flex: 1; }
+.pl.on .follow { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+.follow .on-label { display: inline-flex; align-items: center; gap: 0.4rem; }
+.follow .off-label, .pl .follow:not([data-fresh]):hover .on-label { display: none; }
+.pl .follow:not([data-fresh]):hover .off-label { display: inline; }
+.pl.on .follow:not([data-fresh]):hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border));
+  background: color-mix(in srgb, var(--bad) 7%, var(--surface)); }
+.pl-actions .as-playlist { width: var(--h-sm); padding: 0; color: var(--muted); }
+.pl-actions .as-playlist[aria-pressed="true"] { color: var(--accent-text); border-color: transparent; background: var(--brand); }
+/* placeholders while the lists load */
+.skeleton .pl-body { gap: 0.4rem; }
+.skeleton .pl-cover, .skeleton .line { background: linear-gradient(90deg, var(--track) 30%, color-mix(in srgb, var(--track) 40%, var(--surface)) 50%, var(--track) 70%) 0 0 / 300% 100%; animation: shimmer 1.4s ease-in-out infinite; }
 .skeleton .line { display: block; height: 0.75rem; border-radius: 4px; }
 .skeleton .line.short { width: 55%; }
 .skeleton .line.tall { height: 1.6rem; margin-top: auto; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* an account's dialog */
+dialog.account-dialog { width: min(38rem, calc(100vw - 2rem)); }
+.account-dialog .dialog-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-bottom: 0.9rem; }
+.account-dialog h2 { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; font-size: var(--fs-xl); }
+.account-dialog .icon-button { margin-left: auto; }
+.account { display: grid; gap: 0.75rem; }
+.account > p, .account > ol { margin: 0; }
+.account code { overflow-wrap: anywhere; }
+.account, .account > *, .account li { min-width: 0; }
+@media (max-width: 640px) {
+  .pl-tools { top: calc(-2 * var(--h) - 1rem); }  /* the field and the filter scroll away, the jump marks stay */
+  .pl-tools > .seg { flex: 1 1 100%; }
+  .pl-tools > .seg label, .pl-jump a { flex: 1; }
+  .pl-jump { flex-wrap: nowrap; }
+  .pl-jump a { min-width: 0; padding: 0 0.5rem; }
+  .pl-jump .icon { display: none; }
+  .pl-head .kind-filter { order: 3; max-width: 100%; overflow-x: auto; }
+  .pl-head .kind-filter .n { display: none; }  /* (the counts come back on a wider screen) */
+  .pl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+}
 
 /* missing: what was tried */
 table.missing td.tried { min-width: 18rem; }

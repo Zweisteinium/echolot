@@ -1,57 +1,204 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon, sprite, use %}
-{% macro loading(n) %}<div class="cards skeleton" aria-busy="true" aria-label="Loading">{% for _ in range(n) %}<div class="src-card"><div class="cover"></div><div class="body"><span class="line"></span><span class="line short"></span><span class="line tall"></span></div></div>{% endfor %}</div>{% endmacro %}
+{% macro loading(n) %}<div class="pl-grid skeleton" aria-busy="true" aria-label="Loading">{% for _ in range(n) %}<div class="pl"><div class="pl-cover"></div><div class="pl-body"><span class="line"></span><span class="line short"></span><span class="line tall"></span></div></div>{% endfor %}</div>{% endmacro %}
 {% block title %}Playlists · Echolot{% endblock %}
 {% block content %}
 {% from "_macros.html" import add_music, how %}
 {% set can_upload = user.can('upload') %}
+{% set SERVICES = (('spotify', 'Spotify', 'your playlists and liked songs'), ('soundcloud', 'SoundCloud', 'your likes and sets')) %}
 <div class="page-head">
-  <div class="page-title"><h1>Playlists <span class="count">{{ lists|length|num }}</span></h1>
-    {% call how('playlists', 'The lists Echolot follows. For a single song, use Search.') %}<b>Songs only</b>: its songs go into the library. <b>Songs and playlist</b>: they also make a playlist in the music server. <b>Off</b>: not followed. Nothing is deleted.{% endcall %}</div>
+  <div class="page-title"><h1>Playlists <span class="count" id="followed-count">{{ lists|length|num }}</span></h1>
+    {% call how('playlists', 'The lists Echolot follows. For a single song, use Search.') %}<b>Follow</b>: its songs go into the library. {{ use('playlist', 13) }} also makes it a playlist in the music server. Unfollowing deletes nothing.{% endcall %}</div>
   <div class="actions">
     {% if can_upload %}{{ add_music(lists|selectattr('service', 'equalto', 'spotify')|list) }}{% endif %}
   </div>
 </div>
-<form method="post" action="/sources/add" class="follow-bar" id="follow">{{ csrf_input }}
-  <span class="follow-icon" aria-hidden="true">{{ icon('link', 18) }}</span>
-  <input type="url" name="url" required value="{{ request.query_params.get('url', '') }}" placeholder="Follow a list by its link: a Spotify playlist, a SoundCloud set or likes page, a YouTube playlist" aria-label="A list's link"{% if request.query_params.get('url') %} aria-invalid="true" autofocus{% endif %}>
-  <span class="seg" role="radiogroup" aria-label="Follow as">
-    <label title="Its songs go into the library"><input type="radio" name="mode" value="songs"> {{ use('songs', 13) }} Songs only</label>
-    <label title="Its songs go into the library and make a playlist in the music server"><input type="radio" name="mode" value="playlist" checked> {{ use('playlist', 13) }} Songs and playlist</label>
+{{ sprite(['playlist', 'check', 'add']) }}
+{# the field finds a list by its name, or follows the link pasted into it (without script: always follows) #}
+<form method="post" action="/sources/add" class="pl-tools" id="follow" autocomplete="off">{{ csrf_input }}
+  <div class="omni">{{ icon('search', 18) }}<input type="search" name="url" required value="{{ request.query_params.get('url', '') }}" placeholder="Find a list, or paste a link to follow one" aria-label="Find a list, or a link to follow" enterkeyhint="search"{% if request.query_params.get('url') %} aria-invalid="true" autofocus{% endif %}>
+    <input type="hidden" name="mode" value="playlist"><button class="primary" data-omni-follow>Follow</button></div>
+  <span class="seg" role="radiogroup" aria-label="Show">
+    <label><input type="radio" name="show" value="all" checked> All <span class="n" data-n="all"></span></label>
+    <label><input type="radio" name="show" value="on"> Following <span class="n" data-n="on"></span></label>
+    <label><input type="radio" name="show" value="off"> Not followed <span class="n" data-n="off"></span></label>
   </span>
-  <button class="primary">Follow</button>
+  <p class="omni-hint" hidden>Follow puts its songs in the library and makes a playlist. Change that on its card.</p>
+  <nav class="pl-jump" aria-label="Jump to">
+    {% for service, label, _ in SERVICES %}<a href="#{{ service }}">{{ icon(service, 15) }} {{ label }} <span class="n"></span></a>{% endfor %}
+    <a href="#link">{{ icon('link', 15) }} By link <span class="n"></span></a>
+  </nav>
 </form>
-{{ sprite(['songs', 'playlist']) }}
-{% for service, label, what in (('spotify', 'Spotify', 'playlists and liked songs'), ('soundcloud', 'SoundCloud', 'likes and sets')) %}
+
+{% for service, label, what in SERVICES %}
 {% set a = s[service] %}{% set ok = a.connected and not a.error %}
-<section class="card" id="{{ service }}">
-  <details class="group" data-remember="playlists-{{ service }}" open>
-    <summary><h2 class="group-name">{{ icon(service, 20) }} {{ label }}</h2>
-      <span class="end">{% if followed[service] %}<span class="pill">{{ followed[service] }} followed</span>{% endif %}
-      {% if ok %}<span class="pill ok-pill" title="Connected as {{ a.name }}">{{ icon('check', 13) }} Connected</span>
-      {% elif a.error %}<span class="pill bad-pill">Not working</span>{% else %}<span class="pill">Not connected</span>{% endif %}</span></summary>
-    {% if ok %}
-    <div hx-get="/sources/found/{{ service }}" hx-trigger="load" hx-swap="outerHTML">{{ loading(6) }}</div>
-    <details class="connection" data-remember="connection-{{ service }}">
-      <summary>Account <span class="muted">· {{ a.name }}</span></summary>
-      <div class="connection-body account">{% include "_account_" ~ service ~ ".html" %}</div>
-    </details>
-    {% else %}
-    <div class="connect account">
-      <h3>Connect {{ label }} <span class="muted small">to see your {{ what }} here</span></h3>
-      {% include "_account_" ~ service ~ ".html" %}
-    </div>
-    {% endif %}
-  </details>
+<section class="pl-section" id="{{ service }}">
+  <header class="pl-head"><h2>{{ icon(service, 20) }} {{ label }}</h2><span id="kinds-{{ service }}"></span>
+    <span class="end">{% if ok %}<span class="pill" data-followed>{% if followed[service] %}{{ followed[service] }} followed{% endif %}</span>{% endif %}
+      {% if a.resting %}<span class="pill warn-pill tip" tabindex="0" title="{{ a.resting }} Your login is fine.">Waiting until {{ a.until }}</span>
+      {% elif ok %}<span class="pill ok-pill">{{ icon('check', 13) }} Connected</span>
+      {% elif a.error %}<span class="pill bad-pill">Not working</span>{% else %}<span class="pill">Not connected</span>{% endif %}
+      {% if ok %}<button type="button" data-account="{{ service }}-account">Account</button>{% endif %}</span></header>
+  {% if ok %}
+  <div hx-get="/sources/found/{{ service }}" hx-trigger="load" hx-swap="outerHTML">{{ loading(6) }}</div>
+  {% else %}
+  <div class="pl-connect">
+    {% if a.error %}<p><b>{{ label }} stopped working.</b> Connect it again to see {{ what }} here.</p><button type="button" class="primary" data-account="{{ service }}-account">Connect again</button>
+    {% else %}<p><b>Connect {{ label }}</b> to see {{ what }} here.</p><button type="button" class="primary" data-account="{{ service }}-account">Connect {{ label }}</button>{% endif %}
+  </div>
+  {% endif %}
 </section>
 {% endfor %}
 
-<section class="card" id="link">
-  <details class="group" data-remember="sources-manual" open>
-    <summary><h2 class="group-name">{{ icon('link', 20) }} By link</h2></summary>
-    <div hx-get="/sources/other" hx-trigger="load" hx-swap="outerHTML">{{ loading(2) }}</div>
-  </details>
+<section class="pl-section" id="link">
+  <header class="pl-head"><h2>{{ icon('link', 20) }} By link</h2><span class="end"><span class="pill" data-followed></span></span></header>
+  <div hx-get="/sources/other" hx-trigger="load" hx-swap="outerHTML">{{ loading(2) }}</div>
 </section>
 
+{% for service, label, _ in SERVICES %}
+{% set a = s[service] %}
+<dialog class="modal account-dialog" id="{{ service }}-account" aria-labelledby="{{ service }}-account-title">
+  <div class="dialog-head"><h2 id="{{ service }}-account-title">{{ icon(service, 22) }} {{ label }}</h2>
+    {% if a.connected and not a.error %}<span class="pill ok-pill">{{ icon('check', 13) }} Connected{% if a.name %} as {{ a.name }}{% endif %}</span>{% endif %}
+    <button type="button" class="icon-button" data-close aria-label="Close">{{ icon('close', 18) }}</button></div>
+  <div class="account">{% include "_account_" ~ service ~ ".html" %}</div>
+</dialog>
+{% endfor %}
+
 {% if can_upload %}{% include "_record.html" %}{% include "_upload_dialog.html" %}{% endif %}
+<script>
+  // Playlists: the field finds a list by name or follows a pasted link; the filters (whether followed, whose: that
+  // one remembered per service) count what each choice would show; the jump marks follow the scroll
+  (() => {
+    const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
+    const tools = $("#follow"), field = $("input[name=url]", tools), follow = $("[data-omni-follow]", tools);
+    const sections = $$(".pl-section"), smooth = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    const isLink = () => /^https?:\/\/\S+$/i.test(field.value.trim());
+    const add = (o, k) => o[k] = (o[k] || 0) + 1;
+    const remembered = (service) => { try { return localStorage.getItem("echolot:show-" + service); } catch (e) { return null; } };
+    let pinned = null;  // the section a jump went to, marked until the reader scrolls on
+
+    function refresh() {
+      const words = isLink() ? "" : field.value.trim().toLowerCase();
+      const show = $("input[name=show]:checked", tools).value, status = {};
+      follow.hidden = $(".omni-hint", tools).hidden = !isLink();
+      for (const section of sections) {
+        const kind = $(".kind-filter input:checked", section)?.value || "all";
+        const kinds = {}, n = { all: 0, on: 0, shown: 0 };
+        for (const card of $$(".pl-grid:not(.skeleton) > .pl", section)) {
+          const on = card.classList.contains("on"), k = card.dataset.kind;
+          const text = !words || card.dataset.name.includes(words);
+          const fits = show === "all" || (show === "on") === on, whose = kind === "all" || k === kind;
+          n.all++; n.on += on;
+          if (text && whose) { add(status, "all"); add(status, on ? "on" : "off"); }
+          if (text && fits) { add(kinds, "all"); add(kinds, k); }
+          card.hidden = !(text && fits && whose);
+          n.shown += !card.hidden;
+        }
+        for (const el of $$(".kind-filter [data-n]", section)) el.textContent = kinds[el.dataset.n] || 0;
+        const pill = $("[data-followed]", section);
+        if (pill && n.all) pill.textContent = `${n.on} of ${n.all} followed`;
+        if (pill) pill.hidden = !pill.textContent;
+        $(`.pl-jump a[href="#${section.id}"] .n`).textContent = $(".pl-grid:not(.skeleton)", section) ? n.shown : "";
+        let empty = $(".pl-empty", section);
+        if (!empty && n.all) { empty = document.createElement("p"); empty.className = "pl-empty"; $(".pl-grid", section).after(empty); }
+        if (empty) {
+          empty.textContent = words ? `No list here matches “${field.value.trim()}”.` : "No list here fits the filter.";
+          empty.hidden = n.shown > 0;
+        }
+      }
+      for (const el of $$("[data-n]", tools)) el.textContent = status[el.dataset.n] || 0;
+      spy();
+    }
+
+    // the toolbar is stuck once it sits at its sticky top (on a phone only the jump marks show then); the section
+    // whose head went under it is in view, the last one once the page ends, the one a jump went to until a scroll
+    const stuckTop = () => parseFloat(getComputedStyle(tools).top) || 0;
+    const below = () => tools.offsetHeight + stuckTop();
+    function spy() {
+      tools.classList.toggle("stuck", scrollY > 0 && tools.getBoundingClientRect().top <= stuckTop() + 1);
+      let current = sections[0];
+      for (const s of sections) if (s.getBoundingClientRect().top <= below() + 40) current = s;
+      if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = sections.at(-1);
+      current = pinned || current;
+      for (const a of $$(".pl-jump a", tools)) a.toggleAttribute("aria-current", a.hash === "#" + current.id);
+    }
+    const jump = (section, behavior = smooth) => {
+      pinned = section;
+      scrollTo({ top: section.getBoundingClientRect().top + scrollY - below() - 12, behavior });
+      spy();
+    };
+    addEventListener("scroll", spy, { passive: true });
+    addEventListener("resize", spy);
+    for (const type of ["wheel", "touchmove", "keydown"]) addEventListener(type, () => { pinned = null; }, { passive: true });
+
+    // the account dialogs; one named in the address opens at once, with the message the page brought
+    const openAccount = (dialog) => { if (!dialog.open) dialog.showModal(); };
+    for (const dialog of $$("dialog.account-dialog")) {
+      dialog.addEventListener("close", () => {
+        if (location.hash === "#" + dialog.id) history.replaceState(history.state, "", location.pathname + location.search);
+      });
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+      const target = location.hash ? document.getElementById(location.hash.slice(1)) : null;
+      if (target?.matches("dialog.account-dialog")) {
+        for (const t of $$("[data-toasts] .toast")) {  // (a toast would hide behind the dialog)
+          const p = document.createElement("p");
+          p.className = `flash ${t.classList.contains("error") ? "error" : "ok"}`;
+          p.textContent = $(".toast-text", t)?.textContent ?? t.textContent;
+          $(".account", target).prepend(p);
+          t.remove();
+        }
+        openAccount(target);
+      } else if (sections.includes(target)) jump(target, "auto");
+    });
+
+    document.addEventListener("click", (e) => {
+      const mark = e.target.closest(".pl-jump a"), account = e.target.closest("[data-account]");
+      if (mark) {
+        e.preventDefault();
+        history.replaceState(history.state, "", mark.hash);
+        jump(document.getElementById(mark.hash.slice(1)));
+      } else if (account) openAccount(document.getElementById(account.dataset.account));
+      else if (e.target.closest("dialog.account-dialog [data-close]")) e.target.closest("dialog").close();
+      else if (e.target.matches("dialog.account-dialog")) e.target.close();  // (a click on the backdrop)
+    });
+    tools.addEventListener("change", (e) => { if (e.target.name === "show") refresh(); });
+    field.addEventListener("input", () => { field.removeAttribute("aria-invalid"); refresh(); });
+    tools.addEventListener("submit", (e) => { if (!isLink()) e.preventDefault(); });
+    document.addEventListener("change", (e) => {
+      const filter = e.target.closest(".kind-filter");
+      if (!filter) return;
+      try { localStorage.setItem("echolot:show-" + filter.dataset.filter, e.target.value); } catch (err) {}
+      refresh();
+    });
+
+    // the lists arrive after the page, a card again after each choice. A freshly followed one shows Unfollow only
+    // once the pointer left it; the count in the title follows
+    const was = new Map();
+    document.addEventListener("htmx:beforeRequest", (e) => {
+      const card = e.detail.elt.closest(".pl");
+      if (card) was.set(card.id, card.classList.contains("on"));
+    });
+    document.addEventListener("htmx:load", (e) => {
+      const elt = e.detail.elt;
+      for (const filter of elt.matches(".kind-filter") ? [elt] : $$(".kind-filter", elt)) {
+        const input = $(`input[value="${remembered(filter.dataset.filter)}"]`, filter);
+        if (input) input.checked = true;
+      }
+      if (elt.matches(".pl") && was.has(elt.id)) {
+        const total = $("#followed-count");
+        const change = elt.classList.contains("on") - was.get(elt.id);
+        was.delete(elt.id);
+        total.textContent = (parseInt(total.textContent.replace(/\D/g, "")) || 0) + change;
+      }
+      if (elt.closest(".pl-section, .kind-filter") || elt.matches("[id^=kinds-]")) refresh();
+    });
+    document.addEventListener("mouseout", (e) => {
+      const fresh = e.target.closest?.("[data-fresh]");
+      if (fresh && !fresh.contains(e.relatedTarget)) fresh.removeAttribute("data-fresh");
+    });
+    refresh();
+  })();
+</script>
 {% endblock %}

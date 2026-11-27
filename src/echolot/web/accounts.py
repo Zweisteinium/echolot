@@ -27,6 +27,7 @@ CALLBACK = "/accounts/spotify/callback"
 STATE = "spotify_login_state"  # meta "<prefix>:<uid>": '<state> <unix time> <redirect URI>'
 ONLINE_SECONDS = 600  # the sidebar's services renew their cached status after this
 LOW_DISK = 20 * 2**30
+SPOTIFY_ACCOUNT, SOUNDCLOUD_ACCOUNT = "/playlists#spotify-account", "/playlists#soundcloud-account"  # their dialogs
 
 
 def redirect_uri(request: Request) -> str:
@@ -187,19 +188,19 @@ def spotify_app(
 ) -> RedirectResponse:
     client_id, client_secret, market = client_id.strip(), client_secret.strip(), market.strip().upper()
     if market and len(market) != 2:
-        return back("/playlists#spotify", error="Enter the country as two letters, like DE or US.")
+        return back(SPOTIFY_ACCOUNT, error="Enter the country as two letters, like DE or US.")
     if len(client_id) != 32:
-        return back("/playlists#spotify", error="The client ID is the 32 characters under the app's name.")
+        return back(SPOTIFY_ACCOUNT, error="The client ID is the 32 characters under the app's name.")
     vault = request.app.state.vault
     if not client_secret and not vault.get(con, spotify.SECRET):
-        return back("/playlists#spotify", error="Paste the client secret too. It is in the app's Settings.")
+        return back(SPOTIFY_ACCOUNT, error="Paste the client secret too. It is in the app's Settings.")
     with con:
         options.update(con, options.Spotify, client_id=client_id)
         if market:
             options.update(con, options.Spotify, market=market)
         if client_secret:
             vault.set(con, spotify.SECRET, client_secret)
-    return back("/playlists#spotify", ok="Spotify app saved. Now connect your account.")
+    return back(SPOTIFY_ACCOUNT, ok="Spotify app saved. Now connect your account.")
 
 
 @router.post("/accounts/spotify/market")
@@ -209,15 +210,15 @@ def spotify_market(con: DB, market: Annotated[str, Form()]) -> RedirectResponse:
         with con:
             options.update(con, options.Spotify, market=market.strip().upper())
     except options.OptionsError:
-        return back("/playlists#spotify", error="Enter the country as two letters, like DE or US.")
-    return back("/playlists#spotify", ok="Country saved. The next availability check asks there.")
+        return back(SPOTIFY_ACCOUNT, error="Enter the country as two letters, like DE or US.")
+    return back(SPOTIFY_ACCOUNT, ok="Country saved. The next availability check asks there.")
 
 
 @router.post("/accounts/spotify/login")
 def spotify_login(request: Request, con: DB) -> Response:
     sp = options.get(con, options.Spotify)
     if not sp.client_id:
-        return back("/playlists#spotify", error="Save your Spotify app's client ID and secret first.")
+        return back(SPOTIFY_ACCOUNT, error="Save your Spotify app's client ID and secret first.")
     state, redirect = secrets.token_urlsafe(16), redirect_uri(request)
     with con:
         db.set_meta(con, f"{STATE}:{request.state.user.id}", f"{state} {int(time.time())} {redirect}")
@@ -227,16 +228,16 @@ def spotify_login(request: Request, con: DB) -> Response:
 
 def _finish_login(request: Request, con: sqlite3.Connection, query: dict[str, list[str]]) -> RedirectResponse:
     if error := (query.get("error") or [""])[0]:
-        return back("/playlists#spotify", error=f"Spotify: {error.replace('_', ' ')}.")
+        return back(SPOTIFY_ACCOUNT, error=f"Spotify: {error.replace('_', ' ')}.")
     code, state, uid = (query.get("code") or [""])[0], (query.get("state") or [""])[0], request.state.user.id
     expected, started, redirect = ([*db.get_meta(con, f"{STATE}:{uid}").split(" "), "", ""])[:3]
     if not code or not state or state != expected or not redirect or time.time() - int(started or 0) > 1800:
-        return back("/playlists#spotify", error="That is not the address of the last Spotify login, "
+        return back(SPOTIFY_ACCOUNT, error="That is not the address of the last Spotify login, "
                                        "or it is older than 30 min. Click Connect Spotify again.")  # fmt: skip
     try:
         spotify.exchange(con, request.app.state.vault, code, redirect, uid)  # the URI the login used
     except spotify.SpotifyError as e:
-        return back("/playlists#spotify", error=str(e))
+        return back(SPOTIFY_ACCOUNT, error=str(e))
     with con:
         db.set_meta(con, f"{STATE}:{uid}", "")
     return back("/playlists#spotify", ok="Spotify connected.")
@@ -252,7 +253,7 @@ def spotify_paste(request: Request, con: DB, url: Annotated[str, Form()]) -> Red
     """The URL the browser showed after the login (it could not open 127.0.0.1)."""
     query = urllib.parse.parse_qs(urllib.parse.urlparse(url.strip()).query)
     if not query.get("code") and not query.get("error"):
-        return back("/playlists#spotify", error="Paste the whole address from the address bar. It contains ?code=.")
+        return back(SPOTIFY_ACCOUNT, error="Paste the whole address from the address bar. It contains ?code=.")
     return _finish_login(request, con, query)
 
 
@@ -278,7 +279,7 @@ def soundcloud_token(
             token, refresh = soundcloud.renew(token, refresh)
         me = soundcloud.me(token)
     except soundcloud.SoundCloudError as e:
-        return back("/playlists#soundcloud", error=str(e))
+        return back(SOUNDCLOUD_ACCOUNT, error=str(e))
     uid, vault = request.state.user.id, request.app.state.vault
     with con:
         vault.set(con, soundcloud.token_name(uid), token)

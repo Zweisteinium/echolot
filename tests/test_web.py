@@ -337,9 +337,9 @@ def test_sources_page(client: TestClient) -> None:
     assert "Connect Spotify" in html and "Connect SoundCloud" in html  # no accounts yet
     cards = client.get("/sources/other").text  # lists followed without an account
     assert "Playlist A" in cards and "Renamed" in cards and "Trance" in cards
-    assert 'value="songs" checked' in cards and 'value="playlist" checked' in cards
-    assert "<b>Songs and playlist</b>: they also make a playlist" in html and " Songs and playlist</label>" in cards
-    assert "Songs + playlist" not in html + cards
+    assert 'aria-pressed="false"' in cards and 'aria-pressed="true"' in cards  # songs only, songs and a playlist
+    assert "<b>Follow</b>: its songs go into the library" in html and 'id="spotify-account"' in html
+    assert all(f'<a href="#{s}">' in html for s in ("spotify", "soundcloud", "link"))  # the jump marks
 
 
 def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
@@ -359,9 +359,10 @@ def test_found_cards_by_kind(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(spotify, "Spotify", FakeSpotify)
     sources_web._found.clear()
     html = client.get("/sources/found/spotify").text
-    assert 'class="seg kind-filter"' in html and "By others" in html and "Collaborative" in html
+    assert 'class="seg kind-filter" id="kinds-spotify" hx-swap-oob="true"' in html  # into the section's head
+    assert "By others" in html and "Collaborative" in html
     assert html.count('data-kind="own"') == 2 and 'data-kind="other"' in html and "· collaborative" in html
-    assert html.count('class="small warn-text"') == 1  # only on the one Spotify withholds
+    assert html.count('class="pl-note"') == 1  # only on the one Spotify withholds
     sources_web._found.clear()
 
 
@@ -398,14 +399,14 @@ def test_follow_and_stop_following(client: TestClient, settings: Settings, monke
     found = [card | {"name": "New list", "owner": "you", "songs": 12, "image": ""}]
     monkeypatch.setitem(sources_web._found, ("spotify", 1), (time.time(), found))
     html = client.post("/sources/follow", data=card | {"mode": "songs"}, headers={"HX-Request": "true"}).text
-    assert 'class="src-card on"' in html and 'value="songs" checked' in html
+    assert 'class="pl on"' in html and 'aria-pressed="false"' in html and " data-fresh>" in html
     con = db.connect(settings.db_path)
     assert con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[0] == 0
     assert con.execute("SELECT title FROM lists WHERE key = 'spotify:playlist:NEW1'").fetchone()[0] == "New list"
     client.post("/sources/follow", data=card | {"mode": "playlist"}, headers={"HX-Request": "true"})
     assert con.execute("SELECT playlist FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()[0] == 1
     html = client.post("/sources/follow", data=card | {"mode": "off"}, headers={"HX-Request": "true"}).text
-    assert 'class="src-card"' in html and 'value="off" checked' in html
+    assert 'class="pl"' in html and 'name="mode" value="playlist" class="follow"' in html
     assert not con.execute("SELECT 1 FROM sources WHERE key = 'spotify:playlist:NEW1'").fetchone()
     likes = {"key": "spotify:likes:1", "service": "spotify", "url": "likes", "name": "Liked Songs", "mode": "off"}
     client.post("/sources/follow", data=likes, headers={"HX-Request": "true"})

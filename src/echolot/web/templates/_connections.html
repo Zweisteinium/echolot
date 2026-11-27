@@ -8,13 +8,13 @@
 {%- else %}<span class="service {{ tone }} tip" tabindex="0" role="button" title="{{ text }}">{{ icon(name, 16) }}<span class="sr-only">{{ text }}</span></span>{% endif %}
 {%- endmacro %}
 <div class="services" aria-label="Services">
-  {% if sp.resting %}{{ service('spotify', 'warn', 'Spotify asked Echolot to wait until ' ~ sp.until ~ '.', '/playlists#spotify') }}
+  {% if sp.resting %}{{ service('spotify', 'warn', 'Spotify asked Echolot to wait until ' ~ sp.until ~ '.', '/playlists#spotify-account') }}
   {% elif sp.connected and not sp.error %}{{ service('spotify', 'ok', 'Spotify: connected as ' ~ sp.name) }}
-  {% elif sp.error %}{{ service('spotify', 'bad', 'Spotify error: ' ~ sp.error, '/playlists#spotify') }}
-  {% else %}{{ service('spotify', 'warn', 'Spotify not connected', '/playlists#spotify') }}{% endif %}
+  {% elif sp.error %}{{ service('spotify', 'bad', 'Spotify error: ' ~ sp.error, '/playlists#spotify-account') }}
+  {% else %}{{ service('spotify', 'warn', 'Spotify not connected', '/playlists#spotify-account') }}{% endif %}
   {% if sc.connected %}{{ service('soundcloud', 'ok', 'SoundCloud: connected as ' ~ sc.name) }}
-  {% elif sc.error %}{{ service('soundcloud', 'bad', 'SoundCloud login ' ~ ('expired' if sc.expired else 'invalid') ~ '. Connect it again.', '/playlists#soundcloud') }}
-  {% else %}{{ service('soundcloud', 'warn', 'SoundCloud not connected', '/playlists#soundcloud') }}{% endif %}
+  {% elif sc.error %}{{ service('soundcloud', 'bad', 'SoundCloud login ' ~ ('expired' if sc.expired else 'invalid') ~ '. Connect it again.', '/playlists#soundcloud-account') }}
+  {% else %}{{ service('soundcloud', 'warn', 'SoundCloud not connected', '/playlists#soundcloud-account') }}{% endif %}
   {% set who = sl.user if user.admin and sl.user else '' %}{# the server's Soulseek account: named to admins only #}
   {% if sl.ready %}{{ service('soulseek', 'ok', 'Soulseek: logged in' ~ (' as ' ~ who if who else '')) }}
   {% elif not sl.reachable %}{{ service('soulseek', 'bad', 'Soulseek not reachable: ' ~ sl.error, to) }}
