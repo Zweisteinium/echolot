@@ -12,7 +12,7 @@ x-user: &user "${PUID:-1000}:${PGID:-1000}"
 
 services:
   echolot:
-    image: lordlayer/echolot:0.16.0        # or build it from this repository with build: ..
+    image: lordlayer/echolot:0.16.1        # or build it from this repository with build: ..
     user: *user
     ports:
       - "${ECHOLOT_PORT:-8490}:8490"

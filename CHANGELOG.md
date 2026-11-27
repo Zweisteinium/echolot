@@ -2,6 +2,32 @@
 
 What changed in each release, newest first. CI publishes a version's section as its release notes.
 
+## 0.16.1 (2026-11-27)
+
+Covers as your lists show them, and lyrics for the whole library.
+
+### New
+
+- **Covers as on your lists.** A file gets the cover and album name of the release on your lists, as Spotify
+  shows it there. A switch in Server settings brings back the song's original release. A compilation always
+  gets the original. Only the files whose cover changes get a new one, by themselves after the update.
+- **A list of your songs with lyrics,** opened from the lyrics figure on the Library page.
+
+### Improved
+
+- The Playlists page has no folding cards anymore. One field finds a list or follows one by its link, filters
+  show what you follow, and jump marks lead to each service. Accounts open in dialogs.
+- The Record dialog opens at once, and a recording starts without loading the page again.
+- A song Spotify plays as another release is recorded under that release's names. Another recording is left
+  out, and a recording nothing can check waits in Review.
+- The Discogs dialog is wider, with one row per field.
+
+### Fixed
+
+- The lyrics job stopped at DJ sets over an hour. It now goes through the whole library.
+- A file several songs share no longer takes its names and cover from a song no list has anymore.
+- Smaller fixes in dialogs, sidebar links and labels for screen readers.
+
 ## 0.16.0 (2026-11-26)
 
 A new look, lyrics in your files, and a setup that is just one compose file.
