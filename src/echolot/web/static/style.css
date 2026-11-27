@@ -804,9 +804,9 @@ ol.steps form { margin-top: 0.5rem; }
 .pl.on .follow { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
 .follow .on-label { display: inline-flex; align-items: center; gap: 0.4rem; }
-.follow .off-label, .pl .follow:not([data-fresh]):hover .on-label { display: none; }
-.pl .follow:not([data-fresh]):hover .off-label { display: inline; }
-.pl.on .follow:not([data-fresh]):hover { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border));
+.follow .off-label, .pl .follow:not([data-fresh]):is(:hover, :focus-visible) .on-label { display: none; }
+.pl .follow:not([data-fresh]):is(:hover, :focus-visible) .off-label { display: inline; }
+.pl.on .follow:not([data-fresh]):is(:hover, :focus-visible) { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border));
   background: color-mix(in srgb, var(--bad) 7%, var(--surface)); }
 .pl-actions .as-playlist { width: var(--h-sm); padding: 0; color: var(--muted); }
 .pl-actions .as-playlist[aria-pressed="true"] { color: var(--accent-text); border-color: transparent; background: var(--brand); }
@@ -822,10 +822,10 @@ dialog.account-dialog { width: min(38rem, calc(100vw - 2rem)); }
 .account-dialog .dialog-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-bottom: 0.9rem; }
 .account-dialog h2 { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; font-size: var(--fs-xl); }
 .account-dialog .icon-button { margin-left: auto; }
-.account { display: grid; gap: 0.75rem; }
-.account > p, .account > ol { margin: 0; }
-.account code { overflow-wrap: anywhere; }
-.account, .account > *, .account li { min-width: 0; }
+.account-dialog .account { display: grid; gap: 0.75rem; }
+.account-dialog .account > p, .account-dialog .account > ol { margin: 0; }
+.account-dialog code { overflow-wrap: anywhere; }
+.account-dialog .account, .account-dialog .account > *, .account-dialog li { min-width: 0; }
 @media (max-width: 640px) {
   .pl-tools { top: calc(-2 * var(--h) - 1rem); }  /* the field and the filter scroll away, the jump marks stay */
   .pl-tools > .seg { flex: 1 1 100%; }

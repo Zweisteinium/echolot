@@ -73,7 +73,7 @@
     const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
     const tools = $("#follow"), field = $("input[name=url]", tools), follow = $("[data-omni-follow]", tools);
     const sections = $$(".pl-section"), smooth = matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-    const isLink = () => /^https?:\/\/\S+$/i.test(field.value.trim());
+    const isLink = () => /^(https?:\/\/|spotify:)\S+$/i.test(field.value.trim());  // (a link, or a Spotify URI)
     const add = (o, k) => o[k] = (o[k] || 0) + 1;
     const remembered = (service) => { try { return localStorage.getItem("echolot:show-" + service); } catch (e) { return null; } };
     let pinned = null;  // the section a jump went to, marked until the reader scrolls on
@@ -107,7 +107,8 @@
           empty.hidden = n.shown > 0;
         }
       }
-      for (const el of $$("[data-n]", tools)) el.textContent = status[el.dataset.n] || 0;
+      const loaded = $(".pl-grid:not(.skeleton)");  // (no counts before the first lists arrived)
+      for (const el of $$("[data-n]", tools)) el.textContent = loaded ? status[el.dataset.n] || 0 : "";
       spy();
     }
 
@@ -119,9 +120,12 @@
       tools.classList.toggle("stuck", scrollY > 0 && tools.getBoundingClientRect().top <= stuckTop() + 1);
       let current = sections[0];
       for (const s of sections) if (s.getBoundingClientRect().top <= below() + 40) current = s;
-      if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = sections.at(-1);
+      if (scrollY > 0 && innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = sections.at(-1);
       current = pinned || current;
-      for (const a of $$(".pl-jump a", tools)) a.toggleAttribute("aria-current", a.hash === "#" + current.id);
+      for (const a of $$(".pl-jump a", tools)) {
+        if (a.hash === "#" + current.id) a.setAttribute("aria-current", "true");
+        else a.removeAttribute("aria-current");
+      }
     }
     const jump = (section, behavior = smooth) => {
       pinned = section;
@@ -139,19 +143,22 @@
         if (location.hash === "#" + dialog.id) history.replaceState(history.state, "", location.pathname + location.search);
       });
     }
-    document.addEventListener("DOMContentLoaded", () => {
+    const toHash = () => {
       const target = location.hash ? document.getElementById(location.hash.slice(1)) : null;
       if (target?.matches("dialog.account-dialog")) {
         for (const t of $$("[data-toasts] .toast")) {  // (a toast would hide behind the dialog)
-          const p = document.createElement("p");
-          p.className = `flash ${t.classList.contains("error") ? "error" : "ok"}`;
+          const error = t.classList.contains("error"), p = document.createElement("p");
+          p.className = `flash ${error ? "error" : "ok"}`;
+          p.setAttribute("role", error ? "alert" : "status");
           p.textContent = $(".toast-text", t)?.textContent ?? t.textContent;
           $(".account", target).prepend(p);
           t.remove();
         }
         openAccount(target);
       } else if (sections.includes(target)) jump(target, "auto");
-    });
+    };
+    document.addEventListener("DOMContentLoaded", toHash);
+    addEventListener("hashchange", toHash);
 
     document.addEventListener("click", (e) => {
       const mark = e.target.closest(".pl-jump a"), account = e.target.closest("[data-account]");
@@ -161,7 +168,10 @@
         jump(document.getElementById(mark.hash.slice(1)));
       } else if (account) openAccount(document.getElementById(account.dataset.account));
       else if (e.target.closest("dialog.account-dialog [data-close]")) e.target.closest("dialog").close();
-      else if (e.target.matches("dialog.account-dialog")) e.target.close();  // (a click on the backdrop)
+      else if (e.target.matches("dialog.account-dialog")) {  // the backdrop: a click outside the dialog's box
+        const r = e.target.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) e.target.close();
+      }
     });
     tools.addEventListener("change", (e) => { if (e.target.name === "show") refresh(); });
     field.addEventListener("input", () => { field.removeAttribute("aria-invalid"); refresh(); });

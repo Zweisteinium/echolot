@@ -13,9 +13,9 @@
     {% if c.note %}<p class="pl-note">{{ c.note }}</p>{% endif %}
     <form method="post" action="/sources/follow" hx-post="/sources/follow" hx-target="closest article" hx-swap="outerHTML" class="pl-actions">{{ csrf_input }}
       {% for k in ('key', 'service', 'url') %}<input type="hidden" name="{{ k }}" value="{{ c[k] }}">{% endfor %}
-      {% if not on %}<button name="mode" value="playlist" class="follow" title="Its songs go into the library and make a playlist">{{ use('add', 14) }} Follow</button>
-      {% else %}<button name="mode" value="off" class="follow" title="Stop following. Nothing is deleted."{% if fresh %} data-fresh{% endif %}><span class="on-label">{{ use('check', 14) }} Following</span><span class="off-label">Unfollow</span></button>
-      <button name="mode" value="{{ 'songs' if c.mode == 'playlist' else 'playlist' }}" class="as-playlist" aria-pressed="{{ 'true' if c.mode == 'playlist' else 'false' }}" aria-label="Also a playlist in the music server" title="Also a playlist in the music server">{{ use('playlist', 15) }}</button>{% endif %}
+      {% if not on %}<button name="mode" value="playlist" class="follow" aria-pressed="false" aria-label="Follow {{ c.name }}" title="Its songs go into the library and make a playlist">{{ use('add', 14) }} Follow</button>
+      {% else %}<button name="mode" value="off" class="follow" aria-pressed="true" aria-label="Follow {{ c.name }}" title="Stop following. Nothing is deleted."{% if fresh %} data-fresh{% endif %}><span class="on-label">{{ use('check', 14) }} Following</span><span class="off-label">Unfollow</span></button>
+      <button name="mode" value="{{ 'songs' if c.mode == 'playlist' else 'playlist' }}" class="as-playlist" aria-pressed="{{ 'true' if c.mode == 'playlist' else 'false' }}" aria-label="{{ c.name }}: also a playlist in the music server" title="Also a playlist in the music server">{{ use('playlist', 15) }}</button>{% endif %}
     </form>
     {% if error %}<p class="pl-note bad-text">{{ error }}</p>{% endif %}
   </div>

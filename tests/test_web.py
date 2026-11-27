@@ -375,11 +375,14 @@ def test_lyrics_page(client: TestClient, settings: Settings) -> None:
     add = "INSERT INTO lyrics (path, song_key, state, size, mtime, checked) VALUES (?, ?, ?, 1, 1, '2026-11-27')"
     with con:
         con.executemany(add, [(f1, k1, "synced"), (f2, k2, "own"), (f3, k3, "none")])
+        other = "INSERT INTO songs (key, service, artist, title, file) VALUES ('spotify:zz', 'spotify', 'X', 'Not Yours', ?)"
+        con.execute(other, (f1,))  # a file two songs share, looked up as the one not on the user's lists
+        con.execute("UPDATE lyrics SET song_key = 'spotify:zz' WHERE path = ?", (f1,))
     con.close()
     cache.clear()
     assert '<a class="kpi" href="/lyrics"' in client.get("/library").text
     html = client.get("/lyrics").text
-    assert t1 in html
+    assert t1 in html and "Not Yours" not in html  # (shown as the user's own song)
     assert 'Synced <span class="n">1</span>' in html and 'Own <span class="n">1</span>' in html and t3 not in html
     own = client.get("/lyrics", params={"kind": "own"}).text
     assert t2 in own and 'class="pill">Own</span>' in own and "accent-pill" not in own

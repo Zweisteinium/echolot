@@ -731,12 +731,17 @@ LYRICS_FOUND = ("synced", "plain", "own")
 def with_lyrics(
     con: Connection, uid: int | None = None, kind: str = "", query: str = "", limit: int = 500
 ) -> tuple[list[Row], dict[str, int]]:
-    """The files with lyrics, as the Library's figure counts them, by artist (a song each): those of `kind`
-    whose song's artist and title hold every word of `query`; and how many files have each kind."""
+    """The files with lyrics, as the Library's figure counts them, by artist (a song each, for a user one of
+    theirs): those of `kind` whose song's artist and title hold every word of `query`; and how many files have
+    each kind."""
     mine, args = _mine(uid)
     files_of = "1" if uid is None else f"l.path IN (SELECT s.file FROM songs s WHERE {mine})"
     where = f"l.state IN {LYRICS_FOUND} AND l.path IN (SELECT path FROM files) AND {files_of}"
-    found = "FROM lyrics l JOIN songs s ON s.key = l.song_key"
+    theirs, theirs_args = _mine(uid, "o.key")  # (the song it was looked up as may be someone else's)
+    first = "substr(min((o.key != l.song_key) || o.key), 2)"  # the song it was looked up as, else the first one
+    own = f"SELECT {first} FROM songs o WHERE o.file = l.path AND {theirs}"
+    found = f"FROM lyrics l JOIN songs s ON s.key = ({own})"
+    args = (*theirs_args, *args)  # (the join's come first)
     counts = dict(con.execute(f"SELECT l.state, count(*) {found} WHERE {where} GROUP BY 1", args).fetchall())
     named, named_args = _words_like("s.artist || ' ' || s.title", query)
     where, args = where + named, (*args, *named_args)
