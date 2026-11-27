@@ -193,6 +193,7 @@
         total.textContent = (parseInt(total.textContent.replace(/\D/g, "")) || 0) + change;
       }
       if (elt.closest(".pl-section, .kind-filter") || elt.matches("[id^=kinds-]")) refresh();
+      if (pinned && elt.matches(".pl-grid")) jump(pinned, "auto");  // (lists above it arrived later)
     });
     document.addEventListener("mouseout", (e) => {
       const fresh = e.target.closest?.("[data-fresh]");
